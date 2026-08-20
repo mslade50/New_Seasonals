@@ -1,0 +1,34 @@
+
+
+=========== reference class = 11 names (RSX/YINN removed) ===========
+   ['EEM', 'EFA', 'EWJ', 'EWT', 'EWW', 'EWY', 'EWZ', 'FXI', 'INDA', 'KWEB', 'VGK']
+
+  h=5: observed excess by name
+     KWEB   +1.209pp   <== KWEB
+     FXI    +0.497pp
+     EWJ    -0.064pp
+     EEM    -0.482pp
+     INDA   -0.622pp
+     EWT    -0.858pp
+     EFA    -0.875pp
+     EWW    -1.084pp
+     VGK    -1.311pp
+     EWY    -1.428pp
+     EWZ    -1.500pp
+    P(max name excess >= KWEB +1.209pp) = 0.2829   null max median +0.777  p95 +2.169
+    circular-shift null: P = 0.2880   median +0.781
+
+  h=10: observed excess by name
+     KWEB   +0.764pp   <== KWEB
+     FXI    -0.479pp
+     EWJ    -1.000pp
+     EWT    -1.369pp
+     EEM    -1.687pp
+     EFA    -2.053pp
+     INDA   -2.195pp
+     EWW    -2.258pp
+     VGK    -2.613pp
+     EWY    -3.002pp
+     EWZ    -3.007pp
+    P(max name excess >= KWEB +0.764pp) = 0.6413   null max median +1.098  p95 +3.018
+    circular-shift null: P = 0.6273   median +1.090

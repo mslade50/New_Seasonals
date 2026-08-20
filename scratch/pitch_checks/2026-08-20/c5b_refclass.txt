@@ -1,0 +1,63 @@
+common span 2013-08-01 .. 2026-08-19  (3288 sessions)
+episodes in span: 19
+   2015-04-14, 2015-05-13, 2017-02-02, 2017-07-20, 2018-01-18, 2019-06-21, 2019-12-31, 2020-03-06, 2020-04-20, 2020-06-04, 2020-07-27, 2022-05-27, 2022-08-09, 2022-10-25, 2022-12-01, 2024-08-21, 2025-03-06, 2025-04-11, 2026-08-19
+
+
+################ h=5 ################
+
+=== observed reference class, h=5 (common span, same episodes) ===
+ticker  N  mean_pct  own_drift_pct  excess_pp  hit
+  YINN 18     1.715          0.191      1.525 77.8
+  KWEB 18     1.382          0.173      1.209 61.1
+   FXI 18     0.614          0.117      0.497 77.8
+   EWJ 18     0.111          0.175     -0.064 66.7
+   EEM 18    -0.323          0.159     -0.482 66.7
+   RSX 18    -0.538         -0.042     -0.496 27.8
+  INDA 18    -0.439          0.183     -0.622 55.6
+   EWT 18    -0.521          0.338     -0.858 55.6
+   EFA 18    -0.707          0.168     -0.875 50.0
+   EWW 18    -0.968          0.116     -1.084 38.9
+   VGK 18    -1.131          0.181     -1.311 44.4
+   EWY 18    -1.156          0.272     -1.428 50.0
+   EWZ 18    -1.343          0.157     -1.500 55.6
+  KWEB excess +1.209pp | rank 2 of 13 live names | 3/13 names positive
+
+  NULL A random anchors (B=20000, 19 anchors, min gap 21):
+    P(MAX name excess >= KWEB's +1.209pp) = 0.4048
+    null max distribution: median +0.968 p75 +1.800 p90 +3.088 p95 +4.010
+    P(KWEB ALONE >= +1.209) = 0.1358 (single name, no search charge)
+
+  NULL B circular shift (B=20000):
+    P(MAX name excess >= KWEB's +1.209pp) = 0.4004
+    null max distribution: median +0.960 p95 +4.416
+    P(KWEB ALONE >= +1.209) = 0.1437
+
+
+################ h=10 ################
+
+=== observed reference class, h=10 (common span, same episodes) ===
+ticker  N  mean_pct  own_drift_pct  excess_pp  hit
+  KWEB 18     1.103          0.339      0.764 72.2
+   FXI 18    -0.255          0.224     -0.479 55.6
+   RSX 18    -0.689         -0.048     -0.641 27.8
+   EWJ 18    -0.650          0.350     -1.000 50.0
+   EWT 18    -0.688          0.681     -1.369 38.9
+   EEM 18    -1.374          0.314     -1.687 50.0
+   EFA 18    -1.717          0.336     -2.053 44.4
+  YINN 18    -1.775          0.336     -2.112 38.9
+  INDA 18    -1.832          0.363     -2.195 55.6
+   EWW 18    -2.025          0.233     -2.258 38.9
+   VGK 18    -2.255          0.359     -2.613 38.9
+   EWY 18    -2.458          0.544     -3.002 38.9
+   EWZ 18    -2.695          0.312     -3.007 50.0
+  KWEB excess +0.764pp | rank 1 of 13 live names | 1/13 names positive
+
+  NULL A random anchors (B=20000, 19 anchors, min gap 21):
+    P(MAX name excess >= KWEB's +0.764pp) = 0.7015
+    null max distribution: median +1.363 p75 +2.480 p90 +4.280 p95 +5.689
+    P(KWEB ALONE >= +0.764) = 0.2993 (single name, no search charge)
+
+  NULL B circular shift (B=20000):
+    P(MAX name excess >= KWEB's +0.764pp) = 0.6883
+    null max distribution: median +1.361 p95 +6.266
+    P(KWEB ALONE >= +0.764) = 0.2963

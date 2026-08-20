@@ -1,0 +1,122 @@
+C:\Users\McKinley Slade\dev\New_Seasonals\scratch\pitch_checks\2026-08-20\c9_round1.py:28: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  rt = px["TIP"].pct_change()
+C:\Users\McKinley Slade\dev\New_Seasonals\scratch\pitch_checks\2026-08-20\c9_round1.py:29: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  ri = px["IEF"].pct_change()
+C:\Users\McKinley Slade\dev\New_Seasonals\scratch\pitch_checks\2026-08-20\c9_round1.py:98: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  res = (px["TIP"].pct_change() - BETA * px["IEF"].pct_change()).dropna()
+C:\Users\McKinley Slade\dev\New_Seasonals\scratch\pitch_checks\2026-08-20\c9_round1.py:99: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  drivers = {"GLD": px["GLD"].pct_change(), "CL=F": px["CL=F"].pct_change(),
+C:\Users\McKinley Slade\dev\New_Seasonals\scratch\pitch_checks\2026-08-20\c9_round1.py:100: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  "USO": px["USO"].pct_change(), "DXY": px["DX-Y.NYB"].pct_change(),
+C:\Users\McKinley Slade\dev\New_Seasonals\scratch\pitch_checks\2026-08-20\c9_round1.py:101: FutureWarning: The default fill_method='pad' in Series.pct_change is deprecated and will be removed in a future version. Either fill in any non-leading NA values prior to calling pct_change or specify 'fill_method=None' to not fill NA values.
+  "SPY": px["SPY"].pct_change(), "TNXlvl": px["^TNX"].diff()}
+  TIP        2003-12-05 .. 2026-08-19  n=5711
+  IEF        2002-07-30 .. 2026-08-19  n=6053
+  TLT        2002-07-30 .. 2026-08-19  n=6053
+  GLD        2004-11-18 .. 2026-08-19  n=5471
+  DX-Y.NYB   2000-01-03 .. 2026-08-19  n=6729
+  USO        2006-04-10 .. 2026-08-19  n=5122
+  CL=F       2000-08-23 .. 2026-08-19  n=6528
+  SPY        2000-01-03 .. 2026-08-19  n=6697
+  ^TNX       2000-01-03 .. 2026-08-19  n=6691
+
+
+######## 0. DURATION BETA (measure, do not assume 1:1) ########
+  full-sample OLS beta(TIP on IEF) = 0.6984   corr 0.767   N=5730
+  daily sd: TIP 0.3857%  IEF 0.4235%  ratio 0.9108
+  beta 2003-2011: 0.7144  (N=2045)
+  beta 2012-2019: 0.7096  (N=2013)
+  beta 2020-2026: 0.6723  (N=1672)
+  beta trailing 5y: 0.6605
+
+  EQUAL-DOLLAR pair  [('TIP', 1.0), ('IEF', -1.0)]
+  DURATION-NEUTRAL   [('TIP', 1.0), ('IEF', -0.698)]   (beta 0.698)
+
+
+######## 1. COUNT THE JOINT STATE FIRST ########
+  TODAY  DXY 21d rank 0.79   GLD 21d rank 87.70
+  dollar alone (rank<=5)      318 days   49 episodes(gap21)  years [2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2015, 2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025]
+  gold alone (rank>=85)       856 days   93 episodes(gap21)  years [2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]
+  JOINT                       149 days   27 episodes(gap21)  years [2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2015, 2016, 2017, 2018, 2019, 2020, 2022, 2025]
+
+
+######## 2+3. GATE ATTRIBUTION x LEG ATTRIBUTION ########
+
+=== gate x leg x horizon (episode level, gap 21). BPS not percent. ===
+        gate                  legs  h  N  mean_bps  drift_bps  excess_bps  hit     t
+dollar alone             TIP alone  3 49      19.3        4.3        15.0 55.1  1.06
+dollar alone      IEF alone (long)  3 49       3.7        4.3        -0.6 55.1  0.27
+dollar alone         SHORT IEF leg  3 49      -3.7       -4.3         0.6 42.9 -0.27
+dollar alone          pair equal-$  3 49      15.6        0.3        15.3 63.3  1.54
+dollar alone pair duration-neutral  3 49      16.7        1.5        15.2 59.2  1.45
+dollar alone             TIP alone  5 49      27.2        7.1        20.1 69.4  1.44
+dollar alone      IEF alone (long)  5 49      23.6        7.1        16.6 63.3  1.58
+dollar alone         SHORT IEF leg  5 49     -23.6       -7.1       -16.6 36.7 -1.58
+dollar alone          pair equal-$  5 49       3.6        0.5         3.1 55.1  0.25
+dollar alone pair duration-neutral  5 49      10.7        2.5         8.3 65.3  0.76
+dollar alone             TIP alone 10 49      24.4       14.1        10.3 63.3  1.36
+dollar alone      IEF alone (long) 10 49      17.9       14.0         3.9 61.2  0.81
+dollar alone         SHORT IEF leg 10 49     -17.9      -14.0        -3.9 38.8 -0.81
+dollar alone          pair equal-$ 10 49       6.4        1.0         5.4 53.1  0.49
+dollar alone pair duration-neutral 10 49      11.8        5.0         6.9 61.2  1.11
+  gold alone             TIP alone  3 93      14.3        4.3        10.0 60.2  1.92
+  gold alone      IEF alone (long)  3 93      16.7        4.3        12.4 55.9  2.14
+  gold alone         SHORT IEF leg  3 93     -16.7       -4.3       -12.4 44.1 -2.14
+  gold alone          pair equal-$  3 93      -2.4        0.3        -2.7 52.7 -0.54
+  gold alone pair duration-neutral  3 93       2.7        1.5         1.2 53.8  0.63
+  gold alone             TIP alone  5 93      12.5        7.1         5.4 48.4  1.18
+  gold alone      IEF alone (long)  5 93      12.8        7.1         5.7 52.7  1.24
+  gold alone         SHORT IEF leg  5 93     -12.8       -7.1        -5.7 47.3 -1.24
+  gold alone          pair equal-$  5 93      -0.3        0.5        -0.7 52.7 -0.04
+  gold alone pair duration-neutral  5 93       3.6        2.5         1.1 53.8  0.56
+  gold alone             TIP alone 10 93      24.0       14.1         9.9 61.3  1.63
+  gold alone      IEF alone (long) 10 93      28.2       14.0        14.2 55.9  2.00
+  gold alone         SHORT IEF leg 10 93     -28.2      -14.0       -14.2 44.1 -2.00
+  gold alone          pair equal-$ 10 93      -4.2        1.0        -5.2 46.2 -0.39
+  gold alone pair duration-neutral 10 93       4.3        5.0        -0.6 51.6  0.42
+       JOINT             TIP alone  3 27      20.5        4.3        16.2 63.0  0.62
+       JOINT      IEF alone (long)  3 27       6.2        4.3         1.9 55.6  0.28
+       JOINT         SHORT IEF leg  3 27      -6.2       -4.3        -1.9 44.4 -0.28
+       JOINT          pair equal-$  3 27      14.3        0.3        14.0 59.3  0.80
+       JOINT pair duration-neutral  3 27      16.2        1.5        14.7 63.0  0.77
+       JOINT             TIP alone  5 27      16.3        7.1         9.2 66.7  0.50
+       JOINT      IEF alone (long)  5 27      15.6        7.1         8.5 59.3  0.80
+       JOINT         SHORT IEF leg  5 27     -15.6       -7.1        -8.5 40.7 -0.80
+       JOINT          pair equal-$  5 27       0.7        0.5         0.3 59.3  0.03
+       JOINT pair duration-neutral  5 27       5.4        2.5         3.0 66.7  0.22
+       JOINT             TIP alone 10 27      35.3       14.1        21.2 70.4  1.41
+       JOINT      IEF alone (long) 10 27      32.8       14.0        18.7 66.7  1.38
+       JOINT         SHORT IEF leg 10 27     -32.8      -14.0       -18.7 33.3 -1.38
+       JOINT          pair equal-$ 10 27       2.5        1.0         1.5 48.1  0.15
+       JOINT pair duration-neutral 10 27      12.4        5.0         7.5 59.3  0.77
+
+
+######## 4. DOES THE RESIDUAL BEHAVE LIKE A BREAKEVEN? ########
+  contemporaneous daily correlation of the TIP-beta*IEF residual with:
+    GLD     all days r=+0.160 (N=5485)   joint-state days r=+0.212 (N=150)
+    CL=F    all days r=+0.169 (N=5730)   joint-state days r=+0.155 (N=150)
+    USO     all days r=+0.298 (N=5131)   joint-state days r=+0.354 (N=145)
+    DXY     all days r=-0.156 (N=5730)   joint-state days r=-0.237 (N=150)
+    SPY     all days r=+0.180 (N=5730)   joint-state days r=+0.536 (N=150)
+    TNXlvl  all days r=+0.022 (N=5680)   joint-state days r=+0.089 (N=148)
+
+  story requires: residual UP when gold UP and dollar DOWN.
+
+  forward (h=5, lag=1) residual vs forward driver move, JOINT episodes:
+    GLD     r=+0.627 (N=27)
+    DXY     r=-0.562 (N=27)
+    CL=F    r=+0.252 (N=27)
+
+
+######## 5. TIP's SLOW COMPONENT (carry / index lag) ########
+  h=3   equal-$           all-days drift +0.27 bps  | by-year bps: 2003:-17.1 2004:+3.8 2005:+0.3 2006:-2.6 2007:+1.7 2008:-19.2 2009:+18.4 2010:-3.4 2011:-1.6 2012:+2.0 2013:-3.4 2014:-7.0 2015:-3.4 2016:+5.1 2017:+0.5 2018:-2.9 2019:-0.4 2020:+2.4 2021:+9.5 2022:+2.8 2023:+2.5 2024:+2.5 2025:-2.1 2026:+3.5
+  h=3   duration-neutral  all-days drift +1.49 bps  | by-year bps: 2003:-10.9 2004:+5.4 2005:+1.5 2006:-1.6 2007:+5.5 2008:-14.1 2009:+16.8 2010:-0.5 2011:+3.7 2012:+3.4 2013:-5.1 2014:-3.5 2015:-3.0 2016:+5.3 2017:+1.2 2018:-2.3 2019:+2.7 2020:+5.3 2021:+8.1 2022:-1.8 2023:+2.8 2024:+2.4 2025:+1.0 2026:+2.4
+
+  h=10 duration-neutral drift by year (bps): {2003: -36.6, 2004: 18.4, 2005: 5.2, 2006: -5.5, 2007: 19.1, 2008: -43.5, 2009: 52.0, 2010: -0.7, 2011: 11.6, 2012: 12.1, 2013: -16.9, 2014: -13.0, 2015: -11.2, 2016: 18.3, 2017: 3.9, 2018: -6.6, 2019: 7.7, 2020: 17.6, 2021: 26.4, 2022: -5.3, 2023: 9.4, 2024: 9.0, 2025: 3.1, 2026: 7.1}
+
+
+######## 6. COST ########
+  TIP round trip ~3 bps (spread ~1.5 bps + impact), IEF ~3 bps -> ~6 bps for the pair; a duration-neutral pair still crosses two spreads.
+  h=3   JOINT duration-neutral +16.16 bps  -> 2.69x cost (need >=5x)
+  h=5   JOINT duration-neutral +5.44 bps  -> 0.91x cost (need >=5x)
+  h=10  JOINT duration-neutral +12.41 bps  -> 2.07x cost (need >=5x)
