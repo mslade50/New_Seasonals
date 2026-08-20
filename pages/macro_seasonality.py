@@ -23,6 +23,7 @@ CSV_PATH = "sznl_sector_forecast.csv"
 ATR_SZNL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "atr_seasonal_ranks.parquet")
 ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
 ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
+from atr_seasonal_contract import rank_artifact_version_error
 # Display names for the table — atr_sznl_5d renders as Sznl_5, etc.
 ATR_SZNL_DISPLAY = {f"atr_sznl_{w}d": f"Sznl_{w}" for w in ATR_SZNL_WINDOWS}
 SORT_WINDOWS = [5, 10, 21, 63]
@@ -113,6 +114,8 @@ def load_atr_seasonal_map():
         return {}
     try:
         df = pd.read_parquet(ATR_SZNL_PATH)
+        if rank_artifact_version_error(df):
+            return {}
         df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
         output = {}
         for ticker, group in df.groupby('ticker'):

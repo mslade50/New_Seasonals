@@ -8,11 +8,11 @@
      - New Order ticket: entry bracket / scheduled option buy / close-only / flatten / echo
      - Activity: recent commands + results
 
-   Commands execute LIVE when the agent is armed (mode banner amber) and DRY-RUN
-   otherwise — the agent decides by AGENT_LIVE_ENABLED + LIVE_TYPES, and every
-   mutating action confirms with a LIVE/Dry-run dialog. Mode is only trusted from
+   Commands execute LIVE only when Pages, broker, and agent gates are all armed
+   (mode banner amber); otherwise they preview or fail closed. Every mutating
+   action confirms with a LIVE/Dry-run dialog. Mode is only trusted from
    a FRESH book while the agent is online; a null/stale book or offline agent is
-   UNKNOWN and treated as LIVE (fail dangerous). Positions/orders come from
+   UNKNOWN and all mutating controls are disabled. Positions/orders come from
    book_snapshot.py over the agent's read-only IBKR connection. Static parts render once; the data
    panels refresh every 4s. */
 "use strict";
@@ -191,7 +191,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. A defined stop is required for every live entry; target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. Pages, broker, and agent risk limits all apply; the Pages defaults cap new defined risk at 5% of fresh NLV and non-futures notional at 200%. PA also keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -288,19 +288,21 @@ function bookFresh(book = state.book, now = Date.now()) {
   const age = bookAgeMs(book, now);
   return age != null && age <= BOOK_STALE_MS;
 }
-// Tri-state: "live" | "dry-run" | "unknown". Dry-run is only believed when a FRESH book
-// explicitly reports it while the agent is online; a null/stale book or an offline agent
-// means UNKNOWN, which is treated as live everywhere (fail dangerous, never fail open).
+// Tri-state: "live" | "dry-run" | "unknown". Either asserted mode is trusted
+// only while the agent is online and its book is fresh. A stale historical
+// "live" snapshot must never keep the command surface armed.
 function deriveExecMode(book, status, now = Date.now()) {
-  if (book && book.mode === "live") return "live";
   const online = !!(status && status.online);
-  if (online && bookFresh(book, now) && book.mode === "dry-run") return "dry-run";
+  if (!online || !bookFresh(book, now)) return "unknown";
+  if (!status.session_id || book._broker_session_id !== status.session_id) return "unknown";
+  if (book.mode === "live") return "live";
+  if (book.mode === "dry-run") return "dry-run";
   return "unknown";
 }
 function execMode() { return deriveExecMode(state.book, state.status); }
 const MUTATING_COMMANDS = new Set([
   "entry_bracket", "close_only", "flatten", "cancel", "modify", "trim_readd", "add_to_position",
-  "exit_attach", "scheduled_option", "scheduled_option_cancel",
+  "exit_attach", "scheduled_option", "scheduled_option_cancel", "option_spread",
 ]);
 function mutationBlocked(type) {
   return execMode() === "unknown" && (!type || MUTATING_COMMANDS.has(type));
@@ -397,6 +399,18 @@ function hasVisibleProtectiveExit(p) {
       || (typ === "MKT" && Boolean(o.good_after));
   });
 }
+function hasVisiblePriceStop(p) {
+  const ab = acctBook();
+  const close = Number(p.position) > 0 ? "SELL" : "BUY";
+  return ((ab && ab.orders) || []).some((o) => samePositionContract(p, o)
+    && String(o.action || "").toUpperCase() === close
+    && String(o.order_type || "").toUpperCase() === "STP"
+    && Number(o.aux) > 0);
+}
+function mutationProtectionReady(p) {
+  return hasVisibleProtectiveExit(p)
+    && (execMode() !== "live" || hasVisiblePriceStop(p));
+}
 // ANY working closing-direction order (incl. plain LMT targets) — attach is only
 // offered on positions with nothing working against them (the agent rejects the rest).
 function hasAnyClosingOrder(p) {
@@ -428,9 +442,9 @@ function renderPositions() {
     }
     // OPT rows: no Flatten/Trim — a symbol-scoped MKT close would tear one leg
     // out of a spread. Close via a closing combo ticket (later phase) or TWS.
-    const hasProtection = hasVisibleProtectiveExit(p);
+    const hasProtection = mutationProtectionReady(p);
     const readdOn = readdRows.get(positionKey(p)) === true;
-    const noProtection = ' disabled data-static-disabled="true" title="Requires a visible price stop or scheduled time stop"';
+    const noProtection = ' disabled data-static-disabled="true" title="Live add/re-add requires a visible protective price stop"';
     const bare = p.sec_type !== "OPT" && !hasAnyClosingOrder(p);
     const protectBtn = bare
       ? `<button class="btn xs ghost" style="color:#ffc14d" onclick='execProtectTicket(${posJson(p)})' title="No working exits — prefill the attach-exits ticket (stop / target / time stop)">Protect&hellip;</button>`
@@ -746,7 +760,7 @@ function posJson(p) {
 }
 
 /* ---------- row actions (live / dry-run / unknown commands) ---------- */
-function isLive() { return execMode() !== "dry-run"; }   // unknown fails DANGEROUS: treated as live
+function isLive() { return execMode() === "live"; }
 function actionLead(verb) {
   const m = execMode();
   return m === "dry-run" ? `Dry-run: ${verb}`
@@ -761,7 +775,7 @@ function execFlatten(pos, fraction) {
   sendCommand("flatten", { ...positionIdentity(pos), fraction, order_type: "MKT" });
 }
 function execToggleReadd(pos) {
-  if (!hasVisibleProtectiveExit(pos)) return;
+  if (!mutationProtectionReady(pos)) return;
   const key = positionKey(pos);
   readdRows.set(key, readdRows.get(key) !== true);
   set("positions", renderPositions());
@@ -773,8 +787,8 @@ function execTrim(pos) {
     return;
   }
   if (rejectUnknownMutation()) return;
-  if (!hasVisibleProtectiveExit(pos)) {
-    alert("Re-add requires a visible price stop or scheduled time stop. Refresh the book or manage the position in TWS.");
+  if (!mutationProtectionReady(pos)) {
+    alert("Live re-add requires a visible protective price stop. Refresh the book or manage the position in TWS.");
     return;
   }
   const held = Math.abs(Number(pos.position));
@@ -792,8 +806,8 @@ function execTrim(pos) {
 }
 function execAddToPosition(pos, fraction) {
   if (rejectUnknownMutation()) return;
-  if (!hasVisibleProtectiveExit(pos)) {
-    alert("Add requires a visible price stop or scheduled time stop. Refresh the book or manage the position in TWS.");
+  if (!mutationProtectionReady(pos)) {
+    alert("Live add requires a visible protective price stop. Refresh the book or manage the position in TWS.");
     return;
   }
   const qty = fastActionQty(pos.position, fraction);
@@ -1090,7 +1104,7 @@ function renderFutRow() {
     const currencies = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"];
     row.innerHTML = `<label class="cap">Quote</label><select id="f_currency">${
       currencies.map((c) => `<option value="${c}"${c === selected ? " selected" : ""}>${c}</option>`).join("")
-    }</select><span class="cap" style="display:inline">IDEALPRO · qty is base-currency units · one leg must be USD · no hard notional cap · 5% NLV stop-risk guard (stopped entries)</span>`;
+    }</select><span class="cap" style="display:inline">IDEALPRO · qty is base-currency units · one leg must be USD · FX must be explicitly armed · default Pages caps: 200% NLV notional / 5% NLV stop risk</span>`;
     const quote = document.getElementById("f_currency");
     if (quote) quote.addEventListener("change", updateReadout);
     return;
@@ -1170,10 +1184,10 @@ function bracketWarnings() {
     if (action === "BUY" && !(entry < cap)) warns.push("BUY STP_LMT needs trigger < cap");
     if (action === "SELL" && !(cap < entry)) warns.push("SELL STP_LMT needs cap < trigger");
   }
-  // Stop is OPTIONAL (2026-07-27): blank = UNPROTECTED entry, surfaced in amber by
-  // the readout + confirm, and risk-gated agent-side (2×ATR vs 50 bps NLV → secondary
-  // approval). An explicit 0/negative stop is still rejected.
+  // A blank stop remains useful for a dry-run preview, but live submission is
+  // blocked here and independently by the Pages policy.
   if (stop != null && !(stop > 0)) warns.push("stop must be > 0 (leave blank for NO STOP)");
+  if (execMode() === "live" && stop == null) warns.push("live entries require a defined stop");
   if (target != null && !(target > 0)) warns.push("target must be > 0 (leave blank for NO TARGET)");
   if (entry > 0 && stop > 0) {
     if (action === "BUY" && !(stop < entry && (target == null || worst < target)))
@@ -1563,10 +1577,10 @@ function sendTicket() {
     const nlv = Number(ab && ab.nlv);
     const risk = Number(p.quantity) * Math.abs(Number(p.entry) - Number(p.stop)) * Number(p.fut_multiplier || 0);
     if (!(nlv > 0)) {
-      if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary futures order is uncapped and current NLV is unavailable. Defined stop risk is about ${fmt.money(risk)}. Really continue?`)) return;
+      if (!confirm(`SECONDARY RISK APPROVAL\n\nCurrent NLV is unavailable, so server policy will reject this live new-risk order. Defined stop risk is about ${fmt.money(risk)}. Continue only to request a dry-run preview?`)) return;
       p.risk_ack = true;
     } else if (risk > nlv * 0.05) {
-      if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary futures order has defined stop risk of about ${fmt.money(risk)}, or ${(risk / nlv * 100).toFixed(1)}% of NLV. There is no hard size cap. Really continue?`)) return;
+      if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary futures order has defined stop risk of about ${fmt.money(risk)}, or ${(risk / nlv * 100).toFixed(1)}% of NLV. The default Pages cap is 5%; this acknowledgement does not override any server or agent cap. Really continue?`)) return;
       p.risk_ack = true;
     }
   }
@@ -1602,7 +1616,13 @@ async function sendCommand(type, payload, msgId) {
   try {
     const r = await fetch("/exec-command", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, type, account: state.account, payload }),
+      // Explicit false is the only way the server will consider a live order.
+      // Echo is always a preview; unknown mode was blocked above.
+      body: JSON.stringify({
+        id, type, account: state.account,
+        dry_run: type === "echo" || execMode() !== "live",
+        payload,
+      }),
     });
     const d = await r.json();
     const ok = r.ok && d && d.ok;

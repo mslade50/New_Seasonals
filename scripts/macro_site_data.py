@@ -28,6 +28,7 @@ sys.path.insert(0, _ROOT)
 
 from macro_universe import SECTOR_ETFS, TICKER_INFO, get_ticker_label
 from scripts.seasonality_site_data import _ticker_id
+from atr_seasonal_contract import rank_artifact_version_error
 
 MA_WINDOWS = (5, 20, 50, 200)
 SZNL_WINDOWS = (5, 10, 21, 63, 126, 252)
@@ -59,6 +60,9 @@ def extension_ranks(close: pd.Series) -> dict:
 def load_sznl_asof(ranks_path: str | os.PathLike[str], asof: pd.Timestamp) -> dict[str, dict]:
     """{ticker: {'s5': rank, ...}} as-of the given date (last value <= asof)."""
     frame = pd.read_parquet(ranks_path)
+    version_error = rank_artifact_version_error(frame)
+    if version_error:
+        raise ValueError(f"rank artifact rejected: {version_error}")
     frame["Date"] = pd.to_datetime(frame["Date"]).dt.normalize()
     frame = frame[frame["Date"] <= asof.normalize()]
     frame = frame.sort_values("Date").groupby("ticker").tail(1)

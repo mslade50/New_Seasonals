@@ -9,8 +9,8 @@
 
    Live chain data comes from POST /exec-workbench (agent -> option_workbench.py,
    one round-trip; expiry clicks re-query mode:"chain"). Orders go through the
-   signed /exec-command path as type "option_spread" — DRY-RUN until the user
-   arms the type in exec_agent.env. Exit-date P&L columns are client-side BSM
+   signed /exec-command path as type "option_spread" — live only when Pages,
+   broker, and agent type/account gates all agree. Exit-date P&L columns are client-side BSM
    (bsm.js) with dividend/rate inputs — labeled approximation.
 
    EM convention (everywhere): 1-sigma move = IV_ATM * sqrt(days/365), calendar
@@ -1917,7 +1917,7 @@ function renderTicket() {
   el.innerHTML = `<div class="card" style="max-width:860px;margin-bottom:12px">
     <div style="font:700 14px inherit;margin-bottom:4px">${ticketKind} — ${esc(s.name)}</div>
     <p class="cap" style="margin:0 0 8px">${s.legs.length === 1 ? "One SMART-routed option limit order." : "One native SMART BAG limit order (atomic — never legs you in)."}
-      The execution agent independently re-validates contract identity, quantity, price, and defined max loss. Primary has no hard quantity or risk cap; PA options remain disabled.</p>
+      Pages and the execution agent independently re-validate contract identity, quantity, price, and defined max loss. The default Pages new-risk cap is 5% of fresh NLV; PA options remain disabled.</p>
     <div class="exec-legs" style="margin-bottom:8px">${legLines}</div>
     ${state.params.cond ? `<div class="openconds" style="margin-bottom:8px"><div class="oc-h">Entry condition — check before sending</div>
       <div class="oc-line">${esc(state.params.cond)}</div></div>` : ""}
@@ -1928,17 +1928,26 @@ function renderTicket() {
       <label class="cap">TIF</label><select id="tk_tif"><option>DAY</option><option>GTC</option></select>
       <span class="cap">Account: <b>${esc(state.account)}</b></span>
     </div>
-    <button class="btn" id="tk_send">${execMode() === "dry-run" ? "Preview / dry-run" : `Send ${s.legs.length === 1 ? "option" : "spread"}`}</button>
+    <button class="btn" id="tk_send"${execMode() === "unknown" ? " disabled" : ""}>${execMode() === "dry-run" ? "Preview / dry-run" : `Send ${s.legs.length === 1 ? "option" : "spread"}`}</button>
     <span id="tk_msg" class="cap" style="margin-left:10px"></span>
   </div>`;
   document.getElementById("tk_send").addEventListener("click", sendOptionOrder);
 }
 
-function execMode() {
-  if (state.book && state.book.mode === "live") return "live";
+const BOOK_STALE_MS = 90000;
+function epochMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n < 1e12 ? n * 1000 : n;
+}
+function execMode(now = Date.now()) {
   const online = !!(state.status && state.status.online);
-  const fresh = !!(state.book && state.book.at && (Date.now() - state.book.at) <= 90000);
-  if (online && fresh && state.book.mode === "dry-run") return "dry-run";
+  const at = epochMs(state.book && state.book.at);
+  const fresh = at != null && Math.max(0, now - at) <= BOOK_STALE_MS;
+  if (!online || !fresh) return "unknown";
+  if (!state.status.session_id || state.book._broker_session_id !== state.status.session_id) return "unknown";
+  if (state.book.mode === "live") return "live";
+  if (state.book.mode === "dry-run") return "dry-run";
   return "unknown";
 }
 function actionLead(verb) {
@@ -1970,6 +1979,7 @@ function sendOptionOrder() {
   const wb = state.wb, p = state.params;
   const msg = document.getElementById("tk_msg");
   if (!s || !wb) return;
+  if (execMode() === "unknown") { msg.textContent = "BLOCKED: reconnect the agent and wait for a fresh execution book"; return; }
   if (state.account !== "primary") { msg.textContent = "BLOCKED: options execution remains disabled for PA"; return; }
   const qty = Math.floor(Number(document.getElementById("tk_qty").value));
   const limit = Number(document.getElementById("tk_limit").value);
@@ -2001,10 +2011,10 @@ function sendOptionOrder() {
   const accountRow = (((state.book || {}).accounts) || []).find((a) => a.key === state.account);
   const nlv = Number(accountRow && accountRow.nlv);
   if (!(nlv > 0)) {
-    if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary options order is uncapped and current NLV is unavailable. Defined max loss is about ${fmt.money(riskDollars)}. Really continue?`)) return;
+    if (!confirm(`SECONDARY RISK APPROVAL\n\nCurrent NLV is unavailable, so server policy will reject this live new-risk order. Defined max loss is about ${fmt.money(riskDollars)}. Continue only to request a dry-run preview?`)) return;
     payload.risk_ack = true;
   } else if (riskDollars > nlv * 0.05) {
-    if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary options order has defined max loss of about ${fmt.money(riskDollars)}, or ${(riskDollars / nlv * 100).toFixed(1)}% of NLV. There is no hard size cap. Really continue?`)) return;
+    if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary options order has defined max loss of about ${fmt.money(riskDollars)}, or ${(riskDollars / nlv * 100).toFixed(1)}% of NLV. The default Pages cap is 5%; this acknowledgement does not override any server or agent cap. Really continue?`)) return;
     payload.risk_ack = true;
   }
   sendCommand("option_spread", payload, "tk_msg");
@@ -2012,12 +2022,20 @@ function sendOptionOrder() {
 
 async function sendCommand(type, payload, msgId) {
   const msg = document.getElementById(msgId);
+  if (execMode() === "unknown") {
+    if (msg) msg.textContent = "BLOCKED: execution mode is not confirmed by a fresh online book";
+    return;
+  }
   if (msg) msg.textContent = "sending...";
   const id = commandId(type, state.account, payload);
   try {
     const r = await fetch("/exec-command", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, type, account: state.account, payload }),
+      body: JSON.stringify({
+        id, type, account: state.account,
+        dry_run: execMode() !== "live",
+        payload,
+      }),
     });
     const d = await r.json();
     const ok = r.ok && d && d.ok;
@@ -2050,6 +2068,11 @@ async function pollExec() {
   setAsof(state.status.online ? "execution online" : "execution offline");
   renderModeBanner();
   renderActivity();
+  const send = document.getElementById("tk_send");
+  if (send) {
+    send.disabled = execMode() === "unknown";
+    send.title = send.disabled ? "Disabled until a fresh online book confirms execution mode" : "";
+  }
 }
 function renderModeBanner() {
   const el = document.getElementById("modeBanner");
@@ -2057,13 +2080,13 @@ function renderModeBanner() {
   const mode = execMode();
   if (mode === "live") {
     el.innerHTML = `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
-      &#9888;&#65039; LIVE ARMED — an options order sent here transmits to IBKR if option_spread is in LIVE_TYPES.</div>`;
+      &#9888;&#65039; LIVE ARMED — an options order can transmit only if Pages, broker, and agent all arm option_spread for this account.</div>`;
   } else if (mode === "unknown") {
     el.innerHTML = `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
       &#9888;&#65039; MODE UNKNOWN — assume LIVE. No fresh book confirms dry-run.</div>`;
   } else {
     el.innerHTML = `<div class="card" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
-      &#9679; DRY-RUN MODE — options orders are validated + previewed, nothing transmits.</div>`;
+      &#9679; DRY-RUN MODE — options orders are validated + previewed; nothing transmits to IBKR.</div>`;
   }
 }
 function stateBadge(st) {

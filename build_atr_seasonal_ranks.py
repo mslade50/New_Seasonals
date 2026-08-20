@@ -12,8 +12,10 @@ ranks for year Y use only data from years < Y.
 Output columns:
     atr_sznl_5d, atr_sznl_10d, atr_sznl_21d, atr_sznl_63d, atr_sznl_126d, atr_sznl_252d
 
-Forward returns cross year boundaries (day 240 with a 63d window reaches
-into the next year).
+Forward returns may cross year boundaries inside the training sample (day 240
+with a 63d window can reach into the following *training* year). They are
+truncated at January 1 of the target year, so a rank for year Y cannot use any
+price from Y or later.
 
 Usage:
     python build_atr_seasonal_ranks.py                    # 2026 only (live scan)
@@ -35,6 +37,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
 from strategy_config import CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
+from atr_seasonal_contract import RANK_METHOD_COLUMN, RANK_METHOD_VERSION
 
 # --- Config ---
 CACHE_DIR = os.path.join(current_dir, "data")
@@ -207,8 +210,13 @@ def download_tickers(tickers, start_date="1990-01-01"):
 # ============================================================================
 
 def prepare_ticker_data(df):
-    """Compute ATR, day_count, and forward ATR returns for a single ticker."""
-    df = df.copy()
+    """Compute backward-looking ATR and calendar fields for one ticker.
+
+    Forward returns deliberately are not computed here. They must be computed
+    after truncating the price history for each target year; otherwise an
+    origin in late Y-1 can silently use an outcome price from Y.
+    """
+    df = df.copy().sort_index()
     if len(df) < ATR_WINDOW + 50:
         return None
 
@@ -226,11 +234,6 @@ def prepare_ticker_data(df):
     df['year'] = df.index.year
     df['day_count'] = df.groupby('year').cumcount() + 1
     df['day_count'] = df['day_count'].clip(upper=MAX_DAY_COUNT)
-
-    # Forward ATR returns — these naturally cross year boundaries
-    for w in FWD_WINDOWS:
-        fwd_price = df['Close'].shift(-w)
-        df[f'fwd_atr_{w}d'] = (fwd_price - df['Close']) / df['ATR']
 
     # Drop rows without ATR
     df = df.dropna(subset=['ATR'])
@@ -250,11 +253,18 @@ def compute_ranks_for_year(df, target_year):
     Weighting: 75% presidential cycle, 25% all-years.
     Smoothing: 5-day centered rolling.
     """
-    hist = df[df['year'] < target_year].copy()
+    # Truncate the price series first, then compute every forward outcome on
+    # that truncated frame. Filtering only the origin year is insufficient:
+    # a late Y-1 origin can otherwise use a target-year outcome price.
+    cutoff = pd.Timestamp(year=int(target_year), month=1, day=1)
+    hist = df.loc[df.index < cutoff].copy()
     if hist.empty or len(hist['year'].unique()) < 3:
         return None
 
     fwd_cols = [f'fwd_atr_{w}d' for w in FWD_WINDOWS]
+    for w, col in zip(FWD_WINDOWS, fwd_cols):
+        fwd_price = hist['Close'].shift(-w)
+        hist[col] = (fwd_price - hist['Close']) / hist['ATR']
 
     # All-years average by day_count
     avg_all = hist.groupby('day_count')[fwd_cols].mean()
@@ -313,7 +323,9 @@ def generate_trading_dates(year):
 # MAIN BUILD
 # ============================================================================
 
-def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH, merge=False):
+def build_atr_ranks(
+    tickers, target_years, output_path=OUTPUT_PATH, merge=False, allow_download=True,
+):
     """Build ATR seasonal ranks for all tickers and target years."""
     print(f"Building ATR seasonal ranks")
     print(f"  Tickers: {len(tickers)}")
@@ -340,11 +352,13 @@ def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH, merge=False)
 
     # 2. Download missing tickers
     missing = [t for t in clean_tickers if t not in cached]
-    if missing:
+    if missing and allow_download:
         print(f"   Downloading {len(missing)} tickers...")
         fresh = download_tickers(missing)
         cached.update(fresh)
         print(f"   Total available: {len(cached)} tickers")
+    elif missing:
+        print(f"   Skipping {len(missing)} cache-missing tickers (--no-download)")
     else:
         print(f"   All {len(cached)} tickers in cache")
 
@@ -372,7 +386,8 @@ def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH, merge=False)
             errors += 1
             continue
 
-        # Prepare data (ATR, forward returns)
+        # Prepare backward-looking data. Forward outcomes are computed only
+        # after each target year's cutoff is applied.
         prepped = prepare_ticker_data(raw_df)
         if prepped is None:
             errors += 1
@@ -390,6 +405,7 @@ def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH, merge=False)
                 ranks, left_on='day_count', right_index=True, how='left'
             )
             merged['ticker'] = ticker
+            merged[RANK_METHOD_COLUMN] = RANK_METHOD_VERSION
             merged = merged.drop(columns=['day_count'])
 
             # Fill any gaps
@@ -414,6 +430,11 @@ def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH, merge=False)
     if merge and os.path.exists(output_path):
         try:
             existing = pd.read_parquet(output_path)
+            version_error = rank_artifact_version_error(existing)
+            if version_error:
+                raise RuntimeError(
+                    f"refusing to merge corrected rows into an unsafe artifact: {version_error}"
+                )
             existing['Date'] = pd.to_datetime(existing['Date'])
             new_tk = set(result_df['ticker'].unique())
             kept = existing[~existing['ticker'].isin(new_tk)]
@@ -421,7 +442,7 @@ def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH, merge=False)
                   f"{len(new_tk)} new/updated tickers")
             result_df = pd.concat([kept, result_df], ignore_index=True)
         except Exception as e:
-            print(f"   merge failed ({e}) - writing computed tickers only")
+            raise RuntimeError(f"merge failed closed: {e}") from e
 
     print(f"\nSaving to {output_path}...")
     result_df.to_parquet(output_path, index=False)
@@ -464,13 +485,23 @@ if __name__ == "__main__":
     parser.add_argument("--only-missing", action="store_true",
                         help="Compute only tickers NOT already in the existing parquet "
                              "(incremental add — implies --merge).")
+    parser.add_argument("--rebuild-existing", action="store_true",
+                        help="Union every ticker in the existing parquet into the build "
+                             "universe. Intended for a full point-in-time repair; unlike "
+                             "--only-missing, all existing ranks are recomputed.")
     parser.add_argument("--merge", action="store_true",
                         help="Merge results into the existing parquet (preserve other tickers "
                              "exactly) instead of overwriting the whole file.")
     parser.add_argument("--upload", action="store_true",
                         help="Upload the result to R2 (key: atr_seasonal_ranks.parquet) so the "
                              "GHA daily scan can read it from R2 instead of the git checkout.")
+    parser.add_argument("--no-download", action="store_true",
+                        help="Use only the supplied local/R2-backed price caches; fail validation "
+                             "rather than filling missing names from a live market-data download.")
     args = parser.parse_args()
+
+    if args.only_missing and args.rebuild_existing:
+        parser.error("--only-missing and --rebuild-existing are mutually exclusive")
 
     if args.full:
         years = list(range(FULL_START_YEAR, DEFAULT_YEAR + 1))
@@ -489,6 +520,18 @@ if __name__ == "__main__":
         # could never fire them — silently, for as long as that was true.
         # Union with LIQUID so the builder covers everything that can gate.
         tickers = sorted(set(CSV_UNIVERSE) | set(LIQUID_PLUS_COMMODITIES))
+        if args.rebuild_existing:
+            if not os.path.exists(OUTPUT_PATH):
+                parser.error(f"--rebuild-existing requires {OUTPUT_PATH}")
+            try:
+                _existing_tickers = (
+                    pd.read_parquet(OUTPUT_PATH, columns=["ticker"])["ticker"]
+                    .dropna().astype(str).str.upper().str.strip().tolist()
+                )
+                tickers = sorted(set(tickers) | set(_existing_tickers))
+                print(f"[universe] +existing rank artifact -> {len(tickers)} tickers")
+            except Exception as _e:
+                parser.error(f"could not read existing rank universe: {_e}")
         if args.with_symbol_master:
             import os as _os
             import pandas as _pd
@@ -519,7 +562,7 @@ if __name__ == "__main__":
     if not tickers:
         print("Nothing to compute (all requested tickers already present).")
     else:
-        build_atr_ranks(tickers, years, merge=merge)
+        build_atr_ranks(tickers, years, merge=merge, allow_download=not args.no_download)
 
     if args.upload:
         # Load .env so cache_io sees R2 creds when run standalone, then push.
@@ -531,8 +574,12 @@ if __name__ == "__main__":
                     if "=" in _line and not _line.startswith("#"):
                         _k, _v = _line.split("=", 1)
                         os.environ.setdefault(_k.strip(), _v.strip())
-        try:
-            from cache_io import upload_from_local
-            upload_from_local(OUTPUT_PATH, "atr_seasonal_ranks.parquet")
-        except Exception as _e:
-            print(f"[r2 upload] non-fatal error: {_e}")
+        if not os.path.exists(OUTPUT_PATH):
+            raise SystemExit(f"[r2 upload] refusing: {OUTPUT_PATH} does not exist")
+        _upload_frame = pd.read_parquet(OUTPUT_PATH)
+        _version_error = rank_artifact_version_error(_upload_frame)
+        if _version_error:
+            raise SystemExit(f"[r2 upload] refusing unsafe artifact: {_version_error}")
+        from cache_io import upload_from_local
+        if not upload_from_local(OUTPUT_PATH, "atr_seasonal_ranks.parquet"):
+            raise SystemExit("[r2 upload] upload failed")

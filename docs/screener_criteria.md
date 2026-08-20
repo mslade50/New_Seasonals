@@ -25,8 +25,12 @@ This script runs automatically (via GitHub Actions or Local Scheduler).
 * **Data Source:** Downloads fresh data via `yfinance`.
 * **Indicator Consistency:** The `calculate_indicators()` function here **must** functionally match the one in `backtester.py`. If you add an indicator to the Backtester, you MUST add it here too.
 
-### 3. Order Staging Logic (The "Air Gap")
+### 3. Order Staging Logic (Scanner Boundary)
 The script separates orders into two different Google Sheet tabs based on their urgency:
+
+This is the boundary of `daily_scan.py`, not a system-wide air gap. The separate,
+authenticated private-site execution bridge is live-capable when all of its
+Pages, broker, and local-agent gates are deliberately armed.
 
 | Order Type | Destination Tab | Logic |
 | :--- | :--- | :--- |

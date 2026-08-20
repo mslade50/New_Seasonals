@@ -7,16 +7,18 @@ This repository is a private, internal-only quantitative trading system used by 
 **Operational Logic:**
 1.  **Non-HFT:** This is not a high-frequency trading system. It operates on daily closing data.
 2.  **Data Source:** Primary historical data comes from `yfinance`.
-3.  **Execution Boundary:** This repository handles **Signal Generation Only**. It does **NOT** handle trade execution.
+3.  **Execution Boundary:** The repository generates/stages signals and also contains the authenticated private-site command UI, Pages command policy, and Cloudflare execution broker. The final IBKR adapter remains local and out of repo. This system is therefore **live-execution capable when every gate is armed**.
 
 ---
 
 ## 🛡️ Safety & Execution Architecture
-**CRITICAL:** To ensure operational safety and prevent accidental algorithmic trading errors, **Order Execution logic is strictly excluded from this repository.**
+**CRITICAL:** This is not an air-gapped, signal-only repository. Treat changes under `site/assets/execution.js`, `site/assets/options.js`, `functions/`, `execution-broker/`, and `.github/workflows/deploy_broker.yml` as live-money infrastructure.
 
-* **Repository Scope:** Ends at **Signal Staging**. The code here identifies a trade and pushes it to a private Google Sheet.
-* **Local Execution:** The actual Python scripts that connect to broker APIs and place live orders reside **only on the local machine**. They are never committed to version control.
-* **The "Air Gap":** This separation ensures that no cloud-based automation (like GitHub Actions) or remote code change can inadvertently trigger a financial transaction.
+* **Signal staging:** `daily_scan.py` identifies trades and writes the private staging sheets.
+* **Private command path:** Authenticated browser commands cross a Pages Function and a standalone Cloudflare broker to the local execution agent.
+* **Local broker adapter:** The Python code that connects to IBKR and transmits remains only on the trading machine, but the cloud path can request that action when armed.
+* **Fail-closed gates:** Live delivery requires a fresh online book, explicit `dry_run:false`, a dedicated `COMMAND_SECRET`, matching Pages/broker type and account allowlists, server instrument/entry-type allowlists (stock limit brackets only by default), server risk caps, and the agent's own live gates. Deploying the broker workflow resets both server live switches to off.
+* **Operational rule:** Never infer dry-run from this README or a stale banner. Verify the current Pages, broker, and agent configuration before testing any command.
 
 ---
 
@@ -48,6 +50,7 @@ The system is designed as a unidirectional pipeline moving from **Research** $\t
     * *Action:* Runs daily (via GitHub Actions or locally).
     * *Logic:* Imports rules from `strategy_config.py` $\to$ Downloads fresh data $\to$ Checks conditions.
     * *Output:* Valid orders are pushed via API to the **Private Google Sheet**.
+* **Optional execution bridge:** The private Execution/Options pages can relay a validated preview or, only when all independent gates are armed, a live command to the local IBKR agent. See [the go-live runbook](docs/site_execution_golive.md).
 
 ---
 

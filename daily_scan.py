@@ -108,6 +108,7 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
 # Per-strategy bps overrides for the overflow tier — single source in
 # strategy_config (nominal; scaled by GLOBAL_RISK_MULTIPLIER at use below).
 from strategy_config import OVERFLOW_RISK_OVERRIDES
+from atr_seasonal_contract import rank_artifact_version_error
 
 # ATR-normalized seasonal ranks (built by build_atr_seasonal_ranks.py)
 ATR_SZNL_PATH = os.path.join(current_dir, "atr_seasonal_ranks.parquet")
@@ -237,6 +238,10 @@ def load_atr_seasonal_map():
         print(f"⚠️ Failed to load {ATR_SZNL_PATH}: {e}")
         return {}
     if df.empty:
+        return {}
+    version_error = rank_artifact_version_error(df)
+    if version_error:
+        print(f"⚠️ Refusing {ATR_SZNL_PATH}: {version_error}")
         return {}
     df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
     output = {}

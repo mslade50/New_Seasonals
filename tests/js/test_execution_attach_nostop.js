@@ -56,6 +56,15 @@ assert.strictEqual(noStop.stop, null, "blank stop serializes as null");
 assert.strictEqual(noStop.target, null);
 assert.strictEqual(noStop.entry_type, "LMT");
 
+// The same shape is previewable in dry-run/unknown mode but cannot become a
+// live command without a stop; Pages independently enforces the same rule.
+run(`state.status = { online: true, session_id: "session-new" }; state.book = {
+  mode: "live", at: Date.now(), _broker_session_id: "session-new",
+  accounts: [{ key: "primary", positions: [], orders: [] }]
+}`);
+assert.ok(runJSON("bracketWarnings()").some((w) => w.includes("live entries require a defined stop")));
+run(`state.status = { online: false }; state.book = { accounts: [{ key: "primary", positions: [], orders: [] }] }`);
+
 // MKT/MOO/MOC carry a required risk reference, but never a limit-entry expiry.
 setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
   f_entry_type: "MKT", f_entry: "50", f_stop: "48", f_target: "55",

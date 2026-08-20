@@ -19,4 +19,7 @@ new_sqlite_classes = ["ExecBroker"]
 
 # Secrets (NOT stored here) — set with `wrangler secret put`:
 #   AGENT_TOKEN   bearer token the local agent presents on /agent
-#   STATUS_TOKEN  bearer token the Pages /exec-status proxy presents on /status
+#   STATUS_TOKEN  read-only bearer for status/book/queries
+#   COMMAND_SECRET dedicated bearer + HMAC secret for /command and the agent
+#   EXEC_LIVE_ENABLED off by default; live also requires EXEC_LIVE_TYPES and
+#                     EXEC_LIVE_ACCOUNTS at both Worker and Pages

@@ -2,8 +2,8 @@ name: Deploy Execution Broker
 
 # One-time / on-demand deploy of the standalone execution-broker Worker + its
 # Durable Object, plus wiring the Pages site to it. Separate from deploy_site.yml
-# so a broker change can never break the live site. Heartbeat-only (Phase 2a) —
-# no order logic in the broker.
+# so a broker change cannot break the analytics build. The Worker is an
+# independent fail-closed policy gate in front of the local execution agent.
 
 on:
   workflow_dispatch:
@@ -19,6 +19,11 @@ jobs:
       - name: Install wrangler
         run: npm i -g wrangler@4
 
+      - name: Refuse missing command secret
+        env:
+          COMMAND_SECRET: ${{ secrets.COMMAND_SECRET }}
+        run: test -n "$COMMAND_SECRET"
+
       - name: Deploy Worker + set its secrets
         working-directory: execution-broker
         env:
@@ -26,6 +31,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           AGENT_TOKEN: ${{ secrets.AGENT_TOKEN }}
           STATUS_TOKEN: ${{ secrets.STATUS_TOKEN }}
+          COMMAND_SECRET: ${{ secrets.COMMAND_SECRET }}
         run: |
           wrangler deploy 2>&1 | tee deploy.log; rc=${PIPESTATUS[0]}
           if [ "$rc" -ne 0 ]; then echo "wrangler deploy failed (rc=$rc)"; exit "$rc"; fi
@@ -34,17 +40,36 @@ jobs:
           echo "BROKER_URL=$url" >> "$GITHUB_ENV"
           printf '%s' "$AGENT_TOKEN"  | wrangler secret put AGENT_TOKEN
           printf '%s' "$STATUS_TOKEN" | wrangler secret put STATUS_TOKEN
+          printf '%s' "$COMMAND_SECRET" | wrangler secret put COMMAND_SECRET
+          printf '0' | wrangler secret put EXEC_LIVE_ENABLED
+          printf 'NONE' | wrangler secret put EXEC_LIVE_TYPES
+          printf 'NONE' | wrangler secret put EXEC_LIVE_ACCOUNTS
+          printf 'STK' | wrangler secret put EXEC_LIVE_INSTRUMENTS
+          printf 'LMT,STP_LMT' | wrangler secret put EXEC_LIVE_ENTRY_TYPES
+          printf 'STK' | wrangler secret put EXEC_LIVE_POSITION_INSTRUMENTS
+          printf '0' | wrangler secret put EXEC_ALLOW_SYMBOL_CANCEL
+          printf '0' | wrangler secret put EXEC_ALLOW_PRICE_MODIFY
 
-      - name: Wire the Pages site (EXEC_BROKER_URL + STATUS_TOKEN)
+      - name: Wire the Pages site (read token + dedicated command secret)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_BROKER_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           STATUS_TOKEN: ${{ secrets.STATUS_TOKEN }}
+          COMMAND_SECRET: ${{ secrets.COMMAND_SECRET }}
         run: |
           set -e
           if [ -z "$BROKER_URL" ]; then echo "No broker URL; skipping Pages wiring."; exit 1; fi
           printf '%s' "$BROKER_URL"   | wrangler pages secret put EXEC_BROKER_URL --project-name seasonals-mslade
           printf '%s' "$STATUS_TOKEN" | wrangler pages secret put STATUS_TOKEN   --project-name seasonals-mslade
+          printf '%s' "$COMMAND_SECRET" | wrangler pages secret put COMMAND_SECRET --project-name seasonals-mslade
+          printf '0' | wrangler pages secret put EXEC_LIVE_ENABLED --project-name seasonals-mslade
+          printf 'NONE' | wrangler pages secret put EXEC_LIVE_TYPES --project-name seasonals-mslade
+          printf 'NONE' | wrangler pages secret put EXEC_LIVE_ACCOUNTS --project-name seasonals-mslade
+          printf 'STK' | wrangler pages secret put EXEC_LIVE_INSTRUMENTS --project-name seasonals-mslade
+          printf 'LMT,STP_LMT' | wrangler pages secret put EXEC_LIVE_ENTRY_TYPES --project-name seasonals-mslade
+          printf 'STK' | wrangler pages secret put EXEC_LIVE_POSITION_INSTRUMENTS --project-name seasonals-mslade
+          printf '0' | wrangler pages secret put EXEC_ALLOW_SYMBOL_CANCEL --project-name seasonals-mslade
+          printf '0' | wrangler pages secret put EXEC_ALLOW_PRICE_MODIFY --project-name seasonals-mslade
           echo "Broker URL = $BROKER_URL"
           echo "Agent should use: EXEC_BROKER_WS=${BROKER_URL/https:/wss:}/agent"
 
@@ -53,3 +78,4 @@ jobs:
           echo "### Execution broker deployed" >> "$GITHUB_STEP_SUMMARY"
           echo "Broker URL: \`$BROKER_URL\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Agent WS:  \`${BROKER_URL/https:/wss:}/agent\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Live command delivery is OFF and live type/account allowlists are empty at both Pages and broker after deploy." >> "$GITHUB_STEP_SUMMARY"

@@ -196,6 +196,7 @@ ATR_SZNL_PATH = "atr_seasonal_ranks.parquet"
 
 ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
 ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
+from atr_seasonal_contract import rank_artifact_version_error
 
 @st.cache_resource
 def load_atr_seasonal_map():
@@ -205,6 +206,10 @@ def load_atr_seasonal_map():
         return {}
     try:
         df = pd.read_parquet(path)
+        version_error = rank_artifact_version_error(df)
+        if version_error:
+            print(f"Refusing {path}: {version_error}")
+            return {}
         df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
         output = {}
         for ticker, group in df.groupby('ticker'):

@@ -20,6 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from build_atr_seasonal_ranks import build_atr_ranks, OUTPUT_PATH
+from atr_seasonal_contract import rank_artifact_version_error
 
 
 def main(tickers):
@@ -28,6 +29,12 @@ def main(tickers):
         sys.exit(1)
 
     existing = pd.read_parquet(OUTPUT_PATH)
+    version_error = rank_artifact_version_error(existing)
+    if version_error:
+        raise SystemExit(
+            f"Refusing to append into an unsafe rank artifact: {version_error}. "
+            "Run the full repair first."
+        )
     year_min = int(existing['Date'].dt.year.min())
     year_max = int(existing['Date'].dt.year.max())
     target_years = list(range(year_min, year_max + 1))

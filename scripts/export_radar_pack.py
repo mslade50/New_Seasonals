@@ -49,6 +49,10 @@ PROJECT_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
 from trading_calendar import TRADING_DAY  # noqa: E402
+from atr_seasonal_contract import (  # noqa: E402
+    RANK_METHOD_COLUMN,
+    rank_artifact_version_error,
+)
 
 RADAR_REPO = Path(r"C:\Users\McKinley Slade\dev\radar-briefings")
 EXTERNAL_REL = Path("data") / "external"
@@ -168,8 +172,18 @@ def build_atr_sznl_csv(universe: list[str], asof: pd.Timestamp
         raise SystemExit(f"atr rank source missing: {ATR_RANKS_PARQUET}")
     sessions = pd.date_range(start=asof + pd.Timedelta(days=1),
                              periods=ATR_FORWARD_SESSIONS, freq=TRADING_DAY)
-    df = pd.read_parquet(ATR_RANKS_PARQUET,
-                         columns=["ticker", "Date", "atr_sznl_21d", "atr_sznl_63d"])
+    try:
+        df = pd.read_parquet(
+            ATR_RANKS_PARQUET,
+            columns=["ticker", "Date", "atr_sznl_21d", "atr_sznl_63d", RANK_METHOD_COLUMN],
+        )
+    except Exception as exc:
+        raise SystemExit(
+            f"ABORT: unsafe or unreadable atr-rank artifact: {exc}"
+        ) from exc
+    version_error = rank_artifact_version_error(df)
+    if version_error:
+        raise SystemExit(f"ABORT: unsafe atr-rank artifact: {version_error}")
     max_date = df["Date"].max()
     if sessions[-1] > max_date:
         raise SystemExit(

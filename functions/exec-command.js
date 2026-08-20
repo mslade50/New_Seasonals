@@ -1,27 +1,25 @@
-/* Pages Function — accept a command from the site, sign it, forward to the broker.
+/* Pages Function — validate a command, sign it, and forward it to the broker.
  *
  * Route: POST /exec-command. Behind Cloudflare Access (human auth), plus an
  * in-code Access JWT check (_access.js) so a misconfigured Access wall doesn't
  * leave this endpoint open. Wraps the site's request into a command envelope,
- * HMAC-signs it with STATUS_TOKEN (shared with the local agent, which verifies
- * + is the final gatekeeper), and POSTs {signed, sig} to the broker. The broker
- * relays it down the agent's socket.
+ * HMAC-signs it with the dedicated COMMAND_SECRET (shared only with the broker
+ * and local agent), and POSTs {signed, sig} to the broker. STATUS_TOKEN remains
+ * read-only and is used only to fetch the broker's status/book snapshots.
  *
- * LIVE-ORDER WARNING: dry_run is forwarded from the request body and defaults
- * to false (= live). It is NOT forced here. The agent honors dry_run:true as a
- * preview override layered on top of its own LIVE_* env gates, so the Pages
- * layer can request a no-transmit preview; with dry_run false or omitted the
- * agent's env decides. When the agent is armed and dry_run is not set, a command
- * sent through here transmits a REAL order. Do not treat this endpoint as
- * preview-only.
+ * Live commands require all of: explicit dry_run:false, a fresh online book
+ * that reports mode=live, Pages and broker kill switches, an armed command
+ * type/account, strict payload validation, and server-side risk caps. Omitted
+ * dry_run means preview. Unknown/stale state fails closed.
  *
  * Idempotency: the client mints one UUID per user intent and reuses it on
  * retry-after-error; a well-formed body.id is forwarded unchanged so the broker
  * and agent can dedup resubmissions instead of double-executing.
  */
 import { requireAccess } from "./_access.js";
+import { validateCommandRequest } from "./_execution_policy.mjs";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_BODY_BYTES = 32_768;
 
 async function hmacHex(key, msg) {
   const enc = new TextEncoder();
@@ -34,36 +32,68 @@ export async function onRequestPost({ request, env }) {
   const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
   const denied = await requireAccess(request, env);
   if (denied) return denied;
-  const base = env.EXEC_BROKER_URL, token = env.STATUS_TOKEN;
-  if (!base || !token) {
-    return new Response(JSON.stringify({ ok: false, error: "broker not configured" }), { status: 503, headers });
+  const base = String(env.EXEC_BROKER_URL || "").replace(/\/$/, "");
+  const statusToken = env.STATUS_TOKEN;
+  const commandSecret = env.COMMAND_SECRET;
+  if (!base || !statusToken || !commandSecret) {
+    return new Response(JSON.stringify({ ok: false, error: "execution command bridge is not fully configured" }), { status: 503, headers });
   }
-  let body;
-  try { body = await request.json(); } catch { return new Response(JSON.stringify({ ok: false, error: "bad json" }), { status: 400, headers }); }
 
-  const now = Date.now();
-  const command = {
-    // client-minted idempotency id (one per user intent, reused on retry) when
-    // well-formed; otherwise minted fresh here. Broker + agent dedup on it.
-    id: typeof body.id === "string" && UUID_RE.test(body.id) ? body.id : crypto.randomUUID(),
-    type: String(body.type || ""),
-    account: body.account === "primary" ? "primary" : "pa",
-    dry_run: body.dry_run === true,   // forwarded from body (default false = live); agent honors dry_run:true as a preview override
-    payload: body.payload || {},
-    created_at: now,
-    expires_at: now + 60_000,                       // 60s validity
-  };
-  const signed = JSON.stringify(command);
-  const sig = await hmacHex(token, signed);
+  const contentLength = Number(request.headers.get("Content-Length") || 0);
+  if (contentLength > MAX_BODY_BYTES) {
+    return new Response(JSON.stringify({ ok: false, error: "request body too large" }), { status: 413, headers });
+  }
+
+  let body;
+  try {
+    const raw = await request.text();
+    if (raw.length > MAX_BODY_BYTES) {
+      return new Response(JSON.stringify({ ok: false, error: "request body too large" }), { status: 413, headers });
+    }
+    body = JSON.parse(raw);
+  } catch {
+    return new Response(JSON.stringify({ ok: false, error: "bad json" }), { status: 400, headers });
+  }
 
   try {
-    const r = await fetch(`${base.replace(/\/$/, "")}/command`, {
+    const readHeaders = { Authorization: `Bearer ${statusToken}` };
+    const [statusResponse, bookResponse] = await Promise.all([
+      fetch(`${base}/status`, { headers: readHeaders }),
+      fetch(`${base}/book`, { headers: readHeaders }),
+    ]);
+    if (!statusResponse.ok || !bookResponse.ok) {
+      return new Response(JSON.stringify({ ok: false, error: "could not verify fresh execution state" }), { status: 503, headers });
+    }
+    const status = await statusResponse.json();
+    const bookPayload = await bookResponse.json();
+    const now = Date.now();
+    const decision = validateCommandRequest(body, {
+      env, status, book: bookPayload && bookPayload.book, now,
+    });
+    if (!decision.ok) {
+      return new Response(JSON.stringify({ ok: false, error: decision.error }), { status: decision.status, headers });
+    }
+
+    const command = {
+      ...decision.command,
+      created_at: now,
+      expires_at: now + 60_000,
+      policy_version: decision.policy_version,
+    };
+    const signed = JSON.stringify(command);
+    const sig = await hmacHex(commandSecret, signed);
+    const r = await fetch(`${base}/command`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${commandSecret}` },
       body: JSON.stringify({ signed, sig }),
     });
     const data = await r.json().catch(() => ({}));
-    return new Response(JSON.stringify({ ...data, id: command.id }), { status: r.status, headers });
+    return new Response(JSON.stringify({
+      ...data,
+      id: command.id,
+      dry_run: command.dry_run,
+      policy_version: decision.policy_version,
+    }), { status: r.status, headers });
   } catch (e) {
     return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 502, headers });
   }

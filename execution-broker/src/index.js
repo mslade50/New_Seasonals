@@ -4,16 +4,14 @@
  * instance ("main") holds the local agent's OUTBOUND, hibernatable WebSocket,
  * tracks a heartbeat, and relays signed commands to the agent + collects results.
  *
- * Phase 2b adds the command loop — but the broker is still a DUMB RELAY: it does
- * not build, validate, or transmit orders. The site signs a command, the broker
- * pushes it down the open socket, and the LOCAL AGENT verifies the signature,
- * validates, and (in dry-run) only logs what it WOULD do. No order ever originates
- * here.
+ * The broker does not construct or transmit IBKR orders, but it is not a dumb
+ * relay: it independently gates envelopes on heartbeat/book freshness, reported
+ * mode, and server live type/account allowlists before pushing to the agent.
  *
  * Endpoints (all DO-routed):
  *   GET  /agent     agent WS upgrade            (Bearer AGENT_TOKEN)
  *   GET  /status    heartbeat / online state    (Bearer STATUS_TOKEN)
- *   POST /command   {signed, sig} -> push to agent  (Bearer STATUS_TOKEN)
+ *   POST /command   {signed, sig} -> push to agent  (Bearer COMMAND_SECRET)
  *   GET  /commands  recent commands + results   (Bearer STATUS_TOKEN)
  *   GET  /fills     accumulated executions ring (Bearer STATUS_TOKEN)
  *   GET  /health    plain liveness
@@ -21,13 +19,14 @@
  * Deploy standalone (NOT part of the Pages site). See README.md.
  */
 import { DurableObject } from "cloudflare:workers";
+import { HEARTBEAT_STALE_MS, validHmacHex, validateBrokerCommand } from "./command_policy.mjs";
 
 const BROKER_NAME = "main";          // single book -> single DO instance
-const HEARTBEAT_STALE_MS = 30_000;   // online iff a heartbeat landed within this
 const CMD_CAP = 50;                  // recent-command ring size (audit trail)
 const SCHEDULED_CMD_CAP = 100;       // long-lived option schedules survive recent-ring churn
 const FILLS_RETENTION_DAYS = 14;     // Trade Log trailing window
 const FILLS_DAY_CAP = 500;           // per-day row cap (keeps each value < DO 128KiB limit)
+const COMMAND_BODY_MAX = 32_768;
 
 export class ExecBroker extends DurableObject {
   _authed(request, token) {
@@ -58,9 +57,13 @@ export class ExecBroker extends DurableObject {
       const [client, server] = Object.values(new WebSocketPair());
       this.ctx.acceptWebSocket(server);                 // hibernatable accept
       const now = Date.now();
-      server.serializeAttachment({ connectedAt: now });
+      const sessionId = crypto.randomUUID();
+      server.serializeAttachment({ connectedAt: now, sessionId });
       await this.ctx.storage.put("connected_at", now);
       await this.ctx.storage.put("last_seen", now);
+      // A heartbeat from a newly connected process must never re-authorize the
+      // prior process's still-fresh LIVE book. Wait for this socket's first book.
+      await this.ctx.storage.delete("book");
       await this.ctx.storage.delete("disconnected_at");
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -70,25 +73,60 @@ export class ExecBroker extends DurableObject {
       if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
       const lastSeen = (await this.ctx.storage.get("last_seen")) || 0;
       const connectedAt = (await this.ctx.storage.get("connected_at")) || null;
-      const sockets = this.ctx.getWebSockets().length;
+      const activeSockets = this.ctx.getWebSockets();
+      const sockets = activeSockets.length;
+      let sessionId = null;
+      if (sockets === 1) {
+        try { sessionId = (activeSockets[0].deserializeAttachment() || {}).sessionId || null; }
+        catch (_) { sessionId = null; }
+      }
       const now = Date.now();
       const age = lastSeen ? now - lastSeen : null;
-      const online = sockets > 0 && age != null && age < HEARTBEAT_STALE_MS;
+      const online = sockets === 1 && !!sessionId && age != null && age < HEARTBEAT_STALE_MS;
       return Response.json({
         online, sockets, last_seen: lastSeen || null, connected_at: connectedAt,
-        heartbeat_age_ms: age, stale_after_ms: HEARTBEAT_STALE_MS, server_now: now,
+        session_id: sessionId, heartbeat_age_ms: age,
+        stale_after_ms: HEARTBEAT_STALE_MS, server_now: now,
       });
     }
 
     // --- Command in (from the site via the Pages /exec-command proxy) ---
     if (url.pathname === "/command" && request.method === "POST") {
-      if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      // STATUS_TOKEN is read-only. A separate command secret is required for
+      // both this bearer check and the agent-verifiable HMAC envelope.
+      if (!this._authed(request, this.env.COMMAND_SECRET)) return new Response("unauthorized", { status: 401 });
       let body;
-      try { body = await request.json(); } catch { return new Response("bad json", { status: 400 }); }
+      try {
+        const declared = Number(request.headers.get("Content-Length") || 0);
+        if (declared > COMMAND_BODY_MAX) return new Response("body too large", { status: 413 });
+        const raw = await request.text();
+        if (raw.length > COMMAND_BODY_MAX) return new Response("body too large", { status: 413 });
+        body = JSON.parse(raw);
+      } catch { return new Response("bad json", { status: 400 }); }
       const { signed, sig } = body || {};
       if (!signed || !sig) return Response.json({ ok: false, error: "missing signed/sig" }, { status: 400 });
+      if (!(await validHmacHex(this.env.COMMAND_SECRET, signed, sig))) {
+        return Response.json({ ok: false, error: "invalid command signature" }, { status: 401 });
+      }
       let cmd;
       try { cmd = JSON.parse(signed); } catch { return Response.json({ ok: false, error: "bad signed payload" }, { status: 400 }); }
+      const now = Date.now();
+      // A connected zombie socket is not sufficient authority to deliver an
+      // order. Require the same recent heartbeat and fresh mode-bearing book
+      // that the Pages policy checked immediately before signing.
+      const sockets = this.ctx.getWebSockets();
+      const lastSeen = Number((await this.ctx.storage.get("last_seen")) || 0);
+      const book = (await this.ctx.storage.get("book")) || null;
+      const deliverySocket = sockets.length ? this._newestSocket(sockets) : null;
+      let socketSession = null;
+      try { socketSession = deliverySocket && (deliverySocket.deserializeAttachment() || {}).sessionId; }
+      catch (_) { socketSession = null; }
+      const gate = validateBrokerCommand(cmd, {
+        env: this.env, now, lastSeen, book, socketCount: sockets.length, socketSession,
+      });
+      if (!gate.ok) {
+        return Response.json({ ok: false, error: gate.error }, { status: gate.status });
+      }
       // Idempotency: an id already in the ring is a resubmit of the same intent
       // (retry after a client-side timeout/error) — do NOT push it to the agent
       // again; return the existing record so the client can display it.
@@ -98,11 +136,9 @@ export class ExecBroker extends DurableObject {
       if (existing) {
         return Response.json({ ok: true, deduped: true, id: cmd.id, state: existing.state, command: existing });
       }
-      const sockets = this.ctx.getWebSockets();
-      if (!sockets.length) return Response.json({ ok: false, error: "agent offline" }, { status: 503 });
       // record + push to the NEWEST agent socket only (it verifies the sig and
       // validates); >1 connected socket is an anomaly worth keeping in the audit trail
-      const record = { id: cmd.id, type: cmd.type, account: cmd.account, dry_run: cmd.dry_run !== false,
+      const record = { id: cmd.id, type: cmd.type, account: cmd.account, dry_run: cmd.dry_run,
                        state: "pushed", created_at: Date.now(), result: null };
       if (sockets.length > 1) record.sockets_at_delivery = sockets.length;
       recent.unshift(record);
@@ -111,7 +147,7 @@ export class ExecBroker extends DurableObject {
         scheduled.unshift({ ...record });
         await this.ctx.storage.put("scheduled_commands", scheduled.slice(0, SCHEDULED_CMD_CAP));
       }
-      this._newestSocket(sockets).send(JSON.stringify({ type: "command", signed, sig }));
+      deliverySocket.send(JSON.stringify({ type: "command", signed, sig }));
       return Response.json({ ok: true, id: cmd.id, state: "pushed" });
     }
 
@@ -260,9 +296,17 @@ export class ExecBroker extends DurableObject {
     // + today's fills). Fills are folded into their own per-day ring and
     // stripped from the stored book (keeps the "book" value small).
     if (msg.type === "book") {
+      let sessionId = null;
+      try { sessionId = (ws.deserializeAttachment() || {}).sessionId; }
+      catch (_) { sessionId = null; }
+      if (!sessionId) {
+        await this.ctx.storage.put("last_error", "book rejected: socket session missing; reconnect required");
+        try { ws.close(1012, "reconnect required"); } catch (_) { /* best effort */ }
+        return;
+      }
       const book = { ...(msg.book || {}), at: msg.at || Date.now() };
       const accounts = (book.accounts || []).map(({ fills, ...rest }) => rest);
-      await this.ctx.storage.put("book", { ...book, accounts });
+      await this.ctx.storage.put("book", { ...book, accounts, _broker_session_id: sessionId });
       await this.ctx.storage.put("last_seen", Date.now());
       try { await this._mergeFills(book); }
       catch (e) { await this.ctx.storage.put("last_error", `mergeFills: ${String((e && e.message) || e)}`); }
@@ -371,6 +415,13 @@ export class ExecBroker extends DurableObject {
 
   async webSocketClose(ws, code, reason, wasClean) {
     await this.ctx.storage.put("disconnected_at", Date.now());
+    try {
+      const sessionId = (ws.deserializeAttachment() || {}).sessionId;
+      const book = await this.ctx.storage.get("book");
+      if (sessionId && book && book._broker_session_id === sessionId) {
+        await this.ctx.storage.delete("book");
+      }
+    } catch (_) { /* fail closed via heartbeat/session checks */ }
     try { ws.close(code, reason); } catch (_) { /* already closing */ }
   }
 

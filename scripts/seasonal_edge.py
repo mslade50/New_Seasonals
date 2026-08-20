@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import json
 import sqlite3
+import sys
 from functools import lru_cache
 
 import numpy as np
@@ -47,6 +48,10 @@ except Exception:  # scipy should be present (used by risk_dashboard); degrade i
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(_SCRIPTS_DIR)
 DATA_DIR = os.path.join(REPO_ROOT, "data")
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+from atr_seasonal_contract import rank_artifact_version_error
 
 ATR_SZNL_PATH = os.path.join(REPO_ROOT, "atr_seasonal_ranks.parquet")
 MASTER_PRICES_PATH = os.path.join(DATA_DIR, "master_prices.parquet")
@@ -84,6 +89,9 @@ def load_seasonal_ranks(path: str | None = None) -> pd.DataFrame:
     """Long DataFrame [Date(datetime), atr_sznl_*, ticker(upper)]. Cached."""
     path = path or ATR_SZNL_PATH
     df = pd.read_parquet(path)
+    version_error = rank_artifact_version_error(df)
+    if version_error:
+        raise ValueError(f"rank artifact rejected: {version_error}")
     df["Date"] = pd.to_datetime(df["Date"]).dt.normalize()
     df["ticker"] = df["ticker"].astype(str).str.upper()
     return df

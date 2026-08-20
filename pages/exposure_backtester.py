@@ -28,6 +28,7 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 import data_provider
+from atr_seasonal_contract import rank_artifact_version_error
 
 # -----------------------------------------------------------------------------
 # CONSTANTS
@@ -53,6 +54,9 @@ def load_atr_sznl_map():
         return {}
     try:
         df = pd.read_parquet(path)
+        version_error = rank_artifact_version_error(df)
+        if version_error:
+            raise ValueError(version_error)
         df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
         out = {}
         for tkr, grp in df.groupby('ticker'):

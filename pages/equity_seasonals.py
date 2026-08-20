@@ -5,7 +5,14 @@ import yfinance as yf
 import plotly.graph_objects as go
 import datetime as dt
 import os
+import sys
 from datetime import timedelta
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+
+from atr_seasonal_contract import rank_artifact_version_error
 
 # -----------------------------------------------------------------------------
 # CONFIGURATION
@@ -179,6 +186,8 @@ def load_atr_seasonal_map():
     except Exception:
         return {}
     if df.empty:
+        return {}
+    if rank_artifact_version_error(df):
         return {}
     df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
     output = {}

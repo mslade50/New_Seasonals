@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from atr_seasonal_contract import RANK_METHOD_COLUMN, RANK_METHOD_VERSION
+
 from macro_universe import (
     IBKR_EQUIVALENTS,
     SECTOR_ETFS,
@@ -88,6 +90,7 @@ def _fixture_ranks(tmp_path: Path) -> Path:
     for ticker, rank in [("GLD", 85.0), ("^VIX", 55.0), ("AGG", 20.0)]:
         for date in ["2026-07-10", "2026-07-13", "2026-09-01"]:
             row = {"ticker": ticker, "Date": pd.Timestamp(date)}
+            row[RANK_METHOD_COLUMN] = RANK_METHOD_VERSION
             for w in (5, 10, 21, 63, 126, 252):
                 row[f"atr_sznl_{w}d"] = rank if date != "2026-09-01" else 99.0
             rows.append(row)

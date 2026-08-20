@@ -99,6 +99,7 @@ CSV_PATH = "seasonal_ranks.csv"
 ATR_SZNL_PATH = "atr_seasonal_ranks.parquet"
 ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
 ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
+from atr_seasonal_contract import rank_artifact_version_error
 
 @st.cache_resource
 def load_seasonal_map():
@@ -135,6 +136,8 @@ def load_atr_seasonal_map():
     except Exception:
         return {}
     if df.empty:
+        return {}
+    if rank_artifact_version_error(df):
         return {}
     df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
     output = {}
@@ -1488,6 +1491,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             if df.empty: continue
 
             # Merge ATR seasonal ranks (if available) — 6 rank columns joined by date
+            # Missing ticker/date coverage stays NaN so a requested seasonal
+            # filter fails closed instead of silently disappearing.
+            for col in ATR_SZNL_COLS:
+                df[col] = np.nan
             if atr_sznl_map and ticker in atr_sznl_map:
                 atr_ranks = atr_sznl_map[ticker]
                 df_dates = df.index.normalize()
@@ -1789,7 +1796,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
 
             for asf in params.get('atr_sznl_filters', []):
                 col = f"atr_sznl_{asf['window']}d"
-                if col not in df.columns: continue
+                if col not in df.columns:
+                    conditions.append(pd.Series(False, index=df.index))
+                    continue
                 if asf['logic'] == '<': c_f = (df[col] < asf['thresh'])
                 elif asf['logic'] == '>': c_f = (df[col] > asf['thresh'])
                 elif asf['logic'] == 'Between': c_f = (df[col] >= asf['thresh']) & (df[col] <= asf.get('thresh_max', 100.0))
@@ -3996,7 +4005,10 @@ def main():
 
         atr_sznl_map = load_atr_seasonal_map() if atr_sznl_filters else None
         if atr_sznl_filters and not atr_sznl_map:
-            st.warning("ATR Seasonal Rank filter is enabled but atr_seasonal_ranks.parquet could not be loaded. Filter will be skipped.")
+            st.error(
+                "ATR Seasonal Rank filter is enabled, but no corrected rank artifact "
+                "could be loaded. The filter will fail closed and admit no trades."
+            )
 
         fragility_df = load_fragility_dials() if dial_filters else None
 

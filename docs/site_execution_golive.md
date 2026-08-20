@@ -1,9 +1,9 @@
 # Execution bridge — go-live runbook (Phase 2c)
 
-Status: **NOT armed.** The platform is built, verified, and running in **hard
-dry-run**: the agent validates and previews every command but contains **no order
-transmission path** — there is nothing to "flip on" by accident. Going live is the
-deliberate, watched procedure below. It is intentionally a human step.
+Status: **live-capable; actual arming state must be checked, never inferred from
+this file.** The local agent contains an IBKR transmission path. The safe rollout
+below keeps the Pages and broker live switches off until a deliberate, watched
+test. A stale browser book is not evidence of the current mode.
 
 Why it isn't automated: live transmission sends **real-money orders to your live
 IBKR accounts**, and it cannot be verified without a real fill. So the only safe
@@ -12,65 +12,88 @@ the dry-run → tiny → full ramp.
 
 ---
 
-## What's already done (the dry-run platform)
+## What is implemented
 - Agent holds an outbound WebSocket to the broker (5 AM–9 PM ET, scheduled task).
 - Read-only IBKR book (positions / orders / NLV) streamed to the **Positions /
   Open Orders** panels.
-- Gatekeeper **validation** (position-must-exist, price ordering, notional + risk
-  caps) and a full **order-chain preview** for every command.
-- Idempotency, signed commands, behind Cloudflare Access.
-- A green **DRY-RUN MODE** banner is shown whenever `book.mode !== "live"`.
-
-The only thing missing is the order-transmission path — deliberately.
+- Browser validation and order-chain previews.
+- Cloudflare Access JWT verification at the Pages boundary.
+- A dedicated `COMMAND_SECRET`; `STATUS_TOKEN` is read-only and cannot authorize
+  `/command`.
+- Strict Pages schemas/allowlists, fresh-book and heartbeat checks, server-side
+  risk/notional caps, and independent live type/account gates.
+- A second broker-side gate requiring a fresh heartbeat, fresh mode-bearing book,
+  a book bound to the sole active agent WebSocket session, and its own live
+  switch/type/account allowlists. Reconnects clear the prior book.
+- The local agent's validation, live allowlists/caps, and IBKR transmit subprocess.
+- The UI reports **LIVE**, **DRY-RUN**, or **UNKNOWN**. Both LIVE and DRY-RUN are
+  trusted only from a fresh book while the agent is online; UNKNOWN disables
+  mutating controls.
 
 ---
 
-## The live-execution design (to be built together, during a watched session)
-Add a **gated** transmit path to the agent, off by default, defence-in-depth:
+## Live-execution gates
 
-1. **`AGENT_LIVE_ENABLED`** env (default unset → dry-run). Nothing transmits
-   unless this is exactly `1`.
-2. **Ramp caps** (start tight, widen later):
-   - `LIVE_ACCOUNTS = {"pa"}`  — PA (small account) only at first.
-   - `LIVE_TYPES = {"flatten"}` — closing an existing position only at first.
-   - `LIVE_MAX_QTY` / `LIVE_MAX_NOTIONAL` — e.g. 1 share / a few hundred $.
-3. **Dedicated `COMMAND_SECRET`** for signing (replaces the reused STATUS_TOKEN on
-   the live path). The agent verifies with `COMMAND_SECRET` when set, else
-   STATUS_TOKEN; the Pages `/exec-command` signs with the same.
-4. **`execute_order.py`** — a separate subprocess (isolated like `book_snapshot.py`)
-   that re-checks every gate independently, connects **non-readonly** only at the
-   moment of transmit, places the order (reusing `sznl_entry` / `sznl_exit`
-   construction — already proven by the preview), and returns the order/fill ids.
-5. Agent `_handle_command`: after validation passes, if `LIVE_ENABLED` **and** all
-   ramp gates pass → `execute_order.py` → `state="executed"` with the fill; else →
-   dry-run (current behaviour). The book's `mode` flips to `"live"` → the UI banner
-   turns amber.
+All three layers must agree before a command can transmit:
 
-This path is **unverified until a real fill** — building it is step 2 below, and
-the first watched PA fill (step 4) is its test.
+1. **Pages:** `EXEC_LIVE_ENABLED=1`, and the type/account must appear in
+   `EXEC_LIVE_TYPES` / `EXEC_LIVE_ACCOUNTS`. New-risk commands also stay below
+   `EXEC_MAX_NEW_RISK_BPS` (default 500 bps) and
+   `EXEC_MAX_NEW_NOTIONAL_PCT` (default 200% for non-futures entries). Live
+   brackets default to `EXEC_LIVE_INSTRUMENTS=STK`; futures or FX must be
+   deliberately added at both server layers as well as allowed by the agent.
+   Live brackets also default to `EXEC_LIVE_ENTRY_TYPES=LMT,STP_LMT`; market,
+   open, or close entries require deliberate arming at both server layers.
+   Add/trim-readd actions separately default to
+   `EXEC_LIVE_POSITION_INSTRUMENTS=STK`; live adds require a fresh matching
+   price stop and are re-capped from current NLV, price, and stop.
+   Symbol-wide cancellation and price/stop modification remain off unless
+   `EXEC_ALLOW_SYMBOL_CANCEL=1` or `EXEC_ALLOW_PRICE_MODIFY=1` is deliberately
+   set at both server layers; exact-order cancel and quantity reduction remain
+   available when their command types are armed.
+2. **Broker Worker:** the same `EXEC_LIVE_ENABLED`, `EXEC_LIVE_TYPES`, and
+   `EXEC_LIVE_ACCOUNTS` checks run independently inside the Durable Object.
+3. **Local agent:** `AGENT_LIVE_ENABLED`/`LIVE_ENABLED`, `LIVE_TYPES`,
+   `LIVE_ACCOUNTS`, and its quantity/notional/risk gates must also allow the
+   command. The local agent must verify the same `COMMAND_SECRET`; there is no
+   `STATUS_TOKEN` signing fallback on the Pages/broker path.
+
+`dry_run` omitted or `true` is always a preview at the Pages gate. Live requires
+an explicit `dry_run:false` minted by a browser that currently sees a fresh LIVE
+book. The server then re-checks freshness and mode rather than trusting the client.
 
 ---
 
 ## Go-live steps (each is yours to authorize)
-1. **Secret.** Generate `COMMAND_SECRET`; set on the Worker, the Pages project, and
-   `exec_agent.env`. (Same mechanism as AGENT_TOKEN/STATUS_TOKEN.)
-2. **Build the gated path** (the code above) — together, in a session, reviewed.
-3. **Arm tiny.** On the trading box set `AGENT_LIVE_ENABLED=1` with
-   `LIVE_ACCOUNTS=pa`, `LIVE_TYPES=flatten`, `LIVE_MAX_QTY=1`; restart the agent.
-   Banner turns amber.
-4. **First watched fill.** With a tiny PA position open, click **Flatten** on one
+1. **Secret and agent contract.** Generate one strong `COMMAND_SECRET`; store it
+   in GitHub Actions, the Worker, Pages, and `exec_agent.env`. Update/restart the
+   external agent so its HMAC verifier uses it. Do not arm anything yet.
+2. **Deploy fail-closed.** Run `Deploy Execution Broker`; it deploys the broker,
+   wires the Pages secrets, explicitly writes `EXEC_LIVE_ENABLED=0`, resets the
+   type/account allowlists to empty, and resets instruments to stock-only at
+   both server layers. Deploy the private site from `main` through its cloud-only
+   workflow. Confirm the intended SHAs.
+3. **Dry-run contract test.** With both server switches off, send an `echo` and a
+   representative preview. Confirm the browser, Pages response, broker activity,
+   and agent preview agree, and that stale/offline tests are blocked.
+4. **Arm tiny at all three layers.** Start with the PA account and a risk-reducing
+   type such as `flatten`; apply the smallest agent quantity/notional caps. Set
+   matching Pages and Worker `EXEC_LIVE_TYPES=flatten`,
+   `EXEC_LIVE_ACCOUNTS=pa`, then set `EXEC_LIVE_ENABLED=1` at each only during the
+   watched session. Arm the agent last and confirm a fresh amber LIVE banner.
+5. **First watched fill.** With a tiny PA position open, click **Flatten** on one
    small position. Watch the order appear and fill in **TWS** and in the Activity
    log. Confirm the fill matches the preview.
-5. **Verify + ramp.** Once a few tiny fills are clean: widen `LIVE_TYPES`
+6. **Verify + ramp.** Once a few tiny fills are clean: widen `LIVE_TYPES`
    (entry_bracket, cancel), then add the primary account, then lift the caps.
 
 ## Kill switch / rollback
-Set `AGENT_LIVE_ENABLED=0` (or blank) and restart the agent — instantly back to
-hard dry-run. Stopping the `ExecAgent` task drops the socket entirely (the UI shows
-offline). The broker and agent never store an order intent that survives a restart.
+Set `EXEC_LIVE_ENABLED=0` on **either** Pages or the broker to stop new server-side
+live delivery. Also set `AGENT_LIVE_ENABLED=0`/`LIVE_ENABLED=0` and restart the
+agent. For an immediate connectivity stop, stop the ExecAgent task; the socket
+drops and fresh-mode checks block the UI and both server gates.
 
 ---
 
-When you're ready to start, say so and we'll do step 1–2 together, then you arm and
-watch the first fill. Until then the platform stays exactly where it is: complete,
-validated, previewing everything, transmitting nothing.
+Never describe the platform as transmitting nothing unless the current Pages,
+broker, agent, and fresh book have all been checked. The code is live-capable.

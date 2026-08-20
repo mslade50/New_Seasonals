@@ -31,6 +31,11 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install dependencies
         run: |
           pip install pandas numpy pyarrow scipy scikit-learn joblib plotly \
@@ -39,3 +44,10 @@ jobs:
 
       - name: Run test suite
         run: python -m pytest tests/ -q
+
+      - name: Run JavaScript guard suite
+        run: |
+          for test in tests/js/test_*.js; do
+            echo "Running $test"
+            node "$test"
+          done
