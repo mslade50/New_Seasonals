@@ -168,3 +168,71 @@ def test_adv_share_cap_math():
 def test_min_addv_for_defaults():
     assert ou.min_addv_for("Overbot Vol Spike") == 10_000_000
     assert ou.min_addv_for("Unknown Strategy") == ou.MIN_ADDV_BASE
+
+
+@pytest.mark.parametrize(
+    "ticker",
+    ["DX-Y.NYB", "DX-Y-NYB", "EURUSD=X", "ES=F", "BTC-USD", "^GSPC"],
+)
+def test_non_equity_research_symbols_never_enter_overflow(ticker):
+    assert not ou._is_tradeable_equity(ticker)
+
+
+@pytest.mark.parametrize("ticker", ["AAPL", "BRK-B", "BF-B"])
+def test_equity_symbols_remain_overflow_compatible(ticker):
+    assert ou._is_tradeable_equity(ticker)
+
+
+def test_configured_overflow_universe_excludes_macro_research_symbols():
+    from strategy_config import CSV_UNIVERSE
+
+    invalid = [
+        ticker for ticker in CSV_UNIVERSE
+        if "=" in str(ticker)
+        or str(ticker).endswith("-USD")
+        or str(ticker).endswith(".NYB")
+    ]
+    assert invalid == []
+
+
+def test_point_in_time_membership_matches_asof_screen():
+    long = _make_ticker("PIT", 320, 50.0, 120_000).set_index("date")
+    metrics = ou.point_in_time_overflow_metrics(long)
+    eligibility = ou.point_in_time_eligibility(
+        metrics, "Oversold Low Volume", precomputed=True
+    )
+
+    for position in (251, 275, 319):
+        as_of = long.index[position]
+        one_name = long.iloc[: position + 1].reset_index().assign(ticker="PIT")
+        screened = screen_universe(
+            one_name,
+            set(),
+            as_of=as_of,
+            freshness_td=ou.FRESHNESS_TD,
+        )
+        assert bool(eligibility.loc[as_of]) == ("PIT" in set(screened.get("ticker", [])))
+
+
+def test_point_in_time_membership_applies_strategy_addv_floor():
+    frame = _make_ticker("MID", 300, 50.0, 120_000).set_index("date")
+    metrics = ou.point_in_time_overflow_metrics(frame)
+    # $6MM ADDV: eligible for OLV's $3MM floor, ineligible for OVS's $10MM.
+    assert ou.point_in_time_eligibility(
+        metrics, "Oversold Low Volume", precomputed=True
+    ).iloc[-1]
+    assert not ou.point_in_time_eligibility(
+        metrics, "Overbot Vol Spike", precomputed=True
+    ).iloc[-1]
+
+
+def test_point_in_time_membership_cannot_see_future_rows():
+    frame = _make_ticker("PIT", 320, 50.0, 120_000).set_index("date")
+    cutoff = frame.index[279]
+    before = ou.point_in_time_eligibility(frame, "Oversold Low Volume")
+    mutated = frame.copy()
+    mutated.loc[mutated.index > cutoff, "Close"] *= 100.0
+    mutated.loc[mutated.index > cutoff, "High"] *= 100.0
+    mutated.loc[mutated.index > cutoff, "Low"] *= 100.0
+    after = ou.point_in_time_eligibility(mutated, "Oversold Low Volume")
+    pd.testing.assert_series_equal(before.loc[:cutoff], after.loc[:cutoff])

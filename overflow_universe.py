@@ -19,6 +19,7 @@ import os
 import time
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 _STALE_AFTER_SECONDS = 18 * 3600  # match data_provider / earnings refresh cadence
@@ -107,6 +108,90 @@ ADV_PARTICIPATION_CAP = 0.02
 def min_addv_for(strategy_name: str) -> float:
     """Per-strategy ADDV floor (falls back to the base floor)."""
     return PER_STRATEGY_MIN_ADDV.get(strategy_name, MIN_ADDV_BASE)
+
+
+def _is_tradeable_equity(ticker: str) -> bool:
+    """Whether a stored symbol is compatible with the US-equity order model."""
+    value = str(ticker).upper().strip()
+    if not value or value.startswith("^"):
+        return False
+    if value.endswith("-USD") or value.endswith("-USDT"):
+        return False
+    if "=" in value:
+        return False
+    # Yahoo's ICE dollar-index symbol is a research proxy, not an equity.
+    # Accept both spellings so an upstream dot-to-dash normalization cannot
+    # accidentally turn it into an eligible overflow security.
+    if value.endswith(".NYB") or value.endswith("-NYB"):
+        return False
+    return True
+
+
+def point_in_time_overflow_metrics(frame: pd.DataFrame) -> pd.DataFrame:
+    """Compute the overflow screen inputs as of every row in ``frame``.
+
+    Every value is backward-looking.  This is the historical counterpart to
+    ``scripts/build_overflow_universe.screen_universe(as_of=...)`` and prevents
+    today's liquidity/survival status from deciding membership in an old
+    backtest.  The returned ``base_eligible`` excludes only the
+    strategy-specific ADDV floor, which callers apply with
+    :func:`point_in_time_eligibility`.
+    """
+    if frame is None or frame.empty:
+        return pd.DataFrame(
+            columns=["addv_63d", "atr_pct_63d", "nan_frac_63d", "n_bars", "base_eligible"]
+        )
+    data = frame.copy().sort_index()
+    data.columns = [str(column).capitalize() for column in data.columns]
+    required = {"High", "Low", "Close", "Volume"}
+    if not required <= set(data.columns):
+        missing = sorted(required - set(data.columns))
+        raise ValueError(f"point-in-time overflow metrics missing columns: {missing}")
+
+    close = pd.to_numeric(data["Close"], errors="coerce")
+    volume = pd.to_numeric(data["Volume"], errors="coerce")
+    high = pd.to_numeric(data["High"], errors="coerce")
+    low = pd.to_numeric(data["Low"], errors="coerce")
+    prior_close = close.shift(1)
+    true_range = pd.concat(
+        [(high - low).abs(), (high - prior_close).abs(), (low - prior_close).abs()],
+        axis=1,
+    ).max(axis=1)
+    atr_pct = true_range.rolling(ATR_WINDOW).mean() / close * 100.0
+
+    metrics = pd.DataFrame(index=data.index)
+    metrics["addv_63d"] = (close * volume).rolling(ADDV_WINDOW).mean()
+    metrics["atr_pct_63d"] = atr_pct.rolling(ADDV_WINDOW).mean()
+    metrics["nan_frac_63d"] = close.isna().astype(float).rolling(ADDV_WINDOW).mean()
+    metrics["n_bars"] = np.arange(1, len(metrics) + 1, dtype=int)
+    metrics["base_eligible"] = (
+        (metrics["n_bars"] >= MIN_BARS)
+        & (close >= MIN_PRICE)
+        & (metrics["nan_frac_63d"] <= MAX_NAN_FRAC)
+        & (metrics["atr_pct_63d"] >= MIN_ATR_PCT)
+        & np.isfinite(metrics["addv_63d"])
+        & np.isfinite(metrics["atr_pct_63d"])
+    )
+    return metrics
+
+
+def point_in_time_eligibility(
+    frame_or_metrics: pd.DataFrame,
+    strategy_name: str,
+    *,
+    precomputed: bool = False,
+) -> pd.Series:
+    """Boolean point-in-time overflow membership for one strategy.
+
+    ``precomputed=True`` accepts :func:`point_in_time_overflow_metrics` output,
+    which lets the backtest cache the expensive rolling calculations once per
+    ticker and apply six strategy ADDV floors cheaply.
+    """
+    metrics = frame_or_metrics if precomputed else point_in_time_overflow_metrics(frame_or_metrics)
+    if metrics.empty:
+        return pd.Series(False, index=metrics.index, dtype=bool)
+    floor = float(min_addv_for(strategy_name))
+    return (metrics["base_eligible"].fillna(False) & (metrics["addv_63d"] >= floor)).astype(bool)
 
 
 def _norm(t: str) -> str:

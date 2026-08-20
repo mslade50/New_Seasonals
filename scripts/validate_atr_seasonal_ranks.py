@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 from atr_seasonal_contract import (  # noqa: E402
     RANK_METHOD_COLUMN,
     RANK_METHOD_VERSION,
+    RANK_RETIRED_TICKERS,
     rank_artifact_version_error,
 )
 from trading_calendar import TRADING_DAY  # noqa: E402
@@ -47,6 +48,7 @@ def validate(
     start_year: int,
     end_year: int,
     sources: list[Path] | None = None,
+    required_tickers: set[str] | None = None,
 ) -> dict:
     if not path.is_file() or path.stat().st_size == 0:
         raise ValueError(f"rank artifact is missing or empty: {path}")
@@ -111,10 +113,37 @@ def validate(
         )
 
     output_tickers = set(tickers.tolist())
+    retired_contract = {str(ticker).upper().strip() for ticker in RANK_RETIRED_TICKERS}
+    unexpected_retired = sorted(output_tickers & retired_contract)
+    if unexpected_retired:
+        raise ValueError(
+            "corrected artifact still contains explicitly retired tickers: "
+            f"{unexpected_retired}"
+        )
+
+    required = {
+        str(ticker).upper().strip() for ticker in (required_tickers or set())
+        if str(ticker).strip()
+    }
+    retired_required = sorted(required & retired_contract)
+    if retired_required:
+        raise ValueError(
+            "retired tickers are still reachable from the required universe: "
+            f"{retired_required}"
+        )
+    missing_required = sorted(required - output_tickers)
+    if missing_required:
+        raise ValueError(
+            f"artifact is missing {len(missing_required)} required current-universe "
+            f"tickers: {missing_required[:20]}"
+        )
+
     baseline_count = 0
     baseline_rows = 0
     baseline_ticker_years_count = 0
     baseline_sha256 = None
+    retired_baseline_tickers: list[str] = []
+    retired_baseline_rows = 0
     if baseline is not None:
         if not baseline.is_file():
             raise ValueError(f"baseline artifact is missing: {baseline}")
@@ -130,6 +159,14 @@ def validate(
         ].copy()
         if baseline_frame.empty:
             raise ValueError("baseline has no rows in the requested validation window")
+        retired_mask = baseline_frame["ticker"].isin(retired_contract)
+        retired_baseline_tickers = sorted(
+            baseline_frame.loc[retired_mask, "ticker"].unique().tolist()
+        )
+        retired_baseline_rows = int(retired_mask.sum())
+        baseline_frame = baseline_frame.loc[~retired_mask].copy()
+        if baseline_frame.empty:
+            raise ValueError("baseline has no preservable rows after reviewed retirements")
         baseline_tickers = set(baseline_frame["ticker"].tolist())
         baseline_rows = len(baseline_frame)
         baseline_count = len(baseline_tickers)
@@ -167,6 +204,13 @@ def validate(
         "baseline_rows": int(baseline_rows),
         "baseline_ticker_years": int(baseline_ticker_years_count),
         "baseline_sha256": baseline_sha256,
+        "required_current_tickers": int(len(required)),
+        "retired_baseline_tickers": retired_baseline_tickers,
+        "retired_baseline_rows": int(retired_baseline_rows),
+        "retirement_reasons": {
+            ticker: RANK_RETIRED_TICKERS[ticker]
+            for ticker in retired_baseline_tickers
+        },
         "source_sha256": source_sha256,
         "start_year": int(dates.dt.year.min()),
         "end_year": int(dates.dt.year.max()),
@@ -182,10 +226,40 @@ def main() -> None:
     parser.add_argument("--end-year", type=int, required=True)
     parser.add_argument("--manifest", type=Path, default=Path("atr_seasonal_ranks.meta.json"))
     parser.add_argument("--source", type=Path, action="append", default=[])
+    parser.add_argument(
+        "--require-current-universe",
+        action="store_true",
+        help="Require every current CSV/liquid universe ticker in the artifact.",
+    )
+    parser.add_argument(
+        "--require-survivorship-universe",
+        action="store_true",
+        help="Require every ticker declared by the validated historical-only "
+             "survivorship surface.",
+    )
     args = parser.parse_args()
+
+    required_tickers = None
+    if args.require_current_universe:
+        from strategy_config import CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
+
+        required_tickers = set(CSV_UNIVERSE) | set(LIQUID_PLUS_COMMODITIES)
+    if args.require_survivorship_universe:
+        from survivorship_contract import validate_survivorship_artifact
+
+        survivor_path = ROOT / "data" / "survivorship_prices.parquet"
+        survivor_manifest_path = ROOT / "data" / "survivorship_prices.meta.json"
+        survivor_manifest = validate_survivorship_artifact(
+            survivor_path, survivor_manifest_path
+        )
+        required_tickers = set(required_tickers or set()) | {
+            str(ticker).upper().strip()
+            for ticker in survivor_manifest.get("required_tickers", [])
+        }
 
     manifest = validate(
         args.path, args.baseline, args.start_year, args.end_year, sources=args.source,
+        required_tickers=required_tickers,
     )
     args.manifest.parent.mkdir(parents=True, exist_ok=True)
     args.manifest.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

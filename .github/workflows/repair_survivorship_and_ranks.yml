@@ -1,0 +1,80 @@
+name: Repair Survivorship Coverage and Seasonal Ranks
+
+# Manual, fail-closed migration.  It builds both historical-only prices and
+# their dependent ATR-seasonal ranks from authoritative cloud/API inputs, then
+# publishes immutable run-scoped evidence before replacing canonical R2 keys.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: atr-seasonal-rank-writer
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install repair dependencies
+        run: pip install pandas pyarrow numpy requests yfinance boto3 pytest
+
+      - name: Pull authoritative price and rank baselines from R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python -c "from cache_io import download_to_local as d; assert d('master_prices.parquet','data/master_prices.parquet'); assert d('overflow_prices.parquet','data/overflow_prices.parquet'); assert d('atr_seasonal_ranks.parquet','atr_seasonal_ranks.parquet')"
+          cp atr_seasonal_ranks.parquet atr_seasonal_ranks.baseline.parquet
+
+      - name: Run focused contract tests
+        run: >-
+          python -m pytest
+          tests/test_survivorship_contract.py
+          tests/test_survivorship_ledger.py
+          tests/test_overflow_universe.py
+          tests/test_atr_seasonal_rank_lookahead.py
+          tests/test_validate_atr_seasonal_ranks.py
+          -q
+
+      - name: Build complete 2020+ major-removal price surface
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python scripts/build_survivorship_prices.py
+
+      - name: Rebuild ranks with target-year truncation and survivor coverage
+        run: >-
+          python build_atr_seasonal_ranks.py
+          --full
+          --rebuild-existing
+          --with-survivorship
+          --no-download
+
+      - name: Validate ranks, sessions, provenance, and both required universes
+        run: |
+          ATR_END_YEAR=$(python -c "from build_atr_seasonal_ranks import DEFAULT_YEAR; print(DEFAULT_YEAR)")
+          ATR_START_YEAR=$(python -c "from build_atr_seasonal_ranks import FULL_START_YEAR; print(FULL_START_YEAR)")
+          python scripts/validate_atr_seasonal_ranks.py --baseline atr_seasonal_ranks.baseline.parquet --start-year "$ATR_START_YEAR" --end-year "$ATR_END_YEAR" --require-current-universe --require-survivorship-universe --source data/master_prices.parquet --source data/overflow_prices.parquet --source data/survivorship_prices.parquet
+
+      - name: Publish immutable evidence, then canonical paired inputs
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python -c "import os; from cache_io import upload_from_local as u; run=os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']; p='repairs/survivorship-and-ranks/'+run; files=[('atr_seasonal_ranks.baseline.parquet','rank-baseline.parquet'),('data/survivorship_prices.parquet','survivorship_prices.parquet'),('data/survivorship_prices.meta.json','survivorship_prices.meta.json'),('atr_seasonal_ranks.parquet','atr_seasonal_ranks.parquet'),('atr_seasonal_ranks.meta.json','atr_seasonal_ranks.meta.json')]; assert all(u(src,p+'/'+dst) for src,dst in files)"
+          python -c "from cache_io import upload_from_local as u; assert u('data/survivorship_prices.parquet','survivorship_prices.parquet'); assert u('data/survivorship_prices.meta.json','survivorship_prices.meta.json'); assert u('atr_seasonal_ranks.parquet','atr_seasonal_ranks.parquet'); assert u('atr_seasonal_ranks.meta.json','atr_seasonal_ranks.meta.json')"

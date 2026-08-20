@@ -157,13 +157,24 @@ except ImportError:
         return 1.0
 
 try:
-    from overflow_universe import load_overflow_universe, load_overflow_universe_full
+    from overflow_universe import (
+        load_overflow_universe,
+        load_overflow_universe_full,
+        point_in_time_overflow_metrics,
+        point_in_time_eligibility,
+    )
 except Exception:
     def load_overflow_universe(fallback=None, **_kw):
         return list(fallback) if fallback is not None else []
 
     def load_overflow_universe_full(static_fallback=None, **_kw):
         return sorted(set(static_fallback or []))
+
+    def point_in_time_overflow_metrics(_frame):
+        raise RuntimeError("point-in-time overflow screen is unavailable")
+
+    def point_in_time_eligibility(_metrics, _strategy_name, **_kw):
+        raise RuntimeError("point-in-time overflow screen is unavailable")
 
 # Strategies that the overflow scanner runs against the broader CSV_UNIVERSE.
 # When the "Run on Overflow Universe" UI toggle is on, strat_backtester swaps
@@ -693,6 +704,7 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
     candidates = []
     signal_data = {}
     cutoff_ts = pd.Timestamp(user_start_date)
+    pit_metrics_by_ticker = {}
     
     for strat_idx, strat in enumerate(strategies):
         settings = strat['settings']
@@ -705,6 +717,15 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
             
             try:
                 mask = get_historical_mask(df, settings, sznl_map, ticker)
+                if strat.get('_pit_overflow_filter'):
+                    if t_clean not in pit_metrics_by_ticker:
+                        pit_metrics_by_ticker[t_clean] = point_in_time_overflow_metrics(df)
+                    eligibility = point_in_time_eligibility(
+                        pit_metrics_by_ticker[t_clean],
+                        strat.get('name', ''),
+                        precomputed=True,
+                    )
+                    mask = mask & eligibility.reindex(mask.index).fillna(False)
                 mask = mask[mask.index >= cutoff_ts]
                 if not mask.any():
                     continue
@@ -738,7 +759,12 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
                         strat_idx,
                         signal_idx
                     ))
-            except Exception:
+            except Exception as exc:
+                if strat.get('_pit_overflow_filter'):
+                    raise RuntimeError(
+                        "point-in-time overflow candidate generation failed for "
+                        f"{strat.get('name')} / {t_clean}: {exc}"
+                    ) from exc
                 continue
     
     return candidates, signal_data
@@ -1957,6 +1983,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         "Date": signal_date, "Entry Date": entry_date,
                         "Exit Date": _t_exit_date, "Exit Type": _t_exit_ty,
                         "Time Stop": time_stop_date, "Strategy": strat_name,
+                        "Tier": "Overflow" if strat.get('_overflow_pass') else "Liquid",
                         "Ticker": ticker, "Action": action,
                         "Entry Criteria": entry_type, "Price": entry_price,
                         "Exit Price": _t_exit_px,

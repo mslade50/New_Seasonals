@@ -235,7 +235,12 @@ try:
         t for t in _pd.read_csv(_csv_path)['ticker'].unique().tolist()
         if t not in UNIVERSE_CORP_ACTION_EXCLUSIONS
         and t not in UNIVERSE_NO_DATA
-        and not str(t).endswith('=F') and not str(t).endswith('-USD')
+        # sznl_ranks.csv also contains macro research symbols.  The overflow
+        # tier is an equity-order universe, so futures/FX/crypto and the Yahoo
+        # spot-dollar index must never reach its backtest or staging passes.
+        and '=' not in str(t)
+        and not str(t).endswith('-USD')
+        and not str(t).endswith('.NYB')
         and (not str(t).startswith('^') or t in SPOT_TO_TRADEABLE)
     )
 except Exception:

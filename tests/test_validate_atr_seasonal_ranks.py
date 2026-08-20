@@ -4,7 +4,11 @@ import pandas as pd
 import pytest
 
 from scripts.validate_atr_seasonal_ranks import RANK_COLUMNS, validate
-from atr_seasonal_contract import RANK_METHOD_COLUMN, RANK_METHOD_VERSION
+from atr_seasonal_contract import (
+    RANK_METHOD_COLUMN,
+    RANK_METHOD_VERSION,
+    RANK_RETIRED_TICKERS,
+)
 from trading_calendar import TRADING_DAY
 
 
@@ -101,3 +105,45 @@ def test_corrected_calendar_can_remove_a_legacy_non_session_row(tmp_path):
     manifest = validate(artifact, baseline, 2020, 2021)
 
     assert manifest["baseline_rows"] == len(baseline_frame) + 1
+
+
+def test_reviewed_retired_baseline_ticker_is_removed_and_manifested(tmp_path):
+    artifact = tmp_path / "ranks.parquet"
+    baseline = tmp_path / "baseline.parquet"
+    _write(artifact, tickers=("AAA",))
+    _write(baseline, tickers=("AAA", "THS"))
+
+    manifest = validate(artifact, baseline, 2020, 2021)
+
+    assert manifest["retired_baseline_tickers"] == ["THS"]
+    assert manifest["retired_baseline_rows"] > 0
+    assert manifest["retirement_reasons"]["THS"] == RANK_RETIRED_TICKERS["THS"]
+    assert manifest["baseline_tickers"] == 1
+
+
+def test_missing_required_current_ticker_fails_closed(tmp_path):
+    artifact = tmp_path / "ranks.parquet"
+    _write(artifact, tickers=("AAA",))
+
+    with pytest.raises(ValueError, match="missing 1 required current-universe tickers"):
+        validate(
+            artifact,
+            None,
+            2020,
+            2021,
+            required_tickers={"AAA", "BBB"},
+        )
+
+
+def test_retired_ticker_cannot_be_required_by_current_universe(tmp_path):
+    artifact = tmp_path / "ranks.parquet"
+    _write(artifact, tickers=("AAA",))
+
+    with pytest.raises(ValueError, match="retired tickers are still reachable"):
+        validate(
+            artifact,
+            None,
+            2020,
+            2021,
+            required_tickers={"AAA", "THS"},
+        )

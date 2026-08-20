@@ -90,8 +90,12 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          python -c "from cache_io import download_to_local; download_to_local('atr_seasonal_ranks.parquet', 'atr_seasonal_ranks.parquet')"
-          python build_atr_seasonal_ranks.py --with-symbol-master --only-missing --full --upload
+          python -c "from cache_io import download_to_local as d; assert d('atr_seasonal_ranks.parquet','atr_seasonal_ranks.parquet'); assert d('survivorship_prices.parquet','data/survivorship_prices.parquet'); assert d('survivorship_prices.meta.json','data/survivorship_prices.meta.json')"
+          python build_atr_seasonal_ranks.py --with-symbol-master --with-survivorship --only-missing --full
+          ATR_END_YEAR=$(python -c "from build_atr_seasonal_ranks import DEFAULT_YEAR; print(DEFAULT_YEAR)")
+          ATR_START_YEAR=$(python -c "from build_atr_seasonal_ranks import FULL_START_YEAR; print(FULL_START_YEAR)")
+          python scripts/validate_atr_seasonal_ranks.py --start-year "$ATR_START_YEAR" --end-year "$ATR_END_YEAR" --require-current-universe --require-survivorship-universe --source data/master_prices.parquet --source data/overflow_prices.parquet --source data/survivorship_prices.parquet
+          python -c "from cache_io import upload_from_local as u; assert u('atr_seasonal_ranks.parquet','atr_seasonal_ranks.parquet'); assert u('atr_seasonal_ranks.meta.json','atr_seasonal_ranks.meta.json')"
 
       - name: B3. Earnings coverage for the expanded universe
         # --overflow-staging writes data/earnings_calendar_overflow.parquet (R2 key

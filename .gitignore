@@ -27,6 +27,7 @@ data/overflow_universe.parquet
 data/overflow_universe.txt
 data/overflow_universe_config.json
 data/earnings_calendar_overflow.parquet
+data/survivorship_prices.meta.json
 
 # Runtime / generated artifacts
 logs/
@@ -116,6 +117,7 @@ atr_seasonal_ranks.csv
 # atr_seasonal_ranks.parquet exceeds GitHub's 100 MB limit at full universe;
 # distributed via R2 (key: atr_seasonal_ranks.parquet) instead of git.
 atr_seasonal_ranks.parquet
+atr_seasonal_ranks.meta.json
 *.db
 
 # Environment / IDE

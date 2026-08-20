@@ -14,7 +14,9 @@ from atr_seasonal_contract import RANK_METHOD_COLUMN, RANK_METHOD_VERSION
 from build_atr_seasonal_ranks import (
     FWD_WINDOWS,
     compute_ranks_for_year,
+    filter_retired_tickers,
     generate_trading_dates,
+    normalize_ticker,
     prepare_ticker_data,
 )
 
@@ -92,6 +94,39 @@ def test_rank_calendar_uses_versioned_nyse_special_closures():
 
     assert len(dates) == 250
     assert pd.Timestamp("2025-01-09") not in set(dates)
+
+
+def test_reviewed_legacy_retirements_are_filtered_from_repair_universe():
+    kept, retired = filter_retired_tickers(["AAPL", "THS", "^SOX"])
+
+    assert kept == ["AAPL"]
+    assert retired == ["THS", "^SOX"]
+
+
+def test_ticker_normalization_preserves_yahoo_suffix_symbols():
+    assert normalize_ticker("BRK.B") == "BRK-B"
+    assert normalize_ticker("DX-Y.NYB") == "DX-Y.NYB"
+
+
+def test_master_cache_loader_can_reach_yahoo_suffix_symbol(monkeypatch, tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame(
+        [{
+            "ticker": "DX-Y.NYB",
+            "date": pd.Timestamp("2026-08-19"),
+            "Open": 98.0,
+            "High": 99.0,
+            "Low": 97.0,
+            "Close": 98.5,
+            "Volume": 1_000.0,
+        }]
+    ).to_parquet(data_dir / "master_prices.parquet", index=False)
+    monkeypatch.setattr(rank_builder, "current_dir", str(tmp_path))
+
+    loaded = rank_builder.load_master_prices_cache(["DX-Y.NYB"])
+
+    assert set(loaded) == {"DX-Y.NYB"}
 
 
 def test_versioned_merge_preserves_existing_ticker_and_adds_requested_ticker(

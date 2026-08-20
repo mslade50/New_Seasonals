@@ -49,11 +49,13 @@ conservative and fully parameterized (config constants) — tune after backtest.
 **Trading-risk fixes**
 - **R-T1 (HIGH — survivorship/lookahead):** backtests must use **point-in-time** universe
   membership (rolling ADDV/ATR as-of each historical date), not today's screen. Small-cap
-  mean-reversion is the family most inflated by survivorship. → `build_overflow_universe` computes
-  the screen **per-date-capable** (no use of latest-only values); full point-in-time wiring into
-  `strat_backtester` is a **required pre-promotion step** (flagged, larger change). Until then the
-  rollout PnL number is treated as an optimistic ceiling; the trustworthy comparison metrics are
-  **turnover / signal count / per-name concentration**.
+  mean-reversion is the family most inflated by survivorship. → Landed 2026-08-20 for the
+  production full-history ledger: every overflow signal date replays trailing ADDV/ATR/price/
+  history gates, and a separate validated surface restores 36 major 2020+ former constituents.
+  The replay is deliberately bounded to the reviewed static/live pool plus those former names;
+  admitting every raw staging-cache symbol exceeded 8 GiB in rehearsal. Full pre-2020/all-US
+  delisted coverage therefore remains a partitioned-engine/vendor-data follow-up, and its
+  magnitudes remain an optimistic ceiling.
 - **R-T2 (HIGH — risk budget):** the binding aggregate control is the **2.5% daily cap inside the
   external `order_staging.py`**, not scanner-side. Uncapped breadth × fixed budget ⇒ dilution or
   arbitrary truncation. → Add a **per-strategy daily signal cap** (top-N by setup quality) as the
@@ -390,7 +392,7 @@ bootstrap is validated.
 
 - Keep `ATR_PCT_FLOOR` at 1.5%, or calibrate from a backtest of signal yield vs win-rate?
 - `symbol_master` size after FMP pre-filter — confirm it lands in the ~3–4k range (drives bootstrap cost).
-- Should backtester/indicator-cache use live `OVERFLOW_UNIVERSE` or a historical point-in-time
-  membership (to avoid lookahead in backtests)? Default here: live universe (simpler); note the
-  survivorship caveat.
+- The production ledger now uses historical point-in-time membership for the reviewed static pool
+  plus the 2020+ major-removal repair. A fully partitioned all-staging/all-delisted replay remains
+  open because the monolithic form exceeded the cloud runner's memory budget.
 - ADV participation cap default (2%) and whether to enforce it scanner-side vs order_staging-side.

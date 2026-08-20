@@ -42,7 +42,13 @@ _ROOT = os.path.dirname(_HERE)
 sys.path.insert(0, _ROOT)
 
 import data_provider
-from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE
+from strategy_config import (
+    STRATEGY_BOOK,
+    ACCOUNT_VALUE,
+    LIQUID_PLUS_COMMODITIES,
+    UNIVERSE_CORP_ACTION_EXCLUSIONS,
+)
+from overflow_universe import _is_tradeable_equity
 from pages.strat_backtester import (
     download_historical_data,
     load_seasonal_map,
@@ -81,6 +87,8 @@ DIFF_WINDOW_TD = 15                      # vintage-diff lookback (business days)
 POOLED_LONG_CAP_BPS = None
 POOLED_SHORT_CAP_BPS = None
 
+_LEDGER_RESEARCH_META = {}
+
 
 def _provenance_meta(n_rows):
     """Build metadata embedded in the parquet schema. daily_scan prints this
@@ -102,6 +110,7 @@ def _provenance_meta(n_rows):
         "ledger_source": source,
         "ledger_git_sha": sha or "unknown",
         "ledger_rows": str(n_rows),
+        **{str(key): str(value) for key, value in _LEDGER_RESEARCH_META.items()},
     }
 
 
@@ -222,10 +231,11 @@ def shape_flat_trades(sig):
     _sign = np.where(df["Direction"] == "Short", -1.0, 1.0)
     df["Return_Pct"] = _sign * (df["Exit Price"] - df["Entry Price"]) / df["Entry Price"] * 100.0
     df["R_Multiple"] = df["PnL_flat_750k"] / df["Risk_flat_750k"].replace(0, np.nan)
-    _of = set(OVERFLOW_TICKERS)
-    df["Tier"] = np.where(
-        df["Strategy"].isin(OVERFLOW_ELIGIBLE) & df["Ticker"].isin(_of),
-        "Overflow", "Liquid")
+    if "Tier" not in df.columns:
+        _of = set(OVERFLOW_TICKERS)
+        df["Tier"] = np.where(
+            df["Strategy"].isin(OVERFLOW_ELIGIBLE) & df["Ticker"].isin(_of),
+            "Overflow", "Liquid")
     for c in ["Signal Date", "Entry Date", "Exit Date", "Time Stop"]:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c])
@@ -364,10 +374,19 @@ def build_ovsext_counterfactual(df, md):
           f"({n_censored} censored) -> {OUT_OVSEXT}")
 
 
-def load_data(tickers):
+def load_data(tickers, *, include_historical=False):
     if data_provider.has_master():
-        print(f"  Loading {len(tickers)} tickers from master_prices.parquet ...")
-        md = data_provider.get_history(list(tickers), start=DATA_START.strftime("%Y-%m-%d"))
+        source_label = (
+            "master + overflow + survivorship parquets"
+            if include_historical else "master_prices.parquet"
+        )
+        print(f"  Loading {len(tickers)} tickers from {source_label} ...")
+        md = data_provider.get_history(
+            list(tickers),
+            start=DATA_START.strftime("%Y-%m-%d"),
+            include_overflow=include_historical,
+            include_survivorship=include_historical,
+        )
         missing = [t for t in tickers if t not in md or md[t] is None or md[t].empty]
         if missing:
             print(f"  {len(missing)} missing from master (skipping yfinance backfill): "
@@ -378,17 +397,56 @@ def load_data(tickers):
 
 
 def main(upload=False):
+    global _LEDGER_RESEARCH_META
     starting_equity = ACCOUNT_VALUE
     print("=" * 74)
     print("FULL-BOOK TRADE LEDGER — all strategies, full history")
     print(f"  Backtest range: {BT_START} -> today | start equity ${starting_equity:,.0f}")
     print("=" * 74)
 
-    full_book = build_full_strategy_book()
+    survivorship_manifest = data_provider.get_survivorship_manifest()
+    survivor_tickers = data_provider.get_survivorship_tickers()
+    liquid = {
+        str(ticker).upper().strip().replace(".", "-")
+        for ticker in LIQUID_PLUS_COMMODITIES
+    }
+    excluded = {
+        str(ticker).upper().strip().replace(".", "-")
+        for ticker in UNIVERSE_CORP_ACTION_EXCLUSIONS
+    }
+    # Bound the production replay to the reviewed static/live universe plus
+    # the explicit former-constituent repair.  Admitting every raw staging
+    # cache symbol at once exceeded 8 GiB in rehearsal and is not deployable on
+    # the GHA runner; broader small-cap coverage needs a partitioned engine.
+    historical_candidates = {
+        str(ticker).upper().strip().replace(".", "-")
+        for ticker in (set(OVERFLOW_TICKERS) | set(survivor_tickers))
+    }
+    historical_overflow = sorted(
+        ticker
+        for ticker in historical_candidates
+        if _is_tradeable_equity(ticker)
+        and ticker not in liquid
+        and ticker not in excluded
+    )
+    _LEDGER_RESEARCH_META = {
+        "historical_universe_mode": "point-in-time-overflow-v1",
+        "survivorship_contract": survivorship_manifest.get("contract_version"),
+        "survivorship_scope_start": survivorship_manifest.get("scope_start"),
+        "survivorship_required_tickers": len(survivor_tickers),
+        "survivorship_unresolved_required": len(
+            survivorship_manifest.get("unresolved_required", [])
+        ),
+    }
+    full_book = build_full_strategy_book(
+        historical_overflow_tickers=historical_overflow,
+        point_in_time_overflow=True,
+    )
     n_liquid = len(STRATEGY_BOOK)
     n_overflow = len(full_book) - n_liquid
     print(f"  Book: {n_liquid} liquid passes + {n_overflow} overflow passes "
-          f"(overflow tier = {len(OVERFLOW_TICKERS)} tickers)")
+          f"(historical PIT overflow pool = {len(historical_overflow)} tickers; "
+          f"survivorship catalog = {len(survivor_tickers)})")
 
     sznl_map = load_seasonal_map()
     atr_sznl_map = load_atr_seasonal_map()
@@ -397,12 +455,24 @@ def main(upload=False):
             "atr_seasonal_ranks.parquet is missing or rejected; refusing to publish "
             "a ledger with ATR-seasonal strategies silently disabled"
         )
+    # Every declared former constituent must have ranks; otherwise the new
+    # price surface could load successfully while those names still fail every
+    # ATR-seasonal strategy silently.  Young current candidates may
+    # legitimately lack the three prior years needed for ranks and continue to
+    # fail closed exactly as they do live.
+    missing_rank_tickers = sorted(set(survivor_tickers) - set(atr_sznl_map))
+    if missing_rank_tickers:
+        raise RuntimeError(
+            "ATR-seasonal artifact does not cover the survivorship catalog "
+            f"universe ({len(missing_rank_tickers)} missing): "
+            f"{missing_rank_tickers[:25]}"
+        )
 
     all_tickers = set()
     for s in full_book:
         all_tickers.update(s["universe_tickers"])
     all_tickers.update(["SPY", "^VIX"])
-    md = load_data(all_tickers)
+    md = load_data(all_tickers, include_historical=True)
     if not md:
         print("FAILED to load data")
         return
@@ -508,10 +578,11 @@ def main(upload=False):
 
     # Tier: a trade is from the overflow pass iff its strategy is overflow-
     # eligible AND its ticker lives in the (disjoint) overflow tier.
-    _of = set(OVERFLOW_TICKERS)
-    df["Tier"] = np.where(
-        df["Strategy"].isin(OVERFLOW_ELIGIBLE) & df["Ticker"].isin(_of),
-        "Overflow", "Liquid")
+    if "Tier" not in df.columns:
+        _of = set(OVERFLOW_TICKERS)
+        df["Tier"] = np.where(
+            df["Strategy"].isin(OVERFLOW_ELIGIBLE) & df["Ticker"].isin(_of),
+            "Overflow", "Liquid")
 
     # target hold days per strategy (reference)
     _hold = {s["name"]: s["execution"].get("hold_days") for s in full_book}

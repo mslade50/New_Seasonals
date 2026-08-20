@@ -1339,12 +1339,25 @@ Aligned sites — change together:
   guard: `test_olv_exits.py` (OneDrive)
 - Guard: `tests/test_olv_stop_and_cap.py` (engine + scan + config invariants)
 
-Ledger SURVIVORSHIP CAVEAT (2026-07-16): the 23-year ledger trades only
-tickers alive in today's universe files — 21 of 22 major 2020s delistings are
-absent — which flatters long dip-buy stats and the ~870-name overflow tier
-most. Treat overflow-tier historical avgR as an upper bound until the
-dynamic-overflow work's point-in-time universe lands. Do not tune sizing off
-overflow backtest stats alone.
+Ledger survivorship contract (2026-08-20): the full-history ledger no longer
+uses today's overflow membership as its historical gate. It loads
+`master_prices ∪ overflow_prices ∪ survivorship_prices`, computes the same
+ADDV/ATR/price/history screen from trailing data on every signal date, and
+requires ATR-seasonal ranks for every declared former constituent. The
+separate R2 surface `survivorship_prices.parquet` + paired manifest covers all
+36 identity-matched delisted/renamed members removed from the S&P 500,
+Nasdaq-100, or Dow from 2020 through 2026-08-20 (34 historical-only + SEE/CTRA
+already in primary prices). FRC and SIVB carry explicit one-cent terminal-value
+marks after receivership/closure so a held long is not frozen at the last
+listed close. Contract/workflow: `survivorship_contract.py`,
+`scripts/build_survivorship_prices.py`, and
+`repair_survivorship_and_ranks.yml`; production site builds require both the
+price and manifest objects from R2.
+
+This is a bounded repair, not CRSP: pre-2020 former constituents and the full
+US small-cap delisting population remain incomplete. The manifest says that
+explicitly. Treat pre-2020/small-cap overflow magnitudes as partially
+survivorship-flattered and do not tune sizing from them alone.
 
 Ledger provenance + integrity (2026-07-06, after a false TS/USO block): the
 ledger is a FULL BACKTEST REBUILD, not a fill record -- marginal limit fills

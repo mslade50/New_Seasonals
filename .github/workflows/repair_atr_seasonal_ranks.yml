@@ -43,14 +43,18 @@ jobs:
 
       - name: Pull authoritative inputs and current rank universe from R2
         run: |
-          python -c "from cache_io import download_to_local as d; assert d('master_prices.parquet','data/master_prices.parquet'); assert d('atr_seasonal_ranks.parquet','atr_seasonal_ranks.parquet'); d('overflow_prices.parquet','data/overflow_prices.parquet'); d('symbol_master.parquet','data/symbol_master.parquet')"
+          python -c "from cache_io import download_to_local as d; assert d('master_prices.parquet','data/master_prices.parquet'); assert d('atr_seasonal_ranks.parquet','atr_seasonal_ranks.parquet'); assert d('survivorship_prices.parquet','data/survivorship_prices.parquet'); assert d('survivorship_prices.meta.json','data/survivorship_prices.meta.json'); d('overflow_prices.parquet','data/overflow_prices.parquet'); d('symbol_master.parquet','data/symbol_master.parquet')"
           cp atr_seasonal_ranks.parquet atr_seasonal_ranks.baseline.parquet
 
       - name: Prove target-year mutation invariance
         run: python -m pytest tests/test_atr_seasonal_rank_lookahead.py -q
 
-      - name: Recompute every existing ticker and target year
-        run: python build_atr_seasonal_ranks.py --full --with-symbol-master --rebuild-existing --no-download
+      - name: Recompute every reachable existing ticker and target year
+        # The emergency repair covers the complete current scan universe plus
+        # every preservable baseline name. Symbol-master expansion remains in
+        # rebuild_overflow_universe.yml; mixing new IPO discovery into this
+        # migration would make source completeness nondeterministic.
+        run: python build_atr_seasonal_ranks.py --full --rebuild-existing --with-survivorship --no-download
 
       - name: Validate repaired artifact and write provenance manifest
         run: |
@@ -58,7 +62,8 @@ jobs:
           ATR_START_YEAR=$(python -c "from build_atr_seasonal_ranks import FULL_START_YEAR; print(FULL_START_YEAR)")
           SOURCE_ARGS=(--source data/master_prices.parquet)
           if [ -f data/overflow_prices.parquet ]; then SOURCE_ARGS+=(--source data/overflow_prices.parquet); fi
-          python scripts/validate_atr_seasonal_ranks.py --baseline atr_seasonal_ranks.baseline.parquet --start-year "$ATR_START_YEAR" --end-year "$ATR_END_YEAR" "${SOURCE_ARGS[@]}"
+          SOURCE_ARGS+=(--source data/survivorship_prices.parquet)
+          python scripts/validate_atr_seasonal_ranks.py --baseline atr_seasonal_ranks.baseline.parquet --start-year "$ATR_START_YEAR" --end-year "$ATR_END_YEAR" --require-current-universe --require-survivorship-universe "${SOURCE_ARGS[@]}"
 
       - name: Publish corrected artifact and manifest to R2
         run: |

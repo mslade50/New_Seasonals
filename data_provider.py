@@ -22,6 +22,12 @@ MASTER_PATH = os.path.join(_ROOT, "data", "master_prices.parquet")
 # backtester does, for the "Overflow (dynamic)" universe). Production callers
 # (daily_portfolio_report) leave it False, so master_prices is the only source.
 OVERFLOW_PATH = os.path.join(_ROOT, "data", "overflow_prices.parquet")
+# Historical-only former constituents.  This surface is never loaded by the
+# live scanner; full-history research opts in explicitly.
+SURVIVORSHIP_PATH = os.path.join(_ROOT, "data", "survivorship_prices.parquet")
+SURVIVORSHIP_MANIFEST_PATH = os.path.join(
+    _ROOT, "data", "survivorship_prices.meta.json"
+)
 
 # Last reason _refresh_from_r2_if_needed bailed out without producing a fresh
 # parquet (missing cache_io, missing creds, boto3 exception, etc.). The
@@ -121,42 +127,155 @@ def _refresh_overflow_from_r2_if_needed():
             pass
 
 
-def _load_full(include_overflow=False):
-    df = pd.read_parquet(MASTER_PATH)
+def _refresh_survivorship_from_r2_if_needed():
+    """Pull the paired historical artifact/manifest when absent or stale.
+
+    Unlike overflow staging, survivorship-enabled callers fail closed after
+    this attempt; a missing or mismatched pair must never silently recreate the
+    old current-universe backtest.
+    """
+    need = any(
+        (not os.path.exists(path))
+        or (time.time() - os.path.getmtime(path) > _STALE_AFTER_SECONDS)
+        for path in (SURVIVORSHIP_PATH, SURVIVORSHIP_MANIFEST_PATH)
+    )
+    if not need:
+        return
+    try:
+        from cache_io import download_to_local
+    except Exception:
+        return
+    try:
+        download_to_local("survivorship_prices.parquet", SURVIVORSHIP_PATH)
+        download_to_local(
+            "survivorship_prices.meta.json", SURVIVORSHIP_MANIFEST_PATH
+        )
+    except Exception:
+        return
+
+
+_SURVIVORSHIP_VALIDATION_CACHE = {}
+
+
+def _validated_survivorship_manifest() -> dict:
+    _refresh_survivorship_from_r2_if_needed()
+    if not os.path.exists(SURVIVORSHIP_PATH) or not os.path.exists(
+        SURVIVORSHIP_MANIFEST_PATH
+    ):
+        raise RuntimeError(
+            "survivorship research surface is unavailable; refusing a "
+            "current-universe-only historical backtest"
+        )
+    stamp = (
+        os.path.getmtime(SURVIVORSHIP_PATH),
+        os.path.getsize(SURVIVORSHIP_PATH),
+        os.path.getmtime(SURVIVORSHIP_MANIFEST_PATH),
+        os.path.getsize(SURVIVORSHIP_MANIFEST_PATH),
+    )
+    if _SURVIVORSHIP_VALIDATION_CACHE.get("stamp") == stamp:
+        return _SURVIVORSHIP_VALIDATION_CACHE["manifest"]
+    from survivorship_contract import validate_survivorship_artifact
+
+    try:
+        manifest = validate_survivorship_artifact(
+            SURVIVORSHIP_PATH, SURVIVORSHIP_MANIFEST_PATH
+        )
+    except Exception as exc:
+        raise RuntimeError(f"survivorship research surface failed closed: {exc}") from exc
+    _SURVIVORSHIP_VALIDATION_CACHE.update(stamp=stamp, manifest=manifest)
+    return manifest
+
+
+def _read_price_source(path, *, wanted=None, start=None, end=None):
+    filters = []
+    if wanted:
+        filters.append(("ticker", "in", sorted(wanted)))
+    if start is not None:
+        filters.append(("date", ">=", pd.Timestamp(start)))
+    if end is not None:
+        filters.append(("date", "<=", pd.Timestamp(end)))
+    try:
+        return pd.read_parquet(path, filters=filters or None)
+    except Exception:
+        # Compatibility fallback for an older parquet engine. The predicate is
+        # still applied immediately, but current pyarrow builds take the
+        # memory-safe pushdown path above.
+        frame = pd.read_parquet(path)
+        if wanted:
+            frame = frame[frame["ticker"].isin(wanted)]
+        if start is not None:
+            frame = frame[frame["date"] >= pd.Timestamp(start)]
+        if end is not None:
+            frame = frame[frame["date"] <= pd.Timestamp(end)]
+        return frame
+
+
+def _load_full(
+    include_overflow=False,
+    include_survivorship=False,
+    *,
+    wanted=None,
+    start=None,
+    end=None,
+):
+    df = _read_price_source(MASTER_PATH, wanted=wanted, start=start, end=end)
     if include_overflow:
         _refresh_overflow_from_r2_if_needed()
         if os.path.exists(OVERFLOW_PATH):
             try:
-                odf = pd.read_parquet(OVERFLOW_PATH)
+                odf = _read_price_source(
+                    OVERFLOW_PATH, wanted=wanted, start=start, end=end
+                )
                 # master wins on any ticker+date overlap (listed first)
                 df = pd.concat([df, odf], ignore_index=True).drop_duplicates(
                     subset=["ticker", "date"], keep="first"
                 )
             except Exception:
                 pass
+    if include_survivorship:
+        _validated_survivorship_manifest()
+        sdf = _read_price_source(
+            SURVIVORSHIP_PATH, wanted=wanted, start=start, end=end
+        )
+        # Current primary sources win on overlap; the historical surface fills
+        # only the symbols/dates today's sources no longer carry.
+        df = pd.concat([df, sdf], ignore_index=True).drop_duplicates(
+            subset=["ticker", "date"], keep="first"
+        )
     return df
 
 
-def get_history(tickers=None, start=None, end=None, include_overflow=False):
+def get_history(
+    tickers=None,
+    start=None,
+    end=None,
+    include_overflow=False,
+    include_survivorship=False,
+):
     """Return {ticker: DataFrame[Open, High, Low, Close, Volume]} indexed by Date.
 
     Mirrors the per-ticker df shape produced by yfinance after auto_adjust=True
     (no Adj Close column). Both backtesters consume this shape directly.
 
     include_overflow=True also unions data/overflow_prices.parquet (the isolated
-    staging cache for new overflow names). Default False keeps production callers
-    on master_prices only.
+    staging cache for new overflow names). include_survivorship=True adds the
+    separately validated historical-only former-constituent surface and fails
+    closed when its paired manifest is unavailable or inconsistent. Both
+    default False, so live production callers stay on master_prices only.
     """
     if not has_master():
         return {}
-    df = _load_full(include_overflow=include_overflow)
-    if tickers is not None:
-        wanted = {str(t).upper().strip() for t in tickers}
-        df = df[df["ticker"].isin(wanted)]
-    if start is not None:
-        df = df[df["date"] >= pd.Timestamp(start)]
-    if end is not None:
-        df = df[df["date"] <= pd.Timestamp(end)]
+    wanted = (
+        {str(t).upper().strip() for t in tickers}
+        if tickers is not None else None
+    )
+    df = _load_full(
+        include_overflow=include_overflow,
+        include_survivorship=include_survivorship,
+        wanted=wanted,
+        start=start,
+        end=end,
+    )
     out = {}
     for t, g in df.groupby("ticker", sort=False):
         g = g.drop(columns=["ticker"]).set_index("date").sort_index()
@@ -170,11 +289,38 @@ def get_history(tickers=None, start=None, end=None, include_overflow=False):
     return out
 
 
-def get_universe():
+def get_survivorship_manifest() -> dict:
+    """Return the validated historical-surface manifest (fail closed)."""
+    return dict(_validated_survivorship_manifest())
+
+
+def get_survivorship_tickers() -> set:
+    """The complete required catalog, including names primary prices cover."""
+    manifest = _validated_survivorship_manifest()
+    return {
+        str(ticker).upper().strip()
+        for ticker in manifest.get("required_tickers", [])
+    }
+
+
+def get_universe(include_overflow=False, include_survivorship=False):
     if not has_master():
         return set()
-    df = pd.read_parquet(MASTER_PATH, columns=["ticker"])
-    return set(df["ticker"].unique())
+    paths = [MASTER_PATH]
+    if include_overflow:
+        _refresh_overflow_from_r2_if_needed()
+        if os.path.exists(OVERFLOW_PATH):
+            paths.append(OVERFLOW_PATH)
+    if include_survivorship:
+        _validated_survivorship_manifest()
+        paths.append(SURVIVORSHIP_PATH)
+    tickers = set()
+    for path in paths:
+        frame = pd.read_parquet(path, columns=["ticker"])
+        tickers.update(frame["ticker"].dropna().astype(str).str.upper().str.strip())
+    if include_survivorship:
+        tickers.update(get_survivorship_tickers())
+    return tickers
 
 
 def get_last_dates(tickers=None):

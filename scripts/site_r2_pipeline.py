@@ -46,7 +46,22 @@ class R2Input:
 CANONICAL_INPUTS: tuple[R2Input, ...] = (
     R2Input("master_prices", "master_prices.parquet", "data/master_prices.parquet"),
     R2Input("earnings_calendar", "earnings_calendar.parquet", "data/earnings_calendar.parquet"),
+    R2Input(
+        "survivorship_prices",
+        "survivorship_prices.parquet",
+        "data/survivorship_prices.parquet",
+    ),
+    R2Input(
+        "survivorship_manifest",
+        "survivorship_prices.meta.json",
+        "data/survivorship_prices.meta.json",
+    ),
     R2Input("atr_seasonal_ranks", "atr_seasonal_ranks.parquet", "atr_seasonal_ranks.parquet"),
+    R2Input(
+        "atr_seasonal_ranks_manifest",
+        "atr_seasonal_ranks.meta.json",
+        "atr_seasonal_ranks.meta.json",
+    ),
     R2Input("analyst_grades", "analyst_grades.parquet", "data/analyst_grades.parquet"),
     R2Input("fragility", "rd2_fragility.parquet", "data/rd2_fragility.parquet"),
     R2Input("risk_environment", "rd2_environment.json", "data/rd2_environment.json"),

@@ -105,7 +105,11 @@ OVERFLOW_ELIGIBLE = {
 from strategy_config import OVERFLOW_RISK_OVERRIDES
 
 
-def build_full_strategy_book():
+def build_full_strategy_book(
+    historical_overflow_tickers=None,
+    *,
+    point_in_time_overflow=False,
+):
     """Liquid pass + overflow variants, mirroring local_overflow_scan.
 
     For each overflow-eligible strategy, deep-copy and swap universe_tickers
@@ -117,12 +121,27 @@ def build_full_strategy_book():
     # universe matches what live actually scans. No-op when meta is {} (gate OFF /
     # no parquet), so behavior is unchanged until OVERFLOW_UNIVERSE_ACTIVE is set.
     of_meta = load_overflow_meta()
+    historical_pool = {
+        str(ticker).upper().strip().replace('.', '-')
+        for ticker in (historical_overflow_tickers or [])
+        if str(ticker).strip()
+    }
+    full_overflow_pool = sorted(set(OVERFLOW_TICKERS) | historical_pool)
     book = list(STRATEGY_BOOK)
     for s in STRATEGY_BOOK:
         if s['name'] not in OVERFLOW_ELIGIBLE:
             continue
         of_strat = copy.deepcopy(s)
-        of_strat['universe_tickers'] = filter_by_addv(OVERFLOW_TICKERS, s['name'], of_meta)
+        if point_in_time_overflow:
+            # Do not prefilter with today's metadata: each historical date is
+            # screened from its own trailing bars in generate_candidates_fast.
+            of_strat['universe_tickers'] = full_overflow_pool
+        else:
+            of_strat['universe_tickers'] = filter_by_addv(
+                full_overflow_pool, s['name'], of_meta
+            )
+        of_strat['_overflow_pass'] = True
+        of_strat['_pit_overflow_filter'] = bool(point_in_time_overflow)
         if s['name'] in OVERFLOW_RISK_OVERRIDES:
             of_strat['execution']['risk_bps'] = OVERFLOW_RISK_OVERRIDES[s['name']] * GLOBAL_RISK_MULTIPLIER
         book.append(of_strat)

@@ -40,6 +40,7 @@ from strategy_config import CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
 from atr_seasonal_contract import (
     RANK_METHOD_COLUMN,
     RANK_METHOD_VERSION,
+    RANK_RETIRED_TICKERS,
     rank_artifact_version_error,
 )
 
@@ -48,6 +49,10 @@ CACHE_DIR = os.path.join(current_dir, "data")
 OVERFLOW_CACHE = os.path.join(CACHE_DIR, "overflow_price_cache.parquet")
 OUTPUT_PATH = os.path.join(current_dir, "atr_seasonal_ranks.parquet")
 OUTPUT_CSV = os.path.join(current_dir, "atr_seasonal_ranks.csv")
+SURVIVORSHIP_PATH = os.path.join(CACHE_DIR, "survivorship_prices.parquet")
+SURVIVORSHIP_MANIFEST_PATH = os.path.join(
+    CACHE_DIR, "survivorship_prices.meta.json"
+)
 
 ATR_WINDOW = 14
 FWD_WINDOWS = [5, 10, 21, 63, 126, 252]
@@ -58,6 +63,26 @@ DEFAULT_YEAR = 2026
 # 2003. Three complete prior years are the minimum training history, so 2003 is
 # the earliest reproducible target year from the authoritative cache.
 FULL_START_YEAR = 2003
+
+
+def normalize_ticker(ticker):
+    """Normalize share classes without corrupting Yahoo suffix symbols.
+
+    Equity share-class dots become hyphens (BRK.B -> BRK-B). A ticker that
+    already contains a hyphen can carry a Yahoo suffix after a dot
+    (DX-Y.NYB); replacing that dot makes the authoritative cache unreachable.
+    """
+    value = str(ticker).upper().strip()
+    return value if "-" in value else value.replace(".", "-")
+
+
+def filter_retired_tickers(tickers):
+    """Return (kept, retired) using the reviewed v3 retirement contract."""
+    retired_contract = {str(t).upper().strip() for t in RANK_RETIRED_TICKERS}
+    normalized = [normalize_ticker(t) for t in tickers]
+    retired = sorted(set(normalized) & retired_contract)
+    kept = sorted(set(normalized) - retired_contract)
+    return kept, retired
 
 
 # ============================================================================
@@ -75,7 +100,7 @@ def load_overflow_cache():
             t_df = store[store['ticker'] == ticker].drop(columns=['ticker']).copy()
             t_df.index = pd.to_datetime(t_df['date'])
             t_df = t_df.drop(columns=['date']).sort_index()
-            data_dict[ticker] = t_df
+            data_dict[normalize_ticker(ticker)] = t_df
         print(f"   Loaded {len(data_dict)} tickers from overflow cache")
         return data_dict
     except Exception as e:
@@ -98,7 +123,7 @@ def _read_price_parquet(path, wanted):
             return {}
     if df.empty:
         return {}
-    df['ticker'] = df['ticker'].astype(str).str.upper().str.strip().str.replace('.', '-', regex=False)
+    df['ticker'] = df['ticker'].map(normalize_ticker)
     df = df[df['ticker'].isin(wanted)]
     out = {}
     for tkr, grp in df.groupby('ticker'):
@@ -119,15 +144,26 @@ def load_master_prices_cache(tickers):
     Returns {TICKER: DataFrame[Open..Volume]} indexed by date. Empty dict if
     neither parquet is present. Uses predicate/column pushdown.
     """
-    wanted = {str(t).upper().strip().replace('.', '-') for t in tickers}
+    wanted = {normalize_ticker(t) for t in tickers}
     master = _read_price_parquet(os.path.join(current_dir, "data", "master_prices.parquet"), wanted)
     overflow = _read_price_parquet(os.path.join(current_dir, "data", "overflow_prices.parquet"), wanted)
+    survivorship = {}
+    if os.path.exists(SURVIVORSHIP_PATH):
+        from survivorship_contract import validate_survivorship_artifact
+
+        validate_survivorship_artifact(
+            SURVIVORSHIP_PATH, SURVIVORSHIP_MANIFEST_PATH
+        )
+        survivorship = _read_price_parquet(SURVIVORSHIP_PATH, wanted)
     out = dict(master)
     for t, df in overflow.items():
         out.setdefault(t, df)  # prefer master if a name is somehow in both
+    for t, df in survivorship.items():
+        out.setdefault(t, df)
     if out:
         print(f"   Seeded {len(out)} tickers from price caches "
-              f"(master={len(master)}, overflow_staging={len(overflow)})")
+              f"(master={len(master)}, overflow_staging={len(overflow)}, "
+              f"survivorship={len(survivorship)})")
     return out
 
 
@@ -345,7 +381,7 @@ def build_atr_ranks(
     # but leave dots alone in tickers that already contain a hyphen — those
     # are typically Yahoo-suffix tickers like DX-Y.NYB where the dot is part
     # of the symbol and a swap would break the lookup.
-    clean_tickers = [t if '-' in t else t.replace('.', '-') for t in tickers]
+    clean_tickers = [normalize_ticker(t) for t in tickers]
 
     # Seed from master_prices.parquet first (authoritative, freshly backfilled)
     # so the overflow run reuses prices instead of re-downloading them.
@@ -491,6 +527,12 @@ if __name__ == "__main__":
                         help="Also include data/symbol_master.parquet tickers (overflow Layer A) "
                              "so seasonal-gated overflow strategies (52wh Breakout, OVS, St OS Sznl) "
                              "get ranks for the new names.")
+    parser.add_argument(
+        "--with-survivorship",
+        action="store_true",
+        help="Require the validated historical-only survivorship surface and "
+             "include every ticker in its complete major-removal catalog.",
+    )
     parser.add_argument("--only-missing", action="store_true",
                         help="Compute only tickers NOT already in the existing parquet "
                              "(incremental add — implies --merge).")
@@ -554,6 +596,28 @@ if __name__ == "__main__":
                     print(f"[universe] warn: could not read {_sm}: {_e}")
             else:
                 print(f"[universe] warn: --with-symbol-master set but {_sm} missing")
+        if args.with_survivorship:
+            from survivorship_contract import validate_survivorship_artifact
+
+            try:
+                _survivor_manifest = validate_survivorship_artifact(
+                    SURVIVORSHIP_PATH, SURVIVORSHIP_MANIFEST_PATH
+                )
+            except Exception as _e:
+                parser.error(f"--with-survivorship failed closed: {_e}")
+            _survivor_tickers = {
+                str(t).upper().strip()
+                for t in _survivor_manifest.get("required_tickers", [])
+            }
+            tickers = sorted(set(tickers) | _survivor_tickers)
+            print(f"[universe] +survivorship catalog -> {len(tickers)} tickers")
+
+    tickers, _retired = filter_retired_tickers(tickers)
+    if _retired:
+        print(
+            "[universe] explicitly retired from corrected v3 artifact: "
+            f"{_retired}"
+        )
 
     # --only-missing: drop tickers already present in the existing parquet so we
     # only compute the genuinely-new names (and force merge so the rest survive).
@@ -561,9 +625,11 @@ if __name__ == "__main__":
     if args.only_missing and os.path.exists(OUTPUT_PATH):
         try:
             _have = set(pd.read_parquet(OUTPUT_PATH, columns=["ticker"])["ticker"].astype(str).str.upper())
-            _norm = lambda t: str(t).upper() if '-' in str(t) else str(t).upper().replace('.', '-')
             before = len(tickers)
-            tickers = [t for t in tickers if _norm(t) not in {_norm(x) for x in _have}]
+            tickers = [
+                t for t in tickers
+                if normalize_ticker(t) not in {normalize_ticker(x) for x in _have}
+            ]
             print(f"[only-missing] {before} -> {len(tickers)} tickers not yet in {OUTPUT_PATH}")
         except Exception as _e:
             print(f"[only-missing] warn: could not read existing parquet: {_e}")
