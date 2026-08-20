@@ -164,6 +164,21 @@ const { pathToFileURL } = require("url");
   assert.strictEqual(result.ok, false);
   assert.match(result.error, /protective-order validation/i);
 
+  result = check({
+    id,
+    type: "exit_attach",
+    account: "primary",
+    dry_run: false,
+    payload: {
+      symbol: "SPY", sec_type: "STK", currency: "USD", con_id: 756733,
+      expected_position: 100, stop: 98, outside_rth: false,
+    },
+  }, {
+    env: { ...liveEnv, EXEC_LIVE_TYPES: `${liveEnv.EXEC_LIVE_TYPES},exit_attach` },
+  });
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /protective-order validation/i);
+
   const mutationEnv = {
     ...liveEnv,
     EXEC_LIVE_TYPES: `${liveEnv.EXEC_LIVE_TYPES},add_to_position,modify`,

@@ -17,7 +17,7 @@ const { pathToFileURL } = require("url");
     account: "primary",
     dry_run: true,
     payload: { symbol: "SPY", sec_type: "STK", entry_type: "LMT" },
-    policy_version: "2026-08-20.3",
+    policy_version: "2026-08-20.4",
     created_at: now - 1_000,
     expires_at: now + 59_000,
   };
@@ -45,7 +45,7 @@ const { pathToFileURL } = require("url");
   assert.strictEqual(result.ok, false);
   assert.match(result.error, /atomic aggregate risk reservation/i);
 
-  for (const type of ["close_only", "cancel", "modify"]) {
+  for (const type of ["close_only", "cancel", "modify", "exit_attach"]) {
     result = validateBrokerCommand({
       ...command,
       type,

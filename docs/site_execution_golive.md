@@ -52,10 +52,10 @@ All three layers must agree before a command can transmit:
    Add/trim-readd actions separately default to
    `EXEC_LIVE_POSITION_INSTRUMENTS=STK`; live adds require a fresh matching
    price stop and are re-capped from current NLV, price, and stop.
-   `close_only`, `cancel`, and `modify` are also rejected in live mode because
-   an unchanged, cancelled, or downsized protective order can uncover or later
-   reverse exposure. They remain preview-only until fresh-book order-role
-   validation proves the complete action is risk-reducing.
+   `close_only`, `cancel`, `modify`, and `exit_attach` are also rejected in live
+   mode because an unchanged, cancelled, downsized, or duplicated protective
+   order can uncover or later reverse exposure. They remain preview-only until
+   fresh-book order-role validation proves the complete action is risk-reducing.
 2. **Broker Worker:** the same `EXEC_LIVE_ENABLED`, `EXEC_LIVE_TYPES`, and
    `EXEC_LIVE_ACCOUNTS` checks run independently inside the Durable Object.
 3. **Local agent:** `AGENT_LIVE_ENABLED`/`LIVE_ENABLED`, `LIVE_TYPES`,

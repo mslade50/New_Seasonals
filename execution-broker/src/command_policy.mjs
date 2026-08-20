@@ -5,7 +5,7 @@
 
 export const HEARTBEAT_STALE_MS = 30_000;
 export const BOOK_STALE_MS = 90_000;
-export const COMMAND_POLICY_VERSION = "2026-08-20.3";
+export const COMMAND_POLICY_VERSION = "2026-08-20.4";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COMMAND_TYPES = new Set([
@@ -102,6 +102,7 @@ export function validateBrokerCommand(cmd, {
     if ([
       "entry_bracket", "scheduled_option", "option_spread",
       "add_to_position", "trim_readd", "close_only", "cancel", "modify",
+      "exit_attach",
     ].includes(cmd.type)) {
       return fail(
         403,

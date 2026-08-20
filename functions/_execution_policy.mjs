@@ -6,7 +6,7 @@
  */
 
 export const BOOK_STALE_MS = 90_000;
-export const POLICY_VERSION = "2026-08-20.3";
+export const POLICY_VERSION = "2026-08-20.4";
 
 export const COMMAND_TYPES = Object.freeze([
   "echo", "entry_bracket", "close_only", "flatten", "cancel", "modify",
@@ -554,6 +554,7 @@ export function validateCommandRequest(body, { env = {}, status = {}, book = nul
     if ([
       "entry_bracket", "scheduled_option", "option_spread",
       "add_to_position", "trim_readd", "close_only", "cancel", "modify",
+      "exit_attach",
     ].includes(body.type)) {
       return fail(
         403,
