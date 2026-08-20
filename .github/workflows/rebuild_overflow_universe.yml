@@ -17,7 +17,9 @@ name: Rebuild Overflow Universe (weekly)
 # the bootstrap + a dry-run validation pass have been reviewed.
 
 concurrency:
-  group: ${{ github.workflow }}
+  # Shared with the one-time PIT repair so two unconditional R2 writers can
+  # never race and silently drop a just-added ticker.
+  group: atr-seasonal-rank-writer
   cancel-in-progress: false
 
 permissions:

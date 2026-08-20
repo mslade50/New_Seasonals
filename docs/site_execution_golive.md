@@ -1,9 +1,11 @@
 # Execution bridge — go-live runbook (Phase 2c)
 
-Status: **live-capable; actual arming state must be checked, never inferred from
-this file.** The local agent contains an IBKR transmission path. The safe rollout
-below keeps the Pages and broker live switches off until a deliberate, watched
-test. A stale browser book is not evidence of the current mode.
+Status: **migration fail-closed; not ready to arm for risk-increasing orders.**
+The local agent contains an IBKR transmission path, but it must be upgraded to
+the `COMMAND_SECRET`/policy-version contract and the broker still needs an
+atomic aggregate-risk reservation before entries, adds, trim/re-adds, or option
+orders can be enabled. Both server layers reject those command types today.
+A stale browser book is never evidence of the current mode.
 
 Why it isn't automated: live transmission sends **real-money orders to your live
 IBKR accounts**, and it cannot be verified without a real fill. So the only safe
@@ -22,6 +24,8 @@ the dry-run → tiny → full ramp.
   `/command`.
 - Strict Pages schemas/allowlists, fresh-book and heartbeat checks, server-side
   risk/notional caps, and independent live type/account gates.
+- A hard two-layer block on every risk-increasing live command until aggregate
+  pending/working/open risk can be reserved atomically at the broker.
 - A second broker-side gate requiring a fresh heartbeat, fresh mode-bearing book,
   a book bound to the sole active agent WebSocket session, and its own live
   switch/type/account allowlists. Reconnects clear the prior book.
@@ -37,7 +41,8 @@ the dry-run → tiny → full ramp.
 All three layers must agree before a command can transmit:
 
 1. **Pages:** `EXEC_LIVE_ENABLED=1`, and the type/account must appear in
-   `EXEC_LIVE_TYPES` / `EXEC_LIVE_ACCOUNTS`. New-risk commands also stay below
+   `EXEC_LIVE_TYPES` / `EXEC_LIVE_ACCOUNTS`. New-risk commands are currently
+   rejected regardless of arming; their per-command validation also stays below
    `EXEC_MAX_NEW_RISK_BPS` (default 500 bps) and
    `EXEC_MAX_NEW_NOTIONAL_PCT` (default 200% for non-futures entries). Live
    brackets default to `EXEC_LIVE_INSTRUMENTS=STK`; futures or FX must be
@@ -68,11 +73,10 @@ book. The server then re-checks freshness and mode rather than trusting the clie
 1. **Secret and agent contract.** Generate one strong `COMMAND_SECRET`; store it
    in GitHub Actions, the Worker, Pages, and `exec_agent.env`. Update/restart the
    external agent so its HMAC verifier uses it. Do not arm anything yet.
-2. **Deploy fail-closed.** Run `Deploy Execution Broker`; it deploys the broker,
-   wires the Pages secrets, explicitly writes `EXEC_LIVE_ENABLED=0`, resets the
-   type/account allowlists to empty, and resets instruments to stock-only at
-   both server layers. Deploy the private site from `main` through its cloud-only
-   workflow. Confirm the intended SHAs.
+2. **Deploy fail-closed.** Run `Deploy Execution Broker` from `main`; versioned
+   Worker vars atomically deploy with `EXEC_LIVE_ENABLED=0` and empty type/account
+   allowlists, then the workflow wires and disarms Pages. Deploy the private site
+   from `main` through its cloud-only workflow. Confirm the intended SHAs.
 3. **Dry-run contract test.** With both server switches off, send an `echo` and a
    representative preview. Confirm the browser, Pages response, broker activity,
    and agent preview agree, and that stale/offline tests are blocked.
@@ -84,8 +88,11 @@ book. The server then re-checks freshness and mode rather than trusting the clie
 5. **First watched fill.** With a tiny PA position open, click **Flatten** on one
    small position. Watch the order appear and fill in **TWS** and in the Activity
    log. Confirm the fill matches the preview.
-6. **Verify + ramp.** Once a few tiny fills are clean: widen `LIVE_TYPES`
-   (entry_bracket, cancel), then add the primary account, then lift the caps.
+6. **Do not enable new risk yet.** Entry brackets, position adds/trim-readds,
+   scheduled options, and option spreads remain blocked until an atomic broker
+   reservation counts pending commands, working orders, and open risk. Only
+   after that control and an agent-acknowledged delivery protocol are reviewed
+   should the runbook gain a new-risk ramp.
 
 ## Kill switch / rollback
 Set `EXEC_LIVE_ENABLED=0` on **either** Pages or the broker to stop new server-side

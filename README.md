@@ -17,7 +17,7 @@ This repository is a private, internal-only quantitative trading system used by 
 * **Signal staging:** `daily_scan.py` identifies trades and writes the private staging sheets.
 * **Private command path:** Authenticated browser commands cross a Pages Function and a standalone Cloudflare broker to the local execution agent.
 * **Local broker adapter:** The Python code that connects to IBKR and transmits remains only on the trading machine, but the cloud path can request that action when armed.
-* **Fail-closed gates:** Live delivery requires a fresh online book, explicit `dry_run:false`, a dedicated `COMMAND_SECRET`, matching Pages/broker type and account allowlists, server instrument/entry-type allowlists (stock limit brackets only by default), server risk caps, and the agent's own live gates. Deploying the broker workflow resets both server live switches to off.
+* **Fail-closed gates:** Live delivery requires a fresh online book, explicit `dry_run:false`, a dedicated `COMMAND_SECRET`, matching Pages/broker type and account allowlists, and the agent's own live gates. Risk-increasing commands are currently rejected at both server layers until the broker has an atomic aggregate-risk reservation; the existing per-command cap is not sufficient. Deploying the broker workflow atomically resets the Worker live switches to off and also disarms Pages.
 * **Operational rule:** Never infer dry-run from this README or a stale banner. Verify the current Pages, broker, and agent configuration before testing any command.
 
 ---

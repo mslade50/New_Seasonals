@@ -20,7 +20,7 @@ price from Y or later.
 Usage:
     python build_atr_seasonal_ranks.py                    # 2026 only (live scan)
     python build_atr_seasonal_ranks.py --years 2025 2026  # specific years
-    python build_atr_seasonal_ranks.py --full              # 2001-2026 (backtester)
+    python build_atr_seasonal_ranks.py --full              # 2003-2026 (backtester)
     python build_atr_seasonal_ranks.py --tickers AAPL MSFT # specific tickers
 """
 
@@ -37,7 +37,11 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
 from strategy_config import CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
-from atr_seasonal_contract import RANK_METHOD_COLUMN, RANK_METHOD_VERSION
+from atr_seasonal_contract import (
+    RANK_METHOD_COLUMN,
+    RANK_METHOD_VERSION,
+    rank_artifact_version_error,
+)
 
 # --- Config ---
 CACHE_DIR = os.path.join(current_dir, "data")
@@ -50,7 +54,10 @@ FWD_WINDOWS = [5, 10, 21, 63, 126, 252]
 MAX_DAY_COUNT = 251  # Cap: day_counts above this have too few samples
 
 DEFAULT_YEAR = 2026
-FULL_START_YEAR = 2001
+# The production master-price contract begins in 2000 and the ledger begins in
+# 2003. Three complete prior years are the minimum training history, so 2003 is
+# the earliest reproducible target year from the authoritative cache.
+FULL_START_YEAR = 2003
 
 
 # ============================================================================
@@ -299,19 +306,18 @@ def compute_ranks_for_year(df, target_year):
 
 
 def generate_trading_dates(year):
-    """Generate trading dates for a year using the actual NYSE calendar.
-    Falls back to pandas business days with US federal holidays for years
-    outside the exchange_calendars range."""
-    try:
-        import exchange_calendars as xcals
-        nyse = xcals.get_calendar('XNYS')
-        sessions = nyse.sessions_in_range(f"{year}-01-01", f"{year}-12-31")
-        dates = sessions.tz_localize(None)
-    except Exception:
-        # Fallback for years outside exchange_calendars range — NYSE-rule
-        # calendar (2026-07-16: was USFederalHolidayCalendar)
-        from trading_calendar import TRADING_DAY
-        dates = pd.date_range(start=f"{year}-01-01", end=f"{year}-12-31", freq=TRADING_DAY)
+    """Generate dates from the repo's versioned NYSE calendar contract.
+
+    Do not prefer the optional ``exchange_calendars`` package here. Its
+    installed version is not pinned and has differed on one-off closures
+    (notably the 2025-01-09 Carter mourning day), making the same source and
+    code produce different rank/date mappings across environments.
+    """
+    from trading_calendar import TRADING_DAY
+
+    dates = pd.date_range(
+        start=f"{year}-01-01", end=f"{year}-12-31", freq=TRADING_DAY
+    )
     day_counts = [min(i + 1, MAX_DAY_COUNT) for i in range(len(dates))]
     return pd.DataFrame({
         'Date': dates,
@@ -358,7 +364,10 @@ def build_atr_ranks(
         cached.update(fresh)
         print(f"   Total available: {len(cached)} tickers")
     elif missing:
-        print(f"   Skipping {len(missing)} cache-missing tickers (--no-download)")
+        raise RuntimeError(
+            "--no-download requires complete source coverage; missing cached prices for "
+            f"{len(missing)} requested tickers: {missing[:25]}"
+        )
     else:
         print(f"   All {len(cached)} tickers in cache")
 

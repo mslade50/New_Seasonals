@@ -17,7 +17,7 @@ const { pathToFileURL } = require("url");
     account: "primary",
     dry_run: true,
     payload: { symbol: "SPY", sec_type: "STK", entry_type: "LMT" },
-    policy_version: "2026-08-20.1",
+    policy_version: "2026-08-20.2",
     created_at: now - 1_000,
     expires_at: now + 59_000,
   };
@@ -42,7 +42,8 @@ const { pathToFileURL } = require("url");
     EXEC_LIVE_ACCOUNTS: "primary",
   };
   result = validateBrokerCommand({ ...command, dry_run: false }, { ...state, env: armed });
-  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /atomic aggregate risk reservation/i);
 
   result = validateBrokerCommand({
     ...command,

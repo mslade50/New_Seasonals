@@ -21,11 +21,16 @@ from atr_seasonal_contract import (  # noqa: E402
     RANK_METHOD_VERSION,
     rank_artifact_version_error,
 )
+from trading_calendar import TRADING_DAY  # noqa: E402
 
 
 WINDOWS = (5, 10, 21, 63, 126, 252)
 RANK_COLUMNS = [f"atr_sznl_{window}d" for window in WINDOWS]
 REQUIRED_COLUMNS = ["Date", "ticker", *RANK_COLUMNS]
+
+
+def _expected_sessions(year: int) -> pd.DatetimeIndex:
+    return pd.date_range(f"{year}-01-01", f"{year}-12-31", freq=TRADING_DAY).normalize()
 
 
 def _sha256(path: Path) -> str:
@@ -56,7 +61,7 @@ def validate(
     if version_error:
         raise ValueError(version_error)
 
-    dates = pd.to_datetime(frame["Date"], errors="coerce")
+    dates = pd.to_datetime(frame["Date"], errors="coerce").dt.normalize()
     if dates.isna().any():
         raise ValueError(f"invalid Date values: {int(dates.isna().sum())}")
     tickers = frame["ticker"].astype("string").str.upper().str.strip()
@@ -78,8 +83,36 @@ def validate(
     if missing_years:
         raise ValueError(f"artifact is missing target years: {missing_years}")
 
+    expected_by_year = {
+        year: _expected_sessions(year) for year in sorted(present_years)
+    }
+    expected_dates = pd.DatetimeIndex(
+        np.concatenate([sessions.to_numpy() for sessions in expected_by_year.values()])
+    )
+    invalid_sessions = ~dates.isin(expected_dates)
+    if invalid_sessions.any():
+        sample = sorted(dates[invalid_sessions].dt.strftime("%Y-%m-%d").unique().tolist())[:20]
+        raise ValueError(f"artifact contains non-session dates: {sample}")
+
+    output_counts = (
+        pd.DataFrame({"ticker": tickers, "year": dates.dt.year})
+        .groupby(["ticker", "year"], sort=False)
+        .size()
+    )
+    incomplete_pairs = []
+    for (ticker, year), count in output_counts.items():
+        expected_count = len(expected_by_year[int(year)])
+        if int(count) != expected_count:
+            incomplete_pairs.append((str(ticker), int(year), int(count), expected_count))
+    if incomplete_pairs:
+        raise ValueError(
+            "artifact has incomplete ticker/year session coverage "
+            f"(ticker, year, rows, expected): {incomplete_pairs[:20]}"
+        )
+
     output_tickers = set(tickers.tolist())
     baseline_count = 0
+    baseline_rows = 0
     baseline_ticker_years_count = 0
     baseline_sha256 = None
     if baseline is not None:
@@ -92,7 +125,13 @@ def validate(
         ).dt.year
         if baseline_frame[["ticker", "year"]].isna().any().any():
             raise ValueError("baseline contains invalid ticker/date values")
+        baseline_frame = baseline_frame[
+            baseline_frame["year"].between(start_year, end_year)
+        ].copy()
+        if baseline_frame.empty:
+            raise ValueError("baseline has no rows in the requested validation window")
         baseline_tickers = set(baseline_frame["ticker"].tolist())
+        baseline_rows = len(baseline_frame)
         baseline_count = len(baseline_tickers)
         baseline_sha256 = _sha256(baseline)
         lost = sorted(baseline_tickers - output_tickers)
@@ -125,6 +164,7 @@ def validate(
         "rows": int(len(frame)),
         "tickers": int(len(output_tickers)),
         "baseline_tickers": int(baseline_count),
+        "baseline_rows": int(baseline_rows),
         "baseline_ticker_years": int(baseline_ticker_years_count),
         "baseline_sha256": baseline_sha256,
         "source_sha256": source_sha256,
@@ -138,7 +178,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--path", type=Path, default=Path("atr_seasonal_ranks.parquet"))
     parser.add_argument("--baseline", type=Path)
-    parser.add_argument("--start-year", type=int, default=2001)
+    parser.add_argument("--start-year", type=int, default=2003)
     parser.add_argument("--end-year", type=int, required=True)
     parser.add_argument("--manifest", type=Path, default=Path("atr_seasonal_ranks.meta.json"))
     parser.add_argument("--source", type=Path, action="append", default=[])

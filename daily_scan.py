@@ -2558,7 +2558,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
         if atr_sznl_map:
             print(f"📊 Loaded ATR seasonal ranks: {len(atr_sznl_map)} tickers")
         else:
-            print(f"⚠️ atr_seasonal_ranks.parquet not found — atr_sznl_filters will match nothing")
+            raise RuntimeError(
+                "atr_seasonal_ranks.parquet is missing or rejected; refusing to run "
+                "with ATR-seasonal strategies silently disabled"
+            )
 
     # 4b. Earnings calendar — used by OVS earnings blackout (±10 trading days).
     # Tickers with no earnings data (commodity ETFs, indices, futures, FX) pass

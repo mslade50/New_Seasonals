@@ -7,10 +7,14 @@ the complete rank surface for that target year unchanged at every horizon.
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
+import pytest
 
+import build_atr_seasonal_ranks as rank_builder
+from atr_seasonal_contract import RANK_METHOD_COLUMN, RANK_METHOD_VERSION
 from build_atr_seasonal_ranks import (
     FWD_WINDOWS,
     compute_ranks_for_year,
+    generate_trading_dates,
     prepare_ticker_data,
 )
 
@@ -46,3 +50,76 @@ def test_target_year_price_mutation_cannot_change_any_rank_horizon():
     assert ranks_original is not None
     assert list(ranks_original.columns) == [f"atr_sznl_{w}d" for w in FWD_WINDOWS]
     pdt.assert_frame_equal(ranks_original, ranks_mutated, check_exact=True)
+
+
+def test_merge_path_rejects_a_legacy_artifact_with_the_contract_error(monkeypatch, tmp_path):
+    output = tmp_path / "atr_seasonal_ranks.parquet"
+    pd.DataFrame({"Date": [pd.Timestamp("2020-01-02")], "ticker": ["OLD"]}).to_parquet(
+        output, index=False
+    )
+    monkeypatch.setattr(
+        rank_builder,
+        "load_master_prices_cache",
+        lambda _tickers: {"TEST": _prices()},
+    )
+    monkeypatch.setattr(rank_builder, "load_overflow_cache", lambda: {})
+
+    with pytest.raises(RuntimeError, match="refusing to merge corrected rows"):
+        rank_builder.build_atr_ranks(
+            ["TEST"],
+            [2021],
+            output_path=str(output),
+            merge=True,
+            allow_download=False,
+        )
+
+
+def test_no_download_fails_when_any_requested_price_source_is_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(rank_builder, "load_master_prices_cache", lambda _tickers: {})
+    monkeypatch.setattr(rank_builder, "load_overflow_cache", lambda: {})
+
+    with pytest.raises(RuntimeError, match="complete source coverage"):
+        rank_builder.build_atr_ranks(
+            ["MISSING"],
+            [2021],
+            output_path=str(tmp_path / "unused.parquet"),
+            allow_download=False,
+        )
+
+
+def test_rank_calendar_uses_versioned_nyse_special_closures():
+    dates = generate_trading_dates(2025)["Date"]
+
+    assert len(dates) == 250
+    assert pd.Timestamp("2025-01-09") not in set(dates)
+
+
+def test_versioned_merge_preserves_existing_ticker_and_adds_requested_ticker(
+    monkeypatch, tmp_path
+):
+    output = tmp_path / "atr_seasonal_ranks.parquet"
+    old = {
+        "Date": pd.Timestamp("2020-01-02"),
+        "ticker": "OLD",
+        RANK_METHOD_COLUMN: RANK_METHOD_VERSION,
+    }
+    old.update({f"atr_sznl_{window}d": 50.0 for window in FWD_WINDOWS})
+    pd.DataFrame([old]).to_parquet(output, index=False)
+    monkeypatch.setattr(
+        rank_builder,
+        "load_master_prices_cache",
+        lambda _tickers: {"TEST": _prices()},
+    )
+    monkeypatch.setattr(rank_builder, "load_overflow_cache", lambda: {})
+
+    rank_builder.build_atr_ranks(
+        ["TEST"],
+        [2021],
+        output_path=str(output),
+        merge=True,
+        allow_download=False,
+    )
+
+    merged = pd.read_parquet(output)
+    assert set(merged["ticker"]) == {"OLD", "TEST"}
+    assert set(merged[RANK_METHOD_COLUMN]) == {RANK_METHOD_VERSION}

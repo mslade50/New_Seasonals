@@ -5,7 +5,7 @@
 
 export const HEARTBEAT_STALE_MS = 30_000;
 export const BOOK_STALE_MS = 90_000;
-export const COMMAND_POLICY_VERSION = "2026-08-20.1";
+export const COMMAND_POLICY_VERSION = "2026-08-20.2";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COMMAND_TYPES = new Set([
@@ -87,6 +87,7 @@ export function validateBrokerCommand(cmd, {
         || !envSet(env.EXEC_LIVE_ACCOUNTS).has(cmd.account)) {
       return fail(403, "command type or account is not armed at broker");
     }
+    if (book.mode !== "live") return fail(409, "fresh broker book does not confirm live mode");
     if (cmd.type === "entry_bracket") {
       const instruments = envSet(env.EXEC_LIVE_INSTRUMENTS || "STK");
       const instrument = String(cmd.payload.sec_type || "STK").toUpperCase();
@@ -98,12 +99,15 @@ export function validateBrokerCommand(cmd, {
         return fail(403, `entry type ${cmd.payload.entry_type} is not armed at broker`);
       }
     }
-    if (["add_to_position", "trim_readd"].includes(cmd.type)) {
-      const instruments = envSet(env.EXEC_LIVE_POSITION_INSTRUMENTS || "STK");
-      const instrument = String(cmd.payload.sec_type || "STK").toUpperCase();
-      if (!instruments.has(instrument)) {
-        return fail(403, `position-mutation instrument ${instrument} is not armed at broker`);
-      }
+    if ([
+      "entry_bracket", "scheduled_option", "option_spread",
+      "add_to_position", "trim_readd",
+    ].includes(cmd.type)) {
+      return fail(
+        403,
+        "risk-increasing live commands are disabled until the broker provides "
+          + "an atomic aggregate risk reservation",
+      );
     }
     if (cmd.type === "cancel" && cmd.payload.scope === "symbol"
         && !envFlag(env.EXEC_ALLOW_SYMBOL_CANCEL)) {
@@ -114,7 +118,6 @@ export function validateBrokerCommand(cmd, {
         && !envFlag(env.EXEC_ALLOW_PRICE_MODIFY)) {
       return fail(403, "live price/stop modification is disabled at broker");
     }
-    if (book.mode !== "live") return fail(409, "fresh broker book does not confirm live mode");
   }
   return { ok: true };
 }

@@ -30,8 +30,10 @@ wrangler deploy                       # deploys the Worker + DO + v1 migration
 wrangler secret put AGENT_TOKEN       # paste a long random token
 wrangler secret put STATUS_TOKEN      # paste a second long random token
 wrangler secret put COMMAND_SECRET     # dedicated command bearer + HMAC secret
-printf '0' | wrangler secret put EXEC_LIVE_ENABLED
 ```
+
+The versioned `[vars]` block in `wrangler.toml` deploys the Worker disarmed;
+live switches are policy configuration, not secrets.
 
 Note the deployed URL (e.g. `https://execution-broker.<subdomain>.workers.dev`).
 
@@ -61,8 +63,9 @@ Execution tab flips to **online** within a few seconds.
 
 ## Live arming
 
-`Deploy Execution Broker` writes `EXEC_LIVE_ENABLED=0`, empty live type/account
-allowlists, and `EXEC_LIVE_INSTRUMENTS=STK` to both Worker and Pages.
+`Deploy Execution Broker` atomically deploys `EXEC_LIVE_ENABLED=0`, empty live
+type/account allowlists, and `EXEC_LIVE_INSTRUMENTS=STK` from `wrangler.toml`,
+then applies the same fail-closed state to Pages.
 Live bracket entry types reset to `EXEC_LIVE_ENTRY_TYPES=LMT,STP_LMT`.
 Position adds/trim-readds reset to `EXEC_LIVE_POSITION_INSTRUMENTS=STK`.
 Dry-run previews require no live arming. For a watched live test, set matching
@@ -70,3 +73,7 @@ Dry-run previews require no live arming. For a watched live test, set matching
 `EXEC_LIVE_ENABLED=1` at both layers and arm the agent last. See
 `docs/site_execution_golive.md`. Turning either server switch off blocks new
 live commands.
+
+Risk-increasing live commands remain rejected in both Pages and broker policy
+even if those allowlists are changed. They require an atomic aggregate-risk
+reservation before arming can be implemented safely.

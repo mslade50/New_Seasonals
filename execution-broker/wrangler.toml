@@ -8,6 +8,19 @@ main = "src/index.js"
 compatibility_date = "2026-06-01"
 workers_dev = true   # publish to execution-broker.<subdomain>.workers.dev
 
+# Deployment-time fail-closed defaults. Keeping these in the versioned Worker
+# config makes the new version atomically disarmed; a workflow failure after
+# `wrangler deploy` cannot inherit an armed prior deployment.
+[vars]
+EXEC_LIVE_ENABLED = "0"
+EXEC_LIVE_TYPES = "NONE"
+EXEC_LIVE_ACCOUNTS = "NONE"
+EXEC_LIVE_INSTRUMENTS = "STK"
+EXEC_LIVE_ENTRY_TYPES = "LMT,STP_LMT"
+EXEC_LIVE_POSITION_INSTRUMENTS = "STK"
+EXEC_ALLOW_SYMBOL_CANCEL = "0"
+EXEC_ALLOW_PRICE_MODIFY = "0"
+
 # Durable Object that holds the agent WebSocket + heartbeat state.
 [[durable_objects.bindings]]
 name = "EXEC_BROKER"
@@ -21,5 +34,4 @@ new_sqlite_classes = ["ExecBroker"]
 #   AGENT_TOKEN   bearer token the local agent presents on /agent
 #   STATUS_TOKEN  read-only bearer for status/book/queries
 #   COMMAND_SECRET dedicated bearer + HMAC secret for /command and the agent
-#   EXEC_LIVE_ENABLED off by default; live also requires EXEC_LIVE_TYPES and
-#                     EXEC_LIVE_ACCOUNTS at both Worker and Pages
+# Live policy switches above are intentionally non-secret, versioned defaults.

@@ -64,8 +64,8 @@ const { pathToFileURL } = require("url");
   assert.match(result.error, /kill switch/i);
 
   result = check({ ...entry, dry_run: false }, { env: liveEnv });
-  assert.strictEqual(result.ok, true);
-  assert.strictEqual(result.command.dry_run, false);
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /atomic aggregate risk reservation/i);
 
   const futureEntry = {
     ...entry,
@@ -81,7 +81,8 @@ const { pathToFileURL } = require("url");
   assert.strictEqual(result.ok, false);
   assert.match(result.error, /instrument FUT is not armed/i);
   result = check(futureEntry, { env: { ...liveEnv, EXEC_LIVE_INSTRUMENTS: "STK,FUT" } });
-  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /atomic aggregate risk reservation/i);
 
   const marketEntry = {
     ...entry,
@@ -92,7 +93,8 @@ const { pathToFileURL } = require("url");
   assert.strictEqual(result.ok, false);
   assert.match(result.error, /entry type MKT is not armed/i);
   result = check(marketEntry, { env: { ...liveEnv, EXEC_LIVE_ENTRY_TYPES: "LMT,MKT" } });
-  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /atomic aggregate risk reservation/i);
 
   result = check({ ...entry, dry_run: false }, {
     env: liveEnv,
@@ -154,7 +156,8 @@ const { pathToFileURL } = require("url");
     account: "primary",
     dry_run: false,
     payload: {
-      symbol: "SPY", con_id: 756733, expected_position: 100, action: "SELL",
+      symbol: "SPY", sec_type: "STK", currency: "USD", con_id: 756733,
+      expected_position: 100, action: "SELL",
       fraction: 0.5, order_type: "MKT", tif: "DAY", outside_rth: false,
     },
   }, { env: liveEnv });
@@ -175,7 +178,8 @@ const { pathToFileURL } = require("url");
     },
   };
   result = check(add, { env: mutationEnv });
-  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /atomic aggregate risk reservation/i);
   result = check(add, {
     env: mutationEnv,
     book: {
@@ -241,6 +245,19 @@ const { pathToFileURL } = require("url");
   result = check(option, { env: { ...liveEnv, EXEC_MAX_NEW_RISK_BPS: "10" } });
   assert.strictEqual(result.ok, false);
   assert.match(result.error, /risk exceeds server cap/i);
+
+  result = check({
+    id,
+    type: "close_only",
+    account: "primary",
+    dry_run: false,
+    payload: {
+      symbol: "SPY", sec_type: "STK", currency: "USD", expected_position: 100,
+      fraction: 1, order_type: "MKT",
+    },
+  }, { env: liveEnv });
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /require con_id/i);
 
   // Python seconds and JavaScript milliseconds are both accepted.
   result = check(entry, { book: { ...book, at: now / 1000 - 30 } });

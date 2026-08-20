@@ -6,7 +6,7 @@
  */
 
 export const BOOK_STALE_MS = 90_000;
-export const POLICY_VERSION = "2026-08-20.1";
+export const POLICY_VERSION = "2026-08-20.2";
 
 export const COMMAND_TYPES = Object.freeze([
   "echo", "entry_bracket", "close_only", "flatten", "cancel", "modify",
@@ -47,8 +47,8 @@ const TYPE_FIELDS = Object.freeze({
     "fraction", "order_type",
   ],
   exit_attach: [
-    "symbol", "sec_type", "expiry", "con_id", "currency", "stop", "target",
-    "time_stop", "outside_rth",
+    "symbol", "sec_type", "expiry", "con_id", "currency", "expected_position",
+    "stop", "target", "time_stop", "outside_rth",
   ],
   scheduled_option: [
     "symbol", "right", "target_delta", "delta_tolerance", "premium_budget",
@@ -134,7 +134,9 @@ function accountRow(book, account) {
 }
 
 function sameContract(item, payload) {
-  if (payload.con_id != null && item.con_id != null) return Number(payload.con_id) === Number(item.con_id);
+  if (payload.con_id != null) {
+    return item.con_id != null && Number(payload.con_id) === Number(item.con_id);
+  }
   return String(item.symbol || "").toUpperCase() === String(payload.symbol || "").toUpperCase()
     && (!payload.sec_type || !item.sec_type || String(item.sec_type).toUpperCase() === String(payload.sec_type).toUpperCase())
     && (!payload.currency || !item.currency || String(item.currency).toUpperCase() === String(payload.currency).toUpperCase())
@@ -173,6 +175,24 @@ function validateIdentity(payload) {
   if (payload.con_id != null && !positiveInteger(payload.con_id)) return "con_id must be a positive integer";
   if (payload.expected_position != null && !finiteNumber(payload.expected_position)) return "expected_position must be a number";
   if (!safeText(payload.sec_type, 8) || !safeText(payload.currency, 8) || !safeText(payload.expiry, 16)) return "contract identity is invalid";
+  return null;
+}
+
+function validateLivePositionIdentity(payload) {
+  if (!positiveInteger(payload.con_id)) return "live position commands require con_id";
+  if (!finiteNumber(payload.expected_position) || Number(payload.expected_position) === 0) {
+    return "live position commands require a non-zero expected_position";
+  }
+  if (typeof payload.sec_type !== "string" || !/^[A-Z]{3,8}$/.test(payload.sec_type)) {
+    return "live position commands require sec_type";
+  }
+  if (typeof payload.currency !== "string" || !/^[A-Z]{3}$/.test(payload.currency)) {
+    return "live position commands require currency";
+  }
+  if (["FUT", "OPT", "FOP"].includes(payload.sec_type)
+      && (typeof payload.expiry !== "string" || !EXPIRY_RE.test(payload.expiry))) {
+    return "live derivative position commands require expiry";
+  }
   return null;
 }
 
@@ -240,9 +260,13 @@ function validateEntry(payload, dryRun) {
   return null;
 }
 
-function validateClose(payload, account) {
+function validateClose(payload, account, dryRun) {
   const identityError = validateIdentity(payload);
   if (identityError) return identityError;
+  if (!dryRun) {
+    const liveIdentityError = validateLivePositionIdentity(payload);
+    if (liveIdentityError) return liveIdentityError;
+  }
   const position = findPosition(account, payload);
   if (!position || !Number(position.position)) return "matching live position was not found";
   if (payload.expected_position != null && Number(payload.expected_position) !== Number(position.position)) return "position changed since the command was composed";
@@ -299,9 +323,13 @@ function validateModify(payload, account, dryRun, env) {
   return null;
 }
 
-function validatePositionMutation(payload, account, env) {
+function validatePositionMutation(payload, account, env, dryRun) {
   const identityError = validateIdentity(payload);
   if (identityError) return identityError;
+  if (!dryRun) {
+    const liveIdentityError = validateLivePositionIdentity(payload);
+    if (liveIdentityError) return liveIdentityError;
+  }
   const position = findPosition(account, payload);
   if (!position || !Number(position.position)) return "matching live position was not found";
   if (Number(payload.expected_position) !== Number(position.position)) return "position changed since the command was composed";
@@ -310,11 +338,19 @@ function validatePositionMutation(payload, account, env) {
   return null;
 }
 
-function validateExitAttach(payload, account) {
+function validateExitAttach(payload, account, dryRun) {
   const identityError = validateIdentity(payload);
   if (identityError) return identityError;
+  if (!dryRun) {
+    const liveIdentityError = validateLivePositionIdentity(payload);
+    if (liveIdentityError) return liveIdentityError;
+  }
   const position = findPosition(account, payload);
   if (!position) return "matching live position was not found";
+  if (payload.expected_position != null
+      && Number(payload.expected_position) !== Number(position.position)) {
+    return "position changed since the command was composed";
+  }
   if (payload.stop == null && payload.target == null && payload.time_stop == null) return "attach requires a stop, target, or time stop";
   if (payload.stop != null && !finitePositive(payload.stop)) return "stop must be > 0";
   if (payload.target != null && !finitePositive(payload.target)) return "target must be > 0";
@@ -430,11 +466,11 @@ function validatePayload(type, payload, account, dryRun, env) {
     case "echo": return safeText(payload.note, 200) ? null : "echo note is invalid";
     case "entry_bracket": return validateEntry(payload, dryRun);
     case "close_only":
-    case "flatten": return validateClose(payload, account);
+    case "flatten": return validateClose(payload, account, dryRun);
     case "cancel": return validateCancel(payload, dryRun, env);
     case "modify": return validateModify(payload, account, dryRun, env);
     case "trim_readd": {
-      const error = validatePositionMutation(payload, account, env);
+      const error = validatePositionMutation(payload, account, env, dryRun);
       if (error) return error;
       if (!dryRun && !findProtectiveStop(account, payload)) {
         return "live trim/re-add requires a matching protective price stop";
@@ -445,14 +481,14 @@ function validatePayload(type, payload, account, dryRun, env) {
       return null;
     }
     case "add_to_position": {
-      const error = validatePositionMutation(payload, account, env);
+      const error = validatePositionMutation(payload, account, env, dryRun);
       if (error) return error;
       if (!dryRun && !findProtectiveStop(account, payload)) {
         return "live add requires a matching protective price stop";
       }
       return payload.order_type === "MKT" ? null : "add order_type must be MKT";
     }
-    case "exit_attach": return validateExitAttach(payload, account);
+    case "exit_attach": return validateExitAttach(payload, account, dryRun);
     case "scheduled_option": return validateScheduledOption(payload);
     case "scheduled_option_cancel": return UUID_RE.test(String(payload.schedule_id || "")) ? null : "schedule_id must be a UUID";
     case "option_spread": return validateOptionSpread(payload, dryRun);
@@ -515,6 +551,16 @@ export function validateCommandRequest(body, { env = {}, status = {}, book = nul
   if (!dryRun) {
     const riskError = enforceRiskCaps(body.type, body.payload, account, env);
     if (riskError) return fail(403, riskError);
+    if ([
+      "entry_bracket", "scheduled_option", "option_spread",
+      "add_to_position", "trim_readd",
+    ].includes(body.type)) {
+      return fail(
+        403,
+        "risk-increasing live commands are disabled until the broker provides "
+          + "an atomic aggregate risk reservation",
+      );
+    }
   }
 
   return {

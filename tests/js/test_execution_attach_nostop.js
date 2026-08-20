@@ -135,7 +135,8 @@ assert.strictEqual(attach.con_id, 111);
 assert.strictEqual(attach.stop, 190);
 assert.strictEqual(attach.target, 230);
 assert.strictEqual(attach.time_stop, null);
-assert.ok(!("expected_position" in attach), "attach sizes to the live held qty");
+assert.strictEqual(attach.expected_position, 100,
+  "attach pins the fresh position quantity for server-side drift rejection");
 
 // at least one leg required
 setFields({ f_symbol: "AAPL", f_stop: "", f_target: "", f_timestop: "",

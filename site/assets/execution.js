@@ -1493,7 +1493,6 @@ function ticketPayload(t) {
     const pos = attachPosition();
     if (pos) {
       const identity = positionIdentity(pos);
-      delete identity.expected_position;   // attach sizes to the LIVE held qty agent-side
       Object.assign(p, identity);
     }
     return p;

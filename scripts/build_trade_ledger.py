@@ -393,8 +393,10 @@ def main(upload=False):
     sznl_map = load_seasonal_map()
     atr_sznl_map = load_atr_seasonal_map()
     if not atr_sznl_map:
-        print("  WARNING: atr_seasonal_ranks.parquet missing — ATR-seasonal "
-              "strategies (OLV/St OS Sznl/52wh/OVS) will under-fire.")
+        raise RuntimeError(
+            "atr_seasonal_ranks.parquet is missing or rejected; refusing to publish "
+            "a ledger with ATR-seasonal strategies silently disabled"
+        )
 
     all_tickers = set()
     for s in full_book:

@@ -1,7 +1,7 @@
 """Version contract for the live ATR seasonal-rank artifact."""
 
 RANK_METHOD_COLUMN = "rank_method_version"
-RANK_METHOD_VERSION = "target-year-truncated-v2"
+RANK_METHOD_VERSION = "target-year-truncated-nyse-v3"
 
 
 def rank_artifact_version_error(frame) -> str | None:

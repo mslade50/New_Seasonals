@@ -14,7 +14,8 @@ on:
         default: true
 
 concurrency:
-  group: repair-atr-seasonal-ranks
+  # One mutex for every workflow that can replace the canonical rank key.
+  group: atr-seasonal-rank-writer
   cancel-in-progress: false
 
 jobs:
@@ -54,9 +55,10 @@ jobs:
       - name: Validate repaired artifact and write provenance manifest
         run: |
           ATR_END_YEAR=$(python -c "from build_atr_seasonal_ranks import DEFAULT_YEAR; print(DEFAULT_YEAR)")
+          ATR_START_YEAR=$(python -c "from build_atr_seasonal_ranks import FULL_START_YEAR; print(FULL_START_YEAR)")
           SOURCE_ARGS=(--source data/master_prices.parquet)
           if [ -f data/overflow_prices.parquet ]; then SOURCE_ARGS+=(--source data/overflow_prices.parquet); fi
-          python scripts/validate_atr_seasonal_ranks.py --baseline atr_seasonal_ranks.baseline.parquet --end-year "$ATR_END_YEAR" "${SOURCE_ARGS[@]}"
+          python scripts/validate_atr_seasonal_ranks.py --baseline atr_seasonal_ranks.baseline.parquet --start-year "$ATR_START_YEAR" --end-year "$ATR_END_YEAR" "${SOURCE_ARGS[@]}"
 
       - name: Publish corrected artifact and manifest to R2
         run: |

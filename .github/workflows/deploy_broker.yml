@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Refuse deployment from a non-main ref
+        run: test "$GITHUB_REF" = "refs/heads/main"
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -41,14 +43,6 @@ jobs:
           printf '%s' "$AGENT_TOKEN"  | wrangler secret put AGENT_TOKEN
           printf '%s' "$STATUS_TOKEN" | wrangler secret put STATUS_TOKEN
           printf '%s' "$COMMAND_SECRET" | wrangler secret put COMMAND_SECRET
-          printf '0' | wrangler secret put EXEC_LIVE_ENABLED
-          printf 'NONE' | wrangler secret put EXEC_LIVE_TYPES
-          printf 'NONE' | wrangler secret put EXEC_LIVE_ACCOUNTS
-          printf 'STK' | wrangler secret put EXEC_LIVE_INSTRUMENTS
-          printf 'LMT,STP_LMT' | wrangler secret put EXEC_LIVE_ENTRY_TYPES
-          printf 'STK' | wrangler secret put EXEC_LIVE_POSITION_INSTRUMENTS
-          printf '0' | wrangler secret put EXEC_ALLOW_SYMBOL_CANCEL
-          printf '0' | wrangler secret put EXEC_ALLOW_PRICE_MODIFY
 
       - name: Wire the Pages site (read token + dedicated command secret)
         env:

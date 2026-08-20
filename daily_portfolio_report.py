@@ -279,9 +279,10 @@ def run_12month_backtest(starting_equity=None):
     #    strat_backtester UI consumes.
     atr_sznl_map = load_atr_seasonal_map()
     if not atr_sznl_map:
-        print("   ⚠️ atr_seasonal_ranks.parquet not found — strategies depending "
-              "on ATR seasonal ranks will silently produce zero signals. "
-              "Run scripts/build_atr_seasonal_ranks.py to generate it.")
+        raise RuntimeError(
+            "atr_seasonal_ranks.parquet is missing or rejected; refusing to publish "
+            "a portfolio report with ATR-seasonal strategies silently disabled"
+        )
     print("   Computing indicators (percentiles use full history)...")
     processed_dict = precompute_all_indicators(
         master_dict, full_book, sznl_map, vix_series, atr_sznl_map,

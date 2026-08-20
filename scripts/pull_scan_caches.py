@@ -13,9 +13,12 @@ documented fail-open designs and only warn.
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from cache_io import download_to_local
+from atr_seasonal_contract import RANK_METHOD_COLUMN, rank_artifact_version_error
 
 # (r2_key, local_dest)
 REQUIRED = [
@@ -73,6 +76,14 @@ SETS: dict[str, tuple[list, list]] = {
 }
 
 
+def rank_contract_error(path: str = "atr_seasonal_ranks.parquet") -> str | None:
+    try:
+        rank_frame = pd.read_parquet(path, columns=[RANK_METHOD_COLUMN])
+        return rank_artifact_version_error(rank_frame)
+    except Exception as exc:
+        return f"could not read rank contract: {exc}"
+
+
 def main() -> int:
     import argparse
     ap = argparse.ArgumentParser()
@@ -92,6 +103,14 @@ def main() -> int:
         print(f"ERROR: required cache pull(s) failed: {', '.join(failed)} — "
               f"failing loud so the job never runs on missing load-bearing "
               f"inputs while the workflow shows green.")
+        return 1
+    version_error = rank_contract_error()
+    if version_error:
+        print(
+            "ERROR: atr_seasonal_ranks.parquet failed its point-in-time contract: "
+            f"{version_error}. Refusing to run a green scan/report/site build with "
+            "all ATR-seasonal strategies dark."
+        )
         return 1
     print("All required caches pulled.")
     return 0
