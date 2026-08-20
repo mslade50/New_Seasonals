@@ -1659,7 +1659,7 @@ function checkRiskAck() {
         `Approve and resend ${p.action} ${p.quantity} ${p.symbol} @ ${p.entry}${p.stop == null ? " with NO STOP" : ` with stop ${p.stop}`} on ${state.account}?`);
       if (approve) sendCommand(intent.type, { ...p, risk_ack: true }, "cmdMsg");
       else { const m = document.getElementById("cmdMsg"); if (m) m.textContent = "secondary risk approval declined — nothing sent"; }
-    } else if (st && st !== "pushed" && st !== "queued" && st !== "pending") {
+    } else if (st && !["pushed", "queued", "pending", "sent", "received"].includes(st)) {
       riskAckPending.delete(c.id);                 // resolved without needing an ack
     }
   }
@@ -1778,7 +1778,9 @@ function stateBadge(state) {
                 scheduled: ["#4da3ff", "SCHEDULED"], executing: ["#ffc14d", "EXECUTING"],
                 cancelled: ["#9aa3b2", "CANCELLED"], expired: ["#ff6b6b", "EXPIRED"],
                 unknown: ["#ff6b6b", "VERIFY IN TWS"],
-                pushed: ["#9aa3b2", "pushed"], error: ["#ffc14d", "ERROR"] };
+                queued: ["#9aa3b2", "QUEUED"], sent: ["#4da3ff", "SENT"],
+                received: ["#4da3ff", "RECEIVED"], pushed: ["#9aa3b2", "pushed"],
+                error: ["#ffc14d", "ERROR"] };
   const [c, t] = map[state] || ["#9aa3b2", state || ""];
   return `<span style="color:${c};font-weight:600">${esc(t)}</span>`;
 }

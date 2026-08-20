@@ -22,6 +22,15 @@ mode, duplicate sockets, books from an earlier agent session, and unarmed live
 types/accounts before a command reaches the agent. Reconnecting clears the old
 book; no command can flow until the new socket publishes its own snapshot.
 
+Command delivery uses a durable outbox. The broker stores ``queued`` before a
+WebSocket send, retains the item through ``sent`` and the agent's durable
+``received`` receipt, and removes it only after a terminal result. Only a frame
+that synchronously failed before WebSocket acceptance remains retryable. Once a
+socket accepted a send, neither a browser retry nor a reconnect redelivers it;
+missing terminal certainty becomes ``UNKNOWN / verify TWS``. The agent journals
+the command id before acknowledging it, persists the terminal result before
+sending it, and can replay that result without re-execution.
+
 ## One-time deploy
 From this directory, with a recent `wrangler` logged into the Cloudflare account:
 

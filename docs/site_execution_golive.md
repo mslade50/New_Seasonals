@@ -1,11 +1,11 @@
 # Execution bridge — go-live runbook (Phase 2c)
 
 Status: **migration fail-closed; not ready to arm for risk-increasing orders.**
-The local agent contains an IBKR transmission path, but it must be upgraded to
-the `COMMAND_SECRET`/policy-version contract and the broker still needs an
-atomic aggregate-risk reservation before entries, adds, trim/re-adds, or option
-orders can be enabled. Both server layers reject those command types today.
-A stale browser book is never evidence of the current mode.
+The reviewed local-agent upgrade must be installed and dry-run end-to-end before
+any server or agent switch is armed. The broker also still needs an atomic
+aggregate-risk reservation before entries, adds, trim/re-adds, or option orders
+can be enabled. Both server layers reject those command types today. A stale
+browser book is never evidence of the current mode.
 
 Why it isn't automated: live transmission sends **real-money orders to your live
 IBKR accounts**, and it cannot be verified without a real fill. So the only safe
@@ -30,6 +30,10 @@ the dry-run → tiny → full ramp.
   a book bound to the sole active agent WebSocket session, and its own live
   switch/type/account allowlists. Reconnects clear the prior book.
 - The local agent's validation, live allowlists/caps, and IBKR transmit subprocess.
+- A durable broker outbox plus agent receipt/result journal: queued intent is
+  stored before delivery, terminal results are persisted before reply, duplicate
+  ids can replay their result, and any prior-session delivery without a terminal
+  result becomes `UNKNOWN / verify TWS` instead of being executed again.
 - The UI reports **LIVE**, **DRY-RUN**, or **UNKNOWN**. Both LIVE and DRY-RUN are
   trusted only from a fresh book while the agent is online; UNKNOWN disables
   mutating controls.
@@ -72,7 +76,8 @@ book. The server then re-checks freshness and mode rather than trusting the clie
 ## Go-live steps (each is yours to authorize)
 1. **Secret and agent contract.** Generate one strong `COMMAND_SECRET`; store it
    in GitHub Actions, the Worker, Pages, and `exec_agent.env`. Update/restart the
-   external agent so its HMAC verifier uses it. Do not arm anything yet.
+   external agent so its HMAC verifier uses it and its policy version matches
+   both server layers. Do not arm anything yet.
 2. **Deploy fail-closed.** Run `Deploy Execution Broker` from `main`; versioned
    Worker vars atomically deploy with `EXEC_LIVE_ENABLED=0` and empty type/account
    allowlists, then the workflow wires and disarms Pages. Deploy the private site
@@ -91,8 +96,8 @@ book. The server then re-checks freshness and mode rather than trusting the clie
 6. **Do not enable new risk yet.** Entry brackets, position adds/trim-readds,
    scheduled options, and option spreads remain blocked until an atomic broker
    reservation counts pending commands, working orders, and open risk. Only
-   after that control and an agent-acknowledged delivery protocol are reviewed
-   should the runbook gain a new-risk ramp.
+   after that control is implemented and reviewed should the runbook gain a
+   new-risk ramp.
 
 ## Kill switch / rollback
 Set `EXEC_LIVE_ENABLED=0` on **either** Pages or the broker to stop new server-side

@@ -211,6 +211,15 @@ run("checkRiskAck()");
 assert.strictEqual(confirms.length, 0, "plain rejection never prompts for an ack");
 assert.strictEqual(run(`riskAckPending.size`), 0);
 
+// broker outbox states are non-terminal; keep waiting for an executor result
+for (const stateName of ["queued", "sent", "received"]) {
+  run(`riskAckPending.set("cmd-wait", { type: "entry_bracket", payload: { stop: null } })`);
+  run(`state.commands = [{ id: "cmd-wait", state: ${JSON.stringify(stateName)}, result: null }]`);
+  run("checkRiskAck()");
+  assert.strictEqual(run(`riskAckPending.has("cmd-wait")`), true, `${stateName} remains pending`);
+  run(`riskAckPending.delete("cmd-wait")`);
+}
+
 // non-rejected terminal states just clear the pending entry
 run(`riskAckPending.set("cmd-4", { type: "entry_bracket", payload: { stop: null } })`);
 run(`state.commands = [{ id: "cmd-4", state: "dry_run", result: {} }]`);

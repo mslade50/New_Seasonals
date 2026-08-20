@@ -21,6 +21,15 @@ jobs:
       - name: Install wrangler
         run: npm i -g wrangler@4
 
+      - name: Verify both command-policy gates and durable delivery
+        run: |
+          node --check execution-broker/src/index.js
+          node --check execution-broker/src/command_policy.mjs
+          node --check functions/_execution_policy.mjs
+          node tests/js/test_exec_command_policy.js
+          node tests/js/test_exec_broker_policy.js
+          node tests/js/test_exec_broker_delivery.js
+
       - name: Refuse missing command secret
         env:
           COMMAND_SECRET: ${{ secrets.COMMAND_SECRET }}

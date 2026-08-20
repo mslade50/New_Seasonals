@@ -27,6 +27,21 @@ const SCHEDULED_CMD_CAP = 100;       // long-lived option schedules survive rece
 const FILLS_RETENTION_DAYS = 14;     // Trade Log trailing window
 const FILLS_DAY_CAP = 500;           // per-day row cap (keeps each value < DO 128KiB limit)
 const COMMAND_BODY_MAX = 32_768;
+const PENDING_PREFIX = "pending_command:";
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sameCommandIntent(left, right) {
+  const fields = ["id", "type", "account", "dry_run", "payload", "policy_version"];
+  return stableJson(Object.fromEntries(fields.map((key) => [key, left && left[key]])))
+    === stableJson(Object.fromEntries(fields.map((key) => [key, right && right[key]])));
+}
 
 export class ExecBroker extends DurableObject {
   _authed(request, token) {
@@ -45,6 +60,155 @@ export class ExecBroker extends DurableObject {
       if (at > bestAt) { bestAt = at; best = s; }
     }
     return best;
+  }
+
+  _pendingKey(id) {
+    return `${PENDING_PREFIX}${id}`;
+  }
+
+  async _updateCommandRecord(id, patch) {
+    const recent = (await this.ctx.storage.get("recent_commands")) || [];
+    const scheduled = (await this.ctx.storage.get("scheduled_commands")) || [];
+    let changedRecent = false;
+    let changedScheduled = false;
+    const ri = recent.findIndex((r) => r.id === id);
+    if (ri >= 0) {
+      recent[ri] = { ...recent[ri], ...patch };
+      changedRecent = true;
+    }
+    const si = scheduled.findIndex((r) => r.id === id);
+    if (si >= 0) {
+      scheduled[si] = { ...scheduled[si], ...patch };
+      changedScheduled = true;
+    }
+    if (changedRecent) await this.ctx.storage.put("recent_commands", recent);
+    if (changedScheduled) await this.ctx.storage.put("scheduled_commands", scheduled);
+    return (ri >= 0 ? recent[ri] : null) || (si >= 0 ? scheduled[si] : null);
+  }
+
+  async _schedulePendingExpiry(expiresAt) {
+    const expiry = Number(expiresAt || 0);
+    if (!Number.isFinite(expiry) || expiry <= 0) return;
+    const alarmAt = Math.max(Date.now() + 1_000, expiry + 1_000);
+    const existing = await this.ctx.storage.getAlarm();
+    if (existing == null || alarmAt < Number(existing)) {
+      await this.ctx.storage.setAlarm(alarmAt);
+    }
+  }
+
+  async _expirePending(now = Date.now()) {
+    const rows = await this.ctx.storage.list({ prefix: PENDING_PREFIX });
+    let nextExpiry = null;
+    for (const [key, pending] of rows) {
+      if (!pending || !pending.id) {
+        await this.ctx.storage.delete(key);
+        continue;
+      }
+      const expiry = Number(pending.expires_at || 0);
+      if (Number.isFinite(expiry) && expiry > now) {
+        nextExpiry = nextExpiry == null ? expiry : Math.min(nextExpiry, expiry);
+        continue;
+      }
+      const prior = (await this._updateCommandRecord(pending.id, {})) || {};
+      const uncertain = ["sending", "sent", "received"].includes(prior.state);
+      await this._updateCommandRecord(pending.id, {
+        state: uncertain ? "unknown" : "expired",
+        result: { ok: false, detail: uncertain
+          ? "delivery expired without a terminal result; verify TWS"
+          : "command expired before delivery" },
+      });
+      await this.ctx.storage.delete(key);
+    }
+    if (nextExpiry != null) {
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 1_000, nextExpiry + 1_000));
+    }
+  }
+
+  async _deliverPending(pending, socket, sessionId) {
+    const attemptedAt = Date.now();
+    // Persist the attempt/session before the non-transactional WebSocket send.
+    // If storage fails or the process dies after send, a later session sees a
+    // possibly-delivered intent and marks it UNKNOWN instead of duplicating it.
+    const started = {
+      ...pending, attempts: Number(pending.attempts || 0) + 1,
+      last_attempt_at: attemptedAt, last_session_id: sessionId,
+      delivery_started_at: attemptedAt, last_delivery_error: null,
+    };
+    await this.ctx.storage.put(this._pendingKey(pending.id), started);
+    await this._updateCommandRecord(pending.id, {
+      state: "sending", last_attempt_at: attemptedAt,
+      delivery_attempts: started.attempts, last_delivery_error: null,
+    });
+    try {
+      socket.send(JSON.stringify({ type: "command", signed: pending.signed, sig: pending.sig }));
+    } catch (error) {
+      const detail = String((error && error.message) || error || "socket send failed");
+      // A synchronous send exception means no frame was accepted by this
+      // socket, so this one case remains safely retryable.
+      const retryable = {
+        ...started, last_session_id: null, last_delivery_error: detail,
+      };
+      await this.ctx.storage.put(this._pendingKey(pending.id), retryable);
+      await this._updateCommandRecord(pending.id, {
+        state: "queued", last_delivery_error: detail, last_attempt_at: attemptedAt,
+      });
+      return { ok: false, state: "queued", error: "agent delivery failed; command retained for retry" };
+    }
+    await this._updateCommandRecord(pending.id, {
+      state: "sent", sent_at: attemptedAt, last_attempt_at: attemptedAt,
+      delivery_attempts: started.attempts, last_delivery_error: null,
+    });
+    return { ok: true, state: "sent" };
+  }
+
+  async _redeliverPending(ws, sessionId, book) {
+    const rows = await this.ctx.storage.list({ prefix: PENDING_PREFIX });
+    const now = Date.now();
+    const lastSeen = Number((await this.ctx.storage.get("last_seen")) || 0);
+    for (const [key, pending] of rows) {
+      if (!pending || !pending.id || pending.last_session_id === sessionId) continue;
+      const prior = (await this._updateCommandRecord(pending.id, {})) || {};
+      // A prior session may have delivered the frame even when its result was
+      // lost. Never auto-redeliver across that uncertainty boundary.
+      if (pending.last_session_id || ["sending", "sent", "received"].includes(prior.state)) {
+        await this._updateCommandRecord(pending.id, {
+          state: "unknown",
+          result: { ok: false, detail: "prior-session delivery has no terminal result; verify TWS" },
+        });
+        await this.ctx.storage.delete(key);
+        continue;
+      }
+      let cmd;
+      try { cmd = JSON.parse(pending.signed); }
+      catch {
+        await this._updateCommandRecord(pending.id, { state: "rejected", result: { ok: false, detail: "stored command is invalid" } });
+        await this.ctx.storage.delete(key);
+        continue;
+      }
+      if (now > Number(cmd.expires_at || 0)) {
+        const uncertain = ["sending", "sent", "received"].includes(prior.state);
+        await this._updateCommandRecord(pending.id, {
+          state: uncertain ? "unknown" : "expired",
+          result: { ok: false, detail: uncertain
+            ? "delivery expired without a terminal result; verify TWS"
+            : "command expired before delivery" },
+        });
+        await this.ctx.storage.delete(key);
+        continue;
+      }
+      const gate = validateBrokerCommand(cmd, {
+        env: this.env, now, lastSeen, book, socketCount: 1, socketSession: sessionId,
+      });
+      if (!gate.ok) {
+        await this._updateCommandRecord(pending.id, {
+          state: "delivery_cancelled",
+          result: { ok: false, detail: `redelivery rejected: ${gate.error}` },
+        });
+        await this.ctx.storage.delete(key);
+        continue;
+      }
+      await this._deliverPending(pending, ws, sessionId);
+    }
   }
 
   async fetch(request) {
@@ -134,12 +298,42 @@ export class ExecBroker extends DurableObject {
       const scheduled = (await this.ctx.storage.get("scheduled_commands")) || [];
       const existing = recent.find((r) => r.id === cmd.id) || scheduled.find((r) => r.id === cmd.id);
       if (existing) {
+        const pending = await this.ctx.storage.get(this._pendingKey(cmd.id));
+        if (pending && !["done", "executed", "dry_run", "rejected", "cancelled", "expired"].includes(existing.state)) {
+          let original;
+          try { original = JSON.parse(pending.signed); }
+          catch { return Response.json({ ok: false, error: "stored command is invalid" }, { status: 500 }); }
+          if (!sameCommandIntent(original, cmd)) {
+            return Response.json({ ok: false, error: "command id is already bound to a different intent" }, { status: 409 });
+          }
+          // Once a socket accepted a send, a retry cannot distinguish a lost
+          // result from a lost command. Do not risk a duplicate order.
+          if (pending.last_session_id || ["sending", "sent", "received"].includes(existing.state)) {
+            return Response.json({
+              ok: true, deduped: true, retried: false, id: cmd.id,
+              state: existing.state, command: existing,
+            });
+          }
+          // Pages issues a fresh short-lived envelope on a client retry. Keep
+          // the durable id/intent but refresh the signed expiry before delivery.
+          const refreshed = {
+            ...pending, signed, sig, expires_at: cmd.expires_at, refreshed_at: now,
+          };
+          await this.ctx.storage.put(this._pendingKey(cmd.id), refreshed);
+          await this._schedulePendingExpiry(cmd.expires_at);
+          const delivery = await this._deliverPending(refreshed, deliverySocket, socketSession);
+          return Response.json({
+            ok: delivery.ok, deduped: true, retried: true, id: cmd.id,
+            state: delivery.state, error: delivery.error, command: existing,
+          }, { status: delivery.ok ? 200 : 503 });
+        }
         return Response.json({ ok: true, deduped: true, id: cmd.id, state: existing.state, command: existing });
       }
-      // record + push to the NEWEST agent socket only (it verifies the sig and
-      // validates); >1 connected socket is an anomaly worth keeping in the audit trail
+      // Persist an outbox item before sending. It remains until an agent result,
+      // so a send error or process/socket loss can be retried without losing the
+      // intent; the agent durably deduplicates the command id before execution.
       const record = { id: cmd.id, type: cmd.type, account: cmd.account, dry_run: cmd.dry_run,
-                       state: "pushed", created_at: Date.now(), result: null };
+                       state: "queued", created_at: Date.now(), result: null };
       if (sockets.length > 1) record.sockets_at_delivery = sockets.length;
       recent.unshift(record);
       await this.ctx.storage.put("recent_commands", recent.slice(0, CMD_CAP));
@@ -147,8 +341,15 @@ export class ExecBroker extends DurableObject {
         scheduled.unshift({ ...record });
         await this.ctx.storage.put("scheduled_commands", scheduled.slice(0, SCHEDULED_CMD_CAP));
       }
-      deliverySocket.send(JSON.stringify({ type: "command", signed, sig }));
-      return Response.json({ ok: true, id: cmd.id, state: "pushed" });
+      const pending = {
+        id: cmd.id, signed, sig, created_at: Date.now(), expires_at: cmd.expires_at,
+        attempts: 0, last_session_id: null,
+      };
+      await this.ctx.storage.put(this._pendingKey(cmd.id), pending);
+      await this._schedulePendingExpiry(cmd.expires_at);
+      const delivery = await this._deliverPending(pending, deliverySocket, socketSession);
+      return Response.json({ ok: delivery.ok, id: cmd.id, state: delivery.state, error: delivery.error },
+        { status: delivery.ok ? 200 : 503 });
     }
 
     // --- Recent commands + results (site polls this) ---
@@ -310,6 +511,10 @@ export class ExecBroker extends DurableObject {
       await this.ctx.storage.put("last_seen", Date.now());
       try { await this._mergeFills(book); }
       catch (e) { await this.ctx.storage.put("last_error", `mergeFills: ${String((e && e.message) || e)}`); }
+      // A reconnect gets a new session id. Only after its first fresh book is
+      // stored may unresolved outbox commands be revalidated and redelivered.
+      try { await this._redeliverPending(ws, sessionId, { ...book, accounts, _broker_session_id: sessionId }); }
+      catch (e) { await this.ctx.storage.put("last_error", `redeliverPending: ${String((e && e.message) || e)}`); }
       return;
     }
 
@@ -354,6 +559,16 @@ export class ExecBroker extends DurableObject {
       return;
     }
 
+    // Durable receipt means the agent journaled the id before any execution.
+    // Keep the outbox item until a terminal result so an interrupted session
+    // can replay the durable result (or surface UNKNOWN) on reconnect.
+    if (msg.type === "command_receipt" && msg.id) {
+      await this._updateCommandRecord(msg.id, {
+        state: "received", received_at: Date.now(), agent_policy_version: msg.policy_version || null,
+      });
+      return;
+    }
+
     // Command result from the agent -> attach to the recent-commands ring.
     if (msg.type === "result" && msg.id) {
       const recent = (await this.ctx.storage.get("recent_commands")) || [];
@@ -372,7 +587,15 @@ export class ExecBroker extends DurableObject {
                                  preview: msg.preview, fill: msg.fill, at: msg.at };
         await this.ctx.storage.put("scheduled_commands", scheduled);
       }
+      await this.ctx.storage.delete(this._pendingKey(msg.id));
     }
+  }
+
+  // A lost receipt/result must not leave the UI claiming SENT forever.  The
+  // alarm never retries a possibly executed command; it only converts an
+  // expired sent/received intent to UNKNOWN so a human verifies TWS.
+  async alarm() {
+    await this._expirePending();
   }
 
   // Fold a book push's per-account fills into per-day storage keys
