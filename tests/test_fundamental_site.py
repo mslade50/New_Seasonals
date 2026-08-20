@@ -79,8 +79,11 @@ def test_no_review_keeps_only_three_active_names(tmp_path):
     assert payload["live_actions_enabled"] is False
 
 
-def test_quick_reviews_are_complete_and_capped(tmp_path):
-    decisions = [_decision(ticker, "QUICK_REVIEW") for ticker in ["AAA", "BBB", "CCC", "DDD"]]
+def test_quick_reviews_are_complete_and_capped(tmp_path, v2_underwrite_factory):
+    decisions = [
+        v2_underwrite_factory(ticker=ticker, decision="QUICK_REVIEW", as_of="2026-08-05")
+        for ticker in ["AAA", "BBB", "CCC", "DDD"]
+    ]
     candidates = [
         {"ticker": ticker, "company_name": f"Company {ticker}", "trend_state": "GREEN"}
         for ticker in ["AAA", "BBB", "CCC", "DDD"]

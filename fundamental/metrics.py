@@ -280,6 +280,7 @@ def compute_trend_metrics(
         close = pd.to_numeric(group["Close"], errors="coerce")
         volume = pd.to_numeric(group.get("Volume", pd.Series(np.nan, index=group.index)), errors="coerce")
         sma200 = close.rolling(200, min_periods=200).mean()
+        sma1000 = close.rolling(1000, min_periods=1000).mean()
         return {
             "ticker": str(group["ticker"].iloc[-1]),
             "price_as_of": group["date"].iloc[-1],
@@ -287,6 +288,9 @@ def compute_trend_metrics(
             "sma200": sma200.iloc[-1] if len(sma200) else np.nan,
             "sma200_slope_20d": _safe_div(sma200.iloc[-1], sma200.iloc[-21]) - 1.0
                 if len(sma200) >= 21 and pd.notna(sma200.iloc[-21]) else np.nan,
+            "sma1000": sma1000.iloc[-1] if len(sma1000) else np.nan,
+            "sma1000_slope_60d": _safe_div(sma1000.iloc[-1], sma1000.iloc[-61]) - 1.0
+                if len(sma1000) >= 61 and pd.notna(sma1000.iloc[-61]) else np.nan,
             "return_12_1": _safe_div(close.iloc[-21], close.iloc[-252]) - 1.0
                 if len(close) >= 252 else np.nan,
             "dollar_volume_63d": (close * volume).tail(63).mean(),
@@ -301,4 +305,5 @@ def compute_trend_metrics(
     benchmark_return = benchmark_row["return_12_1"].iloc[-1] if not benchmark_row.empty else np.nan
     out["relative_return_12_1"] = out["return_12_1"] - benchmark_return
     out["above_sma200"] = out["price"] > out["sma200"]
+    out["above_sma1000"] = out["price"] > out["sma1000"]
     return out[out["ticker"].isin({str(t).upper() for t in tickers})].reset_index(drop=True)

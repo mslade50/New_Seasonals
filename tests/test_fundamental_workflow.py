@@ -10,7 +10,10 @@ def test_cloud_research_includes_specialist_lanes() -> None:
     workflow = (ROOT / ".github" / "workflows" / "fundamental_sleeve_research.yml").read_text(
         encoding="utf-8"
     )
-    assert "--include-specialists" in workflow
+    orchestrator = (ROOT / "scripts" / "run_fundamental_sleeve.py").read_text(encoding="utf-8")
+    assert "run_fundamental_sleeve.py" in workflow
+    assert "--include-specialists" in orchestrator
+    assert "--upload" not in workflow
 
 
 def test_cloud_inputs_preserve_underwrite_decisions() -> None:

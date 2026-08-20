@@ -14,8 +14,14 @@ CURRENT_ROOT = DATA_ROOT / "current"
 RUN_ROOT = DATA_ROOT / "runs"
 REPORT_ROOT = ROOT / "reports" / "fundamental"
 
-POLICY_VERSION = "fundamental-sleeve.v1"
-SCHEMA_VERSION = "fundamental-data.v1"
+POLICY_VERSION = "fundamental-sleeve.v2"
+SCHEMA_VERSION = "fundamental-data.v2"
+UNDERWRITE_SCHEMA_VERSION = "fundamental-underwrite.v2"
+RUN_MANIFEST_SCHEMA_VERSION = "fundamental-run-manifest.v1"
+TRIGGER_SCHEMA_VERSION = "fundamental-trigger.v1"
+EVIDENCE_SCHEMA_VERSION = "fundamental-evidence.v1"
+PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = "fundamental-portfolio-snapshot.v1"
+CONTROL_STATE_MAX_AGE_DAYS = 30
 
 
 @dataclass(frozen=True)
@@ -76,9 +82,108 @@ class BroadUniversePolicy:
     refresh_after_days: int = 30
 
 
+@dataclass(frozen=True)
+class UnderwritePolicy:
+    """Minimum evidence and risk/reward gates for a reader-facing review.
+
+    These are promotion gates for research, not instructions to allocate
+    capital.  An archetype-specific underwrite may be more conservative, but
+    it may not weaken these defaults without a versioned policy change.
+    """
+
+    max_visible_reviews: int = 3
+    current_price_max_age_days: int = 7
+    primary_source_max_age_days: int = 550
+    estimate_snapshot_max_age_days: int = 45
+    min_primary_sources: int = 2
+    min_evidence_items: int = 3
+    min_causal_links: int = 2
+    min_proof_triggers: int = 1
+    min_kill_conditions: int = 2
+    min_base_case_cagr: float = 0.12
+    min_discount_to_base_value: float = 0.20
+    min_upside_downside_ratio: float = 1.50
+    max_bear_case_downside: float = 0.40
+
+
 SLEEVE_POLICY = SleevePolicy()
 UNIVERSE_POLICY = UniversePolicy()
 BROAD_UNIVERSE_POLICY = BroadUniversePolicy()
+UNDERWRITE_POLICY = UnderwritePolicy()
+
+
+# A screen is a recall device.  These independent axes expose why a company
+# entered the diligence queue without pretending that one blended score proves
+# a security-level mispricing.
+SCREEN_AXIS_METRICS: dict[str, tuple[str, ...]] = {
+    "business_quality": (
+        "roic",
+        "incremental_roic",
+        "gross_profitability",
+        "gross_margin_stability",
+        "fcf_margin",
+        "cash_conversion",
+        "accrual_ratio",
+        "fcf_positive_years",
+    ),
+    "owner_alignment": (
+        "sbc_to_revenue",
+        "share_count_cagr_3y",
+        "net_debt_to_ebitda",
+    ),
+    "valuation_support": ("fcf_yield", "earnings_yield"),
+    "fundamental_change": ("revenue_growth_change", "fcf_margin_change"),
+}
+
+
+ARCHETYPE_VALUATION_METHODS: dict[str, tuple[str, ...]] = {
+    "quality_compounder": (
+        "driver_dcf",
+        "reverse_dcf",
+        "normalized_owner_earnings",
+    ),
+    "derated_quality": (
+        "driver_dcf",
+        "reverse_dcf",
+        "normalized_owner_earnings",
+    ),
+    "revision_inflection": (
+        "scenario_dcf",
+        "normalized_owner_earnings",
+        "reverse_dcf",
+    ),
+    "self_help": (
+        "scenario_dcf",
+        "normalized_owner_earnings",
+        "sum_of_parts",
+    ),
+    "capital_allocation": (
+        "normalized_owner_earnings",
+        "sum_of_parts",
+        "reverse_dcf",
+    ),
+    "cash_yield_discount": (
+        "normalized_owner_earnings",
+        "reverse_dcf",
+        "sum_of_parts",
+    ),
+    "cyclical_normalization": (
+        "midcycle_earnings",
+        "asset_nav",
+        "scenario_dcf",
+    ),
+    "hidden_asset": ("sum_of_parts", "asset_nav", "event_value"),
+    "post_event_overreaction": (
+        "scenario_dcf",
+        "normalized_owner_earnings",
+        "event_value",
+    ),
+    "financial": ("excess_return", "tangible_book", "dividend_discount"),
+    "reit": ("nav", "affo", "implied_cap_rate"),
+    "biotech": ("risk_adjusted_npv", "net_cash", "dilution_scenario"),
+    "commodity": ("asset_nav", "midcycle_earnings", "scenario_dcf"),
+    "special_situation": ("event_value", "sum_of_parts", "liquidation_value"),
+}
 
 # Cross-sectional research score.  The score prioritizes the diligence queue;
 # it is never an investment recommendation or position-sizing instruction.
@@ -127,7 +232,15 @@ def policy_payload() -> dict:
         "sleeve": asdict(SLEEVE_POLICY),
         "universe": asdict(UNIVERSE_POLICY),
         "broad_universe": asdict(BROAD_UNIVERSE_POLICY),
+        "underwrite": asdict(UNDERWRITE_POLICY),
         "score_weights": SCORE_WEIGHTS,
+        "screen_axes": SCREEN_AXIS_METRICS,
+        "archetype_valuation_methods": ARCHETYPE_VALUATION_METHODS,
+        "run_manifest_schema_version": RUN_MANIFEST_SCHEMA_VERSION,
+        "trigger_schema_version": TRIGGER_SCHEMA_VERSION,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "portfolio_snapshot_schema_version": PORTFOLIO_SNAPSHOT_SCHEMA_VERSION,
+        "control_state_max_age_days": CONTROL_STATE_MAX_AGE_DAYS,
         "lower_is_better": sorted(LOWER_IS_BETTER),
     }
 
@@ -147,6 +260,8 @@ def validate_policy() -> None:
     u = BROAD_UNIVERSE_POLICY
     if u.default_enrichment_batch > u.max_enrichment_batch:
         raise ValueError("default enrichment batch exceeds the hard batch limit")
+    if UNDERWRITE_POLICY.max_visible_reviews > 3:
+        raise ValueError("reader-facing fundamental reviews may not exceed three")
 
 
 validate_policy()

@@ -13,6 +13,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .underwrite import is_surfaceable_quick_review, normalize_underwrite_record
+
 
 QUICK_REVIEW = "QUICK_REVIEW"
 ACTIVE_RESEARCH = {"WAIT_FOR_PROOF", "WAIT_FOR_EVENT"}
@@ -55,6 +57,14 @@ PASS_REASON_META = {
     "other": (
         "Other unresolved issue",
         "A less common first-rejection reason is keeping the company in the background queue.",
+    ),
+    "missing_realization": (
+        "No realization edge yet",
+        "The business or valuation may be interesting, but revisions, catalyst evidence, and trend are not aligned.",
+    ),
+    "no_compelling_setup": (
+        "No compelling setup",
+        "The independent quality, valuation, and change axes do not justify scarce deep-research time today.",
     ),
 }
 
@@ -119,6 +129,17 @@ def _source_rows(value: Any) -> list[dict[str, str]]:
 
 
 def _pass_reason_category(candidate: dict[str, Any]) -> str:
+    gate_code = _text(candidate.get("primary_gate_code")).lower()
+    structured = {
+        "specialist_model": "specialist_underwriting",
+        "financial_history": "coverage_eligibility",
+        "eligibility": "coverage_eligibility",
+        "hypothesis_test": "valuation_expectations",
+        "missing_trigger": "missing_realization",
+        "no_compelling_setup": "no_compelling_setup",
+    }
+    if gate_code in structured:
+        return structured[gate_code]
     reason = _text(candidate.get("first_rejection")).lower()
     lane = _text(candidate.get("research_lane")).lower()
     if lane in SPECIALIST_LANES or "baseline covered" in reason:
@@ -197,9 +218,10 @@ def _review_row(
     circle_by_ticker: dict[str, dict[str, Any]],
     founder_tickers: set[str],
 ) -> dict[str, Any]:
+    decision = normalize_underwrite_record(decision)
     ticker = _text(decision.get("ticker")).upper()
     proof = _strings(decision.get("proof_required"))
-    kills = _strings(decision.get("kill_conditions"))
+    kills = _strings(decision.get("kill_condition_summaries") or decision.get("kill_conditions"))
     return {
         "ticker": ticker,
         "company_name": _text(candidate.get("company_name")) or ticker,
@@ -207,15 +229,15 @@ def _review_row(
         "verdict": _text(decision.get("verdict")),
         "mispricing": _text(decision.get("mispricing")),
         "priced_in": _text(decision.get("priced_in")),
-        "valuation": _text(decision.get("valuation")),
-        "downside": kills[0] if kills else "Downside mechanism still needs definition.",
+        "valuation": _text(decision.get("valuation_summary") or decision.get("valuation")),
+        "downside": _text(decision.get("downside_summary")) or (kills[0] if kills else ""),
         "proof_trigger": proof[0] if proof else "No observable proof trigger has been recorded.",
         "proof_required": proof,
         "kill_conditions": kills,
-        "next_review": _text(decision.get("next_review")),
+        "next_review": _text(decision.get("next_review_summary") or decision.get("next_review")),
         "price_as_of": _text(decision.get("price_as_of")),
-        "exact_decision": "Choose whether research should DEEPEN, WATCH, or PASS.",
-        "sources": _source_rows(decision.get("sources")),
+        "exact_decision": _text(decision.get("review_request")),
+        "sources": _source_rows(decision.get("source_rows") or decision.get("sources")),
         **_company_tags(ticker, candidate, circle_by_ticker, founder_tickers),
     }
 
@@ -226,13 +248,14 @@ def _active_row(
     circle_by_ticker: dict[str, dict[str, Any]],
     founder_tickers: set[str],
 ) -> dict[str, Any]:
+    decision = normalize_underwrite_record(decision)
     ticker = _text(decision.get("ticker")).upper()
     return {
         "ticker": ticker,
         "company_name": _text(candidate.get("company_name")) or ticker,
         "decision": _text(decision.get("decision")),
         "verdict": _text(decision.get("verdict")),
-        "next_review": _text(decision.get("next_review")),
+        "next_review": _text(decision.get("next_review_summary") or decision.get("next_review")),
         "price_as_of": _text(decision.get("price_as_of")),
         **_company_tags(ticker, candidate, circle_by_ticker, founder_tickers),
     }
@@ -264,12 +287,17 @@ def build_fundamental_site_payload(
     founder_tickers = {
         _text(row.get("ticker")).upper()
         for row in founder_rows
-        if isinstance(row, dict) and _text(row.get("ticker"))
+        if isinstance(row, dict)
+        and _text(row.get("ticker"))
+        and _text(row.get("status") or "active").lower()
+        in {"active", "verified", "source_only", "primary_source_only"}
     }
 
     decisions = daily.get("underwrite_decisions")
     decisions = decisions if isinstance(decisions, list) else []
     valid_decisions = [row for row in decisions if isinstance(row, dict)]
+    health = daily.get("health") if isinstance(daily.get("health"), dict) else {}
+    health_as_of = _text(health.get("as_of")) or None
     underwritten_tickers = {
         _text(row.get("ticker")).upper()
         for row in valid_decisions
@@ -284,7 +312,11 @@ def build_fundamental_site_payload(
             continue
         candidate = candidate_by_ticker.get(ticker, {})
         status = _text(decision.get("decision")).upper()
-        if status == QUICK_REVIEW and len(quick_reviews) < MAX_VISIBLE_NAMES:
+        if (
+            status == QUICK_REVIEW
+            and is_surfaceable_quick_review(decision, decision_as_of=health_as_of)
+            and len(quick_reviews) < MAX_VISIBLE_NAMES
+        ):
             quick_reviews.append(
                 _review_row(decision, candidate, circle_by_ticker, founder_tickers)
             )
@@ -293,23 +325,25 @@ def build_fundamental_site_payload(
                 _active_row(decision, candidate, circle_by_ticker, founder_tickers)
             )
 
-    health = daily.get("health") if isinstance(daily.get("health"), dict) else {}
     universe = health.get("universe") if isinstance(health.get("universe"), dict) else {}
     maps_meta = maps.get("meta") if isinstance(maps.get("meta"), dict) else {}
     sources = _source_rows(health.get("sources"))
+    coverage_depth = health.get("coverage_depth") if isinstance(health.get("coverage_depth"), dict) else {}
+    event_state = health.get("research_event_state") if isinstance(health.get("research_event_state"), dict) else {}
+    control_state = health.get("research_control_state") if isinstance(health.get("research_control_state"), dict) else {}
 
     return {
-        "version": 1,
+        "version": 2,
         "as_of": _text(health.get("as_of") or maps_meta.get("as_of")),
         "status": QUICK_REVIEW if quick_reviews else "NO_REVIEW",
         "reviews": quick_reviews,
         "active_research": active_research,
         "portfolio": {
-            "position_count": 0,
+            "position_count": None,
             "max_positions": 10,
-            "capital_allocated_pct": 0.0,
+            "capital_allocated_pct": None,
             "capital_cap_pct": 30.0,
-            "tracking_posture": "Manual allocation; no broker or order connection.",
+            "tracking_posture": "Portfolio snapshot unavailable; allocation remains manual and disconnected from brokers.",
         },
         "lenses": {
             "product_circle_count": int(maps_meta.get("circle_count") or 0),
@@ -321,10 +355,26 @@ def build_fundamental_site_payload(
         "audit": {
             "discovered": int(universe.get("discovered") or 0),
             "research_eligible": int(universe.get("research_eligible") or 0),
-            "fundamental_covered": int(universe.get("fundamental_covered") or 0),
+            "fundamental_covered": int(coverage_depth.get("baseline_ready") or universe.get("fundamental_covered") or 0),
+            "baseline_ready": int(coverage_depth.get("baseline_ready") or 0),
+            "deep_ready": int(coverage_depth.get("deep_ready") or 0),
+            "decision_ready": int(coverage_depth.get("decision_ready") or 0),
             "sec_covered": int(universe.get("sec_covered") or 0),
             "scored_candidates": int(universe.get("scored_candidates") or 0),
             "completed_underwrites": len(valid_decisions),
+            "blocked_quick_reviews": sum(
+                1
+                for row in valid_decisions
+                if _text(row.get("decision")).upper() == QUICK_REVIEW
+                and not is_surfaceable_quick_review(row, decision_as_of=health_as_of)
+            ),
+            "research_funnel": health.get("research_funnel") or {},
+            "state_health": {
+                "controls": _text(control_state.get("status") or "MISSING"),
+                "triggers": _text((event_state.get("trigger_ledger") or {}).get("file_status") or "MISSING"),
+                "evidence": _text((event_state.get("evidence_ledger") or {}).get("file_status") or "MISSING"),
+                "portfolio": _text((health.get("portfolio_context") or {}).get("status") or "MISSING"),
+            },
             "pass_summary": _pass_summary(candidates, underwritten_tickers),
             "sources": sources,
             "gaps": _strings(health.get("gaps")),
