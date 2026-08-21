@@ -327,8 +327,16 @@ def build_book(today: pd.Timestamp, warnings: list[str],
             for row in _read_sheet_tab(tab):
                 staged.append({
                     "tab": tab,
-                    "strategy": row.get("Strategy_Name") or row.get("Strategy"),
-                    "ticker": row.get("Ticker"),
+                    # The staging tabs are written by daily_scan's
+                    # save_staging_orders, whose columns are Symbol and
+                    # Strategy_Ref. Reading Ticker/Strategy_Name silently
+                    # returned None for every row, so the stage-C overlap
+                    # check was blind to WHICH names the book staged
+                    # (found 2026-08-21, with four gold miners staged short).
+                    "strategy": (row.get("Strategy_Ref")
+                                 or row.get("Strategy_Name")
+                                 or row.get("Strategy")),
+                    "ticker": row.get("Symbol") or row.get("Ticker"),
                     "action": row.get("Action"),
                     "quantity": row.get("Quantity"),
                     "entry_type": row.get("Entry_Type") or row.get("Order_Type"),

@@ -1506,3 +1506,216 @@ be live on 2026-08-12. (a2_c1_gate_attribution.py)
   August's post-break sample is 8 anchors and its bootstrap P(mean<=0) is 0.063,
   so it is not distinguishable from the rest of the sleeve in either direction.
   (b2b_c4_round2_and_book_finding.py)
+
+## Method traps (2026-08-21, from an 11-candidate sweep that killed all 11)
+
+- **A watchlist entry can fire every condition it states and still be dead, on
+  a state the entry never encoded.** The GLD miner-thrust cell was parked on
+  2026-08-11 with three arming conditions and all three fired for the first
+  time on 2026-08-21. The parent reproduced cleanly (75 episodes, +0.853% at
+  h=5, excess +0.619pp, 48-27, sign p 0.0101, 28x cost, decluster-stable at
+  min_gap 5/10/21/42) and the idea died anyway, because the entry had no rung
+  for the TREND state of the instrument: 2018+ with GLD more than 10% below its
+  52-week high pays **-0.641% over 10 episodes at a 50% hit against +0.844% at
+  72% for the complement**, and the live reading was -16.26%. The rule this
+  yields is general: before trusting any trigger, check where today's reading
+  sits inside the episode support on the axes the trigger does NOT mention, not
+  just the ones it does. A trigger is a claim about the conditions it names and
+  says nothing about the ones it omits. (a1b_c1_gld_teardown.py)
+- **Check the dose response on the conditioner's own axis, because it can run
+  backwards while the cell still looks alive.** The same entry's thesis was
+  "pays more the less the metal has joined". The gradient says otherwise: GLD 5d
+  rank [85,95), which is where today sat at 86.9, pays **+0.892%** while [70,85)
+  pays +0.585% and [50,70) +0.702%, and GDX one-week moves above +10% pay
+  +0.483% at a 51.6% hit against +1.113% at 72.7% below that. So the cell is
+  real and the stated mechanism is not what it keys on, which is the third
+  occurrence of this pattern after the 2026-08-19 macro pair. A conditioner
+  with no monotone dose response has not been shown to be the mechanism.
+  (a1b_c1_gld_teardown.py)
+- **Two anchors can be the same anchor.** The August opex close IS the
+  Jackson-Hole-minus-5 anchor in **21 of 26 years** (offset -5 in 21, -10 in 5,
+  0 once). Two candidate families that looked independent, the cross-asset
+  post-opex sweep and JH-5 on the unswept classes, were one anchor family
+  wearing two labels, and both labels were already closed. Before crossing a
+  calendar anchor with anything, compute its offset distribution against every
+  OTHER anchor in the window; a fixed-date event and a nth-weekday event will
+  collide on a stable offset far more often than intuition suggests.
+  (b1d_c3_impulse_state_collision.py)
+- **Score a win record against the instrument's OWN conditional up-rate, not
+  against a coin.** HYG at JH-5 is 17-2, which is p=0.0004 under a fair coin and
+  looks decisive. Against HYG's own August-trading-day-of-month up-rate of
+  **75.2%** the same record is **p = 0.1147**, and no vehicle in the six tested
+  cleared 0.13 on the right null. This is the 2026-08-11 "sign test against a
+  coin is the wrong null for a drifting instrument" entry, and the correct base
+  rate is the CONDITIONAL one for the month and calendar position, not the
+  instrument's all-days rate. (b2c_c9_hyg_signtest_basis.py)
+- **The alphabetical placebo is now 7-for-8, and the one miss has been
+  reversed.** 2026-08-20 recorded the placebo failing to kill on the SHORT side
+  of the bank-breadth cell. Tested on the LONG side the next session, the four
+  most-washed names **lose to the four alphabetically-first at every horizon
+  from 1 to 10** (-0.117pp at h=5), and both the full 11-name basket (+0.826%)
+  and the four STRONGEST names (+0.872%) also beat the selection rule. A
+  placebo result on one side of a cell does not transfer to the other side.
+  (c7_banks_broken_long.py)
+- **A cell that peaks at the edge of the scanned horizon grid is exposure, not
+  an impulse.** Every occupant of the 100-cell cross-asset opex grid peaked at
+  h=10, the last horizon scanned, and the days 6-10 leg still carried excess
+  (silver's August leg-1 +1.763pp, leg-2 +1.282pp). An expiry-flow mechanism
+  predicts a front-loaded impulse that decays. When the profile instead rises to
+  the boundary, the cell is measuring a calendar window the horizon happens to
+  span, and extending the grid will move the "optimum" with it.
+  (b1_c3_postopex_crossasset_round1.py, b1d_c3_impulse_state_collision.py)
+- **Surviving concentration, era, tape-over-selection, beta-neutralisation and
+  the obvious confound is still not enough for a single-name or single-country
+  idea.** The Japan washout passed every one of those: 42 episodes, +1.564% at
+  h=5, excess +1.460pp, 30-12, sign p 0.0040, 52x cost, era-stable both sides of
+  2018, top-2 episodes are LOSERS so concentration runs the right way, SPY above
+  its 200d on 66.7% of trigger episodes against a 71.6% base rate, EFA-hedged
+  residual +0.674% at a 71.4% hit with a LOYO floor of +0.433%, and a daily
+  EWJ/yen correlation of +0.020 that rules out the currency. The reference-class
+  permutation is a separate and stricter test and it is what killed it. Run it
+  BEFORE spending a round-3 development pass, not after.
+  (a4c_c11_class_null_ownvol.py)
+
+## Cells swept and empty (2026-08-21)
+
+- **The opex anchor crossed with every non-equity class, which closes the
+  anchor completely.** The US equity side died in both directions on
+  2026-08-07 and 2026-08-20; this is the rest of the market. Ten vehicles (GLD,
+  SLV, TLT, IEF, HYG, LQD, USO, XLE, UUP, FXI) by ten horizons, entry MOC on the
+  opex close, excess against each vehicle's own trading-day-of-month-matched
+  control: **grid excess sd 0.132pp and 0 of 100 cells clear 1.0pp**. Priced
+  against cost, credit is +6.0 bps on HYG (1.5x) and +0.2 bps on LQD (0.1x),
+  duration is wrong-signed at -0.105pp on TLT (-5.5x) and -0.038pp on IEF
+  (-1.3x), and the dollar is -0.050pp (-0.8x). The four August subcells that
+  looked alive each died on their own kill: **silver** (+3.661% over 20 anchors,
+  ladder rank 1 of 17) gives back 73% of it to the adjacent plus-or-minus 2 and
+  3 sessions, is 12-8 at sign p 0.2517 once GLD-hedged at beta 1.45, splits
+  +7.858% pre-2013 (7-0) against +1.401% after with a drop-two of +0.363% versus
+  an August all-sessions base of +0.584%, and its live-state reading of -41.6%
+  from the 252d high is deeper than all 20 anchors (deepest -35.8%) in a deep
+  half paying +1.77% against the shallow half's +5.55%; **XLE** is the parked
+  2026-08-20 crude/JH-6 entry one session over and that entry's own condition
+  blocks it with XLE at its 52-week high; **crude** has a drop-two of -0.512%;
+  **China** shows the 2026-08-20 IWM signature, a gate worth +0.220pp of
+  +1.746% and a ladder ranking 2 of 17 at h=10 but 9 of 17 at h=5.
+  (b1_c3_postopex_crossasset_round1.py, b1b_c3_tdom_month_ladder.py,
+  b1c_c3_slv_teardown.py, b1d_c3_impulse_state_collision.py)
+- **Jackson Hole on credit and international, which completes that anchor to
+  seven classes.** Six vehicles by ten horizons. Decisive kill is leg
+  attribution: over the same 19 anchors HYG's August-tdom excess is +0.345pp at
+  h=10 against **SPY's +0.700pp**, so credit SUBTRACTS 0.355pp from an equity
+  leg the registry closed on 2026-08-18, and every SPY-beta-hedged residual is
+  inside plus-or-minus 0.12pp (HYG +0.082, EEM +0.116, EFA +0.069, LQD -0.049,
+  EWJ -0.171) except FXI's -0.738pp. The mechanism is falsified inside its own
+  window: a premium-build story predicts a negative pre-speech leg and the
+  h<=4 class mean is **+0.010pp**, with the ladder paying about the same
+  entering 12 sessions early or 3 sessions AFTER the speech, so there is no
+  release either. Midterm years are negative in 4 of 6 vehicles at h=10, a sixth
+  independent reproduction of the JH midterm inversion. Placebo permutation over
+  relocated anchors: P(max-of-6 >= observed) = 0.286 at h=5, 0.357 at h=10.
+  Self-correction filed with it: the round-1 control pooled August AND September
+  tdom-matched sessions, September dragged the control down and inflated every
+  excess (HYG h=10 read +0.973pp against +0.345pp on the correct August-only
+  control) - a month-matched control must match the month, singular.
+  (b2_c9_jh5_credit_intl_round1.py, b2b_c9_jh5_round2.py)
+- **An equity dip with credit refusing to confirm it.** The credit gate is worth
+  **-0.022pp**: SPY 5d rank <= 10 alone pays +0.455% over 175 episodes and
+  adding HYG within 0.5% of its 52-week high leaves +0.433% over 17, i.e. it
+  discards 158 of 175 episodes to subtract 2.2 bps, while the complement pays
+  +0.462%. **100.0% of gated trigger days sit above SPY's 200d against a 75.4%
+  base rate**, so the gate is a bull-tape selector. Era +2.520% pre-2018 to
+  -0.437% after. Conditioned on the book's own sizing statistic the cell pays
+  +0.408% below dial 50 and **-1.511% above it with zero precedents above 70**,
+  which independently reproduces the frag_risk_bands finding on a cell the book
+  does not trade. Tightening the tolerance 0.25pp gives -0.715%. The one
+  neighbour that worked, HYG's own 5d return >= -0.5% (+1.122%, 70 episodes,
+  t 2.625, era-stable), dies to the asset-class reference class: run "SPY fell
+  but X did not" across 14 vehicles and 9 of 14 are positive with a mean gate
+  value of +0.214pp, HYG ranking **7 of 14 at h=3**, with IEF +0.317, LQD +0.348,
+  XLU +0.648 and XLK +0.663 doing the same work. Duration wearing a credit
+  label, for the third time. (c2_credit_unconfirmed_washout.py,
+  c2b_dial_and_hygret.py, c2c_credit_reference_class.py)
+- **The industry-breadth washout with the trend BROKEN, which closes the
+  construction the 2026-08-14 insurance cell opened.** See the alphabetical
+  placebo entry above for the deciding number. Also: the gate does not filter at
+  the live reading (median-63d threshold walk gives +0.633pp excess below 50,
+  +0.520 below 55, +0.517 below 60, +0.449 below 65, +0.344 below 70, and
+  **+0.348pp with NO GATE AT ALL**, so the 70 line is worth -0.004pp); era runs
+  +1.298% pre-2018 over 132 episodes to **-0.475pp excess at a 46.4% hit** after,
+  with 2008 and 2009 carrying +92.3pp of a +150.6pp total; the basket correlates
+  **0.926** with XLF and beats it by only +0.129pp against 8-10 bps of extra
+  round trip, so the four-name form is XLF with tracking error at 1.9x cost
+  full-history and 0x in the modern era; and tape over-selection runs the wrong
+  way, 46.0% of trigger days below SPY's 200d against a 28.4% base rate.
+  Reference class, third independent sample: Cochran Q 5.88 on 10 df,
+  I-squared 0.0%, dispersion ratio 0.70, P(max group excess >= banks) = 0.891 at
+  h=5 and 0.997 at h=10. (c7_banks_broken_long.py)
+- **The beat that gets sold, i.e. post-earnings drift conditioned on an adverse
+  reaction to a positive surprise.** First examination of the earnings-surprise
+  columns in this repo: 78,672 events, 943 tickers, 2000-2026. Convention
+  established rather than assumed - the parquet date is the announcement date
+  and the reaction splits BMO/AMC almost evenly (|ret| over own 63d median is
+  1.720 at offset 0 and 1.812 at offset +1, against ~1.0 at -1 and +2), so the
+  reaction day is classified per event. **The adverse-move condition does no
+  work**: against the matched cohort that beat and did NOT sell off, the gate
+  adds +0.018pp at h=5 and subtracts -0.159pp at h=10, so continuation is
+  wrong-signed (the cell is positive from h=2) and the snapback is smaller than
+  doing nothing. On LIQUID_PLUS_COMMODITIES from 2013 it is **+0.015% over 601
+  events at a clustered t of 0.12, 1.5 bps against a 10 bps single-name round
+  trip**, with negative medians at h=1/3/5 and a sub-50% hit rate - a left-tail
+  description a time exit cannot harvest. The signal lives in the illiquid names
+  (+0.193%, clustered t 2.36), which is untradeable here. The percent and ATR
+  parameterisations of the same gate disagree in SIGN (percent improves as the
+  drop deepens, ATR goes negative at h=10 for -2/-3/-4 ATR), and 2022 and 2020
+  carry 70% of the h=5 total while 2024 and 2025 are both negative.
+  (c10_recon_convention.py, c10_beat_and_sold.py, c10b_liquid_teardown.py)
+- **Silver against gold on a drawdown divergence, closing the metals-pair family
+  for the third time.** The pitched cell is nothing: 45 episodes, **-0.014%
+  equal-dollar and -0.019% beta-neutral, Welch -0.19, -0.2x cost**. Beta of SLV
+  on GLD is 1.447 full-sample and 1.787 trailing-252d, so equal-dollar is a
+  levered silver bet. The conditioner is U-shaped and points the wrong way: the
+  state where silver is LESS deep than gold pays best at +0.601% while today's
+  bucket pays -0.166%, and the intersection is worse than either gate alone
+  (joint thrust -0.099%, gap <= -20 alone +0.270%). The single positive rung
+  (<= -25pp, N=20, +1.006%, sign p 0.021) drops to +0.237% on a 1.99pp
+  loosening, with the live reading 0.35pp inside it and 16 of 20 episodes in
+  2008-2012 leaving two independent post-2013 instances.
+  (a2_c8_slv_gld_drawdown.py, a2b_c8_gap25_probe.py, a2c_c8_era_and_fragility.py)
+- **Japan, the fifth and last member of the country-decoupling family.** Prior
+  members broke on decoupling (EWZ twice, FXI, SMH/QQQ), on sustained leadership
+  (EFA) or on the funding side (KWEB). This one broke on nothing until the
+  reference class: **P(max-of-10 >= EWJ) = 0.477 on excess and 0.620 on the
+  beta-neutral residual**, where EWJ's +0.671% sits BELOW the null's median best
+  draw of +0.806%, over 20,000 permutations preserving each name's own
+  dispersion under an imposed common class mean, robust to dropping the two
+  wildest peers (0.472 / 0.637). The rule is positive on 8 of the 10 peers with
+  a median excess of +0.698%, so it is a class-wide effect and the country is
+  simply the top draw of ten correlated names selected for being today's
+  outlier. The decoupling leg that is the entire thesis adds +0.760pp over
+  washout-alone at Welch t +1.24, and EWJ 5d rank <= 5 with no EFA gate at all
+  already pays +0.516% excess over 154 episodes at sign p 0.0023. Treat the
+  family as closed: a new country instance needs P(max-of-K) below 0.05 on the
+  residual before it is worth a check.
+  (a4_c11_ewj_washout.py, a4b_c11_refclass_null.py, a4c_c11_class_null_ownvol.py)
+
+### Book findings, filed here because they are about the book rather than a pitch
+
+- **`52wh Breakout` is substantially an earnings-reaction strategy and nothing
+  documents it.** Found incidentally while measuring book overlap for the
+  earnings candidate: **148 of its 250 ledger signals (59.2%) fall within one
+  session of an earnings print**, avgR +0.494. By contrast Overbot Vol Spike's
+  +/-10 trading-day blackout is real and airtight - 0 of 2,305 OVS signals fall
+  within +/-10 td of a print, minimum |offset| 11. Not a defect and not a
+  recommendation, but the 52wh Breakout entry rule is selecting earnings gaps
+  far more often than its description implies, which matters for anyone sizing
+  it or reasoning about its tail. (c10b_liquid_teardown.py, c0b_book_overlap.py)
+- **The pitch state's book-overlap block was blind and is now fixed.**
+  `scripts/build_pitch_state.py` read `Ticker` and `Strategy_Name` off the
+  staging tabs, whose columns are `Symbol` and `Strategy_Ref`, so every staged
+  row reached stage C with a null ticker and no morning could see WHICH names
+  the book had staged. Flagged without a fix on 2026-08-17, fixed 2026-08-21.
+  It mattered immediately: the book was staged short four gold miners (NEM, AGI,
+  AU, CGAU) over exactly the window a live candidate would have held long gold,
+  and the measured consequence was that adding the pitch to the book's own
+  position cancels 82% of it.
