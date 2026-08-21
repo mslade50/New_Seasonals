@@ -3,9 +3,9 @@
   "price_ctx": {
     "price": 762.5999755859375,
     "ret_12m": 0.20833374837926577,
-    "extension_200d": 0.08240420627593115,
+    "extension_200d": 0.08240420393169012,
     "drawdown": -0.019643170156015133,
-    "sma_200": 704.5426940917969,
+    "sma_200": 704.5426956176758,
     "high_52w": 777.8800048828125,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 96,
@@ -25,12 +25,12 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 44th pctile (fires below 15th) \u2014 VIX at 15.9"
+      "summary": "21d range: 44th pctile (fires below 15th) \u2014 VIX at 15.7"
     },
     "Defensive Leadership": {
       "on": true,
-      "detail": "Risk-off stocks leading: 50d spread -18pp, 200d spread -2pp. SPY within 2% of 52w high \u2014 defensive rotation while index holds.",
-      "summary": "50d spread: -18pp (fires < -10) | 200d spread: -2pp (fires < 0)"
+      "detail": "Risk-off stocks leading: 50d spread -18pp, 200d spread -3pp. SPY within 2% of 52w high \u2014 defensive rotation while index holds.",
+      "summary": "50d spread: -18pp (fires < -10) | 200d spread: -3pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
