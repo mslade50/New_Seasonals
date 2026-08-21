@@ -35,8 +35,9 @@ function seasonalFreshnessError(siteMeta, health, data) {
   const flags = (siteMeta && siteMeta.payloads) || {};
   const artifact = health && health.artifacts && health.artifacts.ideas;
   const meta = (data && data.meta) || {};
-  const buildGap = health && Math.abs(Date.parse(health.built_at) - Date.parse(siteMeta && siteMeta.built_at));
-  if (!health || flags.health !== true || !Number.isFinite(buildGap) || buildGap > 300000)
+  if (!health || !siteMeta || !siteMeta.build_id ||
+      health.build_id !== siteMeta.build_id || health.built_at !== siteMeta.built_at ||
+      flags.health !== true)
     return "Seasonal freshness record does not match this build";
   if (flags.ideas !== true) return "Current Seasonal ideas are unavailable";
   if (!artifact || artifact.status !== "fresh") return "Seasonal ideas are stale or missing";
@@ -49,13 +50,23 @@ function seasonalFreshnessError(siteMeta, health, data) {
 async function initSeasonal() {
   renderNav("seasonal.html");
   const el = document.getElementById("content");
-  const [siteMeta, data, health, sizer, book] = await Promise.all([
-    fetchJSONOrNull("data/meta.json"),
-    fetchJSONOrNull("data/ideas.json"),
-    fetchJSONOrNull("data/health.json"),
-    fetchJSONOrNull("data/sizer.json"),
-    fetchJSONOrNull("/exec-book"),
-  ]);
+  let snapshot;
+  try {
+    snapshot = await loadSiteSnapshot(async siteMeta => {
+      const [data, sizer] = await Promise.all([
+        fetchSitePayload(siteMeta, "data/ideas.json"),
+        siteMeta.payloads.sizer ? fetchSitePayload(siteMeta, "data/sizer.json") : null,
+      ]);
+      return { data, sizer };
+    });
+  } catch (e) {
+    setAsof("data blocked");
+    el.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    return;
+  }
+  const { meta: siteMeta, data, sizer } = snapshot;
+  const health = siteMeta.freshness;
+  const book = await fetchJSONOrNull("/exec-book");
   SZ.sizer = sizer;
   const accs = (book && book.book && book.book.accounts) || [];
   const nlvs = {};

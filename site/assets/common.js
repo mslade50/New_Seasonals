@@ -43,6 +43,86 @@ async function fetchJSONOrNull(path) {
   try { return await fetchJSON(path); } catch (e) { return null; }
 }
 
+function atomicSiteMeta(meta) {
+  const health = meta && meta.freshness;
+  return !!(meta && meta.build_id && health && health.build_id === meta.build_id &&
+            meta._site_build_id === meta.build_id &&
+            health._site_build_id === meta.build_id &&
+            health.built_at === meta.built_at &&
+            meta.payloads && meta.payloads.health === true);
+}
+
+function siteDelay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/* meta.json is the deployment's single control-plane snapshot.  The unique
+   query defeats accidental caching of the mutable production alias; exact
+   build IDs make this independent of browser-specific Date.parse behavior. */
+async function fetchSiteMeta(attempts = 3) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const token = `${Date.now()}-${attempt}`;
+      const meta = await fetchJSON(`data/meta.json?site_snapshot=${token}`);
+      if (atomicSiteMeta(meta)) return meta;
+      lastError = new Error("Site metadata is not a coherent build snapshot");
+    } catch (e) {
+      lastError = e;
+    }
+    if (attempt + 1 < attempts) await siteDelay(200 * (2 ** attempt));
+  }
+  throw lastError || new Error("Site metadata is unavailable");
+}
+
+function sitePayloadPath(path, meta, attemptToken = null) {
+  if (!meta || !meta.build_id) return path;
+  const joiner = path.includes("?") ? "&" : "?";
+  let out = `${path}${joiner}site_build=${encodeURIComponent(meta.build_id)}`;
+  if (attemptToken != null)
+    out += `&snapshot_attempt=${encodeURIComponent(attemptToken)}`;
+  return out;
+}
+
+async function fetchSitePayload(meta, path) {
+  const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const data = await fetchJSON(sitePayloadPath(path, meta, token));
+  const observed = data && data._site_build_id;
+  if (!observed || observed !== meta.build_id) {
+    const error = new Error(
+      `${path} belongs to site build ${observed || "unversioned"}; expected ${meta.build_id}`);
+    error.siteSnapshotMismatch = true;
+    throw error;
+  }
+  return data;
+}
+
+/* Load and verify the whole page batch, then re-read the anchor.  If Pages is
+   switching deployments mid-request, discard the batch and retry; never
+   render a mixture of two otherwise-valid builds. */
+async function loadSiteSnapshot(loadPayloads, attempts = 4) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const meta = await fetchSiteMeta(2);
+      const payloads = await loadPayloads(meta);
+      const confirm = await fetchSiteMeta(2);
+      if (confirm.build_id !== meta.build_id) {
+        const error = new Error(
+          `Site changed from build ${meta.build_id} to ${confirm.build_id} while loading`);
+        error.siteSnapshotMismatch = true;
+        throw error;
+      }
+      return Object.assign({ meta }, payloads || {});
+    } catch (e) {
+      lastError = e;
+      if (attempt + 1 < attempts) await siteDelay(200 * (2 ** attempt));
+    }
+  }
+  const detail = lastError && lastError.message ? ` Last error: ${lastError.message}` : "";
+  throw new Error(`Unable to load one coherent site build after ${attempts} attempts.${detail}`);
+}
+
 function setAsof(text) {
   const el = document.getElementById("navAsof");
   if (el) el.textContent = text || "";

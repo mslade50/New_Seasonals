@@ -22,6 +22,25 @@ REQUIRED_PORTFOLIO_PAYLOADS = (
     "trade_mtm",
 )
 
+PAGE_BUILD_PAYLOADS = (
+    ("trades.json", None),
+    ("strategy_daily.json", "strategy_daily"),
+    ("positions.json", "positions"),
+    ("exposure.json", "exposure"),
+    ("correlation.json", "correlation"),
+    ("fragility.json", "fragility"),
+    ("stopfills.json", "stopfills"),
+    ("drawdowns.json", "drawdowns"),
+    ("sector_risk.json", "sector_risk"),
+    ("gate_lab.json", "gate_lab"),
+    ("ext_lab.json", "ext_lab"),
+    ("trade_mtm.json", "trade_mtm"),
+    ("ideas.json", "ideas"),
+    ("signals.json", "signals"),
+    ("sizer.json", "sizer"),
+    ("strat_notes.json", "strat_notes"),
+)
+
 
 def _read_json(path: str) -> dict[str, Any] | None:
     try:
@@ -34,9 +53,14 @@ def _read_json(path: str) -> dict[str, Any] | None:
 
 def _same_build(left: Any, right: Any) -> bool:
     try:
-        fmt = "%Y-%m-%d %H:%M UTC"
-        a = dt.datetime.strptime(str(left), fmt)
-        b = dt.datetime.strptime(str(right), fmt)
+        def parse(value: Any) -> dt.datetime:
+            text = str(value)
+            if text.endswith("Z"):
+                return dt.datetime.fromisoformat(text[:-1] + "+00:00").replace(tzinfo=None)
+            return dt.datetime.strptime(text, "%Y-%m-%d %H:%M UTC")
+
+        a = parse(left)
+        b = parse(right)
         return abs((a - b).total_seconds()) <= 300
     except Exception:
         return False
@@ -74,16 +98,37 @@ def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[
             problems.append("meta.json and provenance.json identify different builds")
         elif not provenance.get("entries"):
             problems.append("R2 provenance contains no materialized inputs")
+        if str(meta.get("build_id") or "") != str(meta_provenance.get("run_id") or ""):
+            problems.append("site build identity does not match its R2 bundle run_id")
 
     flags = meta.get("payloads") or {}
     artifacts = health.get("artifacts") or {}
     prev_td = health.get("prev_td")
     if flags.get("health") is not True:
         problems.append("current health payload is unavailable")
-    if not _same_build(meta.get("built_at"), health.get("built_at")):
-        problems.append("meta.json and health.json are from different builds")
+    build_id = str(meta.get("build_id") or "")
+    if not build_id or str(health.get("build_id") or "") != build_id:
+        problems.append("meta.json and health.json have different build identities")
+    if (
+        str(meta.get("_site_build_id") or "") != build_id
+        or str(health.get("_site_build_id") or "") != build_id
+    ):
+        problems.append("meta.json or health.json is missing the packaged site build identity")
+    if meta.get("freshness") != health:
+        problems.append("meta.json does not embed the exact health.json record")
+    if meta.get("built_at") != health.get("built_at"):
+        problems.append("meta.json and health.json have different build timestamps")
     if not prev_td:
         problems.append("health.json has no previous-trading-day anchor")
+
+    for rel, flag in PAGE_BUILD_PAYLOADS:
+        if flag is not None and flags.get(flag) is not True:
+            continue
+        payload = _read_json(os.path.join(data_dir, rel))
+        if payload is None:
+            problems.append(f"data/{rel} is missing or unreadable")
+        elif str(payload.get("_site_build_id") or "") != build_id:
+            problems.append(f"data/{rel} belongs to a different site build")
 
     for name in REQUIRED_PORTFOLIO_PAYLOADS:
         if flags.get(name) is not True:

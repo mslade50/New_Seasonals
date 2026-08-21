@@ -50,10 +50,8 @@ const SCHEDULE = [
 async function init() {
   renderNav("pipeline.html");
   const el = document.getElementById("content");
-  const [meta, health] = await Promise.all([
-    fetchJSONOrNull("data/meta.json"),
-    fetchJSONOrNull("data/health.json"),
-  ]);
+  const meta = await fetchSiteMeta().catch(() => null);
+  const health = meta && meta.freshness;
   if (meta) setAsof(`built ${meta.built_at}`);
 
   let html = "";
