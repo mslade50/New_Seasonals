@@ -137,8 +137,8 @@ function portfolioFreshnessError(meta, health, positions) {
   const artifacts = (health && health.artifacts) || {};
   const flags = (meta && meta.payloads) || {};
   if (!health) return "Portfolio freshness record is missing";
-  const buildGap = Math.abs(Date.parse(health.built_at) - Date.parse(meta.built_at));
-  if (flags.health !== true || !Number.isFinite(buildGap) || buildGap > 300000)
+  if (!meta || !meta.build_id || health.build_id !== meta.build_id ||
+      health.built_at !== meta.built_at || flags.health !== true)
     return "Portfolio freshness record does not match this build";
   if (!artifacts.ledger || artifacts.ledger.status !== "fresh")
     return "Portfolio ledger is stale or missing";
@@ -158,24 +158,30 @@ function portfolioFreshnessError(meta, health, positions) {
 async function init() {
   renderNav("index.html");
   try {
-    const [meta, trades, health] = await Promise.all([
-      fetchJSON("data/meta.json"), fetchJSON("data/trades.json"),
-      fetchJSONOrNull("data/health.json")]);
+    const snapshot = await loadSiteSnapshot(async meta => {
+      const flags = meta.payloads || {};
+      const maybe = (name, path) => flags[name] ? fetchSitePayload(meta, path) : null;
+      const [trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm] =
+        await Promise.all([
+          fetchSitePayload(meta, "data/trades.json"),
+          maybe("strategy_daily", "data/strategy_daily.json"),
+          maybe("positions", "data/positions.json"),
+          maybe("exposure", "data/exposure.json"),
+          maybe("correlation", "data/correlation.json"),
+          maybe("fragility", "data/fragility.json"),
+          maybe("stopfills", "data/stopfills.json"),
+          maybe("drawdowns", "data/drawdowns.json"),
+          maybe("sector_risk", "data/sector_risk.json"),
+          maybe("gate_lab", "data/gate_lab.json"),
+          maybe("ext_lab", "data/ext_lab.json"),
+          maybe("trade_mtm", "data/trade_mtm.json"),
+        ]);
+      return { trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm };
+    });
+    const { meta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm } = snapshot;
+    const health = meta.freshness;
     S.meta = meta;
     S.trades = rowsFromColumnar(trades);
-    const [sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm] = await Promise.all([
-      meta.payloads.strategy_daily ? fetchJSONOrNull("data/strategy_daily.json") : null,
-      meta.payloads.positions ? fetchJSONOrNull("data/positions.json") : null,
-      meta.payloads.exposure ? fetchJSONOrNull("data/exposure.json") : null,
-      meta.payloads.correlation ? fetchJSONOrNull("data/correlation.json") : null,
-      meta.payloads.fragility ? fetchJSONOrNull("data/fragility.json") : null,
-      meta.payloads.stopfills ? fetchJSONOrNull("data/stopfills.json") : null,
-      meta.payloads.drawdowns ? fetchJSONOrNull("data/drawdowns.json") : null,
-      meta.payloads.sector_risk ? fetchJSONOrNull("data/sector_risk.json") : null,
-      meta.payloads.gate_lab ? fetchJSONOrNull("data/gate_lab.json") : null,
-      meta.payloads.ext_lab ? fetchJSONOrNull("data/ext_lab.json") : null,
-      meta.payloads.trade_mtm ? fetchJSONOrNull("data/trade_mtm.json") : null,
-    ]);
     S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.fragility = frag;
     S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr; S.gateLab = gl; S.extLab = xl;
     const freshnessError = portfolioFreshnessError(meta, health, pos);

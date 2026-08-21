@@ -37,8 +37,9 @@ function buildStratContext(notes, ideas) {
 function signalFreshnessError(siteMeta, health, data) {
   const flags = (siteMeta && siteMeta.payloads) || {};
   const artifact = health && health.artifacts && health.artifacts.signals;
-  const buildGap = health && Math.abs(Date.parse(health.built_at) - Date.parse(siteMeta && siteMeta.built_at));
-  if (!health || flags.health !== true || !Number.isFinite(buildGap) || buildGap > 300000)
+  if (!health || !siteMeta || !siteMeta.build_id ||
+      health.build_id !== siteMeta.build_id || health.built_at !== siteMeta.built_at ||
+      flags.health !== true)
     return "Staged-signal freshness record does not match this build";
   if (flags.signals !== true) return "Current staged signals are unavailable";
   if (!artifact || artifact.status !== "fresh") return "Staged signals are stale or missing";
@@ -49,13 +50,23 @@ function signalFreshnessError(siteMeta, health, data) {
 async function init() {
   renderNav("signals.html");
   const el = document.getElementById("content");
-  const [siteMeta, health, data, notes, rawIdeas] = await Promise.all([
-    fetchJSONOrNull("data/meta.json"),
-    fetchJSONOrNull("data/health.json"),
-    fetchJSONOrNull("data/signals.json"),
-    fetchJSONOrNull("data/strat_notes.json"),
-    fetchJSONOrNull("data/ideas.json"),
-  ]);
+  let snapshot;
+  try {
+    snapshot = await loadSiteSnapshot(async siteMeta => {
+      const [data, notes, rawIdeas] = await Promise.all([
+        fetchSitePayload(siteMeta, "data/signals.json"),
+        siteMeta.payloads.strat_notes ? fetchSitePayload(siteMeta, "data/strat_notes.json") : null,
+        siteMeta.payloads.ideas ? fetchSitePayload(siteMeta, "data/ideas.json") : null,
+      ]);
+      return { data, notes, rawIdeas };
+    });
+  } catch (e) {
+    setAsof("data blocked");
+    el.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    return;
+  }
+  const { meta: siteMeta, data, notes, rawIdeas } = snapshot;
+  const health = siteMeta.freshness;
   const ideas = siteMeta && siteMeta.payloads && siteMeta.payloads.ideas ? rawIdeas : null;
   S_CTX = buildStratContext(notes, ideas);
   const freshnessError = signalFreshnessError(siteMeta, health, data);

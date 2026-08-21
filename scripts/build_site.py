@@ -165,6 +165,9 @@ def payload_freshness(payload):
 
 
 # ---------------------------------------------------------------- json helpers
+_SITE_BUILD_ID = None
+
+
 def _clean(v):
     """Make a value JSON-safe: NaN/inf -> None, numpy scalars -> python."""
     if v is None:
@@ -182,10 +185,14 @@ def _clean(v):
 
 
 def write_json(obj, path):
+    if _SITE_BUILD_ID and isinstance(obj, dict):
+        obj = {"_site_build_id": _SITE_BUILD_ID, **obj}
+        obj["_site_build_id"] = _SITE_BUILD_ID
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, separators=(",", ":"), ensure_ascii=False)
     print(f"  wrote {os.path.relpath(path, _ROOT)}  ({os.path.getsize(path)/1024:.0f} KB)")
+    return obj
 
 
 def _file_sha256(path):
@@ -1500,7 +1507,7 @@ def build_sizer():
             "tickers": out}
 
 
-def build_health(sig, data_dir, ideas=None):
+def build_health(sig, data_dir, ideas=None, *, build_id, built_at):
     """Pipeline freshness panel: per-artifact last dates + staleness flags
     judged against the expected last trading day (US federal holidays).
     status: fresh (>= previous trading day) | stale | missing."""
@@ -1637,7 +1644,8 @@ def build_health(sig, data_dir, ideas=None):
                       ("stale" if status_for(fdate) == "stale" or failed else "fresh")}
 
     return {
-        "built_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "build_id": build_id,
+        "built_at": built_at,
         "expected_last_td": expected.strftime("%Y-%m-%d"),
         "prev_td": prev_td.strftime("%Y-%m-%d"),
         "artifacts": arts,
@@ -2355,6 +2363,8 @@ def fetch_signals():
 
 # ---------------------------------------------------------------- main
 def main():
+    global _SITE_BUILD_ID
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(_ROOT, "dist"))
     ap.add_argument("--no-signals", action="store_true", help="skip Google Sheets fetch")
@@ -2388,6 +2398,17 @@ def main():
             print("FATAL: production output already exists; refusing an incremental build")
             sys.exit(2)
 
+    build_clock = datetime.datetime.now(datetime.timezone.utc)
+    built_at = build_clock.isoformat(timespec="seconds").replace("+00:00", "Z")
+    if provenance is not None:
+        build_id = str(provenance.get("run_id") or "").strip()
+        if not build_id:
+            print("FATAL: production provenance has no run_id")
+            sys.exit(2)
+    else:
+        build_id = "local-" + build_clock.strftime("%Y%m%dT%H%M%SZ")
+    _SITE_BUILD_ID = build_id
+
     print("=" * 70)
     print("BUILD SITE -> " + out_dir)
     print("=" * 70)
@@ -2419,14 +2440,18 @@ def main():
     # Cache-bust local asset references so browsers never run stale JS/CSS
     # against a newer page (Pages caches assets; HTML revalidates).
     import re
-    bust = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M")
+    bust = re.sub(r"[^A-Za-z0-9._-]", "-", build_id)
     for name in os.listdir(out_dir):
         if not name.endswith(".html"):
             continue
         p = os.path.join(out_dir, name)
         with open(p, encoding="utf-8") as f:
             html = f.read()
-        html = re.sub(r'(assets/[\w.-]+\.(?:js|css))(?:\?v=\d+)?', rf"\1?v={bust}", html)
+        html = re.sub(
+            r'(assets/[\w.-]+\.(?:js|css))(?:\?v=[A-Za-z0-9._-]+)?',
+            rf"\1?v={bust}",
+            html,
+        )
         with open(p, "w", encoding="utf-8") as f:
             f.write(html)
     print(f"  copied static assets from site/ (cache-bust v={bust})")
@@ -2470,7 +2495,7 @@ def main():
             traceback.print_exc()
             return
         if obj is not None:
-            write_json(obj, os.path.join(data_dir, f"{flag}.json"))
+            obj = write_json(obj, os.path.join(data_dir, f"{flag}.json"))
             flags[flag] = True
         return obj
 
@@ -2603,14 +2628,22 @@ def main():
             "errors": {"build": "current Sheets fetch was skipped or failed"},
         }, os.path.join(data_dir, "signals.json"))
 
+    # One exact build identity is shared by meta.json and health.json.  The
+    # browser consumes the health record embedded in meta.json so a Pages
+    # rollout can never join control files from adjacent deployments.
     # pipeline health strip (after the signals fetch so it can report on it)
-    best_effort("health", build_health, sig, data_dir, ideas)
+    health = best_effort(
+        "health", build_health, sig, data_dir, ideas,
+        build_id=build_id, built_at=built_at,
+    )
 
     # 4. meta
     strat_counts = (df.groupby(["Strategy", "Tier"]).size()
                     .reset_index(name="n").to_dict("records"))
     meta = {
-        "built_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "build_id": build_id,
+        "built_at": built_at,
+        "freshness": health,
         "ledger_last_signal": df["Signal Date"].max().strftime("%Y-%m-%d"),
         "n_trades": int(len(df)),
         "n_tickers": int(df["Ticker"].nunique()),

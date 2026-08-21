@@ -15,10 +15,11 @@ function load(name) {
 }
 
 const portfolio = load("portfolio.js");
-const portfolioMeta = { built_at: "2026-08-06 12:00 UTC", payloads: {
+const portfolioMeta = { build_id: "build-1", built_at: "2026-08-06 12:00 UTC", payloads: {
   strategy_daily: true, positions: true, exposure: true, trade_mtm: true, health: true,
 } };
 const portfolioHealth = {
+  build_id: "build-1",
   built_at: "2026-08-06 12:00 UTC",
   prev_td: "2026-08-05",
   artifacts: { ledger: { status: "fresh" }, master_prices: { status: "fresh" } },
@@ -28,6 +29,10 @@ const positions = {
 };
 assert.strictEqual(
   portfolio.portfolioFreshnessError(portfolioMeta, portfolioHealth, positions), null);
+portfolioHealth.build_id = "build-2";
+assert.match(
+  portfolio.portfolioFreshnessError(portfolioMeta, portfolioHealth, positions), /match/i);
+portfolioHealth.build_id = "build-1";
 portfolioHealth.artifacts.ledger.status = "stale";
 assert.match(
   portfolio.portfolioFreshnessError(portfolioMeta, portfolioHealth, positions), /ledger/i);
@@ -37,8 +42,9 @@ assert.match(
   portfolio.portfolioFreshnessError(portfolioMeta, portfolioHealth, positions), /time stop/i);
 
 const seasonal = load("seasonal.js");
-const seasonalMeta = { built_at: "2026-08-06 12:00 UTC", payloads: { ideas: true, health: true } };
+const seasonalMeta = { build_id: "build-1", built_at: "2026-08-06 12:00 UTC", payloads: { ideas: true, health: true } };
 const seasonalHealth = {
+  build_id: "build-1",
   built_at: "2026-08-06 12:00 UTC",
   prev_td: "2026-08-05", artifacts: { ideas: { status: "fresh" } },
 };
@@ -50,11 +56,25 @@ assert.match(
   seasonal.seasonalFreshnessError(seasonalMeta, seasonalHealth, ideas), /stale/i);
 
 const signals = load("signals.js");
-const signalMeta = { built_at: "2026-08-06 12:00 UTC", payloads: { signals: true, health: true } };
-const signalHealth = { built_at: "2026-08-06 12:00 UTC", artifacts: { signals: { status: "fresh" } } };
+const signalMeta = { build_id: "build-1", built_at: "2026-08-06 12:00 UTC", payloads: { signals: true, health: true } };
+const signalHealth = { build_id: "build-1", built_at: "2026-08-06 12:00 UTC", artifacts: { signals: { status: "fresh" } } };
 const staged = { fetched_at: "2026-08-06 12:00 UTC", tabs: {} };
 assert.strictEqual(signals.signalFreshnessError(signalMeta, signalHealth, staged), null);
 signalMeta.payloads.signals = false;
 assert.match(signals.signalFreshnessError(signalMeta, signalHealth, staged), /unavailable/i);
+
+for (const name of ["portfolio.js", "seasonal.js", "signals.js", "pipeline.js"]) {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "..", "site", "assets", name), "utf8");
+  assert.ok(!source.includes('fetchJSONOrNull("data/health.json")'),
+    `${name} must consume the health record embedded in meta.json`);
+}
+for (const name of ["portfolio.js", "seasonal.js", "signals.js"]) {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "..", "site", "assets", name), "utf8");
+  assert.ok(!source.includes("const buildGap"),
+    `${name} must use exact build identity, not browser-specific timestamp parsing`);
+  assert.ok(source.includes("health.build_id"), `${name} must compare exact build IDs`);
+}
 
 console.log("PASS site freshness guards");
