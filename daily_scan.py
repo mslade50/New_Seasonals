@@ -362,6 +362,8 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
     # their scheduled exits, or the next armed window. Best effort — the
     # email must never fail on sleeve status.
     event_html = ""
+    _staged_event = []   # e.g. ["V4 SVXY"] — flags the subject line so an
+    # event order staged today is never a surprise fill at the close
     try:
         from event_sleeve import sleeve_status_cards
         _kind_color = {"staged": "#1565c0", "open": "#2e7d32",
@@ -369,6 +371,9 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                        "error": "#c62828"}
         _cards = []
         for _c in sleeve_status_cards():
+            if _c.get("kind") == "staged":
+                _staged_event.append(
+                    f"{_c['trade'].split('_')[0]} {_c['ticker']}".strip())
             _col = _kind_color.get(_c["kind"], "#888")
             _name = _c["trade"].replace("_", " ").title().replace("Fomc", "FOMC")
             _cards.append(
@@ -391,8 +396,11 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                       f'{_e}</div>')
 
     _scope_suffix = f" — {scope_label}" if scope_label else ""
+    _event_suffix = (f" + 📅 EVENT: {', '.join(_staged_event)}"
+                     if _staged_event else "")
     if not email_signals:
-        subject = f"📉 Scan Result: NO SIGNALS ({date_str}){_scope_suffix}"
+        subject = (f"📉 Scan Result: NO SIGNALS ({date_str})"
+                   f"{_scope_suffix}{_event_suffix}")
         html_content = f"""
         <html>
             <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
@@ -408,7 +416,8 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
         </html>
         """
     else:
-        subject = f"🚀 {signal_count} SIGNAL{'S' if signal_count > 1 else ''} ({date_str}){_scope_suffix}"
+        subject = (f"🚀 {signal_count} SIGNAL{'S' if signal_count > 1 else ''} "
+                   f"({date_str}){_scope_suffix}{_event_suffix}")
         
         # Build card-based HTML for each signal
         signal_cards = []

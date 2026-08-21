@@ -196,6 +196,115 @@ def test_dec_opex_midterm_stages_t4_and_v4():
     assert trades == {"T4_DEC_POSTOPEX_LONG", "V4_POSTOPEX_VOL"}
 
 
+def _px_frame(dates, opens, closes):
+    idx = pd.DatetimeIndex([pd.Timestamp(d) for d in dates])
+    return pd.DataFrame({"Open": opens, "Close": closes}, index=idx)
+
+
+def test_journal_records_from_entry_and_exit():
+    rows, _, state = run("2026-08-21")   # V4 entry
+    recs = es.journal_records_from(rows, state)
+    assert len(recs) == 1 and recs[0]["kind"] == "entry"
+    assert recs[0]["trade"] == "V4_POSTOPEX_VOL"
+    assert recs[0]["exit_on"] == "2026-08-26"
+    assert recs[0]["exit_order_type"] == "MOC"
+    rows2, _ = es.compute_actions(
+        pd.Timestamp("2026-08-26"), px_for("2026-08-26"), state)
+    recs2 = es.journal_records_from(rows2, state)
+    assert recs2[0]["kind"] == "exit" and recs2[0]["late"] is False
+
+
+def test_journal_backfill_from_state():
+    _, _, state = run("2026-08-21")
+    minted = es.backfill_entry_records(state, [])
+    assert len(minted) == 1 and minted[0]["trade"] == "V4_POSTOPEX_VOL"
+    assert minted[0]["kind"] == "entry" and minted[0]["action"] == "BUY"
+    assert minted[0]["order_type"] == "MOC"
+    assert minted[0]["exit_on"] == "2026-08-26"
+    # already journaled -> nothing minted again
+    assert es.backfill_entry_records(state, minted) == []
+
+
+def test_journal_roundtrip_nondefault_path(tmp_path):
+    p = tmp_path / "j.jsonl"
+    n = es.append_journal([{"kind": "entry", "trade": "X", "ticker": "SPY",
+                            "action": "BUY", "qty": 1, "order_type": "MOC",
+                            "date": "2026-01-02", "ref_close": 100.0}],
+                          path=p)
+    assert n == 1
+    recs = es.load_journal(p, pull=False)
+    assert len(recs) == 1
+    assert recs[0]["trade"] == "X" and "written_at" in recs[0]
+
+
+def test_realized_history_moc_and_moo_legs():
+    px = {"SVXY": _px_frame(["2026-08-21", "2026-08-26"],
+                            [60.0, 62.0], [61.0, 63.0]),
+          "SPY": _px_frame(["2027-01-21", "2027-01-27"],
+                           [500.0, 512.0], [505.0, 515.0])}
+    records = [
+        {"kind": "entry", "trade": "V4_POSTOPEX_VOL", "ticker": "SVXY",
+         "action": "BUY", "qty": 100, "order_type": "MOC",
+         "date": "2026-08-21"},
+        {"kind": "exit", "trade": "V4_POSTOPEX_VOL", "ticker": "SVXY",
+         "action": "SELL", "qty": 100, "order_type": "MOC",
+         "date": "2026-08-26"},
+        {"kind": "entry", "trade": "T1_FOMC_DRIFT", "ticker": "SPY",
+         "action": "BUY", "qty": 10, "order_type": "MOC",
+         "date": "2027-01-21"},
+        {"kind": "exit", "trade": "T1_FOMC_DRIFT", "ticker": "SPY",
+         "action": "SELL", "qty": 10, "order_type": "MOO",
+         "date": "2027-01-27"},
+    ]
+    hist = es.realized_history(records, px)
+    assert len(hist["closed"]) == 2 and hist["open"] == []
+    v4 = next(r for r in hist["closed"] if r["trade"] == "V4_POSTOPEX_VOL")
+    assert v4["entry_px"] == 61.0 and v4["exit_px"] == 63.0   # MOC = Close
+    assert v4["pnl"] == pytest.approx(200.0)
+    t1 = next(r for r in hist["closed"] if r["trade"] == "T1_FOMC_DRIFT")
+    assert t1["exit_px"] == 512.0   # MOO exit = decision-day OPEN
+    assert t1["ret_pct"] == pytest.approx((512.0 / 505.0 - 1) * 100)
+
+
+def test_realized_history_short_sign_and_open_mark():
+    px = {"IWM": _px_frame(["2026-09-18", "2026-09-30"],
+                           [200.0, 190.0], [201.0, 191.0])}
+    records = [
+        {"kind": "entry", "trade": "T3_SEP_POSTQUAD_SHORT", "ticker": "IWM",
+         "action": "SELL_SHORT", "qty": 50, "order_type": "MOC",
+         "date": "2026-09-18"},
+    ]
+    hist = es.realized_history(records, px)
+    assert hist["closed"] == []
+    o = hist["open"][0]
+    # short marked to the last close: price fell 201 -> 191 = +$500
+    assert o["entry_px"] == 201.0 and o["mark_px"] == 191.0
+    assert o["pnl"] == pytest.approx(500.0)
+    records.append(
+        {"kind": "exit", "trade": "T3_SEP_POSTQUAD_SHORT", "ticker": "IWM",
+         "action": "BUY_TO_COVER", "qty": 50, "order_type": "MOC",
+         "date": "2026-09-30"})
+    hist2 = es.realized_history(records, px)
+    c = hist2["closed"][0]
+    assert c["pnl"] == pytest.approx(500.0)
+    assert c["ret_pct"] == pytest.approx(-(191.0 / 201.0 - 1) * 100)
+
+
+def test_realized_history_missing_bar_stays_ungraded():
+    px = {"SVXY": _px_frame(["2026-08-21"], [60.0], [61.0])}
+    records = [
+        {"kind": "entry", "trade": "V4_POSTOPEX_VOL", "ticker": "SVXY",
+         "action": "BUY", "qty": 100, "order_type": "MOC",
+         "date": "2026-08-21"},
+        {"kind": "exit", "trade": "V4_POSTOPEX_VOL", "ticker": "SVXY",
+         "action": "SELL", "qty": 100, "order_type": "MOC",
+         "date": "2026-08-26"},   # no bar for the exit date
+    ]
+    hist = es.realized_history(records, px)
+    assert len(hist["closed"]) == 1
+    assert "ret_pct" not in hist["closed"][0]
+
+
 def test_state_records_exit_schedule():
     _, _, state = run("2026-09-18", z10=0.5)
     pos = state["positions"]["T3_SEP_POSTQUAD_SHORT"]

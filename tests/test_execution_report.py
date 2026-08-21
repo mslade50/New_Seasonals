@@ -156,3 +156,56 @@ def test_sort_order_strategies_first():
     }
     rows, _ = build_rows(account, trend_syms={"GLD"})
     assert [r["strategy"] for r in rows] == ["OLV", "Trend Sleeve", "Discretionary"]
+
+
+def test_event_sleeve_fallback_and_sort():
+    # Event orders are parent-only (no exit legs), so attribution must come
+    # from the sleeve state, and event rows sort between strategies and trend.
+    account = {
+        "positions": [_pos("SVXY", 1228), _pos("GLD", 40), _pos("NVDA", 10),
+                      _pos("AAPL", 100)],
+        "orders": [
+            _leg("AAPL", "SELL", "MKT", ref="AAPL|BUY|OLV|2026-07-01",
+                 good_after="20260715 15:59:00"),
+        ],
+    }
+    rows, _ = build_rows(account, trend_syms={"GLD"},
+                         event_map={"SVXY": "Event Sleeve (V4)"})
+    assert [r["strategy"] for r in rows] == [
+        "OLV", "Event Sleeve (V4)", "Trend Sleeve", "Discretionary"]
+
+
+def test_event_symbol_map_from_state():
+    from daily_execution_report import event_symbol_map
+    state = {"positions": {"V4_POSTOPEX_VOL": {
+        "shares": 1228, "entry_date": "2026-08-21", "ref_close": 61.03,
+        "exit_on": "2026-08-26", "exit_order_type": "MOC"}}}
+    assert event_symbol_map(state) == {"SVXY": "Event Sleeve (V4)"}
+    assert event_symbol_map({"positions": {}}) == {}
+
+
+def test_reconcile_event_shortfall_only():
+    from daily_execution_report import reconcile_event
+    state = {"positions": {"V4_POSTOPEX_VOL": {
+        "shares": 1228, "entry_date": "2020-01-02"}}}
+    # Missing shares = the staged order never filled -> alarm.
+    issues = reconcile_event(state, [])
+    assert len(issues) == 1 and "V4_POSTOPEX_VOL" in issues[0]
+    # Exact match and EXCESS (book overlap on the same symbol) stay quiet.
+    assert reconcile_event(state, [_pos("SVXY", 1228)]) == []
+    assert reconcile_event(state, [_pos("SVXY", 1500)]) == []
+    # Short trades alarm on a shortfall in the SHORT direction.
+    short_state = {"positions": {"T3_SEP_POSTQUAD_SHORT": {
+        "shares": 750, "entry_date": "2020-01-02"}}}
+    assert len(reconcile_event(short_state, [])) == 1
+    assert reconcile_event(short_state, [_pos("IWM", -750)]) == []
+    assert reconcile_event(short_state, [_pos("IWM", -900)]) == []
+    assert len(reconcile_event(short_state, [_pos("IWM", -100)])) == 1
+
+
+def test_reconcile_event_skips_entered_today():
+    from daily_execution_report import et_now, reconcile_event
+    state = {"positions": {"V4_POSTOPEX_VOL": {
+        "shares": 1228, "entry_date": et_now().strftime("%Y-%m-%d")}}}
+    # The entry MOC fills at 4:00 and can race the agent's book push.
+    assert reconcile_event(state, []) == []

@@ -14,8 +14,14 @@ snapshot:
   - strategy    = 3rd pipe field of any leg's orderRef
                   (eq_order_entry stamps SYMBOL|ACTION|Strategy_Ref|Staged_Date
                   on every leg, so a filled entry's working exits keep the tag)
-Positions with no strategy-tagged legs fall back to "Trend Sleeve" when the
-symbol is held in trend_sleeve_state.json (R2), else "Discretionary".
+Positions with no strategy-tagged legs fall back to "Event Sleeve (T1..V4)"
+when the symbol is held in event_sleeve_state.json (R2 — event orders are
+parent-only MKT MOC/MOO with no exit legs, so orderRef attribution can never
+see them), then "Trend Sleeve" when the symbol is in trend_sleeve_state.json
+(R2), else "Discretionary". Both sleeves' states are also reconciled against
+the live book (mismatch = staged order never executed -> phantom future
+exits); event positions entered TODAY are skipped (the MOC fill and the book
+push race the 4:30 report).
 
 Scheduling: .github/workflows/execution_report.yml runs at 20:30 AND 21:30 UTC
 on weekdays; exactly one of the two sends at ~4:30 PM ET year-round. The gate
@@ -51,6 +57,8 @@ DEFAULT_BROKER_URL = "https://execution-broker.mckinleyslade.workers.dev"
 DEFAULT_RECIPIENTS = "mckinleyslade@gmail.com"
 TREND_STATE_KEY = "trend_sleeve_state.json"
 TREND_STATE_LOCAL = Path(__file__).resolve().parent / "data" / TREND_STATE_KEY
+EVENT_STATE_KEY = "event_sleeve_state.json"
+EVENT_STATE_LOCAL = Path(__file__).resolve().parent / "data" / EVENT_STATE_KEY
 
 # Order statuses that mean the leg is no longer working.
 DEAD_ORDER_STATUSES = {"Cancelled", "ApiCancelled", "Filled", "Inactive"}
@@ -155,6 +163,74 @@ def reconcile_trend(state: dict, positions: list[dict]) -> list[str]:
     return issues
 
 
+def load_event_state() -> dict:
+    """Event-sleeve state dict from R2 (best effort, {} when unavailable)."""
+    try:
+        from cache_io import download_to_local, is_configured
+        if is_configured():
+            EVENT_STATE_LOCAL.parent.mkdir(parents=True, exist_ok=True)
+            download_to_local(EVENT_STATE_KEY, str(EVENT_STATE_LOCAL))
+    except Exception as e:  # noqa: BLE001
+        print(f"NOTE: event state R2 pull skipped ({e})")
+    try:
+        return json.loads(EVENT_STATE_LOCAL.read_text())
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def event_symbol_map(state: dict | None = None) -> dict[str, str]:
+    """SYMBOL -> 'Event Sleeve (V4)' label for open event positions. The
+    sleeve keys positions by trade id (V4_POSTOPEX_VOL); the short prefix is
+    unique per trade and keeps the strategy column narrow. Two trades can
+    never hold the same symbol at once (V2/V4 mutual stand-down), but join
+    defensively if they ever do."""
+    if state is None:
+        state = load_event_state()
+    by_sym: dict[str, list[str]] = {}
+    for trade, pos in (state.get("positions") or {}).items():
+        try:
+            from event_sleeve import EVENT_SLEEVE
+            sym = EVENT_SLEEVE[trade]["ticker"].upper()
+        except Exception:  # noqa: BLE001
+            continue
+        if int(pos.get("shares", 0)) > 0:
+            by_sym.setdefault(sym, []).append(str(trade).split("_")[0])
+    return {sym: f"Event Sleeve ({'+'.join(sorted(set(t)))})"
+            for sym, t in by_sym.items()}
+
+
+def reconcile_event(state: dict, positions: list[dict]) -> list[str]:
+    """Event state vs the live book. State marks positions open at STAGING
+    time, so an order the runner never placed leaves a phantom that later
+    stages a phantom exit — this is what makes that loud. Positions entered
+    TODAY are skipped: the entry MOC fills at 4:00 and the agent's book push
+    can race the 4:30 report."""
+    issues = []
+    today = et_now().strftime("%Y-%m-%d")
+    live = {}
+    for p in positions:
+        if p.get("sec_type") == "STK":
+            live[str(p.get("symbol", "")).upper()] = int(p.get("position") or 0)
+    for trade, pos in sorted((state.get("positions") or {}).items()):
+        if str(pos.get("entry_date", "")) >= today:
+            continue
+        try:
+            from event_sleeve import EVENT_SLEEVE
+            cfg = EVENT_SLEEVE[trade]
+        except Exception:  # noqa: BLE001
+            continue
+        sign = 1 if cfg["side"] == "LONG" else -1
+        want = sign * int(pos.get("shares", 0))
+        got = live.get(cfg["ticker"].upper(), 0)
+        # Only a SHORTFALL in the event direction alarms: the book can hold
+        # the same symbol on top of the sleeve (SPY/IWM overlap), so an
+        # excess is indistinguishable from systematic/discretionary shares.
+        if sign * got < sign * want:
+            issues.append(f"{trade}: state says {want:,} sh "
+                          f"{cfg['ticker']}, live book has {got:,}")
+    return issues
+
+
 def parse_ref(ref: str | None) -> tuple[str | None, str | None]:
     """orderRef 'SYMBOL|ACTION|Strategy_Ref|Staged_Date[|tranche]' ->
     (strategy, staged_date)."""
@@ -191,8 +267,10 @@ def exit_legs_for(pos: dict, orders: list[dict]) -> list[dict]:
     ]
 
 
-def enrich_position(pos: dict, orders: list[dict], trend_syms: set[str]) -> dict:
+def enrich_position(pos: dict, orders: list[dict], trend_syms: set[str],
+                    event_map: dict[str, str] | None = None) -> dict:
     legs = exit_legs_for(pos, orders)
+    event_map = event_map or {}
 
     targets = sorted({o["lmt"] for o in legs
                       if o.get("order_type") == "LMT" and o.get("lmt")})
@@ -217,9 +295,12 @@ def enrich_position(pos: dict, orders: list[dict], trend_syms: set[str]) -> dict
         if staged:
             staged_dates.append(staged)
 
+    sym_u = str(pos.get("symbol", "")).upper()
     if strategies:
         strategy = " + ".join(strategies)
-    elif str(pos.get("symbol", "")).upper() in trend_syms:
+    elif sym_u in event_map:
+        strategy = event_map[sym_u]
+    elif sym_u in trend_syms:
         strategy = "Trend Sleeve"
     else:
         strategy = "Discretionary"
@@ -247,19 +328,26 @@ def enrich_position(pos: dict, orders: list[dict], trend_syms: set[str]) -> dict
     }
 
 
-def build_rows(account: dict, trend_syms: set[str]) -> tuple[list[dict], list[str]]:
+def build_rows(account: dict, trend_syms: set[str],
+               event_map: dict[str, str] | None = None) -> tuple[list[dict], list[str]]:
     positions = account.get("positions") or []
     orders = account.get("orders") or []
     opt_excluded = [
         p.get("symbol") for p in positions if p.get("sec_type") == "OPT"
     ]
     rows = [
-        enrich_position(p, orders, trend_syms)
+        enrich_position(p, orders, trend_syms, event_map)
         for p in positions if p.get("sec_type") != "OPT"
     ]
-    # Strategy positions first (alpha), then Trend Sleeve, then Discretionary.
-    rank = {"Trend Sleeve": 1, "Discretionary": 2}
-    rows.sort(key=lambda r: (rank.get(r["strategy"], 0),
+
+    # Strategy positions first (alpha), then Event Sleeve, Trend Sleeve,
+    # Discretionary.
+    def rank(strategy: str) -> int:
+        if strategy.startswith("Event Sleeve"):
+            return 1
+        return {"Trend Sleeve": 2, "Discretionary": 3}.get(strategy, 0)
+
+    rows.sort(key=lambda r: (rank(r["strategy"]),
                              r["strategy"], r["symbol"] or ""))
     return rows, opt_excluded
 
@@ -285,7 +373,8 @@ def _pnl_color(v):
 
 
 def build_html(rows: list[dict], opt_excluded: list[str], nlv,
-               now: datetime, trend_warnings: list[str] | None = None) -> str:
+               now: datetime, trend_warnings: list[str] | None = None,
+               event_warnings: list[str] | None = None) -> str:
     td = "padding:6px 10px;border-bottom:1px solid #e3e3e3;font-size:13px;"
     tdr = td + "text-align:right;white-space:nowrap;"
     th = ("padding:6px 10px;border-bottom:2px solid #444;font-size:12px;"
@@ -350,6 +439,12 @@ def build_html(rows: list[dict], opt_excluded: list[str], nlv,
     'rebalance deltas will be WRONG until reconciled (fix positions or clear '
     'the state):<br>'
     + '<br>'.join(trend_warnings) + '</div>') if trend_warnings else ''}
+  {('<div style="background:#fdecea;border:1px solid #b02a1e;border-radius:4px;'
+    'padding:8px 12px;margin:8px 0"><b style="color:#b02a1e">EVENT SLEEVE '
+    'MISMATCH</b> — state holds shares the live book is missing; the staged '
+    'order likely never executed and the sleeve will stage a phantom exit '
+    '(fill the position or clear it from event_sleeve_state.json):<br>'
+    + '<br>'.join(event_warnings) + '</div>') if event_warnings else ''}
   <table style="border-collapse:collapse;width:100%">
     <tr>
       <th style="{th}">Symbol</th><th style="{th}">Strategy</th>
@@ -367,7 +462,10 @@ def build_html(rows: list[dict], opt_excluded: list[str], nlv,
   <p style="color:#aaa;font-size:11px;margin-top:14px">
     Source: execution-broker /book (read-only IBKR snapshot). Stops shown are
     working STP legs; targets are working LMT exit legs; time stop is the MKT
-    exit leg's activation date. "Discretionary" = no strategy-tagged exit legs.
+    exit leg's activation date. "Event Sleeve" / "Trend Sleeve" = untagged
+    position whose symbol the sleeve state holds (their orders are parent-only,
+    exits sleeve-scheduled); "Discretionary" = no strategy-tagged exit legs and
+    no sleeve claim.
   </p>
 </div>"""
 
@@ -448,9 +546,17 @@ def main() -> int:
         print("TREND RECONCILIATION MISMATCH:")
         for w in trend_warnings:
             print(f"  {w}")
-    rows, opt_excluded = build_rows(primary, trend_syms)
+    event_state = load_event_state()
+    event_map = event_symbol_map(event_state)
+    event_warnings = reconcile_event(event_state, primary.get("positions") or [])
+    if event_warnings:
+        print("EVENT RECONCILIATION MISMATCH:")
+        for w in event_warnings:
+            print(f"  {w}")
+    rows, opt_excluded = build_rows(primary, trend_syms, event_map)
     html = build_html(rows, opt_excluded, primary.get("nlv"), now,
-                      trend_warnings=trend_warnings)
+                      trend_warnings=trend_warnings,
+                      event_warnings=event_warnings)
 
     if args.html_out:
         Path(args.html_out).write_text(html, encoding="utf-8")

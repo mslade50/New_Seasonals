@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Events — Seasonals</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/common.js"></script>
+<script src="assets/events.js"></script>
+</head>
+<body data-page="events">
+<header class="topbar" id="topbar"></header>
+<div class="wrap">
+  <h1>Event Sleeve</h1>
+  <p class="sub" id="subtitle">Calendar-anchored index trades (prereg frozen 2026-08-06), staged by the
+    AM scan and placed by <code>event_moo.py</code> at 9:05 AM as parent-only MOC/MOO auction orders on the
+    primary account. Sizing is %NAV of the fixed <b>$750k</b> <code>ACCOUNT_VALUE</code> constant, not live
+    NLV. Exits are state-scheduled, never calendar-recomputed. Realized rows are modeled from daily bars
+    (MOC at the close, MOO at the open), not broker fills.</p>
+  <div id="content"><div class="spin">Loading...</div></div>
+  <footer>Source: <code>event_sleeve.py</code> state + append-only journal (R2) graded against
+    <code>master_prices</code>. Prereg + evidence chain:
+    <code>scratch/ultracode_research/event_sleeve_prereg_2026-08-06.md</code>.</footer>
+</div>
+</body>
+</html>

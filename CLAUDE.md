@@ -881,12 +881,46 @@ it. Known bound (trend-sleeve convention): state marks positions open at
 STAGING time — if a staged order never executed, clear it from the state
 json.
 
+**Sizing basis**: `nav_frac * ACCOUNT_VALUE` (the fixed $750k constant), NOT
+live NLV — a 10% V4 position is ~$75k notional regardless of the account's
+actual equity. Stated on every visibility surface.
+
+**Visibility + journal (2026-08-21, after the first live trade — V4 SVXY —
+surprised McKinley as "a random order")**: four surfaces now show the sleeve.
+(1) The AM scan email's per-trade cards (status + rule + prereg evidence,
+pre-existing) plus a NEW subject-line flag ("+ 📅 EVENT: V4 SVXY") whenever a
+card is staged today, so an auction order is never below the fold. (2) The
+nightly execution report attributes untagged positions to "Event Sleeve (V4)"
+via `event_sleeve_state.json` (event orders are parent-only — no exit legs, so
+orderRef attribution can never see them; they previously rendered
+"Discretionary") and reconciles state vs the live book (SHORTFALL-only alarm —
+book overlap on SPY/IWM makes excess undecidable; entered-today skipped, the
+MOC fill races the book push). (3) A site **Events tab** (`events.html` +
+`assets/events.js`, nav after Radar) rendering `dist/data/event_sleeve.json`
+(`build_site.build_event_sleeve`, best effort): cards, open positions marked
+to the cache, realized history + per-trade realized-vs-prereg summary.
+(4) An APPEND-ONLY journal `data/event_sleeve_journal.jsonl` — R2-CANONICAL
+(the writer is the GHA AM job whose checkout has no local copy; unlike the
+pitch/posts journals it is NOT committed, a stale repo copy would clobber R2
+on the sync-down-skip), one record per staged entry/exit, self-healing:
+`backfill_entry_records` mints a missing entry record from the state on the
+next run, which is also how the pre-journal V4 entry was seeded
+(`scratch/seed_event_journal_20260821.py`). `realized_history` grades round
+trips from master_prices bars — MOC legs at the Close, MOO legs at the Open —
+modeled from bars, not fills, by design.
+
 Aligned sites — change together:
 - `event_sleeve.py` `EVENT_SLEEVE` dict (source of truth: tickers, sides,
-  %NAV, rank/z thresholds) + `FOMC_ENTRY_TD_BEFORE`
+  %NAV, rank/z thresholds) + `FOMC_ENTRY_TD_BEFORE`; journal helpers +
+  `CARD_EXPLAINERS` (prereg rule/evidence strings) + `realized_history`
 - `event_moo.py` (OneDrive) `EVENT_UNIVERSE` / `EVENT_TRADES` / caps
 - `.github/workflows/daily_screener.yml` AM-gated step
-- Guards: `tests/test_event_sleeve.py` (repo), `test_event_moo.py` (OneDrive)
+- `daily_scan.py` event cards + `_staged_event` subject flag;
+  `daily_execution_report.py` `event_symbol_map` / `reconcile_event`;
+  `scripts/build_site.py` `build_event_sleeve`; `site/events.html` +
+  `site/assets/events.js` + the `common.js` nav entry
+- Guards: `tests/test_event_sleeve.py`, `tests/test_execution_report.py`,
+  `tests/test_event_site.py` (repo), `test_event_moo.py` (OneDrive)
 
 ## Daily Pitch (2026-08-06)
 
@@ -1502,7 +1536,7 @@ All five trading-day workflows now run in GHA. Order staging stays local (IBKR-b
 trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `weekly_rundown.yml` | Sundays 12:00 UTC (8 AM EDT / 7 AM EST) | Tabloid PDF with all risk charts. |
 | `trend_sleeve.yml` | Weekdays 21:35 UTC (no-ops except the month's last trading day) | Monthly trend-following ballast rebalance — writes MOO orders to the `Trend` Sheets tab + state to R2. See "Trend Sleeve" section. |
-| `execution_report.yml` | Weekdays 20:30 AND 21:30 UTC — `daily_execution_report.py` gates on WHICH cron fired (`GHA_SCHEDULE` = `github.event.schedule`) + the date's DST regime, so exactly one sends at ~4:30 PM ET year-round even when GHA cron lag starts the run an hour+ late (the old hour==16 gate silently dropped the 2026-07-08/09 emails). Cron strings must match `EDT_CRON`/`EST_CRON` in the script; unknown cron fails open (sends). | Nightly email of LIVE primary-account positions (mirrors the site Execution tab). Pulls the execution-broker DO's `/book` snapshot (Bearer `STATUS_TOKEN`; URL via `EXEC_BROKER_URL` secret, defaults to the workers.dev URL), excludes OPT rows, and enriches each position from its own working exit legs: target = closing LMT `lmt`, stop = closing STP `aux` (NA if none), time stop = closing MKT leg's `goodAfterTime` date, strategy = 3rd pipe field of any leg's `orderRef` (requires `order_ref` in `book_snapshot.py` — added 2026-07-08 in `OneDrive\trading_ibkr`). No strategy-tagged legs → "Trend Sleeve" (symbol in `trend_sleeve_state.json` on R2) else "Discretionary". Recipients: repo variable `EXECUTION_REPORT_RECIPIENTS` (comma-separated; defaults to mckinleyslade@gmail.com). Guard: `tests/test_execution_report.py`. |
+| `execution_report.yml` | Weekdays 20:30 AND 21:30 UTC — `daily_execution_report.py` gates on WHICH cron fired (`GHA_SCHEDULE` = `github.event.schedule`) + the date's DST regime, so exactly one sends at ~4:30 PM ET year-round even when GHA cron lag starts the run an hour+ late (the old hour==16 gate silently dropped the 2026-07-08/09 emails). Cron strings must match `EDT_CRON`/`EST_CRON` in the script; unknown cron fails open (sends). | Nightly email of LIVE primary-account positions (mirrors the site Execution tab). Pulls the execution-broker DO's `/book` snapshot (Bearer `STATUS_TOKEN`; URL via `EXEC_BROKER_URL` secret, defaults to the workers.dev URL), excludes OPT rows, and enriches each position from its own working exit legs: target = closing LMT `lmt`, stop = closing STP `aux` (NA if none), time stop = closing MKT leg's `goodAfterTime` date, strategy = 3rd pipe field of any leg's `orderRef` (requires `order_ref` in `book_snapshot.py` — added 2026-07-08 in `OneDrive\trading_ibkr`). No strategy-tagged legs → "Event Sleeve (V4)" (symbol in `event_sleeve_state.json` on R2 — event orders are parent-only, added 2026-08-21) → "Trend Sleeve" (symbol in `trend_sleeve_state.json` on R2) else "Discretionary"; both sleeve states are reconciled against the live book (event: shortfall-only, entered-today skipped). Recipients: repo variable `EXECUTION_REPORT_RECIPIENTS` (comma-separated; defaults to mckinleyslade@gmail.com). Guard: `tests/test_execution_report.py`. |
 
 ### Local Task Scheduler (post-Phase-2)
 
@@ -1575,8 +1609,10 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   `signals.html`, `charts.html` (per-trade chart gallery), `risk.html`,
   `montecarlo.html` + `assets/` (vanilla JS + Plotly CDN, no build step, no
   framework). `site/_headers` sets no-store on `/data/*`. Nav order
-  (2026-08-18): Portfolio, Seasonal, Execution, **Radar**, Risk, Trade Log,
-  then the rest, Monte Carlo last. The IDEAS TAB was REMOVED 2026-07-28 (page +
+  (2026-08-21): Portfolio, Seasonal, Execution, **Radar**, **Events**, Risk,
+  Trade Log, then the rest, Monte Carlo last. The Events tab renders the
+  event sleeve (see "Event Sleeve": status cards, open positions, realized
+  history from the R2 journal) via `dist/data/event_sleeve.json`. The IDEAS TAB was REMOVED 2026-07-28 (page +
   ideas.js deleted); `ideas.json` is still built — the signals page's
   strategy-context block reads it.
 - **Radar tab** (`radar.html` + `assets/radar.js`, 2026-08-18): the momentum

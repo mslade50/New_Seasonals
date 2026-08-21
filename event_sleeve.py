@@ -58,7 +58,13 @@ STATE_PATH = Path(current_dir) / "data" / "event_sleeve_state.json"
 STATE_R2_KEY = "event_sleeve_state.json"
 ACTIONS_PATH = Path(current_dir) / "data" / "event_sleeve_last_actions.json"
 ACTIONS_R2_KEY = "event_sleeve_last_actions.json"
+JOURNAL_PATH = Path(current_dir) / "data" / "event_sleeve_journal.jsonl"
+JOURNAL_R2_KEY = "event_sleeve_journal.jsonl"
 PRICES_PATH = Path(current_dir) / "data" / "master_prices.parquet"
+
+# Actions that OPEN a position; everything else in the row vocabulary
+# (SELL / BUY_TO_COVER) closes one.
+ENTRY_ACTIONS = {"BUY", "SELL_SHORT"}
 
 # Staging must finish before the OPG cutoff chain (event_moo submits at
 # 9:05, hard OPG cutoff 9:25). Past this time a live run refuses to stage.
@@ -120,6 +126,19 @@ def load_ticker(tkr: str) -> pd.DataFrame:
     vol21 = df["Close"].pct_change().rolling(21).std()
     df["z10"] = df["Close"].pct_change(10) / (vol21 * np.sqrt(10))
     return df
+
+
+def journal_prices(tickers) -> dict[str, pd.DataFrame]:
+    """Open+Close per ticker for realized_history (MOO legs need the Open)."""
+    mp = pd.read_parquet(PRICES_PATH,
+                         columns=["ticker", "date", "Open", "Close"])
+    out: dict[str, pd.DataFrame] = {}
+    for t in sorted(set(tickers)):
+        df = mp[mp["ticker"] == t].set_index("date").sort_index()[
+            ["Open", "Close"]]
+        df.index = pd.to_datetime(df.index).normalize()
+        out[t] = df[~df.index.duplicated(keep="last")]
+    return out
 
 
 def load_state() -> dict:
@@ -284,6 +303,181 @@ def write_actions_json(rows: list[dict], log: list[str], state: dict,
                "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     ACTIONS_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     upload_from_local(str(ACTIONS_PATH), ACTIONS_R2_KEY)
+
+
+# ---------------------------------------------------------------------------
+# Journal — append-only record of every staged entry/exit, R2-canonical
+# (the sleeve runs in GHA where the checkout has no local copy, so every
+# append pulls R2 first; pitch_journal convention otherwise). This is what
+# lets realized results accrue: the state json pops a position on exit and
+# keeps no history.
+# ---------------------------------------------------------------------------
+def journal_sync_down(path: Path = JOURNAL_PATH) -> None:
+    """Pull the journal from R2 when this machine has no local copy. A
+    non-default path is a test/dev run and never touches R2."""
+    if path != JOURNAL_PATH or path.exists():
+        return
+    try:
+        from cache_io import is_configured
+        if is_configured():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            download_to_local(JOURNAL_R2_KEY, str(path))
+    except Exception as exc:  # noqa: BLE001
+        print(f"NOTE: event journal R2 pull skipped ({exc})")
+
+
+def load_journal(path: Path = JOURNAL_PATH, pull: bool = True) -> list[dict]:
+    if pull:
+        journal_sync_down(path)
+    if not path.exists():
+        return []
+    records = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
+def journal_records_from(rows: list[dict], state: dict) -> list[dict]:
+    """One journal record per staged row. Entries carry their scheduled exit
+    (from the state position stage_entry just wrote); exits carry lateness."""
+    records = []
+    for r in rows:
+        kind = "entry" if r["Action"] in ENTRY_ACTIONS else "exit"
+        rec = {"kind": kind, "trade": r["Trade"], "ticker": r["Ticker"],
+               "action": r["Action"], "qty": int(r["Quantity"]),
+               "order_type": r["Order_Type"], "date": r["Execute_On"],
+               "ref_close": r["Ref_Close"], "note": r["Note"]}
+        if kind == "entry":
+            pos = state.get("positions", {}).get(r["Trade"], {})
+            rec["exit_on"] = pos.get("exit_on")
+            rec["exit_order_type"] = pos.get("exit_order_type")
+        else:
+            rec["late"] = "LATE" in str(r["Note"])
+        records.append(rec)
+    return records
+
+
+def backfill_entry_records(state: dict, records: list[dict]) -> list[dict]:
+    """Entry records for open state positions the journal is missing. Makes
+    the journal self-healing: a position opened before the journal existed
+    (V4 SVXY 2026-08-21) or through a missed append gets its entry minted
+    from the state on the next run, so the eventual exit can pair. All
+    entries are MOC by construction."""
+    have = {(r.get("trade"), r.get("date")) for r in records
+            if r.get("kind") == "entry"}
+    out = []
+    for trade, pos in sorted((state.get("positions") or {}).items()):
+        if (trade, pos.get("entry_date")) in have:
+            continue
+        cfg = EVENT_SLEEVE.get(trade)
+        if cfg is None:
+            continue
+        out.append({"kind": "entry", "trade": trade, "ticker": cfg["ticker"],
+                    "action": "BUY" if cfg["side"] == "LONG" else "SELL_SHORT",
+                    "qty": int(pos.get("shares", 0)), "order_type": "MOC",
+                    "date": pos.get("entry_date"),
+                    "ref_close": pos.get("ref_close"),
+                    "note": "backfilled from state",
+                    "exit_on": pos.get("exit_on"),
+                    "exit_order_type": pos.get("exit_order_type")})
+    return out
+
+
+def append_journal(records: list[dict], path: Path = JOURNAL_PATH,
+                   push: bool = True) -> int:
+    if not records:
+        return 0
+    if path == JOURNAL_PATH:
+        journal_sync_down(path)
+    stamp = datetime.datetime.now().isoformat(timespec="seconds")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps({**record, "written_at": stamp}) + "\n")
+    if push and path == JOURNAL_PATH:
+        try:
+            upload_from_local(str(path), JOURNAL_R2_KEY)
+        except Exception as exc:  # noqa: BLE001
+            print(f"NOTE: event journal R2 push skipped ({exc})")
+    return len(records)
+
+
+def realized_history(records: list[dict], px: dict[str, pd.DataFrame]) -> dict:
+    """Pair journal entries with their exits and grade each round trip from
+    the price cache: MOC legs book at that date's Close, MOO legs at its
+    Open. Modeled from bars, not fills — an auction fill differs from the
+    consolidated close by noise, and that is the documented basis.
+
+    px: ticker -> DataFrame indexed by normalized date with at least a
+    Close column (Open too when any MOO exit exists). Returns
+    {"closed": [...], "open": [...]}, both chronological."""
+    def leg_px(tkr: str, date: str, order_type: str) -> float | None:
+        df = px.get(tkr)
+        if df is None:
+            return None
+        ts = pd.Timestamp(date).normalize()
+        if ts not in df.index:
+            return None
+        col = "Open" if order_type == "MOO" else "Close"
+        if col not in df.columns:
+            return None
+        v = df.loc[ts, col]
+        return float(v) if pd.notna(v) else None
+
+    entries: dict[str, dict] = {}
+    closed: list[dict] = []
+    for rec in records:
+        trade = rec.get("trade")
+        if rec.get("kind") == "entry":
+            entries[trade] = rec
+            continue
+        if rec.get("kind") != "exit" or trade not in entries:
+            continue
+        ent = entries.pop(trade)
+        side = EVENT_SLEEVE.get(trade, {}).get(
+            "side", "LONG" if ent["action"] == "BUY" else "SHORT")
+        sign = 1.0 if side == "LONG" else -1.0
+        e_px = leg_px(ent["ticker"], ent["date"], ent["order_type"])
+        x_px = leg_px(rec["ticker"], rec["date"], rec["order_type"])
+        row = {"trade": trade, "ticker": ent["ticker"], "side": side,
+               "qty": ent["qty"], "entry_date": ent["date"],
+               "exit_date": rec["date"], "entry_px": e_px, "exit_px": x_px,
+               "late": bool(rec.get("late"))}
+        if e_px and x_px:
+            row["ret_pct"] = sign * (x_px / e_px - 1.0) * 100.0
+            row["pnl"] = sign * ent["qty"] * (x_px - e_px)
+            row["nav_bps"] = row["pnl"] / ACCOUNT_VALUE * 1e4
+        closed.append(row)
+
+    open_rows: list[dict] = []
+    for trade, ent in entries.items():
+        side = EVENT_SLEEVE.get(trade, {}).get(
+            "side", "LONG" if ent["action"] == "BUY" else "SHORT")
+        sign = 1.0 if side == "LONG" else -1.0
+        row = {"trade": trade, "ticker": ent["ticker"], "side": side,
+               "qty": ent["qty"], "entry_date": ent["date"],
+               "exit_on": ent.get("exit_on"),
+               "exit_order_type": ent.get("exit_order_type")}
+        e_px = leg_px(ent["ticker"], ent["date"], ent["order_type"])
+        df = px.get(ent["ticker"])
+        if e_px and df is not None and len(df):
+            last = df.index.max()
+            m_px = float(df.loc[last, "Close"])
+            row.update({"entry_px": e_px, "mark_px": m_px,
+                        "mark_date": str(last.date()),
+                        "ret_pct": sign * (m_px / e_px - 1.0) * 100.0,
+                        "pnl": sign * ent["qty"] * (m_px - e_px)})
+        open_rows.append(row)
+
+    closed.sort(key=lambda r: (r["entry_date"], r["trade"]))
+    open_rows.sort(key=lambda r: (r["entry_date"], r["trade"]))
+    return {"closed": closed, "open": open_rows}
 
 
 # Static explainers for the scan-email cards (one line of rule, one of
@@ -476,6 +670,12 @@ def main() -> None:
     write_sheet(rows, args.dry_run)
     save_state(state, args.dry_run)
     write_actions_json(rows, log, state, today, args.dry_run)
+    if not args.dry_run:
+        recs = journal_records_from(rows, state)
+        recs += backfill_entry_records(state, load_journal() + recs)
+        if recs:
+            n = append_journal(recs)
+            print(f"Journal: {n} record(s) appended -> {JOURNAL_PATH.name} + R2")
 
 
 if __name__ == "__main__":

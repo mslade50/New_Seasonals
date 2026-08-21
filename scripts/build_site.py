@@ -2354,6 +2354,62 @@ def fetch_signals():
 
 
 # ---------------------------------------------------------------- main
+def build_event_sleeve():
+    """Event-sleeve payload for the Events tab: per-trade status cards
+    (staged/open/skipped/armed + prereg rule and evidence), open positions
+    marked to the price cache, and the realized history graded from the
+    append-only journal (R2-canonical). Sized off the fixed ACCOUNT_VALUE,
+    stated in the payload so the page can say so. Best effort."""
+    import event_sleeve as es
+
+    cards = es.sleeve_status_cards()
+    state = es.load_state()
+
+    records = []
+    try:
+        records = es.load_journal()
+    except Exception as e:
+        print(f"  event_sleeve: journal unavailable ({e})")
+    hist = {"closed": [], "open": []}
+    if records:
+        try:
+            tickers = {r.get("ticker") for r in records if r.get("ticker")}
+            hist = es.realized_history(records, es.journal_prices(tickers))
+        except Exception as e:
+            print(f"  event_sleeve: history grading skipped ({e})")
+
+    summary = []
+    graded = [r for r in hist["closed"] if r.get("ret_pct") is not None]
+    for trade in es.EVENT_SLEEVE:
+        rows = [r for r in graded if r["trade"] == trade]
+        if not rows:
+            continue
+        rets = [r["ret_pct"] for r in rows]
+        summary.append({
+            "trade": trade, "n": len(rows),
+            "wins": sum(1 for r in rets if r > 0),
+            "avg_ret_pct": round(sum(rets) / len(rets), 3),
+            "total_pnl": round(sum(r["pnl"] for r in rows), 0),
+            "total_nav_bps": round(sum(r["nav_bps"] for r in rows), 1),
+        })
+
+    return {
+        "generated": datetime.datetime.now(datetime.timezone.utc)
+        .strftime("%Y-%m-%d %H:%M UTC"),
+        "account_value": float(ACCOUNT_VALUE),
+        "cards": [{k: _clean(v) for k, v in c.items()} for c in cards],
+        "positions": state.get("positions", {}),
+        "history": {
+            "closed": [{k: _clean(v) for k, v in r.items()}
+                       for r in hist["closed"]],
+            "open": [{k: _clean(v) for k, v in r.items()}
+                     for r in hist["open"]],
+        },
+        "summary": summary,
+        "journal_n": len(records),
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(_ROOT, "dist"))
@@ -2449,7 +2505,7 @@ def main():
              "iv_context": False, "option_surface": False, "options_market": False,
              "strategy_stats": False, "earnings_next": False,
              "seasonality": False, "macro_sznl": False, "montecarlo": False,
-             "fundamentals": False}
+             "fundamentals": False, "event_sleeve": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
@@ -2510,6 +2566,7 @@ def main():
     best_effort("gate_lab", build_gate_lab, df)
     best_effort("ext_lab", build_ext_lab, df)
     best_effort("sizer", build_sizer)
+    best_effort("event_sleeve", build_event_sleeve)
     best_effort(
         "fundamentals",
         build_fundamental_site_payload,
