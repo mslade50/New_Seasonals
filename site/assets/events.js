@@ -33,7 +33,29 @@ function kpi(label, value, sub) {
     <div class="v">${value}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
 }
 
-function cardHtml(c, summaryByTrade) {
+function statChip(label, value) {
+  return `<div style="min-width:64px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">${label}</div>
+    <div style="font-size:14px;font-weight:650;font-variant-numeric:tabular-nums">${value}</div></div>`;
+}
+
+function evidenceBlock(ev) {
+  if (!ev) return "";
+  const chips = [
+    statChip("N windows", ev.n),
+    statChip("Avg / window", `${fmt.signed(ev.avg_bps, 0)} bps`),
+    statChip("t-stat", ev.t == null ? "&mdash;" : fmt.num(ev.t)),
+    statChip("Hit", ev.hit == null ? "&mdash;" : Math.round(ev.hit * 100) + "%"),
+  ].join("");
+  const pilot = ev.conviction === "pilot"
+    ? ' <span style="color:#ffc14d;font-size:10px;letter-spacing:.4px">PILOT</span>' : "";
+  return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;padding:8px 10px;background:var(--card2,rgba(255,255,255,.03));border-radius:6px">${chips}</div>
+    <div class="cap" style="margin-top:6px"><b>Sample:</b> ${esc(ev.span)}${pilot}</div>
+    <div class="cap" style="margin-top:2px"><b>Cross-check:</b> ${esc(ev.cross_check)}</div>
+    <div class="cap" style="margin-top:2px"><b>Expected:</b> ${esc(ev.expected)} &middot; <b>Worst:</b> ${esc(ev.worst)}</div>
+    <div class="cap" style="margin-top:2px"><b>Kill rule:</b> ${esc(ev.kill)}</div>`;
+}
+
+function cardHtml(c, summaryByTrade, evidence) {
   const col = KIND_COLOR[c.kind] || "#8a93a5";
   const s = summaryByTrade[c.trade];
   const realized = s
@@ -48,9 +70,26 @@ function cardHtml(c, summaryByTrade) {
     </div>
     <div style="margin-top:4px;font-size:13px;color:${col}">${esc(c.status)}</div>
     <div class="cap" style="margin-top:6px">${esc(c.rule)}</div>
-    <div class="cap" style="margin-top:2px"><b>Prereg:</b> ${esc(c.evidence)}</div>
+    ${evidenceBlock(evidence && evidence[c.trade])}
     ${realized}
   </div>`;
+}
+
+function rejectedSection(rejected) {
+  if (!rejected || !rejected.length) return "";
+  const VERDICT_COLOR = { rejected: "#ff5d5d", dropped: "#ff5d5d",
+                          excluded: "#ffc14d", parked: "#8a93a5" };
+  const rows = rejected.map((r) => `<tr>
+    <td class="l">${esc(r.name)}</td>
+    <td class="l" style="color:${VERDICT_COLOR[r.verdict] || "#8a93a5"};text-transform:uppercase;font-size:11px;letter-spacing:.4px">${esc(r.verdict)}</td>
+    <td class="l">${esc(r.reason)}</td>
+  </tr>`).join("");
+  return `<div class="card" style="margin-top:14px"><b>Tested and not shipped</b>
+    <div class="cap">The same 2026-08-06 study sweep that produced the six production trades.
+      Reviving any of these needs a fresh prereg, not a tweak.</div>
+    <div class="tblwrap"><table class="tbl">
+      <thead><tr><th class="l">Candidate</th><th class="l">Verdict</th><th class="l">Why</th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>`;
 }
 
 function openTable(open) {
@@ -128,8 +167,11 @@ async function init() {
   const openRows = p.history?.open || [];
   const openPnl = openRows.reduce((a, r) => a + (r.pnl || 0), 0);
 
+  const nProd = Object.keys(p.evidence || {}).length || (p.cards || []).length;
+  const nRejected = (p.rejected || []).length;
   el.innerHTML = `
     <div class="kpis">
+      ${kpi("In production", nProd, nRejected ? `${nRejected} tested & not shipped` : "")}
       ${kpi("Open positions", openRows.length,
             openRows.length ? `<span class="${clsSign(openPnl)}">${fmt.money(openPnl)} marked</span>` : "flat")}
       ${kpi("Realized trades", graded.length, graded.length ? `${wins}/${graded.length} up` : "none graded yet")}
@@ -138,15 +180,18 @@ async function init() {
       ${kpi("Sizing basis", fmt.money(p.account_value), "fixed ACCOUNT_VALUE, not live NLV")}
       ${kpi("Journal", `${p.journal_n} record${p.journal_n === 1 ? "" : "s"}`, "append-only, R2")}
     </div>
+    <p class="cap">Backtest numbers below are the FROZEN prereg transcriptions (2026-08-06) — never
+      recomputed, so they cannot drift from what was registered. Realized lines accrue from the journal.</p>
     <div class="grid2" id="cards"></div>`;
   const cardsEl = document.getElementById("cards");
-  cardsEl.innerHTML = (p.cards || []).map((c) => cardHtml(c, summaryByTrade)).join("");
+  cardsEl.innerHTML = (p.cards || []).map((c) => cardHtml(c, summaryByTrade, p.evidence)).join("");
 
   const openHtml = openTable(openRows);
   if (openHtml) el.insertAdjacentHTML("beforeend", openHtml);
   if ((p.history?.closed || []).length) el.appendChild(historySection(p.history.closed));
   else el.insertAdjacentHTML("beforeend",
     '<p class="cap" style="margin-top:14px">No closed trades yet — the first exits will appear here once the journal pairs them.</p>');
+  el.insertAdjacentHTML("beforeend", rejectedSection(p.rejected));
 }
 
 if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", init);

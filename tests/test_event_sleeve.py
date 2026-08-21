@@ -196,6 +196,29 @@ def test_dec_opex_midterm_stages_t4_and_v4():
     assert trades == {"T4_DEC_POSTOPEX_LONG", "V4_POSTOPEX_VOL"}
 
 
+def test_backtest_evidence_frozen():
+    """The Events tab renders these numbers as-is (freeze policy: prereg
+    transcriptions, never recomputed). An edit here is a new study."""
+    ev = es.BACKTEST_EVIDENCE
+    assert set(ev) == set(es.EVENT_SLEEVE)
+    for trade, e in ev.items():
+        for key in ("n", "avg_bps", "hit", "span", "cross_check",
+                    "expected", "worst", "kill", "conviction"):
+            assert key in e, f"{trade} missing {key}"
+    assert ev["T1_FOMC_DRIFT"]["n"] == 150
+    assert ev["T1_FOMC_DRIFT"]["t"] == 2.51
+    assert ev["T2_FOMC_MIDTERM_SHORT"]["conviction"] == "pilot"
+    assert ev["T3_SEP_POSTQUAD_SHORT"]["avg_bps"] == 185.0
+    assert ev["T4_DEC_POSTOPEX_LONG"]["hit"] == 0.65
+    assert ev["V2_NOVDEC_VOL"]["t"] is None   # hit-rate cell, no t in prereg
+    assert ev["V4_POSTOPEX_VOL"]["n"] == 164
+    assert ev["V4_POSTOPEX_VOL"]["t"] == 3.55
+    assert len(es.REJECTED_STUDIES) == 7
+    for r in es.REJECTED_STUDIES:
+        assert r["verdict"] in {"rejected", "dropped", "excluded", "parked"}
+        assert r["name"] and r["reason"]
+
+
 def _px_frame(dates, opens, closes):
     idx = pd.DatetimeIndex([pd.Timestamp(d) for d in dates])
     return pd.DataFrame({"Open": opens, "Close": closes}, index=idx)

@@ -32,6 +32,27 @@ def test_build_site_registers_payload():
     assert 'best_effort("event_sleeve", build_event_sleeve)' in src
 
 
+def test_events_page_renders_evidence_and_rejected():
+    js = (SITE / "assets" / "events.js").read_text(encoding="utf-8")
+    assert "evidenceBlock" in js and "rejectedSection" in js
+    assert "p.evidence" in js and "p.rejected" in js
+    # The frozen-numbers disclosure must be on the page.
+    assert "FROZEN" in js and "never" in js
+    src = (ROOT / "scripts" / "build_site.py").read_text(encoding="utf-8")
+    assert "BACKTEST_EVIDENCE" in src and "REJECTED_STUDIES" in src
+
+
+def test_assembler_ships_macro_events_csv():
+    # The production site build runs in a data-free assembler; the committed
+    # event calendar must be promoted or sleeve_status_cards dies in CI
+    # (2026-08-21: the deployed Events tab rendered one ERROR card).
+    stage = (ROOT / "scripts" / "stage_private_site_cloud_build.py").read_text(
+        encoding="utf-8")
+    assert '"data/macro_events.csv": "reference/macro_events.csv"' in stage
+    cal = (ROOT / "macro_calendar.py").read_text(encoding="utf-8")
+    assert "reference" in cal and "macro_events.csv" in cal
+
+
 def test_scan_email_subject_flags_staged_event():
     src = (ROOT / "daily_scan.py").read_text(encoding="utf-8")
     assert "_staged_event" in src

@@ -29,7 +29,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-CSV_PATH = Path(__file__).resolve().parent / "data" / "macro_events.csv"
+# Cloud-only private-site builds promote this versioned reference file out of
+# the excluded runtime data/ tree (stage_private_site_cloud_build
+# SOURCE_REFERENCE_REMAPS); the data/ path is the normal checkout.
+_REFERENCE_CSV = Path(__file__).resolve().parent / "reference" / "macro_events.csv"
+_DATA_CSV = Path(__file__).resolve().parent / "data" / "macro_events.csv"
+CSV_PATH = _DATA_CSV if _DATA_CSV.exists() else _REFERENCE_CSV
 
 EVENT_TYPES = [
     "fomc_decision", "fomc_intermeeting", "fomc_minutes", "cpi", "nfp",

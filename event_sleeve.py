@@ -515,6 +515,114 @@ CARD_EXPLAINERS = {
 }
 
 
+# Frozen backtest evidence for the Events tab (prereg 2026-08-06). The page
+# renders EXACTLY these numbers — they are transcriptions from
+# scratch/ultracode_research/event_sleeve_prereg_2026-08-06.md, never
+# recomputed (freeze policy: a replay from today's bars would silently
+# diverge from what was actually preregistered, most of all for V2/V4 whose
+# backtest used a synthetic -0.5x SVXY series validated 0.9967 vs real).
+BACKTEST_EVIDENCE = {
+    "T1_FOMC_DRIFT": {
+        "n": 150, "avg_bps": 38.2, "t": 2.51, "hit": 0.67,
+        "span": "SPY 2000+, lag-1 basis",
+        "cross_check": "QQQ +46.5 bps t 2.50. Lucca-Moench (2011) documented "
+                       "the drift on 1994-2011 data, so half the sample is "
+                       "out-of-sample for the claim.",
+        "expected": "~+75 bps NAV/yr gross (8 windows at 25% NAV)",
+        "worst": "March 2020 window -959 bps x 25% = ~-2.4% NAV",
+        "kill": "pause at cumulative -2.0% NAV; review after 16 windows (~2y)",
+        "conviction": "standard",
+    },
+    "T2_FOMC_MIDTERM_SHORT": {
+        "n": 28, "avg_bps": 63.4, "t": 1.53, "hit": 0.54,
+        "span": "SPY midterm-year windows 2000+, lag-1",
+        "cross_check": "QQQ +97.3 bps t 1.67. rank21>70 tapes FLIP the short "
+                       "to a loser and are excluded (threshold 50 = median "
+                       "split, not scanned).",
+        "expected": "~3-5 windows per midterm year at 10% NAV",
+        "worst": "thinnest cell of the six — pilot conviction only",
+        "kill": "kill on 4 consecutive losers or cumulative -1.0% NAV; "
+                "review after the 2026 cycle",
+        "conviction": "pilot",
+    },
+    "T3_SEP_POSTQUAD_SHORT": {
+        "n": 24, "avg_bps": 185.0, "t": 2.27, "hit": 0.67,
+        "span": "IWM Sep-opex windows 2000+, lag-1",
+        "cross_check": "SPY variant +131.2 bps t 2.30. First-week-of-"
+                       "September baseline is flat — this is the expiry-"
+                       "anchored back half, not generic September.",
+        "expected": "one ~7-session window per year at 15% NAV",
+        "worst": "washouts bounce: z10 < -1 skips (would have skipped 2001)",
+        "kill": "cumulative -2.0% NAV or 3 losses in any 4 consecutive "
+                "years; review at N+5 (2031)",
+        "conviction": "standard",
+    },
+    "T4_DEC_POSTOPEX_LONG": {
+        "n": 26, "avg_bps": 85.3, "t": 2.30, "hit": 0.65,
+        "span": "IWM Dec-opex windows 2000+, close basis",
+        "cross_check": "SPY +65.7 bps t 2.19; QQQ does NOT confirm (-17.7) — "
+                       "a small/value year-end rotation, IWM is the carrier.",
+        "expected": "one ~7-session window per year at 25% NAV",
+        "worst": "no filter by design",
+        "kill": "cumulative -2.0% NAV or 3 losses in 4 years; review at N+5",
+        "conviction": "standard",
+    },
+    "V2_NOVDEC_VOL": {
+        "n": 11, "avg_bps": 1110.0, "t": None, "hit": 0.91,
+        "span": "non-midterm Nov-Dec windows, -0.5x basis",
+        "cross_check": "10 of 11 non-midterm years up, +11.1% avg. Midterm "
+                       "Novembers went 1-of-3 with both sample losers "
+                       "(2014 -5.4%, 2018 -13.4%) and are excluded.",
+        "expected": "one 2-month window per non-midterm year at 5% NAV",
+        "worst": "a 2018-style repeat ~ -65 bps NAV (the sizing yardstick)",
+        "kill": "kill on 2 consecutive losers or cumulative -1.5% NAV; "
+                "review at N+5 non-midterm windows (~2032)",
+        "conviction": "standard",
+    },
+    "V4_POSTOPEX_VOL": {
+        "n": 164, "avg_bps": 108.0, "t": 3.55, "hit": 0.72,
+        "span": "all monthly opex ex-Sep, synthetic -0.5x validated 0.9967 "
+                "vs real; hit rate is the 2021-06+ era",
+        "cross_check": "+71 bps t 2.2 in the real -0.5x era (2018+); +134 "
+                       "t 3.75 since 2021-06. September INVERTS (-65 bps, "
+                       "21% hit) and is excluded.",
+        "expected": "~11 windows/yr at 10% NAV",
+        "worst": "Aug 2015 window -21.5% ~ -2.2% NAV; 2018 year -20.6% "
+                 "cumulative ~ -2.1% NAV",
+        "kill": "pause at cumulative -2.5% NAV; review after 22 windows (~2y)",
+        "conviction": "standard",
+    },
+}
+
+# Tested and NOT shipped (same studies; do not revive without a fresh
+# prereg). Source: the prereg's per-trade notes + the 2026-08-06 vol
+# addendum (scratch/svxy_postevent_grid.py, uvxy_event_study.py,
+# svxy_defined_risk_study.py, event_sweep_drilldown.py).
+REJECTED_STUDIES = [
+    {"name": "T1 5d-rank overbought exclusion", "verdict": "dropped",
+     "reason": "tested well on SPY but INVERTED on QQQ — not robust, so T1 "
+               "ships unfiltered"},
+    {"name": "T3 TLT long leg", "verdict": "excluded",
+     "reason": "+95 bps t 1.75 standalone, but 2022 showed the duration "
+               "regime risk; the equity short carries the edge"},
+    {"name": "SVXY leg on T1 (pre-FOMC vol crush)", "verdict": "rejected",
+     "reason": "corr 0.78 to the SPY leg and wins in only 23% of SPY-down "
+               "windows — duplicates T1 without diversifying it"},
+    {"name": "Post-CPI SVXY crush", "verdict": "rejected",
+     "reason": "faded after 2018 in the post-event grid"},
+    {"name": "Post-FOMC / post-NFP / VIX-expiry SVXY cells",
+     "verdict": "rejected",
+     "reason": "tested in the same svxy_postevent_grid sweep and failed it"},
+    {"name": "Naked UVXY shorts (Nov-Dec)", "verdict": "rejected",
+     "reason": "the only strong standalone cell (t 4.5) but 2018 ran +84% "
+               "against — unbounded loss at book size; parked pending "
+               "options infra"},
+    {"name": "Opex washout bounce (long side)", "verdict": "parked",
+     "reason": "overlaps the dip-buy family; deferred to a future dip-buy "
+               "sizing study, not a sleeve trade"},
+]
+
+
 def sleeve_status_cards(today: pd.Timestamp | None = None) -> list[dict]:
     """Best-effort per-trade status for the scan email. Never raises."""
     today = (today or pd.Timestamp.now(tz="America/New_York")

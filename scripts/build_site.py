@@ -2371,6 +2371,12 @@ def build_event_sleeve():
     import event_sleeve as es
 
     cards = es.sleeve_status_cards()
+    for c in cards:
+        if c.get("kind") == "error":
+            # The card set collapses to one error card on any status failure
+            # (2026-08-21: missing macro_events.csv in the assembler). Surface
+            # it in the build log, not just inside the payload.
+            print(f"  event_sleeve: STATUS CARDS ERRORED — {c.get('status')}")
     state = es.load_state()
 
     records = []
@@ -2415,6 +2421,8 @@ def build_event_sleeve():
         },
         "summary": summary,
         "journal_n": len(records),
+        "evidence": es.BACKTEST_EVIDENCE,
+        "rejected": es.REJECTED_STUDIES,
     }
 
 

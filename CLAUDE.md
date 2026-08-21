@@ -898,7 +898,16 @@ book overlap on SPY/IWM makes excess undecidable; entered-today skipped, the
 MOC fill races the book push). (3) A site **Events tab** (`events.html` +
 `assets/events.js`, nav after Radar) rendering `dist/data/event_sleeve.json`
 (`build_site.build_event_sleeve`, best effort): cards, open positions marked
-to the cache, realized history + per-trade realized-vs-prereg summary.
+to the cache, realized history + per-trade realized-vs-prereg summary, the
+FROZEN backtest evidence per trade (`BACKTEST_EVIDENCE` — verbatim prereg
+transcriptions, NEVER recomputed; a bar-replay would silently diverge from
+what was registered, above all V2/V4's synthetic -0.5x SVXY basis) and the
+tested-and-not-shipped inventory (`REJECTED_STUDIES`, 7 entries — reviving
+one needs a fresh prereg). NOTE: the production build runs in the data-free
+assembler, so committed inputs under `data/` need a
+`SOURCE_REFERENCE_REMAPS` entry in `stage_private_site_cloud_build.py` —
+`macro_events.csv` is remapped to `reference/` (found 2026-08-21 when the
+first deploy rendered one ERROR card; `macro_calendar.CSV_PATH` falls back).
 (4) An APPEND-ONLY journal `data/event_sleeve_journal.jsonl` — R2-CANONICAL
 (the writer is the GHA AM job whose checkout has no local copy; unlike the
 pitch/posts journals it is NOT committed, a stale repo copy would clobber R2
