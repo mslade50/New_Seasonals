@@ -885,6 +885,19 @@ json.
 live NLV — a 10% V4 position is ~$75k notional regardless of the account's
 actual equity. Stated on every visibility surface.
 
+**Broker MOC encoding (2026-08-21 incident, first live trade)**: rows keep
+the MOO/OPG + MOC/MOC tab vocabulary, but the runners MUST place MOC as
+NATIVE `orderType MOC` / `tif DAY`. `MKT` with `tif='MOC'` is IBKR-invalid
+(error 10052) and TWS's order preset then coerces it into a WORKING MKT/DAY
+while the API snapshot reports Cancelled — the V4 SVXY entry filled at the
+9:30 OPEN while event_moo logged "broker rejected", and was hand-flattened
+(-$96); the intended MOC entry was re-placed by hand the same afternoon.
+Fixed in `event_moo.py` AND `pitch_moo.py` (same bug, OneDrive) plus a
+verify-the-reject guard in both: a terminal reject status is checked
+against `ib.openTrades()` for the orderRef and any survivor is cancelled —
+a reject that leaves a live order is the worst failure mode. Guards:
+`test_event_moo.py` / `test_pitch_moo.py` encoding tests (OneDrive).
+
 **Visibility + journal (2026-08-21, after the first live trade — V4 SVXY —
 surprised McKinley as "a random order")**: four surfaces now show the sleeve.
 (1) The AM scan email's per-trade cards (status + rule + prereg evidence,
