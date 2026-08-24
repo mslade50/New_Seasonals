@@ -8,7 +8,7 @@
    "script": "scratch/pitch_checks/2026-08-07/n3_midterm_kill_confirm.py",
    "source": "stand_down",
    "expires": "2027-02-15",
-   "note": "2026-08-21 verdict: PASS. 2026 is midterm and the next NFP is 2026-09-04 (+10 td), at the horizon cap. Turns on 2027-01."
+   "note": "2026-08-24 verdict: PASS. 2026 is midterm and the trigger is the cycle year; the next NFP (2026-09-04) is +9 td, at the horizon edge. Arms 2027-01."
   },
   {
    "added": "2026-08-10",
@@ -18,7 +18,7 @@
    "script": "scratch/pitch_checks/2026-08-10/d1_hyg_lqd_unanchored.py",
    "source": "near_miss",
    "expires": "2027-08-10",
-   "note": "2026-08-21 verdict: PASS. The STATE is live (HYG -0.29% off its 52w high, LQD +0.69% off its 52w low) but the trigger is episode count and it is still 4 declustered instances since 2007."
+   "note": "2026-08-24 verdict: PASS. The state is still live (HYG -0.23% off its high, LQD +0.56% off its low) and the trigger is episode count, still 4 declustered since 2007."
   },
   {
    "added": "2026-08-11",
@@ -28,7 +28,7 @@
    "script": "scratch/pitch_checks/2026-08-11/a1_svxy_overnight_variant.py",
    "source": "near_miss",
    "expires": "2027-02-11",
-   "note": "2026-08-21 verdict: PASS. No CPI until 2026-09-11, and the LOYO floor is unchanged at 19.7 bps against a 40-50 bp trigger."
+   "note": "2026-08-24 verdict: PASS. The next CPI is 2026-09-11, +13 td, outside the 10 td horizon cap."
   },
   {
    "added": "2026-08-11",
@@ -38,7 +38,7 @@
    "script": "scratch/pitch_checks/2026-08-21/a1b_c1_gld_teardown.py",
    "source": "near_miss",
    "expires": "2026-11-11",
-   "note": "2026-08-21 verdict: FIRED on all three stated conditions and was KILLED anyway. Trigger rewritten with the missing trend-state rung so it stops firing false. Evidence: a1_c1_gld_miner_thrust.py, a1b_c1_gld_teardown.py, a1c_c1_book_overlap.py."
+   "note": "2026-08-24 verdict: PASS on the fourth condition, which is the one added after 08-21 fired the first three. GDX r5 rank 98.4 and GLD r5 rank 94.0 both fire; GLD is -14.63% off its 52w high against the >-10% trend rung. Independently reconfirmed this morning: the deep-drawdown half pays -0.798% at h=5 (edge -1.012pp, 35% hit) on the C9 check, d3_c9_gold_yield_level.py."
   },
   {
    "added": "2026-08-11",
@@ -48,7 +48,7 @@
    "script": "scratch/pitch_checks/2026-08-11/a2_c3_round1.py",
    "source": "near_miss",
    "expires": "2026-11-11",
-   "note": "2026-08-21 verdict: PASS. USO's one-day move was +2.77%, outside the [5%,6%) band and under the 1.50 ATR floor."
+   "note": "2026-08-24 verdict: PASS. USO's one-day move was +0.07%, nowhere near the [5%,6%) band."
   },
   {
    "added": "2026-08-12",
@@ -58,7 +58,7 @@
    "script": "scratch/pitch_checks/2026-08-12/a6b_c4_tight_horizon_freshness.py",
    "source": "near_miss",
    "expires": "2027-02-12",
-   "note": "2026-08-21 verdict: PASS. IEF (0.89%) and LQD (0.69%) clear their rungs but TLT is 1.22% above its 52w low against the 0.5% tight rung."
+   "note": "2026-08-24 verdict: PASS, and the closest it has been \u2014 IEF (+0.70%) and LQD (+0.56%) both clear their rungs, TLT is +0.86% against the <=0.5% tight rung. AMENDED today: the IEF translation was tested and is dead (IEF at its own low predicts IEF -0.021% at a 49.2% hit; the join is 1.0x cost; TLT/IEF excess ratio 1.22 against a daily-sd ratio of 2.13). The shape belongs on TLT and only fresh \u2014 TLT on the drop-TLT rung, episode-first, ex-2022 is +0.289% at a 61.1% hit, t 2.19, 9.1x cost, N=18. Do not widen the rung to IEF/LQD to reach a sample. Freshness also fails today: the previous trigger day is 1 session back against the >=10 requirement. Evidence: a3_c10_ief_ig_rungs.py, a3b."
   },
   {
    "added": "2026-08-12",
@@ -68,7 +68,7 @@
    "script": "scratch/pitch_checks/2026-08-12/c11b_skew_alone_probe.py",
    "source": "near_miss",
    "expires": "2027-02-12",
-   "note": "2026-08-21 verdict: CHECKED, arm CONFIRMED and unchanged. The dip leg went live for the first time (SPY -1.96% off its high, skew 5d rank 97.6) and the cell was re-measured whole: parent dip+skew is 41 episodes, +1.214% at h=5, excess +1.020pp, Welch +2.14, bootstrap P(mean<=0) 0.002, 27-14 sign p 0.030, 61x cost, era-stable at +1.247 pre-2018 and +1.112 after, threshold-stable across skew 90-97 and dip -0.5% to -3.0%, and the skew increment over dip-alone is +0.823pp at Welch t +1.68. The midterm leg is what held it back and it now has a full horizon table behind it: midterm is negative at EVERY horizon (h=1 -0.544 / h=2 -0.846 / h=3 -0.419 / h=5 -0.473 / h=10 -0.185, 8 episodes, 37.5% hit) while non-midterm is positive at every one (h=5 +1.623%, 72.7% hit, sign p 0.0068), so no horizon rescues it. The drag reproduces on three independent parents (-0.618pp on skew alone at Welch -1.78, -0.290pp on dip alone, -0.210pp on all days) and is not confined to 2002 and 2022, so it is a real conditioner rather than a 20-observation slice. Turn-on remains the first non-midterm instance, 2027-01. Evidence: a3_c6_skew_dip.py, a3b_c6_midterm_probe.py."
+   "note": "2026-08-24 verdict: PASS twice. SKEW's 5d rank is 82.1 against the >=95 leg, and the midterm block stands regardless. Arms 2027-01."
   },
   {
    "added": "2026-08-12",
@@ -78,7 +78,7 @@
    "script": "scratch/pitch_checks/2026-08-12/b3_c7_uso_thrust_fade.py",
    "source": "near_miss",
    "expires": "2027-02-12",
-   "note": "2026-08-21 verdict: PASS. USO 5d rank 83.7 (needs >= 90) and 63d rank 23.8 (needs <= 20); neither leg fires."
+   "note": "2026-08-24 verdict: PASS. USO r5 rank 79.4 (needs >=90) and r63 rank 29.4 (needs <=20); neither leg fires."
   },
   {
    "added": "2026-08-13",
@@ -88,7 +88,7 @@
    "script": "scratch/pitch_checks/2026-08-13/r1b_multiplicity_max_of_k.py",
    "source": "stand_down",
    "expires": "2027-02-13",
-   "note": "2026-08-21 verdict: PASS. IHI's 21d rank is 98.8, not 100, and the reference-class blocker is unchanged."
+   "note": "2026-08-24 verdict: PASS. IHI's 21d rank is 99.6, not 100, and the reference-class blocker (family-wise p 0.933) is unchanged."
   },
   {
    "added": "2026-08-13",
@@ -98,17 +98,7 @@
    "script": "scratch/pitch_checks/2026-08-13/c8b_fxi_tight_teardown.py",
    "source": "stand_down",
    "expires": "2027-02-13",
-   "note": "2026-08-21 verdict: PASS. FXI's 5d rank is 80.6 and the trigger needs <= 20, so the state is the opposite of the cell."
-  },
-  {
-   "added": "2026-08-14",
-   "title": "An industry-wide five-day breadth washout, taken with the trend BROKEN instead of intact",
-   "cell": "sectors / industry breadth price-state",
-   "trigger": "which half of the gate is live, plus an unproven tradeable form. The breadth washout ALONE pays +0.885% at h=5 over 225 episodes (t 2.405) against a +0.280% all-days baseline, and the parent cell is +0.917% over 233 episodes (t 2.589). The whole of that lives in the NOT-INTACT half: adding the intact-63d-uptrend gate takes the cell to -0.789% on 5-8, which is where 2026-08-14 sat (insurer median 63d rank 82.9). TURNS ON when >= 70% of a coherent industry universe sits at a 5-day rank <= 20 while the median 63d rank is BELOW 70, AND a <= 4-name selection rule clears the alphabetical placebo on the LONG side, which has not been tested. That second leg is not optional: on the short side the four alphabetically-first names returned +1.568% against +0.905% for the four most washed, so a selection rule that ignores the signal beat the one that uses it, and the pitch grammar caps an idea at four legs. Standing caveat that survives any trigger: the reference class across 10 industry groups gives Cochran Q 6.49 on 9 df (p 0.690, I-squared 0.0%) with a common excess of +0.819pp, so this is an any-industry effect and no industry label carries information. Note also that the intact-gated cell is NOT a bad-tape artifact in reverse: its trigger days sit below SPY's 200d only 4.5% of the time against a 25.4% base rate, so the gate selects good tape and the cell still loses in it.",
-   "script": "scratch/pitch_checks/2026-08-14/b2b_insurance_round2.py",
-   "source": "stand_down",
-   "expires": "2026-08-21",
-   "note": "2026-08-21: CLOSED, do not re-open. The entry's own untested leg (a <=4-name LONG selection rule against the alphabetical placebo) was tested on banks at 92.3% breadth with a median 63d rank of 69.8, and the four most-washed names LOSE to the four alphabetically-first at every horizon 1-10 (-0.117pp at h=5, -0.094 at h=1, -0.162 at h=2, -0.089 at h=3, -0.081 at h=10), with all 11 names (+0.826%) and the strongest 4 (+0.872%) also beating the selection rule. The alphabetical placebo is now 7-for-8. Three further kills landed on the same run: the reference class agrees for a third independent time (Cochran Q 5.88 on 10 df, I-squared 0.0%, banks rank 3 of 11, P(max group excess >= banks) = 0.891); the trend gate does not filter at the live reading, since walking the median-63d threshold gives +0.344pp at the 70 line against +0.348pp for NO GATE AT ALL; and the basket correlates 0.926 with XLF at 1.9x cost full-history and 0x from 2018. Evidence: c7_banks_broken_long.py."
+   "note": "2026-08-24 verdict: PASS. FXI's 5d rank is 87.7 and the trigger needs <=20, so the state is the opposite of the cell."
   },
   {
    "added": "2026-08-17",
@@ -118,7 +108,7 @@
    "script": "scratch/pitch_checks/2026-08-17/r1_verify_august_and_november.py",
    "source": "stand_down",
    "expires": "2026-12-01",
-   "note": "2026-08-21 verdict: PASS. Parks to the entry window of trading days 4-12 of November 2026, roughly 2026-11-05."
+   "note": "2026-08-24 verdict: PASS. Parks to a date, trading days 4-12 of November 2026 (~2026-11-05)."
   },
   {
    "added": "2026-08-17",
@@ -128,17 +118,17 @@
    "script": "scratch/pitch_checks/2026-08-17/a4c_c12_gateb_short_side.py",
    "source": "stand_down",
    "expires": "2027-02-17",
-   "note": "2026-08-21 verdict: PASS. SPY is 1.96% below its 52w high against a 0.5% rung, so the joint state is not live."
+   "note": "2026-08-24 verdict: PASS. SPY is 1.56% below its 52w high against the <=0.5% rung, so the joint state is not live."
   },
   {
    "added": "2026-08-18",
    "title": "Long TLT into the month-end close, ungated, entered nine sessions before it",
    "cell": "rates x month-end flow",
-   "trigger": "DISTANCE FROM THE 52-WEEK LOW, not the calendar. The anchor itself is the strongest duration cell measured in this repo: long TLT entered MOC nine sessions before the month's last trading-day close, exit at that close, pays +0.540% over 288 anchors at t=3.88, +0.391% at t=2.85 once demeaned by month, with an exit-offset placebo ladder that decays monotonically from +0.540% at the true month-end close to -0.229% ten sessions past it (a real ladder result rather than the plateau that killed the Jackson Hole and August seasonal anchors) and a flat regime profile. What blocks it is where TLT sits: within the cell, forward return regresses POSITIVELY on distance from the 52w low at +0.126pp per 1% off (t=+2.18) while the unconditional gradient runs the other way (-0.009, t=-2.55); the >3%-off complement pays +1.129% at a 72.5% hit and t=3.29, and the within-1% bucket that contains today pays +0.189% on a 4-5 record. TURNS ON at a month-end-minus-9 anchor with TLT more than 3% above its 52-week low. Two debts before it trades even then: it must be re-derived FORWARD rather than from the 2,415-cell grid it was found in (that grid's best occupant sits at familywise p=0.060, suggestive rather than clean), and the oversold gate must stay OFF, since adding it only contributes +0.394pp at Welch t=+1.15 and Spearman between the gate variable and the forward return is -0.074.",
+   "trigger": "THE MECHANISM, and the entry that stood here before 2026-08-24 was wrong about why. The anchor itself re-derived cleanly and is still the strongest duration cell measured in this repo: long TLT MOC nine sessions before the month's last trading-day close, exit at that close, +0.540% over 288 anchors at t=3.88, month-matched +0.346% at t=3.72, an exit-offset placebo ladder that SPIKES at the true close (ME+3 +0.065 / ME+0 +0.430 / ME-3 +0.205 / ME-9 +0.067) rather than the plateau that killed the Jackson Hole and August anchors, holdout 2014-2026 +0.463% at t=3.56 (better than its own in-sample half), top-2 episodes 8% of total, LOYO and drop-best clean, and it passes the bond-bull fossil test in the modern era. The entry offset is also flat rather than knife-edged: ME-3 through ME-7 all pay +0.28 to +0.38 month-matched at t 3.1-4.1, so ME-5 is as good an anchor as ME-9. CORRECTION, 2026-08-24: the blocker this entry previously carried -- 'forward return regresses POSITIVELY on distance from the 52w low at +0.126pp per 1% off (t=+2.18)' -- does NOT hold on the ungated parent it parks. Re-derived, the slope is -0.0082 (t=-0.51) at ME-9 and -0.0064 (t=-0.60) at ME-5. That gradient lives only on the oversold-GATED subsample (TLT 21d <= -2.5%, N=50), which this entry's own second debt says to keep OFF and which does not fire today anyway (TLT 21d -0.95%). Today's +0.86% off the low is uninformative, not adverse: N=7 comparables, 3-4, mean +0.533% but median -0.105%, drop-best -0.045% on 6. THE REAL BLOCKER, which is stronger: the mechanism has decayed out of the era we trade. The index-extension story predicts the LAST sessions carry the excess, and TLT's ME-1 -> ME-0 session ran +25.65 bp at t=3.09 and a 64.3% hit in 2002-2012 against +3.99 bp at t=0.37 and a 48.1% hit vs a 49.3% BASE RATE in 2020-2026 -- replicated on AGG (+10.87 -> +3.77), LQD (+23.38 -> +3.56) and IEF (+13.19 -> +8.19), with rolling 8-year t falling monotonically from 3.02 to 1.05. The five-session total survives only because a DIFFERENT session carries it in every era. TURNS ON when TLT's trailing ME-1 -> ME-0 session hit rate is back above its own base rate (currently 48.1% against 49.3%), or at minimum its trailing 8-year t back above 2. SECOND condition, independent: NOT August. August ME-5 was 13-for-13 at +1.271% through 2014 and 5-of-11 at -0.510% since 2015, which is -1.001pp against the rest of the 2015+ cell at Welch t -1.91, and the pre-2014 vs 2014+ month-profile Spearman is -0.39 (August goes from best month to 11th of 12). Entry form is already settled if it ever arms: MOC at the ME-5 close, h=5, exit MOC at the month-end close -- MOC pays +0.4302% at 14.3x cost against a whole-variant LIMIT(close, -0.25 ATR) at +0.1354% on a 53.8% fill. Tail for sizing: intra-hold worst low vs entry close averages -1.04%, 5th pctile -3.25%, P(low <= -1 ATR) = 43.8%.",
    "script": "scratch/pitch_checks/2026-08-18/r1_search_price_and_verify.py",
    "source": "stand_down",
-   "expires": "2027-02-18",
-   "note": "2026-08-21 verdict: PASS twice over. August's ME-9 anchor was 2026-08-18, already gone, and TLT is 1.22% above its 52w low against the >3% trigger."
+   "expires": "2027-08-24",
+   "note": "2026-08-24 verdict: PASS on the calendar (August's ME-9 was 2026-08-18; today is ME-5), and the entry is CORRECTED AND SUPERSEDED \u2014 see the rewritten trigger. The distance-from-the-low blocker this entry was parked on does NOT reproduce on the ungated parent, and a new and stronger blocker replaces it. Evidence: a1_c1_tlt_me_entry_ladder.py, a1b, a1c, a1d, a1e."
   },
   {
    "added": "2026-08-18",
@@ -148,7 +138,7 @@
    "script": "scratch/pitch_checks/2026-08-18/b4c_c4_increment_t.py",
    "source": "near_miss",
    "expires": "2027-02-18",
-   "note": "2026-08-21 verdict: PASS. VIX's 21d rank is 40.9 against the <= 25 calm-tape leg, despite the +7.52% pop."
+   "note": "2026-08-24 verdict: PASS. VIX's 21d rank of 12.7 clears the calm-tape leg but the day's move was -5.50% against the >=+5% pop."
   },
   {
    "added": "2026-08-19",
@@ -158,7 +148,7 @@
    "script": "scratch/pitch_checks/2026-08-19/c7f_h1_and_reopen.py",
    "source": "stand_down",
    "expires": "2027-02-19",
-   "note": "2026-08-21 verdict: PASS. The dollar leg clears easily (DX 21d rank 3.2 against <= 15) but the yield leg is a +0.04pt 21-session rise against the +0.20pt floor."
+   "note": "2026-08-24 verdict: PASS. The dollar leg clears easily (DX 21d rank 0.4) and the yield leg does not \u2014 a +0.035pt 21-session rise against the +0.20pt floor. The LEVEL variant (yields AT a 52w high) was tested today as a separate candidate and KILLED: it overlaps this rank form on 91% of days, so it is the same object, and the gate-off parent is already negative (h=10 -0.481%, edge -0.942pp). d3_c9_gold_yield_level.py."
   },
   {
    "added": "2026-08-19",
@@ -168,7 +158,7 @@
    "script": "scratch/pitch_checks/2026-08-19/a5b_c2_dropbest.py",
    "source": "stand_down",
    "expires": "2027-02-19",
-   "note": "2026-08-21 verdict: PASS. Today's one-day XLV-minus-XLK gap is -1.58pp, the wrong direction for a >= +3.0pp trigger."
+   "note": "2026-08-24 verdict: PASS. Today's one-day XLV-minus-XLK gap is +1.18pp against the >=+3.0pp trigger."
   },
   {
    "added": "2026-08-19",
@@ -178,7 +168,7 @@
    "script": "scratch/pitch_checks/2026-08-19/c6e_lookback_fullpanel.py",
    "source": "stand_down",
    "expires": "2027-02-19",
-   "note": "2026-08-21 verdict: PASS. ^TNX's 21d rank is 50.0 against the >= 65 leg; the dollar half is live and the rate half is not."
+   "note": "2026-08-24 verdict: PASS. ^TNX's 21d RETURN rank is 49.2 against the >=65 leg; the dollar half is live at rank 0.4 and the rate half is not."
   },
   {
    "added": "2026-08-20",
@@ -188,7 +178,7 @@
    "script": "scratch/pitch_checks/2026-08-20/b3b_c8_crude_round2.py",
    "source": "stand_down",
    "expires": "2027-09-01",
-   "note": "2026-08-21 verdict: PASS on both legs. The JH-6 anchor was 2026-08-20, one session gone, and the entry's own second condition forbids the trade with XLE within 5% of its 52w high - XLE closed AT its high (0.00%). Re-confirmed independently this morning inside the cross-asset opex sweep, where the XLE August cell also split +0.31% in the hot-21d half against +2.74% in the cool half and today's 21d is +7.7%."
+   "note": "2026-08-24 verdict: PASS twice. The JH-6 anchor was 2026-08-20, four sessions gone, and XLE is -0.17% off its 52w high, which the entry's own second condition forbids."
   },
   {
    "added": "2026-08-20",
@@ -198,7 +188,7 @@
    "script": "scratch/pitch_checks/2026-08-20/a2b_c2_tlt_round2.py",
    "source": "stand_down",
    "expires": "2027-02-20",
-   "note": "2026-08-21 verdict: PASS. TLT's one-day move was -0.82% against the >= +1.5% thrust rung."
+   "note": "2026-08-24 verdict: PASS. TLT's one-day move was -0.35% against the >=+1.5% thrust rung."
   },
   {
    "added": "2026-08-20",
@@ -208,7 +198,7 @@
    "script": "scratch/pitch_checks/2026-08-20/a3c_c7_kre_pair_teardown.py",
    "source": "stand_down",
    "expires": "2027-02-20",
-   "note": "2026-08-21 verdict: PASS. The breadth state IS live (92.3% of the complex at a 5d rank <= 20) but the trigger is a cost threshold on history (+0.35% at h=3 ex-crisis) that one new episode cannot move. The LONG side of the same state was tested today and CLOSED - see the industry-breadth entry."
+   "note": "2026-08-24 verdict: PASS. KRE's 5d rank is 6.0 so the breadth state is live again, but the trigger is a cost threshold on history (+0.35% at h=3 ex-crisis) that a new episode cannot move."
   },
   {
    "added": "2026-08-21",
@@ -218,7 +208,37 @@
    "script": "scratch/pitch_checks/2026-08-21/b2b_c9_jh5_round2.py",
    "source": "stand_down",
    "expires": "2027-09-01",
-   "note": "Parked 2026-08-21 as the one park-worthy near-miss of an 11-candidate all-kill sweep."
+   "note": "2026-08-24 verdict: PASS. The JH-5 anchor was 2026-08-21, and the anchor was closed on credit that same morning."
+  },
+  {
+   "added": "2026-08-24",
+   "title": "The duration-neutral curve position, long IEF against short 0.52 TLT, with the 10-year yield at a 52-week high",
+   "cell": "rates, curve x yield-level trigger",
+   "trigger": "COST, and it is 8 bps short on the best rung. This is the only cell of a 10-candidate sweep that cleared its whole battery. Long IEF / short 0.523 TLT (duration-neutral, so it profits when the long end underperforms the belly per unit of duration) entered MOC when ^TNX closes within 0.25% of its trailing-252 high: rotation permutation over the PRE-DECLARED 3-vehicle x 2-sign x 5-horizon grid gives P(grid max |t| >= 3.41) = 0.018; gate attribution ADDS +0.179pp over episode-matched rising-yield days at Welch t +2.00; era stable AND improving, pre-2018 +0.148% to 2018+ +0.282%; the live midterm half is +0.299% at an 84% hit and t 2.56; concentration runs the right way at -3% of total (the top-2 episodes are LOSERS); bootstrap P(mean<=0) 0.007; and it is not a hedge-ratio fit, since the PIT expanding beta, the rolling-252 beta, the raw sd ratio and a round 2.0 all land within 2 bps of each other. It needs 30.0 bps to clear the 5x bar on a 6 bps two-leg round trip and the horizon ladder TOPS OUT at 22.2 bps (h=8, 3.70x), falling to 20.6 bps = 3.44x under a point-in-time hedge ratio; the full ladder h=1..10 runs 1.12 / 2.12 / 2.02 / 1.95 / 2.58 / 3.00 / 3.21 / 3.70 / 3.45 / 3.68x. The single-leg escape is closed too: IEF alone at h=10 is +0.140pp of excess = 4.67x. TURNS ON at either (a) the h=8 episode mean clearing 30 bps, or (b) a two-leg round trip under 4.4 bps -- a real possibility in Treasury ETFs and the cheaper of the two to check. SECOND BLOCKER that must clear independently: the episodes whose hold spanned Jackson Hole are 0-for-6, at -0.465% / -0.406% / -0.629% at h=5/8/10 against JH-out cells of +0.168 / +0.248 / +0.275%. Note the two OUTRIGHT signs of this trigger are dead and must not be revived: the falling-yield cell is N=0 by construction, so the trigger says only 'we are in a rising-yield regime', and the all-days rising-regime control beats the conditional by -0.130pp.",
+   "script": "scratch/pitch_checks/2026-08-24/d2b_c5_flattener_charge.py",
+   "source": "stand_down",
+   "expires": "2027-02-24",
+   "note": "Parked 2026-08-24 as the single best cell of a 10-candidate all-kill sweep. Cost is the only thing between it and a pitch."
+  },
+  {
+   "added": "2026-08-24",
+   "title": "The NARROW energy thrust cluster, two or three names at z10 above 2 rather than five",
+   "cell": "energy, breadth-of-thrust count",
+   "trigger": "THE COUNT ITSELF, and today sat on the wrong side of the crossing. Within the 11-name energy complex (XLE XOP USO COP CVX VLO OXY SLB EOG HAL WMB), long XLE h=5 by count of members at z10 >= 2.0 is monotone and crosses zero at four: 2 names +0.715%, 3 names +0.718%, 4 names +0.139%, 5 names -1.002%. The narrow cell [2,3] pays +0.699% at h=5 over 99 episodes, t=2.40, 63.6% hit, +0.459pp over all days and +0.491pp over its own local +/-126td control, positive at every horizon 1 through 7. TURNS ON when the live count is 2 or 3; on 2026-08-24 it was 5 (VLO 2.56, COP 2.35, XLE 2.18, XOP 2.10, CVX 2.04) and the broad form is what was tested and killed. THREE DEBTS before it is ever pitched, none optional. (1) It is a post-hoc band recovered from the corpse of the broad cell, so the anti-rescue rule applies and it needs its own pre-registration and a forward re-derivation. (2) The reference class has not been run on the NARROW form; the broad form ranked 8 of 8 sectors at P(random sector >= energy) = 1.000, and the narrow form must be shown not to be an any-sector effect. (3) August is weak even here, +0.246% on 4 episodes against +0.719% elsewhere. Standing caveat that survives any count: the complex has 1.82 effective names of 11 (PC1 73.5%), so a count is a coarse read on one factor -- P(XLE thrusting | 5 of 11 thrusting) is 0.920 -- and any narrow-cluster claim owes the effective-N number beside it.",
+   "script": "scratch/pitch_checks/2026-08-24/b4_tail_risk_and_nearmiss.py",
+   "source": "near_miss",
+   "expires": "2027-02-24",
+   "note": "Parked 2026-08-24 as the positive object inside a killed cell, with three explicit debts before it can trade."
+  },
+  {
+   "added": "2026-08-24",
+   "title": "Cross-sectional new-high breadth on a survivorship-free universe, with the index further off its high",
+   "cell": "us_large, breadth x index-distance",
+   "trigger": "TWO NUMBERS, and both have to move. The survivorship-free 9-sector version clears its controls where the 218-name tape does not: episodes +0.423% at h=5 against CTRL-a +0.239%, CTRL-b +0.192% and CTRL-c local +/-126td +0.289%, era-stable at pre-2018 +0.334% and 2018+ +0.620%, top-2 episodes 15% of total, drop-top-2 +0.388%, midterm +0.441% vs non-midterm +0.455%, surviving a month-end calendar-position control at +0.066pp over all days sitting at ME-3..ME-7, at 28x cost. TURNS ON at (a) SPY more than 2.0% below its 52-week high, where the (-5%,-2.0%] rung pays +0.885% over 38 episodes at t=3.21 -- today was -1.56%, landing in the (-2%,-0.5%] rung that pays +0.308% -- AND (b) raw-21d fragility at or below 50, today 60.1. Condition (b) is not decoration: split on the live exposure-leg rule the entire edge is in the complement of today's state (leg-OFF +0.008% at a 50.0% hit against leg-ON +0.754% at 81.0%, t=3.10), and the trigger population's median dial ma10(63d) is 24.8 with an all-time max of 80.6 against today's 89.5. STANDING BLOCKER that no threshold fixes: the breadth gradient runs BACKWARDS past two sectors (0 of 9 at a high +0.317%, 2 of 9 +0.310%, 3 of 9 -0.009%, >=5 -0.136%), so this can only ever be a NARROW-breadth cell, and the breadth leg alone is worth -0.086pp against doing nothing while the index-distance leg carries the whole cell. Do not re-derive it on the 218-name tape: that universe is today's survivors, its own PIT percentile read 54.2 on 2026-08-24 against a full-sample 61.2, and the two universes disagree about the gate's worth by an order of magnitude.",
+   "script": "scratch/pitch_checks/2026-08-24/c2_c6_breadth_attribution.py",
+   "source": "near_miss",
+   "expires": "2027-02-24",
+   "note": "Parked 2026-08-24. Needs the index deeper off its high AND a calmer dial; the breadth leg is the weak half, not the strong one."
   }
  ],
  "expired": []

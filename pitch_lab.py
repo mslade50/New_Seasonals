@@ -36,7 +36,7 @@ from __future__ import annotations
 import json
 import sys
 from fractions import Fraction
-from math import comb
+from math import comb, exp, lgamma, log, log1p
 from pathlib import Path
 
 import numpy as np
@@ -275,6 +275,16 @@ def sign_test(wins: int, n: int, p: float = 0.5) -> float:
     script measures a CONTROL cell (all Mondays, all days) alongside the small
     conditional cell this function exists for. Values for every n that already
     worked are unchanged.
+
+    The 2026-08-09 fix closed that hole for p=0.5 and left it open on the
+    other branch, where it bites at n ~ 1100 (2026-08-24: a checker scoring a
+    day-level control against a measured up-rate). Passing a base rate is the
+    documented way to score a drifting instrument, and control cells here run
+    to thousands of days, so the p != 0.5 path is the one that meets big n
+    most often. It sums in LOG space instead: stable to any n, and accurate
+    to ~1e-15 relative, which is far past meaningful when p is itself an
+    estimated hit rate. Exact rational arithmetic is kept for p=0.5, where p
+    is a definition rather than a measurement.
     """
     if n <= 0 or wins < 0 or wins > n:
         return np.nan
@@ -282,8 +292,18 @@ def sign_test(wins: int, n: int, p: float = 0.5) -> float:
         # Fraction keeps the big ints exact and rounds once, at the end.
         return float(Fraction(sum(comb(n, k) for k in range(wins, n + 1)),
                               1 << n))
-    return float(sum(comb(n, k) * p**k * (1 - p)**(n - k)
-                     for k in range(wins, n + 1)))
+    if not 0.0 <= p <= 1.0:
+        return np.nan
+    if p == 0.0:
+        return 1.0 if wins == 0 else 0.0
+    if p == 1.0:
+        return 1.0
+    log_p, log_q = log(p), log1p(-p)
+    terms = [lgamma(n + 1) - lgamma(k + 1) - lgamma(n - k + 1)
+             + k * log_p + (n - k) * log_q
+             for k in range(wins, n + 1)]
+    top = max(terms)
+    return float(min(1.0, exp(top) * sum(exp(t - top) for t in terms)))
 
 
 def bootstrap_p_le0(vals: np.ndarray, n_boot: int = 5000,

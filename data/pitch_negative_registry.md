@@ -1719,3 +1719,218 @@ be live on 2026-08-12. (a2_c1_gate_attribution.py)
   AU, CGAU) over exactly the window a live candidate would have held long gold,
   and the measured consequence was that adding the pitch to the book's own
   position cancels 82% of it.
+
+## Method traps (2026-08-24, from a 10-candidate sweep that killed all 10)
+
+- **Three candidates died because their PREMISE was false, not because the data
+  was weak, and all three were checkable in one line at recon.** This is the
+  cheapest class of kill in this registry and it went 3-for-10 in one morning,
+  so it belongs at the top of stage C rather than inside round 2. (1) *Copper*:
+  the candidate was "long copper on a five-day thrust to a fresh 52-week high"
+  and **copper did not move** — FCX ran +15.30% while HG=F was **-0.30% and
+  -1.84% off its own 52-week high**, XME -10.09% off, daily correlation 0.494.
+  (2) *Breadth*: "20 of 218 names at a 52-week high" is **9.17%, the 54.2nd
+  point-in-time percentile of its own trailing year**, below that year's 9.46%
+  mean — an extreme in the prose, a median reading in the data, and the
+  full-sample percentile (61.2) flattered it by +7.1pt. (3) *Yield level*: the
+  "^TNX at a 52-week high" LEVEL trigger was selected precisely because it was
+  NOT the killed return-rank trigger, and the two masks **coincide on 91% of
+  days**, so it inherited the dead cell's search charge. The general rule:
+  before any battery, print the thing the candidate is NAMED after and confirm
+  it is doing what the name says. Name the underlying, the PIT percentile, and
+  the overlap with the corpse you think you are avoiding.
+  (b1_c3_copper_thrust_r1.py, c1_c6_newhigh_breadth.py, d2_c5_tnx_level_high.py)
+- **A count-of-names breadth trigger owes an EFFECTIVE-N measurement, and
+  "five names" can be one factor.** The energy cluster looked like breadth and
+  was not: complex mean pairwise correlation 0.700, PC1 **73.5%** of variance,
+  participation ratio **1.82 effective names of 11**; within today's five, PC1
+  83.3% and **1.42 effective of 5**. The decisive consequence is conditional
+  rather than descriptive: **P(XLE thrusting | 5 of 11 thrusting) = 0.920**, so
+  92 of 100 trigger days were days the sector ETF itself was thrusting, and the
+  count cost **-0.94pp** against the single-instrument version. Two of the five
+  "names" were ETFs holding the other three. Compute PC1 share, the
+  participation ratio, and P(flagship fires | cluster fires) before treating a
+  count as breadth. (b2c_c7_refclass_fixed_and_factor.py)
+- **A count gradient can be monotone in the wrong direction, and the pitched
+  threshold can sit on the far side of the crossing.** Energy h=5 by count: 1
+  +0.185%, 2 +0.275%, **3 +0.490%**, 4 +0.086%, **5 -0.779%**, 6 -0.354%, 8
+  -0.470%. Episode level, count>=3 +0.393% against count>=5 -0.573%. The same
+  shape appeared independently on new-high breadth the same morning (0 of 9
+  sectors at a high +0.317%, 2 of 9 +0.310%, **3 of 9 -0.009%**, >=5 -0.136%),
+  which is two unrelated constructions agreeing that a LITTLE of a thrust state
+  is bullish and a LOT is not. Walk the count ladder in both directions before
+  choosing k; the interesting cell is usually not the extreme one.
+  (b2_c7_energy_z10_cluster_r1.py, c2_c6_breadth_attribution.py)
+- **A cell can pass every robustness test and die because its MECHANISM decayed
+  while its total return did not.** The month-end TLT parent is the strongest
+  duration cell in this repo and it survived re-derivation: month-matched
+  +0.346% at t=3.72 over 288 anchors, a clean exit-placebo **SPIKE** (ME+3
+  +0.065 / ME+0 **+0.430** / ME-3 +0.205 / ME-9 +0.067) rather than the plateau
+  that killed the Jackson Hole and August anchors, holdout 2014-2026 **+0.463%
+  at t=3.56** which beats its own in-sample half, top-2 episodes 8% of total,
+  and it passes the bond-bull fossil test in the modern era. It still does not
+  trade, because the index-extension story predicts the LAST sessions carry the
+  excess and they have stopped: TLT ME-1 -> ME-0 ran **+25.65 bp at t=3.09 and
+  a 64.3% hit in 2002-2012** and pays **+3.99 bp at t=0.37 and a 48.1% hit
+  against a 49.3% base rate in 2020-2026**, replicated on AGG (+10.87 -> +3.77),
+  LQD (+23.38 -> +3.56) and IEF (+13.19 -> +8.19), with rolling 8-year t falling
+  monotonically 3.02 -> 1.05. The five-session total holds up only because **a
+  different session carries it in every era** (ME-1+ME-2 = 184% of the excess
+  in 2002-2012, ME-3 in 2013-2019, ME-5+ME-2 after 2020). Decompose a
+  multi-session window BY SESSION and check that the session the mechanism
+  names is the one that pays; a window that sums positive out of a moving part
+  is not an effect.
+  (a1d_c1_tlt_mechanism_vs_modern.py, a1e_c1_decay_robustness.py)
+- **The same test applied to the equity version of a flow story kills it
+  outright, and it is one line.** SPY's ME-1 -> ME-0 session pays **-0.006% at
+  a 47.6% hit** (post-2013 -0.040% at 45.4%) against an all-days +0.039% at
+  54.5%, and it is negative on every equity vehicle (SPY -4.50 bp, IWM -11.76,
+  QQQ -4.15, DIA -9.73) while TLT's is +16.61 bp at t +3.68. So **100% of the
+  ME-5 window's equity return sits OUTSIDE the flow session it is named after**,
+  and 88% of it is one scanned session the anchor does not name (ME-4 -> ME-3,
+  +14.14 bp at t 2.45, 3 of 16 scanned sessions clearing |t|>=2 against 0.8
+  expected). This also settles the turn-of-month overlap the registry asserts
+  from memory: the classic last-1 leg IS dead post-2013, measured.
+  (a2_c2_spy_me5.py, a2b_c2_spy_me5_round2.py)
+- **A parked watchlist blocker is a claim and it can be measured on the wrong
+  object. CORRECTION OWED TO W12.** Its stated turn-on is "forward return
+  regresses POSITIVELY on distance from the 52w low at +0.126pp per 1% off
+  (t=+2.18)". Re-derived on the UNGATED parent the entry actually parks, the
+  slope is **-0.0082 (t=-0.51)** at ME-9 and **-0.0064 (t=-0.60)** at ME-5. The
+  positive gradient exists only on the oversold-GATED subsample (TLT 21d
+  <= -2.5%, N=50) that the entry's own second debt says to keep OFF, and that
+  gate does not fire today (TLT 21d = -0.95%). The blocker was true of a cell
+  the entry does not park. Today's reading is uninformative rather than adverse:
+  N=7 comparables, 3-4, mean +0.533% but **median -0.105%**, and dropping the
+  single best leaves -0.045% on 6. When a park cites a gradient, record WHICH
+  subsample it was fitted on.
+  (a1_c1_tlt_me_entry_ladder.py, a1b_c1_tlt_me5_round2.py)
+- **`pitch_lab.sign_test` raised OverflowError on the `p != 0.5` branch above
+  n ~ 1100, and that is the branch the doctrine sends you to.** The 2026-08-09
+  fix moved the p=0.5 path to exact `Fraction` arithmetic and left the other
+  one on floats, where `comb(n, k)` exceeds float range. Scoring a hit rate
+  against the instrument's OWN conditional up-rate is the documented way to
+  test a drifting asset (2026-08-11, -08-21), and the control cells it gets
+  applied to run to thousands of days, so the crash fires on exactly the
+  correct usage. Fixed 2026-08-24 by summing in LOG space on that branch
+  (stable to any n, agrees with the exact form to 2e-13 relative, p=0.5 still
+  exact); guard `tests/test_pitch_lab.py::test_sign_test_base_rate_survives_big_n`
+  pins n=20000 plus the registry's own published HYG-at-JH-5 pair (17-2 is
+  p=0.0004 against a coin and p=0.115 against a 75.2% base rate).
+
+## Cells swept and empty (2026-08-24)
+
+- **The month-end anchor on EQUITIES, first measurement in this repo.** See the
+  session-decomposition entry above for the kill. Additionally: month-matching
+  takes the raw +0.352% (t 2.647) to **+0.164% at t 1.25**, and dropping
+  November (the only month with t>2) to +0.065% at t 0.53; the live August x
+  midterm cell is **3-3 at -0.860%** (2002 -2.98, 2022 -4.47) against
+  non-midterm August +0.707%; 27% of the total is two 2008 episodes; and the
+  60-cell grid walked (15 offsets x 4 vehicles) gives Sidak familywise **0.877**
+  with SPY ME-5 ranking 14th. The IWM rescue fails the same way (raw +0.513% at
+  t 3.05, month-matched +0.301% at t 1.81, worst ME-1 session of any vehicle at
+  -11.76 bp). (a2_c2_spy_me5.py, a2b)
+- **The investment-grade complex pinned at 52-week lows, translated to IEF.**
+  The anchor leg is wrong-signed: IEF within 1.0% of its 52-week low predicts
+  IEF **-0.021% at a 49.2% hit** (excess -0.034pp), negative in every era and
+  worst from 2022. No credit component to translate either, LQD's residual
+  against IEF being -0.59 bp on the cell against +0.70 bp all-days, reproducing
+  the 2026-08-12 PPI finding. Cost settles it: the join is **1.0x** a 3 bps
+  round trip, today's exact rung 1.3x, freshness-filtered 2.5x. The excess ratio
+  TLT/IEF is **1.22 against a daily-sd ratio of 2.13**, so translating W5 down
+  the curve divides the edge by ~1.75 while the round trip stays flat — IEF is
+  the wrong vehicle for this shape by construction. **Amendment to W5**: the
+  shape belongs on TLT and only fresh — TLT on the drop-TLT rung, episode-first,
+  ex-2022 is +0.289% at a 61.1% hit, t 2.19, **9.1x cost**, N=18. Do not widen
+  the rung to reach a sample. (a3_c10_ief_ig_rungs.py, a3b)
+- **Copper, the first metal examined here that is neither gold nor silver.**
+  Premise false (above), and dead on its own numbers: the 52-week-high gate
+  alone pays +0.691% (N=124) and the intersection with the thrust **-1.424%**
+  (N=8, 3-5), negative at every horizon 2 through 10 (edge -0.637 to -2.486pp),
+  reference-class rank **23 of 29** at P(random member >= FCX) = 0.793, and at
+  the loose 10% rung FCX ranks 51 of 107 at P = 0.477. The one non-negative
+  variant is 0.0x cost with a day-level mean of -0.293% and a sign that flips on
+  the declustering gap (+0.479 / +0.705 / +0.529 / **-0.146** at gaps 5/10/21/63).
+  Vehicle search fails across eight instruments (max +0.77pp, inside the noise
+  band). Book overlap: on this exact state book-wide the ledger is **194 SHORT
+  to 45 LONG** (4.3:1), and FCX's only ledger expression ever is 4 Overbot Vol
+  Spike shorts at avgR +1.50. (b1_c3_copper_thrust_r1.py, b1b, b1c)
+- **The energy z10 cluster, and it genuinely was NOT a re-skin of the
+  2026-08-17 energy-thrust kill** — measured overlap 0 of 100 trigger days on
+  the rank mask and 4 of 100 on the magnitude mask. It died on its own: see the
+  effective-N and count-gradient entries above, plus definition fragility on the
+  z rung (1.75 gives +0.390%, 2.25 gives -1.103%) and on membership (the only
+  positive variants exclude the two ETFs and **do not fire today**). Reference
+  class across 8 sectors with 25 random 11-member subsamples each: energy ranks
+  **8 of 8** at -0.811pp, P(random sector >= energy) = 1.000. Alphabetical
+  placebo goes to **8-for-9** (firing names -0.761% against alphabetical
+  -0.727%, difference -0.034pp). Never produced an August episode.
+  (b2_c7_energy_z10_cluster_r1.py, b2b, b2c, b3)
+- **Long SPY against short QQQ, i.e. the 2026-08-11 pitch with the sign
+  reversed.** Note first that `fingerprint()` keys on `TICKER:SIDE`, so the
+  repeat block does NOT fire on a reversed pair — measured, the two hashes
+  differ — while the structural object is the same one 9 sessions later. It
+  dies on leg attribution: beta of SPY on QQQ is **0.617**, so equal-dollar is
+  -0.383 units of QQQ beta; the long SPY leg pays -0.038% against SPY's own
+  +0.192% drift (**excess -0.229pp**, i.e. negative alpha) and the whole spread
+  comes from the short leg, which reverses at h=10. The beta-neutral residual is
+  negative at six of seven horizons. The mechanism runs backwards where it
+  matters: on days tech's 63-day rank is bottom-quintile while the index's is
+  not, **QQQ LONG pays +0.508% at h=5**. Cost 2.1x at best, 0.3x on the literal
+  form, and the naked long beats the pair at every horizon (the 2026-08-19 line
+  reproducing). Confirms the 2026-08-13 note that index pairs are not
+  interchangeable: corr with the DIA/SPY residual is **+0.351 to +0.429**, the
+  mirror of the -0.363 to -0.442 recorded against the 08-11 side.
+  (c3_c8_spy_qqq_pair.py, c4)
+- **Gold strength with the 10-year yield at a 52-week LEVEL high.** Same object
+  as the killed rank form (91% mask overlap, above) and dead independently: the
+  gate-off parent is already negative against its own drift (h=10 -0.481%, edge
+  -0.942pp, 40.8% hit, sign p 0.952) and the yield gate moves it **+0.010pp**.
+  Every cell with N>=8 in the 180-cell grid is wrong-signed; rotation null
+  P(grid max |t| >= 2.55) = 0.560. Today's state is the worst bucket, since the
+  2026-08-21 GLD-drawdown kill reproduces here independently: thrust with GLD
+  more than 10% below its 52-week high pays **-0.798% at h=5 (edge -1.012pp,
+  35% hit)** and -1.307% at h=10, and GLD is -14.63% off. The joint cell has
+  **3 days in 20 years and neither historical one carried today's drawdown**.
+  Cost -2.9x. (d3_c9_gold_yield_level.py, d3b)
+- **XLI washed out while a cyclical peer prints a 52-week high.** The pitched
+  rung has **no history at all** (r5 rank <=3 with a peer at a high: 0 days
+  ever) and today's literal state — XLI r5 rank <=5 with BOTH XLB and XLE at
+  52-week highs — has occurred **once, today**. Loosening to a populated rung,
+  the gate removes 3 of 150 episodes and moves the parent by **0.021pp**, the
+  k-ladder is a one-rung spike with k=8 wrong-signed, and the rank ladder
+  collapses as soon as it has observations (rung 7 pays +0.106% at a 33% hit,
+  edge -0.109pp). The pair loses to the naked long at every horizon (h=5: XLI
+  +2.284%, XLI-XLB +0.119%, XLI-XLE -0.869%) at 1.5x cost. Reduces to the
+  book's own dip-buy family and **underperforms it**, ranking 3rd of 6 vehicles
+  at h=3 and paying +0.074% at a 52.2% hit from 2018 against a family value of
+  +0.534%. Book overlap: the morning's staged OLV longs (LUV, CHRW, CMI, WWD)
+  correlate **0.803** with XLI at beta 1.16, a 64% variance duplicate.
+  (d1_c4_xli_pair.py, d1b)
+- **Cross-sectional new-high breadth with the index off its high.** Premise
+  false (above) and the gate is a negative-value filter: breadth alone pays
+  +0.104% at h=5 against an all-days +0.192%, i.e. **-0.086pp against doing
+  nothing**, while the index-distance leg alone pays +0.266% and carries the
+  cell. Tolerance walk costs 77% of the edge on a 0.75pp nudge (0.25% +0.452%,
+  1.00% +0.106%), and the two universes disagree about the gate's worth by an
+  order of magnitude. Bull-tape selector: **100.0%** of tape trigger days sit
+  above SPY's 200d against a 71.6% base rate, with the trend split having N=1
+  episode below it. And today's regime is outside the sample — median trigger
+  ma10(63d) is **24.8** with an all-time max of 80.6 against today's **89.5**,
+  and split on the live exposure-leg rule the edge is entirely in the
+  complement (leg-OFF +0.008% at a 50.0% hit, leg-ON +0.754% at 81.0%, t=3.10).
+  (c1_c6_newhigh_breadth.py, c2, c5)
+
+### Calendar finding, filed because it is about the anchor set rather than one cell
+
+- **On 2026-08-24 every macro anchor inside the 10 td horizon was already
+  closed**, which is a first for this repo and worth recording as the reason a
+  morning can be structurally empty. Jackson Hole (JH-4) is swept on seven
+  asset classes with a pre-speech class mean of +0.010pp; the opex anchor
+  (opex+1) is closed in both directions on equities and across ten non-equity
+  vehicles by ten horizons; the two collide (the August opex close is JH-5 in
+  21 of 26 years); NFP at +9 td is at the horizon cap and its one live cell is
+  midterm-parked to 2027-01; and CPI, PPI, FOMC and quad witching are all
+  beyond +12 td. That left month-end, which this morning closed on equities and
+  suspended on rates. When the anchor set is empty the honest move is a
+  price-state sweep and a stand-down, not an eighth class on a dead anchor.

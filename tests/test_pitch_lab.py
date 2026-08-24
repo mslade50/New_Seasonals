@@ -107,6 +107,38 @@ def test_sign_test_exact_values():
     assert np.isnan(pl.sign_test(3, 0))
 
 
+def test_sign_test_base_rate_survives_big_n():
+    """The p != 0.5 branch used to raise OverflowError above n ~ 1100, which
+    is exactly where it gets used: scoring a day-level CONTROL cell against a
+    measured up-rate rather than a coin. The 2026-08-09 fix covered p=0.5 and
+    left this branch open; found 2026-08-24."""
+    for n in (1100, 5000, 20000):
+        v = pl.sign_test(int(n * 0.55), n, p=0.52)
+        assert 0.0 <= v <= 1.0 and np.isfinite(v)
+
+    # agrees with the exact float form everywhere that form still worked
+    from math import comb
+    for wins, n, p in [(8, 9, 0.6), (200, 356, 0.567), (17, 19, 0.752)]:
+        exact = float(sum(comb(n, k) * p**k * (1 - p)**(n - k)
+                          for k in range(wins, n + 1)))
+        assert pl.sign_test(wins, n, p) == pytest.approx(exact, rel=1e-9)
+
+    # the published HYG-at-JH-5 number (negative registry, 2026-08-21): a 17-2
+    # record is p=0.0004 against a coin and p=0.1147 against the instrument's
+    # own conditional up-rate, quoted there as 75.2%. Reproducing at exactly
+    # 0.752 gives 0.11504 -- the registry rounded the RATE, so the tolerance is
+    # on that rounding rather than on the arithmetic.
+    assert pl.sign_test(17, 19, p=0.752) == pytest.approx(0.115, abs=1e-3)
+    assert pl.sign_test(17, 19) == pytest.approx(0.0004, abs=1e-4)
+
+    # p=0.5 stays exact rational, and the degenerate rates stay sane
+    assert pl.sign_test(6, 6) == 0.5**6
+    assert pl.sign_test(0, 5, p=0.0) == 1.0
+    assert pl.sign_test(1, 5, p=0.0) == 0.0
+    assert pl.sign_test(5, 5, p=1.0) == 1.0
+    assert np.isnan(pl.sign_test(1, 5, p=1.4))
+
+
 def test_bootstrap_p_small_on_clean_positive():
     v = np.array([0.01, 0.02, 0.015, 0.03, 0.012, 0.02])
     assert pl.bootstrap_p_le0(v) < 0.01
