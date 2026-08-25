@@ -56,6 +56,7 @@ class PremarketSnapshot:
     tradeable: bool = False
     source: str = "IBKR_READ_ONLY"
     price_basis: str = "IBKR_TRADES"
+    daily_price_basis: str = "UNVERIFIED"
     contract_con_id: int | None = None
     primary_exchange: str = ""
     contract_identity_status: str = "UNRESOLVED"
@@ -80,7 +81,7 @@ class PremarketSnapshot:
     reported_move_dollars: float | None = None
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "PremarketSnapshot":
+    def from_dict(cls, raw: dict[str, Any]) -> PremarketSnapshot:
         fields = cls.__dataclass_fields__
         values = {k: raw[k] for k in fields if k in raw}
         values["symbol"] = str(values.get("symbol", "")).strip().upper()
@@ -98,6 +99,14 @@ class PremarketSnapshot:
     @property
     def move_dollars(self) -> float:
         return self.last - self.previous_close
+
+    @property
+    def prior_atr_pct(self) -> float | None:
+        return (
+            100.0 * self.atr_14 / self.previous_close
+            if self.previous_close > 0 and self.atr_14 > 0
+            else None
+        )
 
     @property
     def discovery_gap_pct(self) -> float:
@@ -126,6 +135,7 @@ class PremarketSnapshot:
         data.update(
             gap_pct=self.gap_pct,
             move_dollars=self.move_dollars,
+            prior_atr_pct=self.prior_atr_pct,
             discovery_gap_pct=self.discovery_gap_pct,
             discovery_move_dollars=self.discovery_move_dollars,
             premarket_dollar_volume=self.premarket_dollar_volume,
@@ -177,7 +187,7 @@ class NewsDocument:
     published_at_provenance: str = "UNKNOWN"
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "NewsDocument":
+    def from_dict(cls, raw: dict[str, Any]) -> NewsDocument:
         values = {k: raw[k] for k in cls.__dataclass_fields__ if k in raw}
         values["catalyst_types"] = tuple(values.get("catalyst_types") or ())
         values["adverse_flags"] = tuple(values.get("adverse_flags") or ())
@@ -272,9 +282,7 @@ class ResearchSizingPreview:
     human_review_required: bool = True
     production_eligible: bool = False
     live_actions_enabled: bool = False
-    record_type: str = field(
-        default="EP_RESEARCH_SIZING_PREVIEW_V1", init=False
-    )
+    record_type: str = field(default="EP_RESEARCH_SIZING_PREVIEW_V1", init=False)
 
     def __post_init__(self) -> None:
         if not self.preview_only or self.executable:
@@ -282,7 +290,9 @@ class ResearchSizingPreview:
         if self.broker_route != "NONE" or self.order_submission_allowed:
             raise ValueError("EP research sizing cannot name or enable a broker route")
         if not self.human_review_required or self.production_eligible:
-            raise ValueError("EP research sizing always requires review and is never production eligible")
+            raise ValueError(
+                "EP research sizing always requires review and is never production eligible"
+            )
         if self.live_actions_enabled:
             raise ValueError("EP research sizing cannot enable live actions")
         if self.record_type != "EP_RESEARCH_SIZING_PREVIEW_V1":

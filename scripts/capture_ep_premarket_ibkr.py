@@ -20,7 +20,6 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -32,6 +31,8 @@ _MARKET_DATA_STATUS = {
     3: "DELAYED",
     4: "DELAYED_FROZEN",
 }
+_DAILY_WHAT_TO_SHOW = "ADJUSTED_LAST"
+_DAILY_PRICE_BASIS = "IBKR_ADJUSTED_LAST"
 
 
 def _finite(value, default=0.0):  # type: ignore[no-untyped-def]
@@ -61,7 +62,9 @@ def _halt_status(value) -> tuple[str, float | None]:  # type: ignore[no-untyped-
 
 
 def _exchange_key(value: str) -> str:
-    token = "".join(character for character in str(value).upper() if character.isalnum())
+    token = "".join(
+        character for character in str(value).upper() if character.isalnum()
+    )
     aliases = {
         "NYSEARCA": "ARCA",
         "NASDAQGS": "NASDAQ",
@@ -78,7 +81,9 @@ def _round_robin_keys(
 
     selected: list[object] = []
     seen: set[object] = set()
-    max_rows = max((len(keys_by_scanner.get(code, [])) for code in scanner_codes), default=0)
+    max_rows = max(
+        (len(keys_by_scanner.get(code, [])) for code in scanner_codes), default=0
+    )
     for rank in range(max_rows):
         for code in scanner_codes:
             rows = keys_by_scanner.get(code, [])
@@ -99,6 +104,8 @@ def _as_ny_index(values) -> pd.DatetimeIndex:  # type: ignore[no-untyped-def]
 
 
 def _daily_metrics(bars, session_date):  # type: ignore[no-untyped-def]
+    from trading_calendar import TRADING_DAY
+
     frame = pd.DataFrame(
         {
             "date": [bar.date for bar in bars],
@@ -110,10 +117,38 @@ def _daily_metrics(bars, session_date):  # type: ignore[no-untyped-def]
         }
     )
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
-    frame = frame[frame["date"] < session_date].sort_values("date").reset_index(drop=True)
-    if len(frame) < 64:
-        raise ValueError("fewer than 64 completed daily bars")
+    frame = (
+        frame[frame["date"] < session_date].sort_values("date").reset_index(drop=True)
+    )
+    if len(frame) < 126:
+        raise ValueError("fewer than 126 completed daily bars")
+    if frame["date"].duplicated().any():
+        raise ValueError("duplicate completed daily bars")
+    expected_previous_session = (pd.Timestamp(session_date) - TRADING_DAY).date()
+    expected_atr_dates = list(
+        pd.date_range(
+            end=expected_previous_session,
+            periods=15,
+            freq=TRADING_DAY,
+        ).date
+    )
+    if frame.tail(15)["date"].tolist() != expected_atr_dates:
+        raise ValueError("stale or incomplete 15-bar ATR source window")
     previous_close = float(frame.iloc[-1]["close"])
+    invalid = (
+        frame[["open", "high", "low", "close"]].le(0).any(axis=1)
+        | frame["volume"].le(0)
+        | frame["high"].lt(frame["low"])
+    )
+    close_ratio = frame["close"] / frame["close"].shift(1)
+    half_double = close_ratio.between(0.45, 0.55) | close_ratio.between(1.80, 2.20)
+    gap_pct = 100.0 * (frame["open"] / frame["close"].shift(1) - 1.0)
+    close_change_pct = 100.0 * (close_ratio - 1.0)
+    extreme = gap_pct.abs().ge(50) | close_change_pct.abs().ge(50)
+    # Fourteen true ranges consume fifteen completed source bars. Match the
+    # historical fail-closed basis check before an ATR value can qualify a row.
+    if (invalid | half_double | extreme).tail(15).any():
+        raise ValueError("unclean 15-bar ATR source window")
     prior_two_day_low = float(frame.tail(2)["low"].min())
     previous = frame["close"].shift(1)
     true_range = pd.concat(
@@ -123,10 +158,15 @@ def _daily_metrics(bars, session_date):  # type: ignore[no-untyped-def]
             (frame["low"] - previous).abs(),
         ],
         axis=1,
-    ).max(axis=1)
+    ).max(axis=1, skipna=False)
+    atr_14 = float(true_range.tail(14).mean())
+    if not math.isfinite(atr_14) or atr_14 <= 0 or previous_close <= 0:
+        raise ValueError("unresolved prior-session ATR")
     daily_change = 100.0 * (frame["close"] / frame["close"].shift(1) - 1.0)
     prior_avg_volume_100 = frame["volume"].shift(1).rolling(100, min_periods=50).mean()
-    prior_ep = (daily_change.abs() >= 8.0) & (frame["volume"] >= 3.0 * prior_avg_volume_100)
+    prior_ep = (daily_change.abs() >= 8.0) & (
+        frame["volume"] >= 3.0 * prior_avg_volume_100
+    )
     prior_ep_positions = frame.index[prior_ep]
     sessions_since_prior_ep = (
         int((len(frame) - 1) - prior_ep_positions[-1])
@@ -136,17 +176,16 @@ def _daily_metrics(bars, session_date):  # type: ignore[no-untyped-def]
     return {
         "previous_close": previous_close,
         "prior_two_day_low": prior_two_day_low,
-        "atr_14": float(true_range.tail(14).mean()),
+        "atr_14": atr_14,
         "avg_volume_20": float(frame["volume"].tail(20).mean()),
         "addv_63": float((frame["close"] * frame["volume"]).tail(63).mean()),
-        "prior_63d_return_pct": 100.0 * (previous_close / float(frame.iloc[-64]["close"]) - 1.0),
+        "prior_63d_return_pct": 100.0
+        * (previous_close / float(frame.iloc[-64]["close"]) - 1.0),
         "sessions_since_prior_ep": sessions_since_prior_ep,
     }
 
 
-def _premarket_metrics(
-    bars, session_date, previous_close: float | None = None
-):  # type: ignore[no-untyped-def]
+def _premarket_metrics(bars, session_date, previous_close: float | None = None):  # type: ignore[no-untyped-def]
     if not bars:
         raise ValueError("no extended-hours bars")
     frame = pd.DataFrame(
@@ -206,7 +245,7 @@ def _load_target_rows(path: Path) -> tuple[list[dict], str]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     rows = raw.get("snapshots", []) if isinstance(raw, dict) else raw
     if not isinstance(rows, list):
-        raise ValueError("target snapshot must contain a snapshots list")
+        raise TypeError("target snapshot must contain a snapshots list")
     target_dates = {
         str(row.get("target_session_date", "")).strip()
         for row in rows
@@ -218,7 +257,7 @@ def _load_target_rows(path: Path) -> tuple[list[dict], str]:
     seen: set[str] = set()
     for row in rows:
         if not isinstance(row, dict):
-            raise ValueError("target snapshot rows must be objects")
+            raise TypeError("target snapshot rows must be objects")
         symbol = str(row.get("symbol", "")).strip().upper()
         if not symbol or symbol in seen:
             raise ValueError(f"missing or duplicate target symbol: {symbol!r}")
@@ -228,7 +267,9 @@ def _load_target_rows(path: Path) -> tuple[list[dict], str]:
                 "symbol": symbol,
                 "expected_primary_exchange": str(
                     row.get("screen_exchange") or row.get("primary_exchange") or ""
-                ).strip().upper(),
+                )
+                .strip()
+                .upper(),
                 "source_screen_id": str(row.get("saved_screen_id", "")).strip(),
             }
         )
@@ -238,7 +279,9 @@ def _load_target_rows(path: Path) -> tuple[list[dict], str]:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Read-only IBKR EP premarket capture")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=7497, help="paper TWS default is 7497")
+    parser.add_argument(
+        "--port", type=int, default=7497, help="paper TWS default is 7497"
+    )
     parser.add_argument("--client-id", type=int, default=91)
     parser.add_argument(
         "--max-captured",
@@ -296,7 +339,9 @@ def main(argv: list[str] | None = None) -> int:
             else "the configured rank-limited IBKR scanner union"
         )
         print(f"Dry run: would enrich {source} using a read-only IBKR connection.")
-        print("No broker connection or file write was performed. Add --capture to proceed.")
+        print(
+            "No broker connection or file write was performed. Add --capture to proceed."
+        )
         return 0
     try:
         from ib_insync import IB, ScannerSubscription, Stock
@@ -308,7 +353,9 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc)
     now_ny = now.astimezone(_NY)
     if not (time(4, 0) <= now_ny.time().replace(tzinfo=None) < time(9, 25)):
-        raise SystemExit("IBKR EP capture is restricted to 04:00-09:25 America/New_York")
+        raise SystemExit(
+            "IBKR EP capture is restricted to 04:00-09:25 America/New_York"
+        )
     session_date = now_ny.date()
     if target_session and target_session != session_date.isoformat():
         raise SystemExit(
@@ -339,11 +386,12 @@ def main(argv: list[str] | None = None) -> int:
     scanner_codes = (
         []
         if target_rows
-        else args.scanner_codes
-        or ["TOP_PERC_GAIN", "HOT_BY_VOLUME", "MOST_ACTIVE"]
+        else args.scanner_codes or ["TOP_PERC_GAIN", "HOT_BY_VOLUME", "MOST_ACTIVE"]
     )
     try:
-        ib.connect(args.host, args.port, clientId=args.client_id, readonly=True, timeout=10)
+        ib.connect(
+            args.host, args.port, clientId=args.client_id, readonly=True, timeout=10
+        )
         if target_rows:
             selected_records = [
                 {
@@ -395,7 +443,7 @@ def main(argv: list[str] | None = None) -> int:
                             )
                             record["scanner_ranks"][code] = rank
                             keys_by_scanner[code].append(key)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - isolate scanner failures.
                     scanner_counts[code] = 0
                     errors.append(
                         {
@@ -412,7 +460,9 @@ def main(argv: list[str] | None = None) -> int:
             selected_contract_count = len(selected_records)
         for scanner_record in selected_records:
             contract = scanner_record["contract"]
-            if datetime.now(timezone.utc).astimezone(_NY).time().replace(tzinfo=None) >= time(9, 25):
+            if datetime.now(timezone.utc).astimezone(_NY).time().replace(
+                tzinfo=None
+            ) >= time(9, 25):
                 errors.append({"error": "CAPTURE_WINDOW_CLOSED_BEFORE_NEXT_SYMBOL"})
                 break
             try:
@@ -475,7 +525,10 @@ def main(argv: list[str] | None = None) -> int:
                     endDateTime="",
                     durationStr="1 Y",
                     barSizeSetting="1 day",
-                    whatToShow="TRADES",
+                    # IBKR TRADES adjusts splits but not dividends.  The
+                    # historical study uses adjusted OHLCV, so ADJUSTED_LAST
+                    # is required for a comparable prior-close/ATR basis.
+                    whatToShow=_DAILY_WHAT_TO_SHOW,
                     useRTH=True,
                     formatDate=1,
                 )
@@ -508,22 +561,24 @@ def main(argv: list[str] | None = None) -> int:
                         "selection_origin": scanner_record.get(
                             "selection_origin", "IBKR_SCANNER_SAMPLE"
                         ),
-                        "source_screen_id": scanner_record.get(
-                            "source_screen_id", ""
-                        ),
+                        "source_screen_id": scanner_record.get("source_screen_id", ""),
                         "daily": daily,
                         "premarket": premarket,
                     }
                 )
                 ib.sleep(args.request_delay)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - isolate per-symbol failures.
                 errors.append(
                     {"symbol": contract.symbol, "error": f"{type(exc).__name__}: {exc}"}
                 )
 
         if prepared:
-            if datetime.now(timezone.utc).astimezone(_NY).time().replace(tzinfo=None) >= time(9, 25):
-                errors.append({"error": "CAPTURE_WINDOW_CLOSED_BEFORE_BATCH_QUOTE_REFRESH"})
+            if datetime.now(timezone.utc).astimezone(_NY).time().replace(
+                tzinfo=None
+            ) >= time(9, 25):
+                errors.append(
+                    {"error": "CAPTURE_WINDOW_CLOSED_BEFORE_BATCH_QUOTE_REFRESH"}
+                )
             else:
                 # Streaming watchlist requests are deliberate: IBKR documents
                 # output tick 49 (halted) as available only for watchlist data.
@@ -574,14 +629,25 @@ def main(argv: list[str] | None = None) -> int:
                     for contract in subscribed_contracts:
                         ib.cancelMktData(contract)
                 batch_finished = datetime.now(timezone.utc)
-                if batch_finished.astimezone(_NY).time().replace(tzinfo=None) >= time(9, 29):
-                    errors.append({"error": "BATCH_QUOTE_REFRESH_FINISHED_TOO_LATE; rows discarded"})
+                if batch_finished.astimezone(_NY).time().replace(tzinfo=None) >= time(
+                    9, 29
+                ):
+                    errors.append(
+                        {
+                            "error": "BATCH_QUOTE_REFRESH_FINISHED_TOO_LATE; rows discarded"
+                        }
+                    )
                 else:
                     for item in prepared:
                         contract = item["contract"]
                         ticker = ticker_by_conid.get(contract.conId)
                         if ticker is None:
-                            errors.append({"symbol": contract.symbol, "error": "MISSING_BATCH_QUOTE"})
+                            errors.append(
+                                {
+                                    "symbol": contract.symbol,
+                                    "error": "MISSING_BATCH_QUOTE",
+                                }
+                            )
                             continue
                         premarket = item["premarket"]
                         halt_status, halt_raw = _halt_status(
@@ -607,8 +673,12 @@ def main(argv: list[str] | None = None) -> int:
                             {
                                 "symbol": contract.symbol.upper(),
                                 "company_name": item["company_name"],
-                                "observed_at": observed_at.isoformat().replace("+00:00", "Z"),
-                                "last": _finite(ticker.last, premarket["premarket_last"]),
+                                "observed_at": observed_at.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                                "last": _finite(
+                                    ticker.last, premarket["premarket_last"]
+                                ),
                                 "quote_previous_close": _finite(
                                     getattr(ticker, "close", None), None
                                 ),
@@ -618,7 +688,8 @@ def main(argv: list[str] | None = None) -> int:
                                 "ask_size": int(_finite(ticker.askSize)),
                                 "market_data_status": market_data_status,
                                 "quote_timestamp_source": quote_timestamp_source,
-                                "halted": halt_status in {"GENERAL_HALT", "VOLATILITY_HALT"},
+                                "halted": halt_status
+                                in {"GENERAL_HALT", "VOLATILITY_HALT"},
                                 "halt_status": halt_status,
                                 "halt_raw": halt_raw,
                                 "tradeable": item["tradeable"],
@@ -634,7 +705,10 @@ def main(argv: list[str] | None = None) -> int:
                                 "saved_screen_id": item["source_screen_id"],
                                 "scanner_sources": sorted(item["scanner_ranks"]),
                                 "scanner_ranks": item["scanner_ranks"],
-                                "price_basis": "IBKR_TRADES",
+                                "price_basis": (
+                                    "IBKR_ADJUSTED_LAST_DAILY_WITH_LIVE_TRADES_QUOTE"
+                                ),
+                                "daily_price_basis": _DAILY_PRICE_BASIS,
                                 "contract_con_id": contract.conId,
                                 "primary_exchange": item["primary_exchange"],
                                 "contract_identity_status": item[
@@ -644,11 +718,13 @@ def main(argv: list[str] | None = None) -> int:
                                 "contract_sec_type": item["contract_sec_type"],
                                 "contract_currency": item["contract_currency"],
                                 "valid_exchanges": item["valid_exchanges"],
-                                "allowed_order_types": item[
-                                    "allowed_order_types"
-                                ],
+                                "allowed_order_types": item["allowed_order_types"],
                                 **item["daily"],
-                                **{k: v for k, v in premarket.items() if k != "premarket_last"},
+                                **{
+                                    k: v
+                                    for k, v in premarket.items()
+                                    if k != "premarket_last"
+                                },
                             }
                         )
     finally:
@@ -695,7 +771,9 @@ def main(argv: list[str] | None = None) -> int:
         "snapshots": rows,
         "errors": errors,
     }
-    output.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    output.write_text(
+        json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
     print(f"Captured {len(rows)} snapshot(s); {len(errors)} error(s): {output}")
     print("Safety: connected read-only and exposed no order-submission path.")
     return 0 if rows else 2

@@ -7,8 +7,12 @@ from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 from .config import EPPolicy
-from .schema import Candidate, CatalystAssessment, QualificationDecision, parse_timestamp
-
+from .schema import (
+    Candidate,
+    CatalystAssessment,
+    QualificationDecision,
+    parse_timestamp,
+)
 
 _NY = ZoneInfo("America/New_York")
 
@@ -50,6 +54,20 @@ def _valid_positive(value: object) -> bool:
     except (TypeError, ValueError):
         return False
     return math.isfinite(number) and number > 0
+
+
+def prior_atr_blocker(snapshot, *, policy: EPPolicy) -> str | None:  # type: ignore[no-untyped-def]
+    """Return the single canonical blocker for the strict prior-ATR gate."""
+
+    if not _valid_positive(snapshot.atr_14) or not _valid_positive(
+        snapshot.previous_close
+    ):
+        return "PRIOR_ATR_UNRESOLVED"
+    if snapshot.prior_atr_pct <= policy.execution.min_prior_atr_pct:
+        return "PRIOR_ATR_PCT_AT_OR_BELOW_FLOOR"
+    if snapshot.daily_price_basis != "IBKR_ADJUSTED_LAST":
+        return "PRIOR_ATR_PRICE_BASIS_UNVERIFIED"
+    return None
 
 
 def qualify_candidate(
@@ -106,6 +124,11 @@ def qualify_candidate(
         blockers.append("CROSSED_QUOTE")
     if snap.last < execution.min_stage_price:
         blockers.append("BELOW_STAGE_PRICE")
+    atr_blocker = prior_atr_blocker(snap, policy=policy)
+    if atr_blocker:
+        blockers.append(atr_blocker)
+    if snap.daily_price_basis != "IBKR_ADJUSTED_LAST":
+        blockers.append("PRIOR_ATR_PRICE_BASIS_UNVERIFIED")
     if not isinstance(snap.contract_con_id, int) or snap.contract_con_id <= 0:
         blockers.append("UNRESOLVED_IB_CONTRACT")
     if snap.contract_identity_status != "UNIQUE_IBKR_MATCH":
@@ -131,7 +154,11 @@ def qualify_candidate(
             blockers.append("PRIOR_CLOSE_BASIS_MISMATCH")
     if snap.gap_pct < execution.min_stage_gap_pct:
         blockers.append("MOVE_IS_DISCOVERY_ONLY")
-    ask_gap_pct = 100.0 * (snap.ask / snap.previous_close - 1.0) if snap.previous_close > 0 else float("-inf")
+    ask_gap_pct = (
+        100.0 * (snap.ask / snap.previous_close - 1.0)
+        if snap.previous_close > 0
+        else float("-inf")
+    )
     if ask_gap_pct < execution.min_stage_gap_pct:
         blockers.append("CURRENT_ASK_BELOW_STAGE_GAP")
     if max(snap.gap_pct, ask_gap_pct) > execution.max_immediate_gap_pct:
@@ -144,7 +171,10 @@ def qualify_candidate(
         chase_pct = 100.0 * (snap.ask / snap.premarket_vwap - 1.0)
         if chase_pct > execution.max_chase_above_premarket_vwap_pct:
             blockers.append("PRICE_TOO_FAR_ABOVE_PREMARKET_VWAP")
-    if not _valid_positive(snap.prior_two_day_low) or snap.prior_two_day_low >= snap.ask:
+    if (
+        not _valid_positive(snap.prior_two_day_low)
+        or snap.prior_two_day_low >= snap.ask
+    ):
         blockers.append("INVALID_INITIAL_STOP_REFERENCE")
     if not _valid_positive(snap.addv_63):
         blockers.append("MISSING_ADDV_CAPACITY")
@@ -213,7 +243,10 @@ def qualify_candidate(
         decision = "WATCH"
         setup_type = "CLASSIC_EP_REVIEW"
     elif catalyst.materiality_score < (
-        4 if catalyst.catalyst_type in {"EARNINGS", "MATERIAL_CONTRACT", "PRODUCT_TECHNOLOGY"} else 3
+        4
+        if catalyst.catalyst_type
+        in {"EARNINGS", "MATERIAL_CONTRACT", "PRODUCT_TECHNOLOGY"}
+        else 3
     ):
         blockers.append("MATERIALITY_SCORE_BELOW_STAGE_GATE")
         decision = "WATCH"
@@ -226,7 +259,10 @@ def qualify_candidate(
         )
         decision = "RESEARCH_PREVIEW_ELIGIBLE" if not blockers else "WATCH"
 
-    if "GAP_TOO_EXTENDED_FOR_IMMEDIATE_ENTRY" in blockers and catalyst.status == "CONFIRMED":
+    if (
+        "GAP_TOO_EXTENDED_FOR_IMMEDIATE_ENTRY" in blockers
+        and catalyst.status == "CONFIRMED"
+    ):
         setup_type = "EXTENDED_GAP_DEP_CANDIDATE"
         decision = "WATCH"
 

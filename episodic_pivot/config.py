@@ -12,7 +12,7 @@ from typing import Any
 
 try:
     from strategy_config import ACCOUNT_VALUE as BOOK_ACCOUNT_VALUE
-except Exception:  # Keep research tools importable in isolated test contexts.
+except Exception:  # noqa: BLE001 - keep research imports usable in isolation.
     BOOK_ACCOUNT_VALUE = 750_000.0
 
 
@@ -58,6 +58,9 @@ class ExecutionPolicy:
     ep9m_catalyst_risk_bps: float = 7.5
     min_stage_price: float = 3.0
     min_stage_gap_pct: float = 4.0
+    # Completed-session ATR(14), divided by the same previous-close basis.
+    # Missing ATR blocks preview eligibility and exactly 4.0% does not pass.
+    min_prior_atr_pct: float = 4.0
     extension_warning_gap_pct: float = 20.0
     max_immediate_gap_pct: float = 25.0
     min_premarket_dollar_volume: float = 1_000_000.0
@@ -86,6 +89,10 @@ class HistoricalPolicy:
     min_prior_close: float = 3.0
     min_prior_addv_63: float = 5_000_000.0
     min_prior_bars: int = 126
+    atr_lookback_sessions: int = 14
+    # Strictly greater than this point-in-time ATR/previous-close percentage.
+    # The event-day range is never allowed into the eligibility calculation.
+    min_prior_atr_pct: float = 4.0
     max_prior_63d_return_pct: float = 20.0
     min_event_volume_rvol_20: float = 2.0
     first_event_lookback_sessions: int = 126
@@ -94,7 +101,7 @@ class HistoricalPolicy:
 
 @dataclass(frozen=True)
 class EPPolicy:
-    policy_id: str = "ep-shadow-v0.2.0"
+    policy_id: str = "ep-shadow-v0.3.0"
     policy_date: str = "2026-08-25"
     mode: str = "SHADOW_RESEARCH"
     live_actions_enabled: bool = False
@@ -110,6 +117,12 @@ class EPPolicy:
             raise ValueError("EP v0 only supports SHADOW_RESEARCH mode")
         if self.execution.max_daily_risk_bps <= 0:
             raise ValueError("daily risk cap must be positive")
+        if self.historical.atr_lookback_sessions != 14:
+            raise ValueError("EP live/history parity requires a 14-session ATR")
+        if self.historical.min_prior_atr_pct <= 0:
+            raise ValueError("prior ATR percentage floor must be positive")
+        if self.execution.min_prior_atr_pct != self.historical.min_prior_atr_pct:
+            raise ValueError("live and historical prior ATR floors must match")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

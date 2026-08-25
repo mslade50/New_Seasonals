@@ -8,15 +8,16 @@ the prior close or explicitly marked ex-post.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
 
-from .config import HistoricalPolicy
+from trading_calendar import TRADING_DAY
 
+from .config import HistoricalPolicy
 
 _PRICE_COLUMNS = ["ticker", "date", "Open", "High", "Low", "Close", "Volume"]
 
@@ -63,7 +64,7 @@ def _sample_period(year: int) -> str:
         return "DEVELOPMENT_1999_2019"
     if year <= 2023:
         return "VALIDATION_2020_2023"
-    return "HOLDOUT_2024_2026"
+    return "CONSUMED_HOLDOUT_2024_2026"
 
 
 def _empty_events() -> pd.DataFrame:
@@ -80,14 +81,21 @@ def _empty_events() -> pd.DataFrame:
             "event_volume",
             "gap_pct",
             "prior_addv_63",
+            "prior_atr_14",
+            "prior_atr_pct_14",
+            "prior_atr_window_clean",
+            "prior_atr_calendar_complete",
             "event_rvol_20",
             "prior_63d_return_pct",
             "earnings_date_match",
-            "data_quality_clean",
+            "prior_window_clean",
+            "basis_review_cleared",
+            "event_half_double_review_required",
             "gap_band",
             "rvol_band",
             "era",
             "sample_period",
+            "holdout_status",
         ]
     )
 
@@ -103,9 +111,15 @@ def study_ticker(
     """Build strict v0 events for one ticker using prior-session features only."""
 
     frame = prices.copy()
-    frame = frame.rename(columns={c.lower(): c for c in ["Open", "High", "Low", "Close", "Volume"]})
+    frame = frame.rename(
+        columns={c.lower(): c for c in ["Open", "High", "Low", "Close", "Volume"]}
+    )
     frame["date"] = pd.to_datetime(frame["date"]).dt.normalize()
-    frame = frame.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
+    frame = (
+        frame.sort_values("date")
+        .drop_duplicates("date", keep="last")
+        .reset_index(drop=True)
+    )
     for column in ("Open", "High", "Low", "Close", "Volume"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
 
@@ -121,15 +135,26 @@ def study_ticker(
     )
     half_double = close_ratio.between(0.45, 0.55) | close_ratio.between(1.80, 2.20)
     extreme = gap_pct.abs().ge(50) | close_change_pct.abs().ge(50)
-    suspicious_nearby = (
-        (half_double | invalid | extreme)
+    # Prefix-only quality state. Prior invalid and near-half/double closes are
+    # basis failures; event-day magnitude can be the EP we are trying to study
+    # and must not censor itself. Near-half/double event closes stay separately
+    # flagged for review because price data alone cannot distinguish them from
+    # a split-basis break.
+    suspicious_prefix = (
+        (half_double | invalid)
+        .shift(1, fill_value=False)
         .astype("int8")
-        .rolling(5, center=True, min_periods=1)
+        .rolling(5, min_periods=1)
         .max()
         .astype(bool)
-    )
+    ) | invalid
+    # Keep extreme moves in the anomaly ledger and fail closed when one appears
+    # inside the prior ATR source window, where an unresolved split/basis break
+    # could otherwise manufacture eligibility.
     anomaly_mask = invalid | half_double | extreme
-    anomalies = frame.loc[anomaly_mask, ["date", "Open", "High", "Low", "Close", "Volume"]].copy()
+    anomalies = frame.loc[
+        anomaly_mask, ["date", "Open", "High", "Low", "Close", "Volume"]
+    ].copy()
     if not anomalies.empty:
         anomalies.insert(0, "ticker", ticker)
         anomalies["gap_pct"] = gap_pct[anomaly_mask].to_numpy()
@@ -140,6 +165,61 @@ def study_ticker(
 
     prior_dollar_volume = (frame["Close"] * frame["Volume"]).shift(1)
     prior_addv_63 = prior_dollar_volume.rolling(63, min_periods=63).mean()
+    true_range = pd.concat(
+        [
+            frame["High"] - frame["Low"],
+            (frame["High"] - previous_close).abs(),
+            (frame["Low"] - previous_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1, skipna=False)
+    atr = true_range.rolling(
+        policy.atr_lookback_sessions,
+        min_periods=policy.atr_lookback_sessions,
+    ).mean()
+    prior_atr = atr.shift(1)
+    prior_atr_pct_14 = 100.0 * prior_atr / previous_close
+    # Fourteen true ranges consume fifteen completed OHLC/close source bars.
+    # Shift first, then roll, so neither the event bar nor any later bar can
+    # influence the eligibility decision.
+    prior_atr_window_clean = (
+        anomaly_mask.astype("int8")
+        .shift(1)
+        .rolling(
+            policy.atr_lookback_sessions + 1,
+            min_periods=policy.atr_lookback_sessions + 1,
+        )
+        .max()
+        .eq(0)
+    )
+    # ATR(14) consumes fifteen completed source bars.  The same NYSE calendar
+    # used by the live IBKR capture must show fifteen consecutive transitions
+    # from the first source bar through the event session.  Otherwise a missing
+    # session silently compresses the historical window while live fails shut.
+    if frame.empty:
+        prior_atr_calendar_complete = pd.Series(False, index=frame.index)
+    else:
+        expected_sessions = pd.date_range(
+            start=frame["date"].min(),
+            end=frame["date"].max(),
+            freq=TRADING_DAY,
+        )
+        session_ordinal = pd.Series(
+            np.arange(len(expected_sessions), dtype=float),
+            index=expected_sessions,
+        )
+        observed_ordinal = frame["date"].map(session_ordinal)
+        prior_atr_calendar_complete = (
+            observed_ordinal.diff()
+            .eq(1)
+            .astype("int8")
+            .rolling(
+                policy.atr_lookback_sessions + 1,
+                min_periods=policy.atr_lookback_sessions + 1,
+            )
+            .min()
+            .eq(1)
+        )
     prior_volume_20 = frame["Volume"].shift(1).rolling(20, min_periods=20).mean()
     event_rvol_20 = frame["Volume"] / prior_volume_20
     prior_63d_return_pct = 100.0 * (previous_close / frame["Close"].shift(64) - 1.0)
@@ -152,7 +232,9 @@ def study_ticker(
         & (gap_pct >= policy.min_open_gap_pct)
         & ~invalid
     )
-    volume_confirmed = open_observable & (event_rvol_20 >= policy.min_event_volume_rvol_20)
+    volume_confirmed = open_observable & (
+        event_rvol_20 >= policy.min_event_volume_rvol_20
+    )
     prior_confirmed_count = (
         volume_confirmed.astype("int8")
         .shift(1, fill_value=0)
@@ -161,14 +243,42 @@ def study_ticker(
     )
     first_event = volume_confirmed & prior_confirmed_count.eq(0)
     neglected = prior_63d_return_pct <= policy.max_prior_63d_return_pct
-    strict = first_event & neglected
+    strict_pre_atr = first_event & neglected
+    atr_data_ready = (
+        prior_atr_window_clean
+        & prior_atr.notna()
+        & np.isfinite(prior_atr)
+        & prior_atr_pct_14.notna()
+        & np.isfinite(prior_atr_pct_14)
+    )
+    atr_pass = (
+        atr_data_ready
+        & prior_atr_calendar_complete
+        & (prior_atr_pct_14 > policy.min_prior_atr_pct)
+    )
+    strict = strict_pre_atr & atr_pass
 
     counts = {
-        "bars": int(len(frame)),
+        "bars": len(frame),
         "open_observable": int(open_observable.sum()),
         "volume_confirmed_ex_post": int(volume_confirmed.sum()),
         "first_confirmed_in_126": int(first_event.sum()),
-        "strict_with_neglect": int(strict.sum()),
+        "strict_with_neglect_pre_atr": int(strict_pre_atr.sum()),
+        "strict_prior_atr_window_unclean_or_missing": int(
+            (strict_pre_atr & ~atr_data_ready).sum()
+        ),
+        "strict_prior_atr_calendar_incomplete": int(
+            (strict_pre_atr & atr_data_ready & ~prior_atr_calendar_complete).sum()
+        ),
+        "strict_prior_atr_at_or_below_floor": int(
+            (
+                strict_pre_atr
+                & atr_data_ready
+                & prior_atr_calendar_complete
+                & (prior_atr_pct_14 <= policy.min_prior_atr_pct)
+            ).sum()
+        ),
+        "strict_with_neglect_and_prior_atr": int(strict.sum()),
         "anomalies": int(anomaly_mask.sum()),
     }
     if not strict.any():
@@ -188,9 +298,23 @@ def study_ticker(
             "event_volume": frame.loc[event_rows, "Volume"].to_numpy(),
             "gap_pct": gap_pct.loc[event_rows].to_numpy(),
             "prior_addv_63": prior_addv_63.loc[event_rows].to_numpy(),
+            "prior_atr_14": prior_atr.loc[event_rows].to_numpy(),
+            "prior_atr_pct_14": prior_atr_pct_14.loc[event_rows].to_numpy(),
+            "prior_atr_window_clean": prior_atr_window_clean.loc[event_rows].to_numpy(),
+            "prior_atr_calendar_complete": prior_atr_calendar_complete.loc[
+                event_rows
+            ].to_numpy(),
             "event_rvol_20": event_rvol_20.loc[event_rows].to_numpy(),
             "prior_63d_return_pct": prior_63d_return_pct.loc[event_rows].to_numpy(),
-            "data_quality_clean": (~suspicious_nearby.loc[event_rows]).to_numpy(),
+            "prior_window_clean": (
+                ~suspicious_prefix.loc[event_rows]
+                & prior_atr_window_clean.loc[event_rows]
+                & prior_atr_calendar_complete.loc[event_rows]
+            ).to_numpy(),
+            "basis_review_cleared": (~half_double.loc[event_rows]).to_numpy(),
+            "event_half_double_review_required": half_double.loc[
+                event_rows
+            ].to_numpy(),
         }
     )
     earnings_set = {pd.Timestamp(value).normalize() for value in earnings_dates}
@@ -205,6 +329,10 @@ def study_ticker(
     events["sample_period"] = [
         _sample_period(pd.Timestamp(value).year) for value in events["date"]
     ]
+    events["holdout_status"] = [
+        "CONSUMED" if pd.Timestamp(value).year >= 2024 else "NOT_HOLDOUT"
+        for value in events["date"]
+    ]
 
     if include_outcomes:
         events["event_day_open_to_close_pct"] = 100.0 * (
@@ -214,17 +342,15 @@ def study_ticker(
             close_forward = frame["Close"].shift(-horizon)
             next_open = frame["Open"].shift(-1)
             confirmed_close = frame["Close"].shift(-horizon)
-            events[f"open_to_close_{horizon}d_pct"] = (
-                100.0
-                * (close_forward.loc[event_rows].to_numpy() / events["event_open"].to_numpy() - 1.0)
+            events[f"open_to_close_{horizon}d_pct"] = 100.0 * (
+                close_forward.loc[event_rows].to_numpy()
+                / events["event_open"].to_numpy()
+                - 1.0
             )
-            events[f"next_open_to_close_{horizon}d_pct"] = (
-                100.0
-                * (
-                    confirmed_close.loc[event_rows].to_numpy()
-                    / next_open.loc[event_rows].to_numpy()
-                    - 1.0
-                )
+            events[f"next_open_to_close_{horizon}d_pct"] = 100.0 * (
+                confirmed_close.loc[event_rows].to_numpy()
+                / next_open.loc[event_rows].to_numpy()
+                - 1.0
             )
 
         # MFE/MAE use the longest fixed horizon and are left NaN when censored.
@@ -312,7 +438,11 @@ def run_observed_panel_study(
         "open_observable": 0,
         "volume_confirmed_ex_post": 0,
         "first_confirmed_in_126": 0,
-        "strict_with_neglect": 0,
+        "strict_with_neglect_pre_atr": 0,
+        "strict_prior_atr_window_unclean_or_missing": 0,
+        "strict_prior_atr_calendar_incomplete": 0,
+        "strict_prior_atr_at_or_below_floor": 0,
+        "strict_with_neglect_and_prior_atr": 0,
         "anomalies": 0,
     }
     earnings_map = earnings_map or {}
@@ -333,12 +463,18 @@ def run_observed_panel_study(
             anomalies.append(result.anomalies)
 
     event_frame = pd.concat(events, ignore_index=True) if events else _empty_events()
-    anomaly_frame = pd.concat(anomalies, ignore_index=True) if anomalies else pd.DataFrame()
+    anomaly_frame = (
+        pd.concat(anomalies, ignore_index=True) if anomalies else pd.DataFrame()
+    )
     if not event_frame.empty:
         cluster = event_frame.groupby("date")["ticker"].transform("size")
         event_frame["event_date_cluster_size"] = cluster
         event_frame["market_wide_cluster"] = cluster >= 10
-        if include_outcomes and benchmark_prices is not None and not benchmark_prices.empty:
+        if (
+            include_outcomes
+            and benchmark_prices is not None
+            and not benchmark_prices.empty
+        ):
             event_frame = attach_benchmark_outcomes(
                 event_frame, benchmark_prices, policy=policy
             )
@@ -389,11 +525,29 @@ def attach_benchmark_outcomes(
     return out
 
 
-def diagnostic_summary(events: pd.DataFrame) -> pd.DataFrame:
+def _diagnostic_population(
+    events: pd.DataFrame, *, include_event_half_double_review: bool
+) -> pd.DataFrame:
+    """Return the explicit diagnostic population, separate from eligibility."""
+
+    clean = events[events["prior_window_clean"].fillna(False)].copy()
+    if not include_event_half_double_review:
+        clean = clean[clean["basis_review_cleared"].fillna(False)].copy()
+    return clean
+
+
+def diagnostic_summary(
+    events: pd.DataFrame,
+    *,
+    include_event_half_double_review: bool = False,
+) -> pd.DataFrame:
     outcome_columns = [column for column in events if column.endswith("d_pct")]
     if events.empty or not outcome_columns:
         return pd.DataFrame()
-    clean = events[events["data_quality_clean"]].copy()
+    clean = _diagnostic_population(
+        events,
+        include_event_half_double_review=include_event_half_double_review,
+    )
     groups = [
         "sample_period",
         "era",
@@ -418,12 +572,16 @@ def clustered_outcome_summary(
     cluster_column: str,
     bootstrap_samples: int = 2_000,
     seed: int = 17,
+    include_event_half_double_review: bool = False,
 ) -> pd.DataFrame:
     """Equal-weight clusters and bootstrap their mean; never treat rows as IID."""
 
     if events.empty or cluster_column not in events:
         return pd.DataFrame()
-    clean = events[events["data_quality_clean"]].copy()
+    clean = _diagnostic_population(
+        events,
+        include_event_half_double_review=include_event_half_double_review,
+    )
     outcome_columns = [
         column
         for column in clean
@@ -441,7 +599,9 @@ def clustered_outcome_summary(
         if len(values) == 1:
             low = high = float(values[0])
         else:
-            draws = rng.choice(values, size=(bootstrap_samples, len(values)), replace=True)
+            draws = rng.choice(
+                values, size=(bootstrap_samples, len(values)), replace=True
+            )
             boot_means = draws.mean(axis=1)
             low, high = np.quantile(boot_means, [0.025, 0.975])
         rows.append(
@@ -449,11 +609,56 @@ def clustered_outcome_summary(
                 "cluster_basis": cluster_column,
                 "outcome": column,
                 "n_events": int(clean[column].notna().sum()),
-                "n_clusters": int(len(values)),
+                "n_clusters": len(values),
                 "equal_weight_cluster_mean": float(values.mean()),
                 "equal_weight_cluster_median": float(np.median(values)),
                 "bootstrap_mean_ci_2_5": float(low),
                 "bootstrap_mean_ci_97_5": float(high),
             }
         )
+    return pd.DataFrame(rows)
+
+
+def horizon_comparison_summary(
+    events: pd.DataFrame,
+    *,
+    horizons: tuple[int, ...] = (5, 20, 60),
+    include_event_half_double_review: bool = False,
+) -> pd.DataFrame:
+    """Report available-case and balanced-cohort next-open excess outcomes.
+
+    The balanced rows use only events with every requested horizon available,
+    preventing right-censoring from changing the cohort across horizons.
+    """
+
+    if events.empty:
+        return pd.DataFrame()
+    population = _diagnostic_population(
+        events,
+        include_event_half_double_review=include_event_half_double_review,
+    )
+    columns = [f"excess_next_open_to_close_{horizon}d_pct" for horizon in horizons]
+    if any(column not in population for column in columns):
+        return pd.DataFrame()
+    rows: list[dict[str, object]] = []
+    periods = [("ALL", population)]
+    periods.extend(
+        (str(period), frame)
+        for period, frame in population.groupby("sample_period", dropna=False)
+    )
+    for period, frame in periods:
+        balanced = frame.dropna(subset=columns)
+        for cohort, cohort_frame in (("AVAILABLE", frame), ("BALANCED", balanced)):
+            for horizon, column in zip(horizons, columns):
+                values = cohort_frame[column].dropna()
+                rows.append(
+                    {
+                        "sample_period": period,
+                        "cohort": cohort,
+                        "horizon_sessions": horizon,
+                        "n": len(values),
+                        "mean_pct": float(values.mean()) if len(values) else np.nan,
+                        "median_pct": float(values.median()) if len(values) else np.nan,
+                    }
+                )
     return pd.DataFrame(rows)

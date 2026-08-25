@@ -10,16 +10,16 @@ from zoneinfo import ZoneInfo
 from .config import EPPolicy
 from .schema import Candidate, PremarketSnapshot, parse_timestamp
 
-
 _NY = ZoneInfo("America/New_York")
 
 
 def _candidate_id(snapshot: PremarketSnapshot, policy_id: str) -> str:
-    session = snapshot.target_session_date or parse_timestamp(
-        snapshot.observed_at
-    ).astimezone(_NY).date().isoformat()
+    session = (
+        snapshot.target_session_date
+        or parse_timestamp(snapshot.observed_at).astimezone(_NY).date().isoformat()
+    )
     symbol = snapshot.symbol
-    seed = f"{policy_id}|{session}|{symbol.upper()}".encode("utf-8")
+    seed = f"{policy_id}|{session}|{symbol.upper()}".encode()
     return f"EP-{session}-{symbol.upper()}-{hashlib.sha256(seed).hexdigest()[:10]}"
 
 
@@ -36,6 +36,7 @@ def nominate_candidates(
     *,
     as_of: str | datetime,
     policy: EPPolicy,
+    apply_candidate_limit: bool = True,
 ) -> list[Candidate]:
     """Return broad EP research nominations, newest snapshot per symbol.
 
@@ -130,4 +131,4 @@ def nominate_candidates(
             item.snapshot.symbol,
         )
     )
-    return out[: rules.max_candidates]
+    return out[: rules.max_candidates] if apply_candidate_limit else out

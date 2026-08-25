@@ -79,7 +79,8 @@ A hypothetical sizing preview additionally requires a separate fresh IBKR observ
 
 - live, tradeable, non-halted market data no older than 90 seconds;
 - a known IBKR halt status, unique resolved stock contract, native primary exchange, and available SMART routing metadata;
-- the latest premarket bar no older than 15 minutes and an IB quote previous-close within 0.5% of the raw daily-bar reference;
+- the latest premarket bar no older than 15 minutes and an IB quote previous-close within 0.5% of the adjusted daily-bar reference;
+- at least 126 completed daily bars and a verified adjusted-basis prior ATR(14)% strictly greater than 4%;
 - bid, ask, displayed ask size, premarket VWAP, prior two-day low, and 63-day ADDV;
 - gap at least 4% and no more than 25%;
 - price at least $3;
@@ -107,7 +108,7 @@ Only verified regulator/SEC authority can establish automatic primary confirmati
 
 The deterministic materiality rubric ranks regulatory approval, clinical data, raised guidance, earnings surprise, persistent demand/backlog, growth acceleration, quantified impact, and commercial milestones. Phrase score cannot by itself enable a preview. Earnings needs surprise plus a raise, acceleration, or persistence; contracts/products need quantified business impact; clinical/regulatory events need an actual endpoint or approval. Ordinary management changes and analyst actions remain watches. Dilution blocks direct long sizing while preserving research context. Fixed-price deals, reverse splits, and bankruptcy/distress are hard rejects. Guidance cuts, failed trials, investigations, restatements, and recalls can enter the separate bearish-research lane, which has no execution model.
 
-Issuer references and event phrases must occur in the same sentence, or in an immediately following sentence explicitly beginning with “the company,” “it,” “management,” or “the board.” This closes ordinary multi-company-roundup leakage, but it is not a full issuer–event semantic extractor. A same-sentence roundup can still be ambiguous, so every local preview remains manual-review-only. A production proposal needs structured issuer evidence (for example SEC/IR identifiers) or a tested entity–event extractor before news classification can be considered sufficient.
+Issuer references and event phrases must occur in the same issuer-bearing clause, or in an immediately following sentence explicitly beginning with “the company,” “it,” “management,” or “the board.” Report-of/while/whereas clause boundaries prevent a candidate from inheriting a named peer's event in common multi-company roundups, but this is not a full issuer–event semantic extractor. More complex sentences can still be ambiguous, so every local preview remains manual-review-only. A production proposal needs structured issuer evidence (for example SEC/IR identifiers) or a tested entity–event extractor before news classification can be considered sufficient.
 
 Fetched pages are restricted to public HTTPS addresses on port 443. Every DNS answer must be globally routable, and the connection is pinned to a vetted IP while TLS still verifies the original hostname, closing the DNS-rebinding gap. Redirects and canonical URLs are revalidated, private/loopback/link-local destinations are rejected, cross-domain canonical metadata cannot elevate source authority, decoded response bodies are capped at 2 MB, and the body reader enforces an absolute deadline even against slow-drip responses. DNS and HTTP-header handling still rely on bounded connection/read-idle timeouts rather than a cancellable whole-request wall clock, so unattended scheduling remains forbidden until that final availability control is added.
 
@@ -152,7 +153,7 @@ The local data can support an observed-panel event census, not a production back
 - the current FMP company list is not point-in-time membership;
 - earnings dates lack reliable before-open/after-close timestamps;
 - earnings surprise fields are current-vintage and therefore excluded;
-- there is no historical news archive with causal publication times;
+- ordinary historical news coverage is incomplete and many vendor timestamps lack a timezone;
 - the 15-minute cache is regular-session and only about 197 liquid names; and
 - there is no broad historical premarket quote/bar history.
 
@@ -163,9 +164,17 @@ at least 126 prior bars
 prior close >= $3
 prior 63-session ADDV >= $5M
 event open / prior close - 1 >= 10%
+simple ATR(14) through the prior session / prior close > 4% (strict, unrounded)
 prior 63-session return <= 20%
 no earlier volume-confirmed event in the prior 126 sessions
 ```
+
+The 14 true ranges consume 15 completed source bars, and those bars must be
+consecutive NYSE sessions. Any missing session, invalid bar, half/double, or
+>=50% basis cliff in that input window fails the ATR gate closed. The event day
+cannot enter ATR. A low-ATR 10%/2x-volume gap still resets the 126-session
+novelty clock; otherwise the volatility filter would incorrectly relabel a later
+repeat gap as the first EP.
 
 Event-day volume at least 2× the prior 20-day average is explicitly labeled **ex-post confirmation**. It cannot justify an event-open fill. An earnings label only says the calendar date matched the event session or prior trading session; it does not establish the release time.
 
@@ -178,21 +187,67 @@ The 2026-08-25 run over the current FMP operating-company slice found:
 | Census stage | Count |
 |---|---:|
 | Companies with local history | 1,206 |
-| Daily bars | 5,772,117 |
+| Daily bars | 5,772,872 |
 | Open-observable candidates | 5,934 |
 | Ex-post 2× volume confirmed | 4,511 |
 | First confirmed event in prior 126 sessions | 3,126 |
-| Strict first-event plus neglect proxy | 2,470 |
-| Strict events left clean for diagnostics | 2,413 |
-| Strict events matched to an earnings date | 1,067 |
+| Strict first-event plus neglect proxy, before ATR | 2,470 |
+| Rejected: ATR source window unclean/missing | 20 |
+| Rejected: ATR source sessions not consecutive | 0 |
+| Rejected: clean prior ATR% <= 4% | 1,141 |
+| Strict events after prior ATR% > 4% | 1,309 |
+| Default diagnostic population after event-basis review | 1,300 |
+| Event-day half/double closes retained only in the inclusion sensitivity | 9 |
+| ATR-qualified events matched to an earnings date | 392 |
 
-The anomaly table contains 33,831 zero/invalid legacy bars, 370 half/double cliffs, and 1,302 extreme-move flags. Fifty-seven strict events were excluded from outcomes because an anomaly was on or near the event.
+The anomaly table contains 35,080 rows: 33,831 zero/invalid legacy-bar flags,
+370 half/double-cliff flags, and 1,302 extreme-move flags, with some overlap.
+Nine ATR-qualified events closed near half/double the prior close. Price data
+alone cannot distinguish a genuine doubling from a split-basis problem, so the
+events remain in the eligible-event ledger but are excluded from the default
+diagnostic population. A separately named sensitivity includes them. A
+legitimate >=50% event-day gap that is not a half/double cliff therefore remains
+eligible and auditable instead of being mechanically censored; an extreme move
+inside the *prior* ATR source window still fails the ATR gate closed. The earlier
+centered five-session flag was removed because a large move after an EP could
+leak backward and change inclusion.
 
-The mechanical proxy was weak at ordinary horizons. From the next session's open, SPY-excess mean/median returns were -0.21%/-0.29% at five sessions, +0.27%/-0.21% at 20, and +2.83%/+0.17% at 60. Equal-weight event-date bootstrap 95% intervals were [-0.60%, +0.18%], [-0.59%, +0.77%], and [+0.84%, +3.82%], respectively; issuer-cluster intervals were [-1.14%, -0.16%], [-1.30%, +0.44%], and [+0.74%, +4.01%].
+The available-case cohorts differ by horizon because recent events are
+right-censored. In the 1,300-event basis-review-cleared population, next-open
+SPY-excess mean/median was -0.12%/-0.13% at five sessions (N=1,295),
++0.98%/+0.01% at 20 (N=1,266), and +5.72%/+1.59% at 60 (N=1,252). On the
+same balanced 1,252-event cohort, the corresponding figures were
+-0.02%/-0.05%, +1.13%/+0.08%, and +5.72%/+1.59%. Equal-weight event-date
+bootstrap 95% intervals on the available cohorts were [-0.81%, +0.50%],
+[-0.53%, +1.90%], and [+2.04%, +7.53%]; issuer-cluster intervals were
+[-1.24%, +0.09%], [-0.80%, +1.39%], and [+2.63%, +7.16%]. Including the nine
+unresolved basis-review events changes the 20-session date-cluster mean from
++0.69% to +0.79%; both intervals cross zero. The later positive mean is a
+descriptive right-tail observation, not evidence that the typical event works
+or that 4% is the optimal volatility threshold.
 
-The one-time 2024–2026 evaluation slice was worse in the middle of the distribution: next-open SPY-excess mean/median was -0.77%/-1.34% at five sessions, -0.98%/-2.35% at 20, and +2.35%/-2.41% at 60. Because those results are now published, this slice is a **consumed holdout** and cannot support a future untouched-holdout claim after policy critique or tuning. The next genuinely untouched test must be prospective shadow data or a later frozen vintage. The positive long-horizon mean alongside a negative median is a right-tail signature, not a general candidate-level edge. It reinforces Bonde's central distinction: gap/volume is a nomination mechanism, while catalyst quality and a small number of outsized winners drive the concept. These figures still inherit every survivorship, timing, adjustment, and ex-post-volume limitation above.
+The 2024–2026 rows are machine-labeled `CONSUMED_HOLDOUT_2024_2026`. After
+excluding five basis-review rows in that slice, next-open SPY-excess
+mean/median was -0.49%/-1.52% at five sessions (N=370), -0.14%/-3.12% at 20
+(N=341), and +6.12%/-0.82% at 60 (N=327). On the balanced 327-event cohort the
+five/20/60-session means were -0.17%, +0.39%, and +6.12%, with medians
+-1.33%, -2.61%, and -0.82%. Including the five flagged rows moves the available
+20-session mean from -0.14% back to +0.22%; the date- and issuer-cluster means
+move from -0.44%/-0.42% to -0.08%/+0.03%, and every interval crosses zero.
+This slice cannot support a future untouched-holdout claim. The next untouched
+test must be prospective shadow data or a later frozen vintage. All figures
+still inherit the survivorship, timing, adjustment, and ex-post-volume limits
+above.
 
-The run lives under `artifacts/episodic_pivot/historical-diagnostic-20260825T014152Z/`; `diagnostic_clustered.csv` reports date- and issuer-clustered sensitivity rather than treating every row as independent.
+The rerun lives under
+`artifacts/episodic_pivot/historical-diagnostic-20260825T233943Z/`.
+`diagnostic_horizon_comparison.csv` reports available and balanced cohorts,
+`diagnostic_clustered.csv` reports date- and issuer-clustered results without
+the unresolved basis rows, and
+`diagnostic_clustered_including_event_half_double_review.csv` is the explicitly
+named nine-event inclusion sensitivity. Its candidate parquet SHA-256 is
+`d6e13fc73e451bb61f1ec18dbf7361b09a9a4f5dc6e5a3af6a112ff59984f112`, the
+same input hash frozen by the v6 historical-news manifest below.
 
 ## Running the shadow process
 
@@ -219,9 +274,9 @@ python scripts/import_tradingview_ep.py `
   --write-artifact
 ```
 
-After-hours captures map to the next actual NYSE session; Friday and pre–Good Friday exports therefore map through the weekend correctly. A header-only export with a displayed count of zero is a valid completed scan. Any count mismatch, duplicate symbol, malformed number, missing session-specific field, timezone-less capture, non-trading date, or out-of-window capture fails the whole import. TradingView rows are stamped `BROWSER_EXPORT`, `tradeable=false`, unknown halt state, and no bid/ask/VWAP/contract data. They can start research but can never create a sizing preview.
+After-hours captures map to the next actual NYSE session; Friday and pre–Good Friday exports therefore map through the weekend correctly. A header-only export with a displayed count of zero is a valid completed scan. Any count mismatch, duplicate symbol, malformed number, missing session-specific field, timezone-less capture, non-trading date, or out-of-window capture fails the whole import. TradingView rows are stamped `BROWSER_EXPORT`, `tradeable=false`, unknown halt state, and no bid/ask/VWAP/contract or ATR data. They can nominate research targets but can never create a sizing preview. The required daily order is TradingView discovery -> read-only IBKR enrichment -> prior ATR% gate -> news research.
 
-### 2. Run the research funnel
+### News research (only after IBKR enrichment)
 
 The research runner is also dry by default: it validates inputs but makes no network request and writes nothing.
 
@@ -281,7 +336,7 @@ The source manifest must come from a network research run, its run directory mus
 
 Each run writes `manifest.json`, `candidates.json`, candidate-ID and symbol-keyed evidence files, `decisions.json`, `research_sizing_preview.json`, `research_sizing_preview.csv`, `report.md`, and a standalone `report.html`. The manifest hashes every artifact and records that publishing, staging, and broker contact did not occur. Rerunning identical offline inputs uses the same run ID. CSV cells are formula-escaped and HTML is escaped while JSON retains raw source text for audit.
 
-### 3. Optional targeted IBKR enrichment
+### Required targeted IBKR enrichment before EP treatment
 
 TradingView supplies broad discovery; IBKR supplies fresh executable-market facts only for the resulting bounded candidate list. The adapter is dry by default and imports `ib_insync` only after `--capture` is explicitly supplied:
 
@@ -296,14 +351,21 @@ python scripts/capture_ep_premarket_ibkr.py `
   --capture
 ```
 
-Capture is restricted to 04:00–09:25 ET and connects with `readonly=True`. For each TradingView target it qualifies one USD stock contract, cross-checks the primary exchange, fetches raw daily and extended-hours bars, derives the first actual 5-minute trigger timestamp, requests a bounded live quote/halt watch, then cancels every subscription. It exposes no order API. If no target file is supplied, the older IBKR rank-limited scanner union remains available as a clearly labeled non-exhaustive fallback.
+Capture is restricted to 04:00–09:25 ET and connects with `readonly=True`. For each TradingView target it qualifies one USD stock contract, cross-checks the primary exchange, fetches `ADJUSTED_LAST` daily bars plus raw extended-hours trades, derives the first actual 5-minute trigger timestamp, requests a bounded live quote/halt watch, then cancels every subscription. [IBKR documents](https://interactivebrokers.github.io/tws-api/historical_bars.html) `TRADES` as split-adjusted but not dividend-adjusted, so it is not accepted for the daily ATR path; an unverified basis creates `PRIOR_ATR_PRICE_BASIS_UNVERIFIED`. The capture requires at least 126 completed daily bars and computes the same simple ATR(14) used by the historical census. All 15 source bars must be consecutive NYSE sessions and pass the invalid/half-double/>=50% basis checks. A sizing preview is blocked when `100 * ATR(14) / previous close <= 4`, and missing ATR is `PRIOR_ATR_UNRESOLVED`, not evidence of low volatility. It exposes no order API. If no target file is supplied, the older IBKR rank-limited scanner union remains available as a clearly labeled non-exhaustive fallback.
 
 ### 4. Daily shadow cadence (not scheduled)
 
 - 7:45 PM ET: export after-hours, validate, and begin evidence collection for the next session.
-- 6:30 AM ET: export premarket, merge by target session/ticker, and run the main research pass.
+- 6:30 AM ET: export premarket, merge by target session/ticker, and enrich the bounded list through read-only IBKR.
+- after IBKR enrichment: block ATR-unresolved, unverified adjusted-basis, and prior ATR% <=4 names before the main news-research pass.
 - 8:30 AM ET: export a fresh delta, enrich new/high-priority names through read-only IBKR, and reuse verified evidence where hashes/provenance match.
 - 8:50 AM ET: freeze the HTML review report.
+
+The news-request budget is applied only after the ATR/basis gate. Low-ATR,
+ATR-unresolved, and basis-unverified movers remain visible in the audit decisions with
+`NEWS_RESEARCH_SKIPPED_PRIOR_ATR`, but they never consume a search request or
+displace a >4% candidate. ATR-qualified names beyond the configured research cap
+remain visible as `NEWS_RESEARCH_NOT_SELECTED_BY_CAP`.
 
 These are operator times only. No Task Scheduler task, GitHub cron, browser-cookie export, email, upload, or deployment has been created. A missing TradingView login must produce a fresh capture failure; yesterday's rows must never substitute for today's scan.
 
@@ -316,6 +378,98 @@ python scripts/study_episodic_pivot_history.py `
 ```
 
 `--mode diagnostic` adds fixed-horizon observations only after the anomaly output has been reviewed. It does not make the study point-in-time or production-ready.
+
+### Historical news-flow enrichment
+
+The historical label functions receive ticker, event date, prior-session
+features, and ATR state but no forward-return columns. SEC submissions are
+issuer-batched and expanded through relevant historical chunks; FMP stock news
+is queried in the same bounded date window for every event. The command's parent
+process does load the outcome-bearing source dataframe, so the implementation is
+**column-isolated, not process-isolated, blinding**. The freeze manifest records
+that limitation explicitly.
+
+```powershell
+python scripts/enrich_episodic_pivot_history.py `
+  --candidates artifacts/episodic_pivot/historical-diagnostic-RUN/historical_candidates.parquet `
+  --data-root 'C:\Users\McKinley Slade\dev\New_Seasonals\data' `
+  --env-file 'C:\Users\McKinley Slade\dev\New_Seasonals\.env'
+```
+
+After the provider cache is frozen, add `--cache-only` for a deterministic
+rebuild that cannot contact either provider. The output separates
+`blinded_events.parquet`, `document_ledger.parquet`, `event_evidence.parquet`,
+provider failures, and `post_freeze_outcomes.parquet`. `label_freeze.json`
+hashes every decision-bearing label file before outcomes are joined.
+
+The candidate availability window is the prior regular close through 09:30 ET.
+An exact SEC acceptance time receives a three-minute availability proxy.
+NYSE opens and closes, including early closes, come from the exchange calendar.
+`PREOPEN_SEC_ASSUMED_PUBLIC` means only that this assumed public time landed in
+the window; it is not proof of dissemination or causation. A rule-based SEC type
+can become primary only when the event-date ticker/CIK identity is validated by
+an optional point-in-time crosswalk. The current FMP profile CIK is not enough.
+Without that crosswalk, classifiable filings remain
+`PREOPEN_SEC_ASSUMED_PUBLIC_IDENTITY_UNRESOLVED_CLASSIFIED` and the primary type
+and trajectory remain unresolved. FMP headlines and text can identify secondary
+context, but their timezone-naive timestamp keeps them `TIMING_UNRESOLVED` and
+historical FMP direction is disabled. Known passive-holdings and law-firm
+solicitation templates remain in the raw document ledger and raw-count columns
+but are excluded from decision counts, event types, and catalyst decisions.
+Issuer-bearing clauses are extracted before classification so a candidate does
+not inherit another company's event merely because both appear in one sentence.
+This remains a conservative heuristic, not a general semantic parser. Empty
+provider results stay `COVERAGE_UNRESOLVED`.
+
+The complete cache-only rebuild
+`historical-news-20260825T233751Z` labeled all 1,309 ATR-qualified events and
+retained 6,863 deduplicated source records:
+
+| Historical evidence posture | Events |
+|---|---:|
+| Point-in-time-identity-validated primary disclosure | 0 |
+| Classifiable pre-open SEC context; identity unresolved | 696 |
+| Unclassified pre-open SEC context; identity unresolved | 86 |
+| Date-matched flow; exact timing unresolved | 185 |
+| Stale/post-open context only | 62 |
+| Coverage unresolved | 280 |
+
+Every SEC statistic below uses a **current-CIK-matched, historically
+identity-unvalidated** link. Within that limitation, pre-open SEC context was
+dominated by earnings/guidance (656 events, 50.1% of all candidates), followed
+by other material filings (75), financing/dilution (18), M&A/strategic (12),
+management/governance (10), and unclassified material agreements (10).
+
+Issuer-clause-bound secondary FMP context was present for 674 events: 413 were
+earnings/guidance, 196 unclassified, 16 M&A/strategic, 15
+regulatory/clinical, 10 product/customer/contract, seven analyst actions, six
+legal/investigation, four each financing/dilution and distress/restructuring,
+and three management/governance. These are date-matched context categories,
+not evidence that the story preceded or caused the gap. All 1,309 secondary
+trajectory postures are deliberately `TRAJECTORY_UNRESOLVED`.
+
+The provider audit recorded 1,113 SEC document records whose acceptance-plus-
+three-minute proxy fell before the open, 1,309/1,309 FMP cache hits,
+1,304/1,309 SEC cache hits, and five unresolved current-vintage CIK mappings.
+The ledger retained 367 known low-signal legal solicitations and seven holdings
+updates while excluding them from decision counts and event types; a residual
+audit covering named law firms plus obvious class-action/contact/deadline/click-
+through templates found zero standard-discovery rows. The event summary now
+stores both raw and decision-only article counts, so a solicitation-heavy event
+cannot appear richly corroborated after its documents are excluded. Schema v6
+freezes the four label files before outcomes are joined.
+
+After labels were frozen, the 630 basis-review-cleared,
+current-CIK-matched earnings/guidance events with a 20-day outcome had a
+date-cluster SPY-excess mean of +1.08% with a 95% interval of
+[-0.27%, +2.43%] and an issuer-cluster mean of +0.91% with an interval of
+[-0.43%, +2.24%]. The intervals cross zero and the identity link is
+not point-in-time, so this is not a validated earnings-EP effect. Historical FMP
+positive/adverse comparisons were removed after audit found reaction-story,
+cross-company, and resolution/negation failures. Directional news efficacy must
+be tested prospectively from timestamped shadow evidence. This census supports
+the architecture for that test; it does not validate a mandatory gate, an
+automatic trajectory signal, or any historical trade rule.
 
 ## Review decisions before any production proposal
 

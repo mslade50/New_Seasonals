@@ -15,7 +15,7 @@ from .news import (
     normalize_evidence_document,
 )
 from .premarket import nominate_candidates
-from .qualify import qualify_candidate
+from .qualify import prior_atr_blocker, qualify_candidate
 from .schema import (
     NewsDocument,
     PremarketSnapshot,
@@ -50,7 +50,7 @@ def _run_id(
         separators=(",", ":"),
         default=str,
     )
-    seed = f"{iso_utc(as_of)}|{normalized_inputs}".encode("utf-8")
+    seed = f"{iso_utc(as_of)}|{normalized_inputs}".encode()
     day = parse_timestamp(as_of).date().isoformat()
     return f"EP-RUN-{day}-{hashlib.sha256(seed).hexdigest()[:12]}"
 
@@ -74,11 +74,27 @@ def run_shadow_pipeline(
         raise ValueError("choose offline evidence or a search provider, not both")
 
     scan_at = iso_utc(as_of)
-    initial_candidates = nominate_candidates(snapshots, as_of=scan_at, policy=policy)
+    initial_candidates = nominate_candidates(
+        snapshots,
+        as_of=scan_at,
+        policy=policy,
+        apply_candidate_limit=False,
+    )
+    atr_eligible = [
+        candidate
+        for candidate in initial_candidates
+        if prior_atr_blocker(candidate.snapshot, policy=policy) is None
+    ]
+    research_candidates = atr_eligible[: policy.discovery.max_candidates]
+    research_candidate_ids = {
+        candidate.candidate_id for candidate in research_candidates
+    }
     fetcher = article_fetcher or ArticleFetcher()
-    documents_by_candidate: dict[str, list[NewsDocument]] = {}
+    documents_by_candidate: dict[str, list[NewsDocument]] = {
+        candidate.candidate_id: [] for candidate in initial_candidates
+    }
 
-    for candidate in initial_candidates:
+    for candidate in research_candidates:
         symbol = candidate.snapshot.symbol
         if offline_documents is not None:
             documents = []
@@ -102,7 +118,7 @@ def run_shadow_pipeline(
                     normalize_evidence_document(fetcher.fetch(hit))
                     for hit in hits[: policy.news.max_documents_per_candidate]
                 ]
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - fail one provider call closed.
                 documents = [
                     NewsDocument(
                         title="",
@@ -126,7 +142,12 @@ def run_shadow_pipeline(
     # is used to recheck quote freshness; a slow run correctly produces WATCH
     # decisions until the user captures a fresh snapshot and replays the evidence.
     decision_at = iso_utc(utc_now()) if search_provider is not None else scan_at
-    candidates = nominate_candidates(snapshots, as_of=decision_at, policy=policy)
+    candidates = nominate_candidates(
+        snapshots,
+        as_of=decision_at,
+        policy=policy,
+        apply_candidate_limit=False,
+    )
     decisions = []
     previews = []
     for candidate in candidates:
@@ -155,6 +176,18 @@ def run_shadow_pipeline(
             decision_at=decision_at,
             target_session_date=target_session_date,
         )
+        if candidate.candidate_id not in research_candidate_ids:
+            skipped_for_atr = prior_atr_blocker(candidate.snapshot, policy=policy)
+            research_blocker = (
+                "NEWS_RESEARCH_SKIPPED_PRIOR_ATR"
+                if skipped_for_atr
+                else "NEWS_RESEARCH_NOT_SELECTED_BY_CAP"
+            )
+            decision = replace(
+                decision,
+                decision="WATCH",
+                blockers=tuple(sorted(set(decision.blockers) | {research_blocker})),
+            )
         outcome = build_research_sizing_preview(
             candidate,
             decision,

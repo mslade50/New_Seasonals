@@ -59,8 +59,48 @@ These are separate hypotheses. A future test may compare them, but production co
 3. Reputable independent financial news and other fetched secondary pages: research/corroboration only, never enough for automatic Classic qualification.
 4. Search result or snippet: URL discovery only, never evidence.
 
+For the historical ledger, SEC submissions are expanded through every relevant
+`filings.files` history chunk, not just the current `filings.recent` block. SEC
+`acceptanceDateTime` is the timestamp source of truth and the study adds a
+three-minute availability proxy before testing the prior-close to 09:30 ET
+candidate window. Early synthetic-midnight timestamps remain timing
+unresolved. See the [SEC EDGAR API documentation](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
+and [SEC timestamp/fair-access FAQ](https://www.sec.gov/about/webmaster-frequently-asked-questions).
+
+FMP's [historical stock-news endpoint](https://site.financialmodelingprep.com/developer/docs/stable/search-stock-news)
+is used as a secondary discovery archive. Its `publishedDate` is timezone-naive,
+so an article can clarify the event category but cannot by itself prove that the
+story preceded the open. The current account's press-release route is not
+entitled and is not silently substituted. Google News RSS has no historical
+coverage contract; Google CSE is not a dependency for this census. Empty results
+are labeled `COVERAGE_UNRESOLVED`, never “no catalyst.”
+
 The bot remains intentionally narrower than Bonde's discretionary practice. Analyst calls, ordinary management changes, rumors, vague products, trial initiation without positive data, capped takeovers, dilution, bankruptcy, and unresolved evidence do not create sizing previews. Even a qualifying sizing record is fixed research metadata, not an order.
 
 ## What the historical result says
 
-The repo's mechanical gap/volume/neglect proxy has weak or negative typical next-open outcomes and a positive 60-session mean driven by a right tail. That does not validate the bot; it rejects the premise that price/volume rules alone are enough. The only credible next test is prospective, timestamped catalyst labeling and shadow execution, with all rejects retained and no tuning on the already-consumed 2024–2026 evaluation slice.
+After imposing the user-specified, strictly prior-session ATR(14)% >4 gate, the repo's mechanical gap/volume/neglect proxy still has a weak typical five-session outcome and a positive 60-session mean driven by a right tail. ATR uses 14 true ranges from 15 consecutive NYSE source sessions, excludes the event bar, and requires at least 126 completed bars. The live IBKR path requests dividend- and split-adjusted `ADJUSTED_LAST` daily bars to match the adjusted historical basis; an unverified basis fails shut. These controls make the rule consistent, but they do not validate the bot or optimize the 4% threshold. The only credible next test is prospective, timestamped catalyst labeling and shadow execution, with all rejects retained and no tuning on the already-consumed 2024–2026 evaluation slice.
+
+The corrected frozen historical news pass is more limited—and more useful—than
+the first draft implied. Of 1,309 ATR-qualified events, 696 had classifiable
+pre-open SEC context under a current-vintage ticker/CIK link, 86 had
+unclassified pre-open SEC context, 185 had only date-matched flow with
+unresolved intraday timing, 62 had stale/post-open context only, and 280 had
+unresolved coverage. **Zero** events qualify as primary historical evidence
+without a point-in-time ticker/CIK crosswalk. Earnings/guidance accounted for
+656 pre-open SEC-context events.
+
+The final v6 audit disables historical FMP direction entirely. FMP
+`publishedDate` has no timezone, many event-day stories are reactions, and the
+first directional pass contained cross-company and resolved-charge errors.
+Issuer-bound clauses now supply context categories only; law-firm solicitations
+stay in the raw ledger but cannot affect decision counts or types, and all 1,309
+secondary trajectory postures remain unresolved. Current-CIK-matched SEC
+context is still
+descriptively dominated by 656 earnings/guidance events, but zero events have a
+point-in-time-validated primary identity. The 630 basis-review-cleared
+earnings-context events with a 20-day outcome had a date-cluster SPY-excess mean
+of +1.08% (95% CI -0.27% to +2.43%), which does not separate from zero.
+Historical news flow therefore
+supports building a prospective timestamped shadow test; it does not show that
+a news gate or directional headline label historically worked.
