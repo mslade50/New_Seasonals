@@ -69,6 +69,12 @@ def _site(tmp_path: Path):
             "Defensive Leadership": {"current": {"value": -1.2}},
             "Seasonal Rank Divergence": {"current": {"value": 2.4}},
         },
+        "forward_returns": {
+            "63d": {
+                "episode_dates": ["2025-01-02"],
+                "returns": {"63": {"mean": 0.04, "n": 8}},
+            },
+        },
         "trade_console": {"state": "ok"},
     })
     _write(data / "seasonality" / "manifest.json", {
@@ -177,6 +183,16 @@ def test_stale_or_degraded_risk_payload_blocks_deploy(tmp_path):
     assert any("Risk payload as-of 2026-08-01" in problem for problem in problems)
     assert any("Defensive Leadership" in problem for problem in problems)
     assert any("trade console is unavailable" in problem for problem in problems)
+
+
+def test_missing_risk_forward_returns_blocks_deploy(tmp_path):
+    data = _site(tmp_path)
+    risk = json.loads((data / "risk.json").read_text(encoding="utf-8"))
+    risk["forward_returns"] = {}
+    _write(data / "risk.json", risk)
+
+    problems = validate_site(str(tmp_path))
+    assert any("similar-fragility forward returns" in problem for problem in problems)
 
 
 def test_incomplete_seasonality_payloads_block_deploy(tmp_path):

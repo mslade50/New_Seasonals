@@ -190,6 +190,24 @@ def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[
             current = (detail.get(name) or {}).get("current") or {}
             if current.get("value") is None:
                 problems.append(f"Risk signal {name!r} has no current metric value")
+        forward_returns = risk.get("forward_returns") or {}
+        long_study = (
+            forward_returns.get("63d")
+            if isinstance(forward_returns, dict)
+            else None
+        )
+        long_returns = (
+            long_study.get("returns") if isinstance(long_study, dict) else None
+        )
+        if (
+            not isinstance(long_study, dict)
+            or not isinstance(long_study.get("episode_dates"), list)
+            or not long_study["episode_dates"]
+            or not isinstance(long_returns, dict)
+            or not any(isinstance(stats, dict) for stats in long_returns.values())
+        ):
+            problems.append(
+                "Risk 63d similar-fragility forward returns are unavailable")
         if not isinstance(risk.get("trade_console"), dict):
             problems.append("Risk trade console is unavailable")
 

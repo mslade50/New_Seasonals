@@ -116,6 +116,21 @@ def test_bundle_without_stats_is_none_safe(tmp_path, monkeypatch):
                    "h_scores_10d": None, "frag_df": None}
 
 
+def test_horizon_stats_path_prefers_cloud_reference(tmp_path):
+    reference = tmp_path / "reference" / "signal_horizon_stats.json"
+    legacy = tmp_path / "data" / "signal_horizon_stats.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text('{"source": "legacy"}', encoding="utf-8")
+
+    assert core._select_horizon_stats_path(
+        str(reference), str(legacy)) == str(legacy)
+
+    reference.parent.mkdir(parents=True)
+    reference.write_text('{"source": "reference"}', encoding="utf-8")
+    assert core._select_horizon_stats_path(
+        str(reference), str(legacy)) == str(reference)
+
+
 def test_bundle_ts_write_stamps_vintage(tmp_path):
     spy = _flat_spy(180)
     hist = pd.Series(False, index=spy.index)

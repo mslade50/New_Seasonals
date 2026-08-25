@@ -47,6 +47,9 @@ EXCLUDED_FILES = {
 # them without inheriting any local data directory.
 SOURCE_REFERENCE_REMAPS = {
     "data/sp500_risk_classification.csv": "reference/sp500_risk_classification.csv",
+    # fragility_core needs these frozen signal-edge calibrations to compute
+    # the similar-reading forward-return studies shown on the Risk tab.
+    "data/signal_horizon_stats.json": "reference/signal_horizon_stats.json",
     # macro_calendar.py's committed event calendar — build_event_sleeve needs
     # it (sleeve_status_cards computes next entry windows). Found missing
     # 2026-08-21: the deployed Events tab rendered a single ERROR card.

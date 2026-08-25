@@ -21,7 +21,21 @@ import pandas as pd
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(_ROOT, "data")
-HORIZON_STATS_PATH = os.path.join(DATA_DIR, "signal_horizon_stats.json")
+HORIZON_STATS_REFERENCE = os.path.join(
+    _ROOT, "reference", "signal_horizon_stats.json")
+HORIZON_STATS_LEGACY = os.path.join(DATA_DIR, "signal_horizon_stats.json")
+
+
+def _select_horizon_stats_path(
+    reference_path: str = HORIZON_STATS_REFERENCE,
+    legacy_path: str = HORIZON_STATS_LEGACY,
+) -> str:
+    return reference_path if os.path.exists(reference_path) else legacy_path
+
+
+# The isolated private-site build promotes this versioned calibration out of
+# the excluded runtime data/ tree. Local workflows retain the legacy path.
+HORIZON_STATS_PATH = _select_horizon_stats_path()
 PIT_FRAGILITY_PATH = os.path.join(DATA_DIR, "rd2_fragility.parquet")
 
 

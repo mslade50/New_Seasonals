@@ -15,6 +15,7 @@ def test_stage_copies_tracked_code_but_never_runtime_data(tmp_path):
         "functions/chart.js": "export default {}",
         "data/local.json": "LOCAL",
         "data/sp500_risk_classification.csv": "ticker,beta_2y,label\nSPY,1.0,neutral\n",
+        "data/signal_horizon_stats.json": '{"signals": {}}',
         "data/macro_events.csv": "date,event\n2026-08-21,opex\n",
         "dist/data/meta.json": "LOCAL DIST",
         "scratch/probe.py": "LOCAL SCRATCH",
@@ -39,6 +40,9 @@ def test_stage_copies_tracked_code_but_never_runtime_data(tmp_path):
     assert (dest / "reference/sp500_risk_classification.csv").read_text(
         encoding="utf-8"
     ).startswith("ticker,beta_2y,label")
+    assert json.loads((dest / "reference/signal_horizon_stats.json").read_text(
+        encoding="utf-8"
+    )) == {"signals": {}}
     assert (dest / "reference/macro_events.csv").read_text(
         encoding="utf-8"
     ).startswith("date,event")
