@@ -203,7 +203,7 @@ book.
 
 In each eligible stock-position row, add compact controls:
 
-- existing `Trim 1/2`;
+- `Trim 1/4` and `Trim 1/2`;
 - a persistent per-row `Re-add off/on` toggle that applies to the trim action;
 - `Add 1/2`;
 - `Add 1x`.

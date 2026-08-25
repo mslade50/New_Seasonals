@@ -77,8 +77,9 @@ def test_exposure_adding_actions_reject_target_only_exit(executor):
     )
 
 
+@pytest.mark.parametrize("fraction", [0.25, 0.5])
 def test_executor_accepts_time_stop_only_for_add_and_readd(
-        executor, monkeypatch):
+        executor, monkeypatch, fraction):
     contract = SimpleNamespace(
         symbol="AAPL",
         secType="STK",
@@ -127,7 +128,7 @@ def test_executor_accepts_time_stop_only_for_add_and_readd(
         "sec_type": "STK",
         "con_id": 12345,
         "expected_position": 100,
-        "fraction": 0.5,
+        "fraction": fraction,
     }
 
     add_ctx, add_error = executor._prepare_fast_position(
@@ -141,7 +142,9 @@ def test_executor_accepts_time_stop_only_for_add_and_readd(
     assert readd_ctx["legs"][0]["good_after"] == scheduled.goodAfterTime
 
 
-def test_agent_accepts_time_stop_only_for_add_and_readd(agent, monkeypatch):
+@pytest.mark.parametrize("fraction", [0.25, 0.5])
+def test_agent_accepts_time_stop_only_for_add_and_readd(
+        agent, monkeypatch, fraction):
     position = {
         "symbol": "AAPL",
         "sec_type": "STK",
@@ -176,7 +179,7 @@ def test_agent_accepts_time_stop_only_for_add_and_readd(agent, monkeypatch):
         "sec_type": "STK",
         "con_id": 12345,
         "expected_position": 100,
-        "fraction": 0.5,
+        "fraction": fraction,
     }
 
     add_ok, add_reasons = agent._validate({

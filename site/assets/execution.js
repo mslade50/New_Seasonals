@@ -439,12 +439,14 @@ function renderPositions() {
       ? '<span class="cap">combo — close via TWS</span>'
       : p.sec_type === "STK"
         ? `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
-          <button class="btn xs ghost" data-mutation${readdOn && !hasProtection ? noProtection : ""} onclick='execTrim(${posJson(p)})'>Trim&frac12;</button>
+          <button class="btn xs ghost" data-mutation${readdOn && !hasProtection ? noProtection : ""} onclick='execTrim(${posJson(p)},0.25)'>Trim&frac14;</button>
+          <button class="btn xs ghost" data-mutation${readdOn && !hasProtection ? noProtection : ""} onclick='execTrim(${posJson(p)},0.5)'>Trim&frac12;</button>
           <button class="btn xs ${readdOn ? "" : "ghost"}"${hasProtection ? "" : noProtection} onclick='execToggleReadd(${posJson(p)})'>Re-add ${readdOn ? "on" : "off"}</button>
           <button class="btn xs ghost" data-mutation${hasProtection ? "" : noProtection} onclick='execAddToPosition(${posJson(p)},0.5)'>Add&frac12;</button>
           <button class="btn xs ghost" data-mutation${hasProtection ? "" : noProtection} onclick='execAddToPosition(${posJson(p)},1)'>Add 1x</button>
           ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`
         : `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
+          <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.25)'>Trim&frac14;</button>
           <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
           ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
     const priceDigits = p.sec_type === "CASH" ? 5 : 2;
@@ -756,7 +758,7 @@ function actionLead(verb) {
 
 function execFlatten(pos, fraction) {
   if (rejectUnknownMutation()) return;
-  const pct = fraction === 1 ? "100%" : "50%";
+  const pct = `${Math.round(Number(fraction) * 100)}%`;
   if (!confirm(`${actionLead("flatten")} ${pct} of ${pos.symbol} (${state.account})? Cancels its working orders first.`)) return;
   sendCommand("flatten", { ...positionIdentity(pos), fraction, order_type: "MKT" });
 }
@@ -767,9 +769,9 @@ function execToggleReadd(pos) {
   set("positions", renderPositions());
   syncMutationControls();
 }
-function execTrim(pos) {
+function execTrim(pos, fraction = 0.5) {
   if (readdRows.get(positionKey(pos)) !== true) {
-    execFlatten(pos, 0.5);
+    execFlatten(pos, fraction);
     return;
   }
   if (rejectUnknownMutation()) return;
@@ -778,7 +780,7 @@ function execTrim(pos) {
     return;
   }
   const held = Math.abs(Number(pos.position));
-  const qty = fastActionQty(pos.position, 0.5);
+  const qty = fastActionQty(pos.position, fraction);
   if (!(qty > 0 && qty < held)) { alert("This position is too small for a partial trim/re-add."); return; }
   const close = Number(pos.position) > 0 ? "SELL" : "BUY";
   const add = Number(pos.position) > 0 ? "BUY" : "SELL";
@@ -788,7 +790,7 @@ function execTrim(pos) {
     + `expected post-trim position ${post}. Then stage ${add} ${qty} LMT at Avg ${fmt.num(avg, 2)} (DAY) `
     + "with the same stop, target, time-stop, and proportional OCA bracket?";
   if (!confirm(summary)) return;
-  sendCommand("trim_readd", trimReaddPayload(pos, 0.5));
+  sendCommand("trim_readd", trimReaddPayload(pos, fraction));
 }
 function execAddToPosition(pos, fraction) {
   if (rejectUnknownMutation()) return;
