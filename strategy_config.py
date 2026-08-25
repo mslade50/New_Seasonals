@@ -124,26 +124,15 @@ OLV_CAP_EXEMPT_ETFS = sorted(set(
 # Fear-conditioned fragility band tables (2026-08-05, McKinley's chosen form —
 # shipped ahead of the prereg gates as an explicit appetite decision, recorded
 # in scratch/ultracode_research/family_pc_fear_band_prereg_2026-08-05.md).
-# Carried by the 6 FAMILY frag_risk_bands strategies via execution['pc_fear_bands']
-# (OLV carries its OWN tables, OLV_PC_FEAR_BANDS below — cut lifted in fear);
+# Carried by the 6 frag_risk_bands strategies via execution['pc_fear_bands'];
 # the fear state (pc_fear.py: lag-1 trailing-252d pctile of the 10d-MA CBOE
 # equity put/call > 85) SELECTS which band table applies to the 10d-MA 63d
 # dial score. Stale/missing P/C (> 3 bd) fails CLOSED to the strategy's plain
 # frag_risk_bands — the incumbent 0.25x book. Multiplier set is closed per the
 # prereg: {1.25, 1.0, 0.25 (stale incumbent), 0.0}. NOT GRM-scaled (pure
 # multipliers). Evidence + caveats (19-trade fear-ON hi-frag cell, appetite
-# legs B/C): the prereg doc.
-# OLV's own fear-conditioned tables (2026-08-24, McKinley — appetite, like the
-# band itself): the 0.5x cut at dial >= 65 is LIFTED to full size when the
-# P/C fear state is ON (washed-out positioning), the same logic that gives the
-# family full size above dial 50 in fear. No 1.25x boost, no 0.0 zeroing —
-# OLV never had either. Fear OFF or STALE/missing P/C -> the cut stands (the
-# plain frag_risk_bands table is identical to 'off', so fail-closed = cut).
-OLV_PC_FEAR_BANDS = {
-    'on':  [[65, 999, 1.0]],
-    'off': [[65, 999, 0.5]],
-}
-
+# legs B/C): the prereg doc. (An OLV-specific table pair lived here for one
+# session, 2026-08-24 -> 25; see the OLV execution comment.)
 PC_FEAR_BANDS = {
     'on':  [[0, 50, 1.25], [50, 999, 1.0]],
     'off': [[0, 50, 1.0],  [50, 999, 0.0]],
@@ -540,7 +529,7 @@ _STRATEGY_BOOK_RAW = [
             "primary_exit": "10-day time stop OR 2.5 ATR target OR volume-confirmed stop (whichever first)",
             "stop_logic": "Vol-confirmed (2026-07-20): no resting stop. If a session CLOSES at/below entry - 1.25 ATR AND that day's volume >= 1.5x the trailing 20d median, exit MOO at the next open. Quiet closes below the level are held (low-volume weakness is the thesis, not its failure). stop_atr 1.25 still defines the risk unit for sizing.",
             "target_logic": "2.5 ATR above entry",
-            "notes": "Persistent limit at close - 0.25 ATR; GTC for the hold window. No cooldown — consecutive signals on same ticker allowed. No ladder (removed 2026-07-20, all legs 1.0x) and no sector loss gate (removed 2026-07-20 with the vol-confirmed stop + notional cap package). Per-ticker concurrent notional capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing. First-entry half-size ladder [0.5,1,1] since 2026-07-29 (footprint trim on the weakest leg; adds stay full size). Fragility (2026-08-24, appetite): 0.5x when the 10d-MA 63d dial is >= 65 unless P/C fear is ON. Book cap (2026-08-24, LIVE-ONLY, not in the engine): at 3:40 PM ET every open OLV leg is trimmed pro-rata via native MOC so the sub-book closes at or below 100% of NAV; working entries are shrunk into the remaining room (olv_book_cap.py, OneDrive)."
+            "notes": "Persistent limit at close - 0.25 ATR; GTC for the hold window. No cooldown — consecutive signals on same ticker allowed. No ladder (removed 2026-07-20, all legs 1.0x) and no sector loss gate (removed 2026-07-20 with the vol-confirmed stop + notional cap package). Per-ticker concurrent notional capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing. First-entry half-size ladder [0.5,1,1] since 2026-07-29 (footprint trim on the weakest leg; adds stay full size). No fragility band and no book-level cap (a 0.5x dial>=65 band and an EOD 100%-NAV trim ran for one session, 2026-08-24, then were retired 2026-08-25 in favour of a manual one-off hedge; olv_book_cap.py stays in OneDrive, task disabled)."
         },
         "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: limit at close-0.25 ATR (GTC). 10d hold, 2.5 ATR target, 1.25 ATR stop. Liquid 35 bps / overflow 25 bps; first entry in a ticker 0.5x (ladder [0.5,1,1], 2026-07-29), adds full size; pre-earnings window sizes at 10 bps flat.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
@@ -603,34 +592,18 @@ _STRATEGY_BOOK_RAW = [
         # mult still applies): pre-earnings first-iteration = 10 x 0.5 bps.
         "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 1.25, "tgt_atr": 2.5, "hold_days": 10, "use_stop_loss": True, "use_take_profit": True,
                       "signal_recency_ladder": {"window_td": 21, "mults": [0.5, 0.7, 1.0]},
-                      # Fragility band (2026-08-24, McKinley — an APPETITE
-                      # decision, NOT an edge claim): 0.5x when the 10d-MA 63d
-                      # dial is >= 65. The ledger does not support it and this
-                      # is recorded as such: 21 OLV trades at dial >= 70
-                      # (2016+) ran +8R with zero stop-outs and nothing below
-                      # -1.4R, and OLV's worst drawdowns (July 2026 oil cluster
-                      # -$35.8k) came at dial ~20. What the cut buys is a bound
-                      # on a structurally unbounded sub-book: no resting stop,
-                      # no aggregate concurrent-exposure cap, ~84% of NAV in
-                      # OLV notional on 2026-08-24 with the dial at 89.5 (a
-                      # level seen on 20 days ever). Halving above 50 would
-                      # have cost ~19R / ~$29k flat over 10y. 65 is McKinley's
-                      # number (it coincides with the St OS Sznl dial_filter
-                      # threshold; nothing was scanned). COMPOSES with the
-                      # earnings size override, like the recency ladder: a
-                      # pre-earnings signal at dial >= 65 = 10 x recency x 0.5
-                      # bps. P/C fear override (same day): pc_fear_bands =
-                      # OLV_PC_FEAR_BANDS lifts the cut to 1.0x when the lag-1
-                      # P/C fear state is ON, mirroring the family rule; OFF
-                      # or stale P/C -> cut stands (plain table == 'off'). The
-                      # 2026-07-16 prereg ([[50,999,0.5]] candidacy) becomes
-                      # the POST-SHIP review: its PIT gates can retire this
-                      # band, they are not what shipped it. Mults NOT
-                      # GRM-scaled. Aligned: daily_scan 2b/2d, strat_backtester
-                      # 3b3/3b3b, build_risk_json serializer,
-                      # tests/test_frag_risk_bands.py + test_pc_fear_bands.py.
-                      "frag_risk_bands": [[65, 999, 0.5]],
-                      "pc_fear_bands": OLV_PC_FEAR_BANDS,
+                      # NO fragility band (deliberate). A 0.5x cut at dial >= 65
+                      # (lifted in P/C fear) shipped 2026-08-24 as an appetite
+                      # decision and was RETIRED 2026-08-25 after one session:
+                      # McKinley chose to hedge the Aug-2026 high-dial episode
+                      # manually as a one-off rather than carry standing
+                      # machinery. Evidence for the record (unchanged): 21 OLV
+                      # trades at dial >= 70 ran +8R with zero stop-outs; OLV's
+                      # worst drawdowns came at dial ~20 and were idiosyncratic
+                      # (a SPY hedge would not have touched them). The generic
+                      # band-composes-with-earnings-override path in daily_scan
+                      # 2d / strat_backtester 3b3b stays (carrier-less for OLV).
+                      # History: CLAUDE.md "Fragility Risk Bands".
                       # Entry-order live window (2026-06-24): the persistent
                       # close-0.25 ATR limit is cancelled if unfilled after 3
                       # trading days (T+1..T+3), NOT the full 10-day hold. 89% of

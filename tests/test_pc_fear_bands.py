@@ -25,8 +25,8 @@ import strategy_config as sc
 FAMILY = ["Weak Close Decent Sznls", "SPY QQQ MonFri Reversion", "Monday Dip",
           "Indices Oversold Bounce", "3x Bear ETF Overbot Fade",
           "Monthly Weak Close"]
-# Non-family P/C carrier since 2026-08-24: OLV's appetite cut (0.5x at dial
-# >= 65) is lifted to full size in fear via its OWN tables (OLV_PC_FEAR_BANDS).
+# OLV carried its own P/C tables for one session (2026-08-24 -> 25, retired
+# with its appetite band); it must stay OUT of the carrier set.
 OLV = "Oversold Low Volume"
 
 
@@ -39,55 +39,28 @@ def test_carriers_are_exactly_the_frag_band_family():
           if s.get("execution", {}).get("pc_fear_bands")}
     frag = {s["name"] for s in sc.STRATEGY_BOOK
             if s.get("execution", {}).get("frag_risk_bands")}
-    # OLV joined 2026-08-24 with its OWN tables (appetite cut 0.5x at >= 65,
-    # lifted to 1.0x in fear) — it is a P/C carrier but not a FAMILY member.
-    assert pc == frag == set(FAMILY) | {OLV}
+    assert pc == frag == set(FAMILY)
+    assert OLV not in pc
 
 
 def test_all_carriers_share_the_single_constant():
     # Equality, not identity: the GRM import-time scaling deep-copies the
-    # execution dicts. The invariant is that no FAMILY carrier diverges from
-    # PC_FEAR_BANDS (and that the tables are NOT GRM-scaled — pure mults);
-    # OLV carries OLV_PC_FEAR_BANDS and nothing else may.
+    # execution dicts. The invariant is that no carrier diverges from
+    # PC_FEAR_BANDS (and that the tables are NOT GRM-scaled — pure mults).
     for s in sc.STRATEGY_BOOK:
         spec = s.get("execution", {}).get("pc_fear_bands")
-        if spec is None:
-            continue
-        if s["name"] == OLV:
-            assert spec == sc.OLV_PC_FEAR_BANDS
-        else:
+        if spec is not None:
             assert spec == sc.PC_FEAR_BANDS, s["name"]
+    assert not hasattr(sc, "OLV_PC_FEAR_BANDS")
 
 
 def test_tables_match_prereg_and_multiplier_set_is_closed():
     assert sc.PC_FEAR_BANDS["on"] == [[0, 50, 1.25], [50, 999, 1.0]]
     assert sc.PC_FEAR_BANDS["off"] == [[0, 50, 1.0], [50, 999, 0.0]]
     mults = {m for tbl in sc.PC_FEAR_BANDS.values() for _, _, m in tbl}
-    # closed set applies to the P/C family's tables; OLV's 0.5x band
-    # (2026-08-24) is a separate appetite decision outside this prereg.
-    incumbent = {m for s in sc.STRATEGY_BOOK if s["name"] in FAMILY
+    incumbent = {m for s in sc.STRATEGY_BOOK
                  for _, _, m in s.get("execution", {}).get("frag_risk_bands", [])}
     assert mults | incumbent <= {1.25, 1.0, 0.25, 0.0}
-
-
-def test_olv_tables_lift_the_cut_in_fear_only():
-    # ON lifts the >= 65 cut to full size; OFF and STALE keep it; below 65
-    # nothing happens in any state (no boost, no zeroing — ever).
-    assert sc.OLV_PC_FEAR_BANDS == {"on": [[65, 999, 1.0]], "off": [[65, 999, 0.5]]}
-    ex = next(s for s in sc.STRATEGY_BOOK if s["name"] == OLV)["execution"]
-    assert ex["frag_risk_bands"] == sc.OLV_PC_FEAR_BANDS["off"]   # fail-closed == cut
-    for score in (0.0, 30.0, 64.99):
-        for state in ("on", "off", "stale"):
-            assert pc_fear.band_mult(pc_fear.select_bands(ex, state), score) == 1.0
-    for score in (65.0, 89.5, 99.0):
-        assert pc_fear.band_mult(pc_fear.select_bands(ex, "on"), score) == 1.0
-        assert pc_fear.band_mult(pc_fear.select_bands(ex, "off"), score) == 0.5
-        assert pc_fear.band_mult(pc_fear.select_bands(ex, "stale"), score) == 0.5
-    # live helper agrees (daily_scan 2b path)
-    import daily_scan
-    assert daily_scan.frag_band_mult(ex, 89.5, pc_state={"state": "on"}) == 1.0
-    assert daily_scan.frag_band_mult(ex, 89.5, pc_state={"state": "off"}) == 0.5
-    assert daily_scan.frag_band_mult(ex, 89.5, pc_state=None) == 0.5
 
 
 def test_incumbent_frag_bands_unchanged():

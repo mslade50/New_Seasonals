@@ -76,3 +76,7 @@ the candidacy was [[50, 999, 0.5]], threshold 65 is McKinley's, and the
 as a POST-SHIP review whose only possible action is to RETIRE the band (or
 document it as permanently appetite-only) — they cannot "confirm" it. Live
 band selection and the ledger replay are in place from this date.
+
+**2026-08-25 — band RETIRED after one session.** McKinley hedges the episode
+manually as a one-off. OLV is bandless again; the candidacy above is parked
+as before (gate 5's composition code stays in scan 2d / engine 3b3b).
