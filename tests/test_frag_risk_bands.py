@@ -1,10 +1,11 @@
 """frag_risk_bands: per-strategy fragility sizing (2026-07-02).
 
 Guards the three aligned sites: strategy_config carries the bands (FAMILY4
-dip-buyers 0.25x at 63d-MA10 >= 50; OVS 0.75x in [21,44)), daily_scan applies
-them live via frag_band_mult, strat_backtester replays them point-in-time via
-frag_band_mult_at. The retired book-wide ramp (1.25x boost / 0.10x floor) must
-stay dead.
+dip-buyers 0.25x at 63d-MA10 >= 50; OLV 0.5x at >= 65 since 2026-08-24 — an
+explicit appetite cut, not an evidenced edge; OVS fully exempt), daily_scan
+applies them live via frag_band_mult, strat_backtester replays them
+point-in-time via frag_band_mult_at. The retired book-wide ramp (1.25x boost /
+0.10x floor) must stay dead.
 """
 import os
 import sys
@@ -40,6 +41,13 @@ FAMILY4 = {"Weak Close Decent Sznls", "SPY QQQ MonFri Reversion",
            # Monthly-scale dip-buy — band by family analogy since 2026-07-31.
            "Monthly Weak Close"}
 FAMILY_BANDS = [[50, 999, 0.25]]
+# OLV (2026-08-24): McKinley's appetite cut — half size at dial >= 65. NOT an
+# edge claim (21 trades at dial >= 70 ran +8R, zero stop-outs); it bounds a
+# sub-book with no resting stop and no aggregate exposure cap. Own P/C
+# tables lift the cut in fear (OLV_PC_FEAR_BANDS); composes with the
+# earnings override.
+OLV = "Oversold Low Volume"
+OLV_BANDS = [[65, 999, 0.5]]
 
 
 def _exec_of(name):
@@ -54,9 +62,23 @@ def test_config_carries_exactly_the_family_band_entries():
     # edge-weight gate (roadmap step 5) — OVS must stay fully exempt.
     with_bands = {s["name"]: s["execution"]["frag_risk_bands"]
                   for s in STRATEGY_BOOK if s["execution"].get("frag_risk_bands")}
-    assert set(with_bands) == FAMILY4
+    assert set(with_bands) == FAMILY4 | {OLV}
     for name in FAMILY4:
         assert with_bands[name] == FAMILY_BANDS
+    assert with_bands[OLV] == OLV_BANDS
+    # OLV's P/C tables are its OWN (cut lifted in fear) — never the family's
+    from strategy_config import OLV_PC_FEAR_BANDS, PC_FEAR_BANDS
+    assert _exec_of(OLV).get("pc_fear_bands") == OLV_PC_FEAR_BANDS
+    assert _exec_of(OLV).get("pc_fear_bands") != PC_FEAR_BANDS
+
+
+def test_olv_band_boundaries():
+    ex = _exec_of(OLV)
+    assert frag_band_mult(ex, 64.99) == 1.0
+    assert frag_band_mult(ex, 65.0) == 0.5
+    assert frag_band_mult(ex, 89.5) == 0.5     # the 2026-08-21 reading
+    assert frag_band_mult(ex, 0.0) == 1.0      # no boost anywhere, ever
+    assert frag_band_mult(ex, None) == 1.0     # missing/stale dial -> native
 
 
 def test_family_band_boundaries():
@@ -75,7 +97,8 @@ def test_ovs_fully_exempt_at_every_score():
 
 
 def test_bandless_strategy_untouched_at_any_score():
-    ex = _exec_of("Oversold Low Volume")
+    ex = _exec_of("St OS Sznl")
+    assert not ex.get("frag_risk_bands")
     for score in (0, 30, 55, 90, None):
         assert frag_band_mult(ex, score) == 1.0
 
@@ -87,8 +110,8 @@ def test_engine_replay_matches_live_helper():
     # (stale, fail-closed) path; the state-matched leg feeds both sides the
     # same real PIT state.
     import pc_fear
-    dates = pd.date_range("2026-01-05", periods=6, freq="D")
-    scores = pd.Series([10.0, 30.0, 45.0, 52.0, 60.0, 40.0], index=dates)
+    dates = pd.date_range("2026-01-05", periods=8, freq="D")
+    scores = pd.Series([10.0, 30.0, 45.0, 52.0, 60.0, 64.99, 65.0, 89.5], index=dates)
     sb._FRAG_SCORE_CACHE["series"] = scores
     try:
         for name in ("Monday Dip", "Overbot Vol Spike", "Oversold Low Volume"):
@@ -126,11 +149,12 @@ def test_site_serializer_mirrors_strategy_config():
 
     serialized = _bands_from_book(STRATEGY_BOOK)
     by_name = {b["strategy"]: b["bands"] for b in serialized}
-    assert set(by_name) == FAMILY4
-    for bands in by_name.values():
-        assert bands == [[50.0, 999.0, 0.25]]
+    assert set(by_name) == FAMILY4 | {OLV}
+    for name in FAMILY4:
+        assert by_name[name] == [[50.0, 999.0, 0.25]]
+    assert by_name[OLV] == [[65.0, 999.0, 0.5]]
     # multiplier semantics match the live helper at the boundaries
-    for score in (49.9, 50.0, 500.0, 999.0):
+    for score in (49.9, 50.0, 64.9, 65.0, 500.0, 999.0):
         for b in serialized:
             strat = next(s for s in STRATEGY_BOOK if s.get("name") == b["strategy"])
             assert _band_mult(b["bands"], score) == frag_band_mult(

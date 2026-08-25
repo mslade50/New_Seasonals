@@ -60,6 +60,19 @@ the case is per-trade avgR dilution, not damage).
 
 ## Status
 
-- [ ] Gate 5 composition decision + test
+- [x] Gate 5 composition decision + test — 2026-08-24: band COMPOSES with the
+      earnings size override (scan 2d + engine 3b3b), mirroring the recency
+      ladder. Guard: tests/test_frag_risk_bands.py.
 - [ ] Study run (gates 1-4)
 - [ ] Sign-off / negative close recorded here and in CLAUDE.md
+
+## 2026-08-24 — superseded by an appetite decision (post-ship review)
+
+McKinley shipped OLV `frag_risk_bands = [[65, 999, 0.5]]` on 2026-08-24 as an
+explicit risk-appetite cut, stating the data does not support it. Nothing in
+this prereg justified the ship and nothing here should be read as if it did:
+the candidacy was [[50, 999, 0.5]], threshold 65 is McKinley's, and the
+21-trade dial >= 70 cell is +8R with zero stop-outs. Gates 1-4 therefore run
+as a POST-SHIP review whose only possible action is to RETIRE the band (or
+document it as permanently appetite-only) — they cannot "confirm" it. Live
+band selection and the ledger replay are in place from this date.

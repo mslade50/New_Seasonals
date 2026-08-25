@@ -212,7 +212,9 @@ overlay chart.
 ### Consumers (change-impact map)
 
 - `frag_risk_bands` (strategy_config -> daily_scan 2b -> strat_backtester
-  3b3): FAMILY4 + 3x Bear Fade + Monthly Weak Close at [[50,999,0.25]]. Guard:
+  3b3): FAMILY4 + 3x Bear Fade + Monthly Weak Close at [[50,999,0.25]];
+  OLV at [[65,999,0.5]] (appetite, 2026-08-24; own P/C tables lift the cut
+  in fear). Guard:
   `tests/test_frag_risk_bands.py` (includes the site serializer assertion).
 - `exposure_leg.py` (25% NAV VOO/QQQ overlay in the AM scan email): kill
   rules raw-21d>50 and ma10-63d>50. The 1.25x boost was REMOVED 2026-07-16
@@ -262,7 +264,13 @@ Guard: `tests/test_fragility_simple.py`.
 - 3x Bear Fade band re-exam TRIGGER: revisit at 2 new hi-frag episodes (its
   own hi bucket is flat, t=-0.05, N_hi=17; band kept by family analogy).
   Companion to the existing "re-examine FAMILY4 at +20 trades (~2029)".
-- OLV mild-band candidacy: see prereg doc above; PIT re-bucket is THE gate.
+- OLV band: SHIPPED 2026-08-24 as an explicit McKinley APPETITE decision
+  (`[[65, 999, 0.5]]`, lifted to 1.0x when P/C fear is ON via its own
+  `OLV_PC_FEAR_BANDS`, composes with the earnings override) —
+  NOT on evidence, and recorded as such: 21 OLV trades at dial >= 70 ran +8R
+  with zero stop-outs, and OLV's worst drawdowns came at dial ~20. The
+  2026-07-16 prereg's PIT gates are now the POST-SHIP review: they can
+  retire the band, they did not ship it. See "Fragility Risk Bands".
 - Exemptions CONFIRMED permanent pending new evidence: OVS, LT Trend ST OS,
   St OS Sznl, 3x Overbot Fade, 52wh Breakout, Sector BO, 3x Leader Gap Fade.
 
@@ -345,7 +353,8 @@ base bps (tier x GRM) -> 2b fragility band -> 2c signal-recency ladder rung
 (carrier: OLV {window_td: 21, mults: [0.5, 0.7, 1.0]} since 2026-07-30; the
 old open-position-count ladder machinery survives dormant, carrier-less) ->
 2c2 cycle-year mult -> 2d earnings size override (REPLACES the base but
-COMPOSES with the 2c recency mult since 2026-07-30, itself
+COMPOSES with the 2c recency mult since 2026-07-30 and with the 2b frag
+band mult since 2026-08-24 — cycle/tier are still clobbered; itself
 GRM-scaled; two carriers: OLV -10..0 TD -> 10 bps nominal / 15 effective;
 St OS Sznl -5..-1 TD -> 6 bps nominal / 9 effective, added 2026-07-30 —
 the no-stop 5d hold straddling an imminent print held every ledger tail
@@ -571,9 +580,40 @@ no edge case, and only specific pockets degrade at high fragility. Current
 bands: the dip-buy FAMILY4 (Weak Close Decent Sznls, SPY QQQ MonFri Reversion,
 Monday Dip, Indices Oversold Bounce) run `[[50, 999, 0.25]]`, as do the
 family-analogy carriers 3x Bear ETF Overbot Fade (2026-07-07) and Monthly Weak
-Close (2026-07-31); the rest of the book (including OVS) is 1.0x at all scores. Unlike the old ramp, the ENGINE
+Close (2026-07-31); OLV carries its own plain `[[65, 999, 0.5]]` since
+2026-08-24 (appetite — next paragraph); the rest of the book (including OVS)
+is 1.0x at all scores. Unlike the old ramp, the ENGINE
 REPLAYS the bands point-in-time, so ledger and live agree (finding #26 closed
 for this scheme). Evidence: scratch/ultracode_research/PORTFOLIO_RESEARCH_2026-07-02.md.
+
+**OLV 0.5x at dial >= 65 (2026-08-24) is an APPETITE decision, not an
+evidenced edge — do not cite it as one.** McKinley: "I know the data doesn't
+support that but I don't care." The data, for the record (ledger 2016+, 299
+OLV trades with a dial reading): edge dilutes with the dial (avgR +0.98 <30,
++0.68 30-50, +0.55 50-70, +0.60 70-85, -0.06 >=85 on N=7) but there is NO
+damage signal — 21 trades at >=70, zero stop-outs, nothing below -1.4R;
+OLV's worst drawdowns (July 2026 oil cluster -$35.8k, 14 legs open) hit at
+dial ~20. What the cut bounds is structural: OLV has no resting stop, no
+aggregate concurrent-exposure cap, and on 2026-08-24 carried ~$628k
+(~84% of the $750k base) across 10 names with the dial at 89.5 — a level
+seen on 20 days in the whole series (Dec 2021 and Aug 2026). Halving above
+50 would have cost ~19R / ~$29k flat over 10y. Threshold 65 is McKinley's
+(it coincides with the St OS Sznl dial_filter, nothing was scanned).
+Composition (the 2026-07-16 prereg's gate 5, decided here): the band
+COMPOSES with the earnings size override in both scan 2d and engine 3b3b —
+pre-earnings at dial >= 65 = 10 x recency x 0.5 bps; cycle/tier mults are
+still clobbered by the override. P/C fear override (same day, McKinley):
+`pc_fear_bands = OLV_PC_FEAR_BANDS` = {on: [[65,999,1.0]], off:
+[[65,999,0.5]]} — the cut is LIFTED to full size when the lag-1 P/C fear
+state is ON, the family's "washed-out positioning" logic; fear OFF or
+stale/missing P/C keeps the cut (plain table == 'off', so fail-closed = cut).
+No 1.25x boost, no zeroing. The prereg's PIT gates become the post-ship review — they
+can retire the band, they are not its justification. The engine replays it
+point-in-time, so the next ledger rebuild halves the 25 historical OLV
+trades at dial >= 65 (14 in 2021, 11 in 2026; ~-5.6R / -$8.7k flat —
+ledger/live parity preserved). Guards:
+`tests/test_frag_risk_bands.py`, `tests/test_pc_fear_bands.py` (OLV must
+stay OUT of the P/C family).
 
 PIT edge-weight gate (roadmap step 5, run 2026-07-03, scratch/pit_reestimate.py
 + pit_extract_signals.py): the fragility composite's signal weights were
@@ -1419,6 +1459,41 @@ trade in a weekend vintage of unknown origin). Mitigations, all in place:
 - Blocked-signal notes name every contributing exit (ticker, date, R) so a
   block stays auditable after its vintage is overwritten.
 
+## OLV Book Cap — EOD pro-rata trim to <= 100% NAV (2026-08-24, live-only)
+
+McKinley: "I don't want it to get past 100% of NAV, ever." OLV has no
+resting stop and nothing bounded the AGGREGATE book (the 50%-NAV ticker cap
+bounds one name); on 2026-08-24 OLV carried ~78-84% of NAV across 10 names
+with the dial at 89.5. `olv_book_cap.py` (OneDrive trading_ibkr; Task
+Scheduler 'IBKR OLV Book Cap (EOD)', weekdays 3:40 PM ET; guard
+`test_olv_book_cap.py`) runs on BOTH accounts:
+1. Discovers the OLV book from the working brackets (SELL legs whose
+   orderRef is `SYM|BUY|Oversold Low Volume|...`, grouped by OCA group); a
+   bracket whose BUY parent is still working is an unfilled ENTRY, otherwise a
+   filled LEG. Only bracket-attributable shares are touched, clamped to held.
+2. Excludes legs whose time-exit leg fires today (goodAfterTime == today).
+3. Marks the rest at the live session last and compares to the cap — flat
+   `ACCOUNT_VALUE` ($750k) for the primary, live NetLiquidation for the PA.
+4. Over the cap: every leg sells ceil(qty x (1 - cap/book)) as a NATIVE
+   MOC/DAY (the 2026-08-21 encoding rule), AFTER its TARGET/TIME legs are
+   modified down to the post-trim qty as the owning clientId (99/98). A
+   rejected/vanished MOC restores the legs (or re-arms a time exit).
+5. Working ENTRIES are shrunk into the remaining room (the T+3 fill window
+   would otherwise refill the book overnight); cancelled below 1 share.
+Idempotent via journal + `OLV_BOOK_CAP` orderRefs; past 15:48 ET the sell is
+MKT DAY; past 15:58 nothing is placed. Emails only on action or failure.
+
+**Engine parity: NOT modeled.** `process_signals_fast` caps at entry only
+(net-exposure + ticker caps scale new legs) and has no partial-exit concept;
+a "Trim" exit-type partial row is the eventual fix. Replay of the exact rule
+on the flat-$750k ledger (MTM closes): binds ~10 days in 3 episodes since
+2015 (Jul-2021 21%, Jan-2025 up to 41% on 26 legs, Jun/Jul-2026 13%),
+~$58k foregone of $362k OLV PnL. Until modeled, ledger OLV stats overstate
+live by roughly that on those episodes. Interplay: `olv_exit_moo` sells the
+post-trim leg (it reads the live leg qty); `daily_scan`'s ticker-cap loader
+sees the reduced nightly positions; the morning entry dedup keys on
+orderRef identity, so a resized working entry is never re-placed.
+
 ## Stop-Arming Convention (book-wide, 2026-06-09)
 
 Stop legs ARM AT THE NEXT SESSION, not at the fill. Decided after measuring
@@ -1570,6 +1645,7 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `Trigger CBOE Put-Call (GHA workflow_dispatch)` | Enabled (Interactive logon) | Weekdays 4:10 AM ET, FIRST in the pre-market chain — fires `update_cboe_putcall.yml` so the put/call cache holds the prior session before the risk correction, scan and pitch read it. The 21:30 UTC run fires before CBOE publishes and can only ever collect D-1. Scripts: `C:\Scripts	rigger_cboe_putcall.ps1` + `register_cboe_putcall_trigger.ps1`. NOTE: no `/` in the task name — Task Scheduler treats it as a folder separator. Registered Interactive (like the risk-correction trigger) because S4U needs an elevated shell; fires whenever the machine is on and logged in, locked included. |
 | `Trigger Risk Report AM Correction (GHA workflow_dispatch)` | Enabled | Weekdays 4:30 AM ET — fires `risk_report.yml` with `mode=data_only` so the fragility row daily_scan sizes off (~4:47 AM) reflects settled prices, not the provisional 5:15 PM bar. Scripts: `C:\Scripts\trigger_risk_report.ps1` + `_task.xml`. |
 | `IBKR OLV Pre-Market Exits` | Enabled | Weekdays 9:10 AM ET — `run_olv_exit_moo.bat` -> `olv_exit_moo.py` (OneDrive trading_ibkr): reads the `OLV_Exits` tab and places TRUE market-on-open (TIF=OPG) SELLs for confirmed OLV stop legs on BOTH accounts before the 9:28 auction cutoff. Registered 2026-07-30 via `register_olv_exit_task.ps1`; must clear the 9:31 order chain (shares clientIds 99/98). |
+| `IBKR OLV Book Cap (EOD)` | Enabled | Weekdays 3:40 PM ET — `run_olv_book_cap.bat` -> `olv_book_cap.py` (OneDrive trading_ibkr): trims every open OLV leg pro-rata (native MOC/DAY, exit legs resized first, owner clientIds 99/98) so the OLV sub-book closes at or below 100% of NAV on BOTH accounts (flat $750k primary / live NLV PA) and shrinks working OLV entries into the remaining room. Registered 2026-08-24 via `register_olv_book_cap_task.ps1`; 15:48 MOC cutoff -> MKT DAY, 15:58 hard stop; `--dry-run` for inspection. See "OLV Book Cap". |
 | `Daily Pitch (agent)` | Enabled (Interactive logon) | Weekdays 5:10 AM ET — `scripts\run_daily_pitch.bat`: grade, assemble state, run `/daily-pitch` headless, verify delivery. Writes files and sends the pitch email; places no orders. Register with `scripts\register_daily_pitch_task.ps1` after eyeballing several manual runs. |
 | `IBKR Daily Pitch Approvals (auction)` / `(open)` | NOT REGISTERED (inert) | Weekdays 9:05 and 9:32 AM ET — `pitch_moo.py` places `Pitch` rows marked `Y`. Live money: registration script also writes `pitch_moo_enabled.flag`; delete the flag to disarm without unregistering. |
 | `RadarMorningBriefing` | Enabled | Lives in separate `last30days-radar` project — not yet migrated. |

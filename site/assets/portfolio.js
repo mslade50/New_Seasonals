@@ -494,7 +494,7 @@ function buildRiskPanel() {
   if (S.fragility) {
     fragRow.className = "levrow";
     fragRow.innerHTML = `
-      <label title="Research counterfactual applied to every non-OVS trade; it is not production parity. Live policy only scales the FAMILY4 dip-buy strategies to 0.25x when the 10d-MA 63d score is at least 50, with no boost; all other strategies stay at 1.0x. Trades before ${S.fragility.dates[0]} keep native size.">Fragility what-if</label>
+      <label title="Research counterfactual applied to every non-OVS trade; it is not production parity. Live policy scales the dip-buy family (FAMILY4 + 3x Bear Fade + Monthly Weak Close) to 0.25x when the 10d-MA 63d score is at least 50 and Oversold Low Volume to 0.5x at 65 or above (appetite cut, 2026-08-24), with no boost; all other strategies stay at 1.0x. Trades before ${S.fragility.dates[0]} keep native size.">Fragility what-if</label>
       <span class="seg" id="fragDialSeg"></span>
       <span class="seg" id="fragShapeSeg"></span>
       <label>MA</label>

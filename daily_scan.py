@@ -2830,10 +2830,15 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                     # the configured bps when signal_date sits in the offset
                     # range, then re-apply the signal-recency mult (2026-07-30:
                     # composes with 2c instead of clobbering it — a
-                    # first-iteration pre-earnings OLV signal is 10 x 0.5 bps).
-                    # Every OTHER multiplier (frag, tier) is still clobbered.
+                    # first-iteration pre-earnings OLV signal is 10 x 0.5 bps)
+                    # AND the 2b fragility band mult (2026-08-24: OLV became a
+                    # band carrier as an appetite cut; a cut that silently
+                    # vanished inside the earnings window would defeat it —
+                    # this is the OLV prereg's gate-5 composition decision).
+                    # Every OTHER multiplier (cycle, tier) is still clobbered.
                     # NaN offsets (commodity ETFs / indices / futures with no
-                    # earnings data) bypass the override.
+                    # earnings data) bypass the override. Mirrored in
+                    # strat_backtester 3b3b.
                     _eo = strat['execution'].get('earnings_size_override')
                     if _eo and earnings_map:
                         _e_arr = earnings_map.get(t_clean.upper())
@@ -2841,9 +2846,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                         if pd.notna(_off) and _eo['min_td'] <= _off <= _eo['max_td']:
                             _ovr_bps = _eo['risk_bps']
                             _prior_note = sizing_note
-                            risk = ACCOUNT_VALUE * _ovr_bps / 10000 * _recency_mult
+                            risk = ACCOUNT_VALUE * _ovr_bps / 10000 * _recency_mult * _fbm
                             sizing_note = (f"Pre-earnings override: {_ovr_bps} bps"
                                            + (f" x {_recency_mult:.2f} recency" if _recency_mult != 1.0 else "")
+                                           + (f" x {_fbm:.2f} frag band ({frag_score:.0f})" if _fbm != 1.0 else "")
                                            + f" (offset {int(_off):+d} TD; default was {_prior_note})")
 
                     # 3. Calculate Prices & Shares

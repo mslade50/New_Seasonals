@@ -262,6 +262,45 @@ def test_earnings_override_alone_still_flat_replaces(monkeypatch):
     assert sig_df.iloc[0]['Shares'] == 40
 
 
+def _frag_series(monkeypatch, sb, score):
+    grid = pd.date_range('2023-12-01', '2024-04-01', freq='D')
+    monkeypatch.setitem(sb._FRAG_SCORE_CACHE, 'series',
+                        pd.Series(float(score), index=grid))
+
+
+def test_frag_band_halves_olv_at_dial_65(monkeypatch):
+    # OLV appetite band (2026-08-24): 0.5x at dial >= 65. Base 35 bps on
+    # $100k = $350 risk / $2.50 stop = 140 shares -> 70 at dial 89.5,
+    # untouched at 64.99.
+    import strat_backtester as sb
+    dates, df = _frame()
+    strat = _olv_strategy(frag_risk_bands=[[65, 999, 0.5]])
+    _frag_series(monkeypatch, sb, 89.5)
+    assert _run(df, strat).iloc[0]['Shares'] == 70
+    _frag_series(monkeypatch, sb, 64.99)
+    assert _run(df, strat).iloc[0]['Shares'] == 140
+
+
+def test_earnings_override_composes_with_frag_band(monkeypatch):
+    # Gate-5 composition (2026-08-24): the override replaces the BASE but the
+    # band survives — 10 bps x 0.5 recency x 0.5 band = $25 -> 10 shares.
+    # Before this the band silently vanished inside the earnings window.
+    import strat_backtester as sb
+    dates, df = _frame()
+    monkeypatch.setattr(
+        sb, 'load_earnings_dates_map',
+        lambda: {'TEST': np.array(['2024-01-05'], dtype='datetime64[D]')})
+    strat = _olv_strategy(
+        signal_recency_ladder={'window_td': 21, 'mults': [0.5, 0.7, 1.0]},
+        earnings_size_override={'min_td': -10, 'max_td': 0, 'risk_bps': 10},
+        frag_risk_bands=[[65, 999, 0.5]])
+    _frag_series(monkeypatch, sb, 89.5)
+    assert _run(df, strat).iloc[0]['Shares'] == 10
+    # below the band the override path is unchanged (10 x 0.5 recency = 20)
+    _frag_series(monkeypatch, sb, 30.0)
+    assert _run(df, strat).iloc[0]['Shares'] == 20
+
+
 def test_recency_prior_from_mask_window_semantics():
     # daily_scan's counting helper: trailing window EXCLUDES the last bar
     # (today's own signal) and counts exactly window_td sessions before it.

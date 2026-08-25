@@ -1307,15 +1307,16 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             base_risk *= _fbm
 
         # --- 3b3b. Earnings size override (e.g. OLV pre-earnings -> 10 bps)
-        # Replaces the risk outright (clobbers the frag/cycle multipliers
-        # above) when the signal's offset to nearest earnings sits inside the
+        # Replaces the risk outright (clobbers the cycle multiplier above)
+        # when the signal's offset to nearest earnings sits inside the
         # configured range — EXCEPT the signal-recency mult, which composes
-        # (2026-07-30: first-iteration pre-earnings OLV = 10 x 0.5 bps).
-        # Runs AFTER 3b2/3b3 to mirror daily_scan's 2b -> 2c -> 2c2 -> 2d
-        # order, where 2d discards the frag and cycle mults (the engine used
-        # to apply them on top — latent live-vs-ledger divergence the moment
-        # an override carrier gains a band or tilt). NaN offsets (commodity
-        # ETFs / indices / futures) bypass.
+        # (2026-07-30: first-iteration pre-earnings OLV = 10 x 0.5 bps), and
+        # the 3b3 fragility band mult, which composes since 2026-08-24 (OLV
+        # became a band carrier as an appetite cut; the cut must survive the
+        # earnings window — the OLV prereg's gate-5 decision). Runs AFTER
+        # 3b2/3b3 to mirror daily_scan's 2b -> 2c -> 2c2 -> 2d order, where
+        # 2d discards the cycle mult. NaN offsets (commodity ETFs / indices /
+        # futures) bypass.
         _eo = execution.get('earnings_size_override')
         if _eo and _earnings_map:
             _e_arr = _earnings_map.get(t_clean.upper())
@@ -1324,7 +1325,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 # equity_for_sizing, not starting_equity: base sizing uses
                 # current MTM equity in compounded mode, and the override
                 # must stay on the same basis (identical in flat mode).
-                base_risk = equity_for_sizing * float(_eo['risk_bps']) / 10000.0 * _recency_mult
+                base_risk = equity_for_sizing * float(_eo['risk_bps']) / 10000.0 * _recency_mult * _fbm
 
         # --- 3b3c. Cross-strategy overlap clamp (live 5b) ---
         # Absolute clamp on this row's sized risk when both pair members
