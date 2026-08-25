@@ -3,6 +3,7 @@
    Layout, top to bottom:
      - connection bar: agent online light + account tabs (Primary / PA) + NLV
      - Positions panel  (live read-only book from the agent) + row actions
+     - Hedge scenario card (display-only live-book attribution + futures arithmetic)
      - Open Orders panel (live working orders) + Cancel
      - Scheduled closing orders (legs that fire at today's close)
      - New Order ticket: entry bracket / scheduled option buy / close-only / flatten / echo
@@ -22,7 +23,43 @@ document.addEventListener("DOMContentLoaded", initExecution);
 const state = { account: "primary", book: null, status: null };
 let pollTimer = null;
 let FUT_SPECS = {};   // symbol/alias -> {exchange,multiplier,min_tick,...}; drives the FUT readout
+let HEDGE_BETAS = null;   // nightly SPY-beta table; null is a supported degraded build
+let HEDGE_BETA_STATUS = "absent";   // loaded | absent-in-build | load-failed
 const frontState = { id: null, timer: null, manual: false };   // FUT live-contract discovery + front month
+
+const HEDGE_DEFAULT_PRIMARY_NAV = 750000;
+const HEDGE_DEFAULT_STRATEGY = "Oversold Low Volume";
+const HEDGE_WORKING_STATUSES = new Set(["Submitted", "PreSubmitted", "PendingSubmit"]);
+const HEDGE_INDEX_ROOTS = new Set(["MES", "ES", "MNQ", "NQ", "M2K", "RTY", "MYM", "YM"]);
+const HEDGE_INDEX_PROXY = {
+  MES: "SPY", ES: "SPY", MNQ: "QQQ", NQ: "QQQ",
+  M2K: "IWM", RTY: "IWM", MYM: "DIA", YM: "DIA",
+};
+const HEDGE_INDEX_MULTIPLIER = {
+  MES: 5, ES: 50, MNQ: 2, NQ: 20,
+  M2K: 5, RTY: 50, MYM: 0.5, YM: 5,
+};
+const HEDGE_SHOCKS = [-0.02, -0.05, -0.10, 0.05];
+
+function hedgeStored(key, fallback) {
+  try {
+    if (typeof localStorage === "undefined") return fallback;
+    const value = localStorage.getItem(key);
+    return value == null ? fallback : value;
+  } catch (e) { return fallback; }
+}
+function hedgePersist(key, value) {
+  try { if (typeof localStorage !== "undefined") localStorage.setItem(key, String(value)); } catch (e) { /* private mode */ }
+}
+const storedBetaKey = hedgeStored("hedge.betaKey", "beta252");
+const storedContract = hedgeStored("hedge.contract", "MES");
+const storedTargetPct = Number(hedgeStored("hedge.targetPct", "50"));
+const hedgePrefs = {
+  betaKey: storedBetaKey === "beta63" ? "beta63" : "beta252",
+  contract: storedContract === "ES" ? "ES" : "MES",
+  targetPct: Number.isFinite(storedTargetPct) ? Math.max(0, Math.min(150, storedTargetPct)) : 50,
+};
+const hedgeScopes = new Map();   // account -> checked strategies; intentionally session-only
 
 /* Deep-link prefill from the Seasonal tab (execution.html?stage=1&sym=&side=&win=&atr=&px=):
    fills the entry-bracket ticket per the manual-seasonal conventions —
@@ -159,7 +196,19 @@ async function initExecution() {
   renderNav("execution.html");
   const el = document.getElementById("content");
   el.innerHTML = shell();
-  FUT_SPECS = (await fetchJSONOrNull("assets/futures_specs.json")) || {};   // for the FUT ticket readout
+  const [futSpecs, siteMeta] = await Promise.all([
+    fetchJSONOrNull("assets/futures_specs.json"),
+    fetchJSONOrNull("data/meta.json"),
+  ]);
+  FUT_SPECS = futSpecs || {};   // for the FUT ticket readout and display-only hedge arithmetic
+  const payloadFlags = siteMeta && siteMeta.payloads;
+  if (payloadFlags && payloadFlags.betas !== true) {
+    HEDGE_BETAS = null;
+    HEDGE_BETA_STATUS = "absent-in-build";
+  } else {
+    HEDGE_BETAS = await fetchJSONOrNull("data/betas.json");
+    HEDGE_BETA_STATUS = HEDGE_BETAS ? "loaded" : "load-failed";
+  }
   document.querySelectorAll("[data-acct]").forEach((b) =>
     b.addEventListener("click", () => setAccount(b.dataset.acct)));
   document.getElementById("cmdType").addEventListener("change", syncFields);
@@ -186,6 +235,7 @@ function shell() {
       <button class="btn ghost" data-acct="pa">PA</button>
     </div>
     <div id="positions"></div>
+    <div id="hedge" style="margin-top:14px"></div>
     <div id="orders" style="margin-top:14px"></div>
     <div id="closers" style="margin-top:14px"></div>
 
@@ -262,6 +312,8 @@ function renderPanels() {
   set("modeBanner", renderModeBanner());
   set("connBar", renderConnBar());
   set("positions", renderPositions());
+  set("hedge", renderHedge());
+  bindHedgeControls();
   // an open inline Modify must survive the 4s poll — don't redraw under the inputs
   if (!orderEdit.key) set("orders", renderOrders());
   set("closers", renderClosers());
@@ -351,6 +403,614 @@ function renderConnBar() {
     <span style="font:700 15px inherit;display:flex;align-items:center;gap:8px">${dot(tone)} ${label}</span>
     <span class="cap" style="margin-left:auto">${nlv} ${age}</span></div>`;
 }
+
+/* ---------- hedge scenario card (display-only) ---------- */
+function hedgeNum(value) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseHedgeOrderRef(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const parts = raw.split("|");
+  const action = String(parts[1] || "").toUpperCase();
+  const date = String(parts[3] || "");
+  if (parts.length < 4 || !parts[0] || !parts[2]
+      || !["BUY", "SELL"].includes(action)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  return {
+    raw,
+    symbol: String(parts[0]).toUpperCase(),
+    action,
+    strategy: String(parts[2]).trim(),
+    date,
+    tranche: parts.length > 4 ? parts.slice(4).join("|") : null,
+  };
+}
+
+function hedgeOrderWorking(order) {
+  return HEDGE_WORKING_STATUSES.has(String((order && order.status) || ""));
+}
+
+function hedgeFutureRoot(symbol, futSpecs = {}) {
+  const raw = String(symbol || "").toUpperCase().replace(/\s+/g, "");
+  if (!raw) return "";
+  const roots = [...new Set([...HEDGE_INDEX_ROOTS, ...Object.keys(futSpecs || {})])]
+    .sort((a, b) => b.length - a.length);
+  if (roots.includes(raw)) return raw;
+  for (const root of roots) {
+    const suffix = raw.slice(root.length);
+    if (raw.startsWith(root) && /^[FGHJKMNQUVXZ]\d{1,4}$/.test(suffix)) return root;
+  }
+  return raw;
+}
+
+function hedgeBetaInfo(betas, symbol, betaKey) {
+  const row = betas && betas.tickers && betas.tickers[String(symbol || "").toUpperCase()];
+  const value = hedgeNum(row && row[betaKey]);
+  return value == null ? { value: 1, assumed: true } : { value, assumed: false };
+}
+
+function hedgeExitDate(order) {
+  const match = String((order && order.good_after) || "").match(/^(\d{8})/);
+  return match ? match[1] : null;
+}
+
+function hedgeParentKey(order, parsed) {
+  const orderId = hedgeNum(order && order.order_id);
+  if (orderId) return `id:${orderId}`;
+  return [
+    parsed ? parsed.raw : "", String((order && order.symbol) || "").toUpperCase(),
+    String((order && order.action) || "").toUpperCase(), hedgeNum(order && order.qty) || 0,
+    hedgeNum(order && order.lmt) || 0,
+  ].join(":");
+}
+
+function hedgeModelSort(a, b) {
+  if (a.strategy === HEDGE_DEFAULT_STRATEGY) return b.strategy === HEDGE_DEFAULT_STRATEGY ? 0 : -1;
+  if (b.strategy === HEDGE_DEFAULT_STRATEGY) return 1;
+  if (a.strategy === "Unattributed") return b.strategy === "Unattributed" ? 0 : 1;
+  if (b.strategy === "Unattributed") return -1;
+  return a.strategy.localeCompare(b.strategy);
+}
+
+/* Pure live-book attribution. It only reads the supplied snapshot; no broker
+   endpoint or execution command is reachable from this function. */
+function attributeBook(account, betas, futSpecs, opts = {}) {
+  account = account || {};
+  betas = betas || null;
+  futSpecs = futSpecs || {};
+  const betaKey = opts.betaKey === "beta63" ? "beta63" : "beta252";
+  const flags = new Set();
+  const workingEntries = [];
+  const usedParents = new Set();
+  const strategyMap = new Map();
+  const legDetails = [];
+  const allOrders = Array.isArray(account.orders) ? account.orders : [];
+  const workingOrders = allOrders.filter(hedgeOrderWorking);
+  const parsedOrders = workingOrders.map((order) => ({ order, parsed: parseHedgeOrderRef(order.order_ref) }));
+  const unparsedCount = allOrders.filter((order) => order.order_ref && !parseHedgeOrderRef(order.order_ref)).length;
+  if (unparsedCount) flags.add(`${unparsedCount} unparsed order ref${unparsedCount === 1 ? "" : "s"}`);
+
+  function strategyRow(name) {
+    if (!strategyMap.has(name)) strategyMap.set(name, {
+      strategy: name, legs: 0, notionalLong: 0, notionalShort: 0,
+      spyEquiv: 0, legDetails: [], assumedBetas: new Set(), avgCostMarks: new Set(),
+    });
+    return strategyMap.get(name);
+  }
+
+  function addLeg(strategy, detail) {
+    const row = strategyRow(strategy);
+    row.legs += 1;
+    if (detail.notional >= 0) row.notionalLong += detail.notional;
+    else row.notionalShort += detail.notional;
+    row.spyEquiv += detail.spyEquiv;
+    row.legDetails.push(detail);
+    if (detail.betaAssumed) row.assumedBetas.add(detail.symbol);
+    if (detail.markAssumed) row.avgCostMarks.add(detail.symbol);
+    legDetails.push(detail);
+  }
+
+  function addWorkingParent(item, sign) {
+    const order = item.order;
+    const parsed = item.parsed;
+    const key = hedgeParentKey(order, parsed);
+    if (usedParents.has(key)) return;
+    usedParents.add(key);
+    const qty = Math.abs(hedgeNum(order.qty) || 0);
+    const lmt = hedgeNum(order.lmt);
+    const beta = hedgeBetaInfo(betas, parsed.symbol, betaKey);
+    if (beta.assumed) flags.add(`${parsed.symbol} beta assumed 1.00`);
+    if (!(lmt > 0)) flags.add(`${parsed.symbol} working entry has no usable limit mark`);
+    const notional = qty * (lmt > 0 ? lmt : 0) * sign;
+    workingEntries.push({
+      symbol: parsed.symbol, strategy: parsed.strategy, qty, lmt,
+      notional, spyEquiv: notional * beta.value, beta: beta.value,
+      betaAssumed: beta.assumed,
+    });
+  }
+
+  const positions = Array.isArray(account.positions) ? account.positions : [];
+  for (const position of positions) {
+    if (String(position.sec_type || "").toUpperCase() !== "STK") continue;
+    const held = hedgeNum(position.position);
+    if (!held) continue;
+    const symbol = String(position.symbol || "").toUpperCase();
+    const sign = held > 0 ? 1 : -1;
+    const entrySide = sign > 0 ? "BUY" : "SELL";
+    const markLive = hedgeNum(position.market_price);
+    const mark = markLive == null ? hedgeNum(position.avg_cost) : markLive;
+    const markAssumed = markLive == null;
+    if (markAssumed) flags.add(`${symbol} marked at avg_cost`);
+    if (mark == null) flags.add(`${symbol} has no usable mark`);
+    const beta = hedgeBetaInfo(betas, symbol, betaKey);
+    if (beta.assumed) flags.add(`${symbol} beta assumed 1.00`);
+
+    // Children carry the parent's ref but often sit in a different OCA group;
+    // after a TWS restart parent_id can be zero. Keep parents global to the
+    // symbol and match id first, then the exact ref, mirroring olv_book_cap.
+    const tagged = parsedOrders.filter(({ order, parsed }) => parsed
+      && parsed.symbol === symbol && parsed.action === entrySide
+      && String(order.symbol || "").toUpperCase() === symbol);
+    const parents = tagged.filter(({ order }) => String(order.action || "").toUpperCase() === entrySide);
+    const groups = new Map();
+    for (const item of tagged) {
+      if (String(item.order.action || "").toUpperCase() === entrySide) continue;
+      const key = String(item.order.oca_group || item.parsed.raw);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    }
+
+    const drafts = [];
+    for (const [key, items] of groups) {
+      const parentIds = new Set(items.map(({ order }) => hedgeNum(order.parent_id)).filter(Boolean));
+      let parent = parents.find((item) => {
+        const id = hedgeNum(item.order.order_id);
+        return id && parentIds.has(id) && !usedParents.has(hedgeParentKey(item.order, item.parsed));
+      });
+      if (!parent) {
+        const ref = items[0].parsed.raw;
+        parent = parents.find((item) => item.parsed.raw === ref
+          && !usedParents.has(hedgeParentKey(item.order, item.parsed)));
+      }
+      if (parent) {
+        addWorkingParent(parent, sign);
+        continue;
+      }
+      const timeLeg = items.find(({ order }) => String(order.order_type || "").toUpperCase() === "MKT"
+        && Boolean(order.good_after));
+      const targetLeg = items.find(({ order }) => String(order.order_type || "").toUpperCase() === "LMT");
+      const source = timeLeg || targetLeg;
+      if (!source) continue;
+      drafts.push({
+        key, symbol, strategy: source.parsed.strategy,
+        qty: Math.abs(hedgeNum(source.order.qty) || 0),
+        exitDate: timeLeg ? hedgeExitDate(timeLeg.order) : null,
+      });
+    }
+
+    drafts.sort((a, b) => String(a.exitDate || "99999999").localeCompare(String(b.exitDate || "99999999"))
+      || String(a.key).localeCompare(String(b.key)));
+    let remaining = Math.abs(held);
+    for (const draft of drafts) {
+      const qty = Math.min(draft.qty, remaining);
+      if (!(qty > 0)) continue;
+      remaining -= qty;
+      const notional = qty * (mark || 0) * sign;
+      addLeg(draft.strategy, {
+        symbol, strategy: draft.strategy, qty, mark, markAssumed,
+        beta: beta.value, betaAssumed: beta.assumed, notional,
+        spyEquiv: notional * beta.value, exitDate: draft.exitDate,
+      });
+    }
+    if (remaining > 1e-9) {
+      const notional = remaining * (mark || 0) * sign;
+      addLeg("Unattributed", {
+        symbol, strategy: "Unattributed", qty: remaining, mark, markAssumed,
+        beta: beta.value, betaAssumed: beta.assumed, notional,
+        spyEquiv: notional * beta.value, exitDate: null,
+      });
+    }
+  }
+
+  // Pending entry brackets can exist in symbols not currently held. Include
+  // every still-working tagged stock parent exactly once in workingEntries.
+  for (const item of parsedOrders) {
+    if (!item.parsed || String(item.order.sec_type || "STK").toUpperCase() !== "STK") continue;
+    if (String(item.order.symbol || "").toUpperCase() !== item.parsed.symbol) continue;
+    if (String(item.order.action || "").toUpperCase() !== item.parsed.action) continue;
+    addWorkingParent(item, item.parsed.action === "BUY" ? 1 : -1);
+  }
+
+  let equityLong = 0;
+  let equityShort = 0;
+  let equitySpyEquiv = 0;
+  const byStrategy = [...strategyMap.values()].map((row) => {
+    equityLong += row.notionalLong;
+    equityShort += row.notionalShort;
+    equitySpyEquiv += row.spyEquiv;
+    const markers = [];
+    if (row.assumedBetas.size) markers.push(`assumed beta: ${[...row.assumedBetas].sort().join(", ")}`);
+    if (row.avgCostMarks.size) markers.push(`avg-cost mark: ${[...row.avgCostMarks].sort().join(", ")}`);
+    return { ...row, assumedBetas: [...row.assumedBetas], avgCostMarks: [...row.avgCostMarks], markers };
+  }).sort(hedgeModelSort);
+
+  const futures = [];
+  let futuresSpyEquiv = 0;
+  let futuresComplete = true;
+  for (const position of positions) {
+    if (String(position.sec_type || "").toUpperCase() !== "FUT") continue;
+    const quantity = hedgeNum(position.position);
+    if (!quantity) continue;
+    const root = hedgeFutureRoot(position.symbol, futSpecs);
+    const spec = futSpecs[root] || {};
+    const counted = HEDGE_INDEX_ROOTS.has(root);
+    const positionMultiplier = hedgeNum(position.multiplier);
+    const specMultiplier = hedgeNum(spec.multiplier);
+    const configuredMultiplier = positionMultiplier != null ? positionMultiplier : specMultiplier;
+    const fallbackMultiplier = counted ? hedgeNum(HEDGE_INDEX_MULTIPLIER[root]) : null;
+    const multiplier = configuredMultiplier != null ? configuredMultiplier : fallbackMultiplier;
+    const livePrice = hedgeNum(position.market_price);
+    const price = livePrice == null ? hedgeNum(position.avg_cost) : livePrice;
+    let beta = 1;
+    let betaAssumed = false;
+    if (counted) {
+      const proxy = HEDGE_INDEX_PROXY[root];
+      const info = hedgeBetaInfo(betas, proxy, betaKey);
+      beta = info.value;
+      betaAssumed = info.assumed;
+      if (betaAssumed) flags.add(`${root}/${proxy} index beta assumed 1.00`);
+      if (configuredMultiplier == null && fallbackMultiplier != null) {
+        flags.add(`${root} multiplier uses trusted ${fallbackMultiplier} contract fallback`);
+      }
+      if (livePrice == null) flags.add(`${root} marked at avg_cost`);
+      if (price == null || multiplier == null) {
+        flags.add(`${root} index future has incomplete mark/spec`);
+        futuresComplete = false;
+      }
+    }
+    const spyEquiv = counted && price != null && multiplier != null
+      ? quantity * multiplier * price * beta : 0;
+    if (counted) futuresSpyEquiv += spyEquiv;
+    futures.push({
+      symbol: String(position.symbol || root), root, position: quantity,
+      multiplier, price, spyEquiv, counted, beta, betaAssumed,
+    });
+  }
+
+  const isPrimary = String(account.key || opts.accountKey || "primary") === "primary";
+  const configuredPrimaryNav = hedgeNum(betas && betas.account_value);
+  const navValue = isPrimary
+    ? (configuredPrimaryNav > 0 ? configuredPrimaryNav : HEDGE_DEFAULT_PRIMARY_NAV)
+    : hedgeNum(account.nlv);
+  if (!isPrimary && !(navValue > 0)) flags.add("live NLV unavailable");
+  workingEntries.sort((a, b) => a.symbol.localeCompare(b.symbol) || a.strategy.localeCompare(b.strategy));
+  const model = {
+    navBasis: { kind: isPrimary ? "sizing" : "live", value: navValue },
+    betaKey, byStrategy, workingEntries, equityLong, equityShort,
+    equitySpyEquiv, futuresSpyEquiv, futures,
+    futuresComplete,
+    netSpyEquiv: equitySpyEquiv + futuresSpyEquiv,
+    legDetails, rolloff: [], flags: [...flags],
+    betasAvailable: Boolean(betas && betas.tickers),
+    spyLast: hedgeNum(betas && betas.spy_last),
+  };
+  model.rolloff = hedgeRolloff(model, null, opts.today, 15);
+  return model;
+}
+
+function hedgeScopeSet(scope) {
+  if (scope == null) return new Set([HEDGE_DEFAULT_STRATEGY]);
+  if (scope instanceof Set) return scope;
+  if (Array.isArray(scope)) return new Set(scope);
+  return new Set([scope]);
+}
+
+function hedgeScopedSpyEquiv(model, scope) {
+  const selected = hedgeScopeSet(scope);
+  return ((model && model.byStrategy) || []).reduce(
+    (sum, row) => sum + (selected.has(row.strategy) ? (hedgeNum(row.spyEquiv) || 0) : 0), 0,
+  );
+}
+
+function hedgeDate(value) {
+  if (value instanceof Date) return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length < 8) return new Date();
+  return new Date(Date.UTC(+digits.slice(0, 4), +digits.slice(4, 6) - 1, +digits.slice(6, 8)));
+}
+function hedgeDate8(date) {
+  return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+function hedgeSessions(start, count = 15) {
+  const out = [];
+  const date = hedgeDate(start);
+  while (out.length < count) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    const day = date.getUTCDay();
+    if (day !== 0 && day !== 6) out.push(hedgeDate8(date));
+  }
+  return out;
+}
+
+function hedgeRolloff(model, scope = null, start = null, count = 15) {
+  const selected = scope == null ? null : hedgeScopeSet(scope);
+  const legs = ((model && model.legDetails) || []).filter((leg) => !selected || selected.has(leg.strategy));
+  return hedgeSessions(start || new Date(), count).map((date) => ({
+    date,
+    remainingSpyEquiv: legs.reduce((sum, leg) => sum
+      + (!leg.exitDate || String(leg.exitDate) > date ? (hedgeNum(leg.spyEquiv) || 0) : 0), 0),
+  }));
+}
+
+function hedgeTarget(model, targetPct, contract) {
+  contract = contract || {};
+  const nav = hedgeNum(model && model.navBasis && model.navBasis.value);
+  const scopedSpyEquiv = hedgeScopedSpyEquiv(model, contract.scopeStrategies);
+  const futuresSpyEquiv = hedgeNum(model && model.futuresSpyEquiv) || 0;
+  const currentDollars = scopedSpyEquiv + futuresSpyEquiv;
+  const multiplier = hedgeNum(contract.multiplier);
+  const indexLevel = hedgeNum(contract.indexLevel != null ? contract.indexLevel : contract.market_price);
+  const perContract = multiplier != null && indexLevel != null ? multiplier * indexLevel : 0;
+  const unavailableReason = !(nav > 0)
+    ? "live NLV unavailable"
+    : (model && model.futuresComplete === false ? "index-futures exposure incomplete" : null);
+  if (unavailableReason) {
+    return {
+      available: false, unavailableReason, targetDollars: null, excess: null,
+      contracts: null, perContract, scopedSpyEquiv, currentDollars,
+      currentEquivalent: null, totalContracts: null,
+    };
+  }
+  const targetDollars = (hedgeNum(targetPct) || 0) * nav;
+  const excess = currentDollars - targetDollars;
+  const contracts = perContract > 0 ? Math.round(excess / perContract) : null;
+  const currentEquivalent = perContract > 0 ? -futuresSpyEquiv / perContract : null;
+  const totalContracts = contracts == null ? null : Math.round(currentEquivalent + contracts);
+  return {
+    available: true, unavailableReason: null,
+    targetDollars, excess, contracts, perContract, scopedSpyEquiv, currentDollars,
+    currentEquivalent, totalContracts,
+  };
+}
+
+function hedgeScenarios(model, targetPct, scope) {
+  const nav = hedgeNum(model && model.navBasis && model.navBasis.value);
+  if (!(nav > 0) || (model && model.futuresComplete === false)) return [];
+  const targetDollars = (hedgeNum(targetPct) || 0) * nav;
+  const currentDollars = hedgeScopedSpyEquiv(model, scope)
+    + (hedgeNum(model && model.futuresSpyEquiv) || 0);
+  return HEDGE_SHOCKS.map((shock) => ({
+    shock, pnlNow: shock * currentDollars, pnlAtTarget: shock * targetDollars,
+  }));
+}
+
+function selectedHedgeContract(model, symbol, futSpecs = FUT_SPECS) {
+  const root = symbol === "ES" ? "ES" : "MES";
+  const held = ((model && model.futures) || []).find((future) => future.root === root && hedgeNum(future.price) != null);
+  const spec = (futSpecs && futSpecs[root]) || {};
+  const multiplier = hedgeNum(spec.multiplier) || HEDGE_INDEX_MULTIPLIER[root];
+  const liveLevel = held ? hedgeNum(held.price) : null;
+  const approxLevel = hedgeNum(model && model.spyLast);
+  return {
+    symbol: root, multiplier,
+    indexLevel: liveLevel != null ? liveLevel : (approxLevel != null ? approxLevel * 10 : null),
+    approximate: liveLevel == null, source: liveLevel == null ? "SPY × 10 approximation" : "held contract mark",
+  };
+}
+
+function hedgeScopeForAccount() {
+  if (!hedgeScopes.has(state.account)) hedgeScopes.set(state.account, new Set([HEDGE_DEFAULT_STRATEGY]));
+  return hedgeScopes.get(state.account);
+}
+
+function currentHedgeView() {
+  const model = attributeBook(acctBook(), HEDGE_BETAS, FUT_SPECS, {
+    betaKey: hedgePrefs.betaKey, accountKey: state.account, today: etToday(),
+  });
+  const scope = hedgeScopeForAccount();
+  const contract = selectedHedgeContract(model, hedgePrefs.contract);
+  contract.scopeStrategies = scope;
+  const target = hedgeTarget(model, hedgePrefs.targetPct / 100, contract);
+  return { model, scope, contract, target };
+}
+
+function hedgeVerdict(target, symbol) {
+  if (target.available === false) return `hedge arithmetic unavailable — ${target.unavailableReason}`;
+  if (target.contracts == null) return "contract level unavailable";
+  if (target.contracts > 0) {
+    const total = target.totalContracts != null && target.totalContracts >= 0
+      ? ` (${target.totalContracts} total)` : "";
+    return `short ${target.contracts} more ${symbol}${total}`;
+  }
+  if (target.contracts < 0) return `cover ${Math.abs(target.contracts)} ${symbol}`;
+  return "at target";
+}
+
+function hedgeTargetReadout(view) {
+  if (view.target.available === false) return `target unavailable — ${view.target.unavailableReason}`;
+  return `${fmt.num(hedgePrefs.targetPct, 0)}% of NAV = ${fmt.money(view.target.targetDollars)}`;
+}
+
+function renderHedgeScenarios(view) {
+  if (view.target.available === false) {
+    return `<p class="cap hedge-unavailable">Scenario arithmetic unavailable — ${esc(view.target.unavailableReason)}.</p>`;
+  }
+  const rows = hedgeScenarios(view.model, hedgePrefs.targetPct / 100, view.scope).map((row) => {
+    const label = row.shock > 0 ? `+${fmt.num(row.shock * 100, 0)}%` : `&minus;${fmt.num(Math.abs(row.shock) * 100, 0)}%`;
+    return `<tr><td class="l">SPY ${label}</td>
+      <td class="${clsSign(row.pnlNow)}">${fmt.money(row.pnlNow)}</td>
+      <td class="${clsSign(row.pnlAtTarget)}">${fmt.money(row.pnlAtTarget)}</td></tr>`;
+  }).join("");
+  return `<div class="tblwrap"><table class="tbl hedge-scenarios"><thead><tr>
+      <th class="l">Shock</th><th>Market P&amp;L now</th><th>At slider target</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="cap">Market component only — idiosyncratic moves (single-name, sector clusters) are not hedged by index futures; roughly two-thirds of OLV variance has been idiosyncratic historically.</p>`;
+}
+
+function renderHedgeRolloff(model, scope) {
+  const rows = hedgeRolloff(model, scope, etToday(), 15);
+  const maxAbs = Math.max(1, ...rows.map((row) => Math.abs(row.remainingSpyEquiv)));
+  return `<div class="hedge-rolloff" title="Weekdays only; exchange holidays are not removed.">${rows.map((row) => {
+    const width = Math.max(2, Math.round(Math.abs(row.remainingSpyEquiv) / maxAbs * 100));
+    const date = `${row.date.slice(4, 6)}/${row.date.slice(6, 8)}`;
+    return `<div class="hedge-roll-item"><span>${date}</span><i style="width:${width}%"></i><b>${fmt.money(row.remainingSpyEquiv)}</b></div>`;
+  }).join("")}</div>`;
+}
+
+function renderHedgeUnavailable(message) {
+  return `<div class="card hedge-card is-stale">
+    <div class="hedge-head"><b>Hedge (display only)</b><span class="cap">${message}</span></div>
+    <p class="cap">Live attribution and hedge arithmetic are greyed until a fresh selected-account book is available.</p>
+    <p class="cap hedge-display-only">Display only — nothing here sends orders.</p></div>`;
+}
+
+function renderHedge() {
+  const ageMs = bookAgeMs();
+  const age = ageMs == null ? "age unavailable" : `${Math.round(ageMs / 1000)}s`;
+  if (!bookFresh()) return renderHedgeUnavailable(`book stale (${age})`);
+  if (!(state.status && state.status.online)) return renderHedgeUnavailable(`agent offline · book ${age} old`);
+  const account = acctBook();
+  if (!account) return renderHedgeUnavailable("selected account missing from the live book");
+  if (account.error) return renderHedgeUnavailable(`${esc(account.label || state.account)}: ${esc(account.error)}`);
+
+  const view = currentHedgeView();
+  const { model, scope, contract, target } = view;
+  const navLabel = model.navBasis.kind === "sizing"
+    ? `${fmt.money(model.navBasis.value)} sizing`
+    : (model.navBasis.value > 0 ? `${fmt.money(model.navBasis.value)} live NLV` : "live NLV unavailable");
+  const betaBanner = HEDGE_BETAS ? "" : HEDGE_BETA_STATUS === "load-failed"
+    ? `<div class="hedge-beta-banner">beta table was listed for this build but failed to load; β = 1.00 assumed</div>`
+    : `<div class="hedge-beta-banner">no beta table in this build (build_betas.py skipped)</div>`;
+  const strategyRows = model.byStrategy.map((row) => {
+    const encoded = encodeURIComponent(row.strategy);
+    const marker = row.markers.length
+      ? ` <span class="cap hedge-marker" title="${esc(row.markers.join("; "))}">*</span>` : "";
+    return `<tr><td class="l" style="font-weight:600">${esc(row.strategy)}${marker}</td>
+      <td>${row.legs}</td><td>${fmt.money(row.notionalLong)}</td>
+      <td>${fmt.money(row.notionalShort)}</td><td>${fmt.money(row.spyEquiv)}</td>
+      <td><input type="checkbox" aria-label="Include ${esc(row.strategy)} in hedge scope"
+        data-hedge-strategy="${encoded}"${scope.has(row.strategy) ? " checked" : ""}></td></tr>`;
+  }).join("") || `<tr><td class="l" colspan="6"><span class="cap">No stock exposure in this account.</span></td></tr>`;
+  const totalLegs = model.byStrategy.reduce((sum, row) => sum + row.legs, 0);
+
+  const indexRows = model.futures.filter((future) => future.counted).map((future) => {
+    const marker = future.betaAssumed ? ` <span class="cap hedge-marker" title="Index beta assumed 1.00">*</span>` : "";
+    return `<tr><td class="l">${esc(future.symbol)}${marker}</td><td>${fmt.num(future.position, 0)}</td>
+      <td>${future.multiplier != null ? fmt.num(future.multiplier, 2) : "&mdash;"}</td>
+      <td>${future.price != null ? fmt.num(future.price, 2) : "&mdash;"}</td>
+      <td>${fmt.money(future.spyEquiv)}</td><td>counted</td></tr>`;
+  }).join("") || `<tr><td class="l" colspan="6"><span class="cap">No equity-index futures held.</span></td></tr>`;
+  const otherFutures = model.futures.filter((future) => !future.counted);
+  const otherLine = otherFutures.length
+    ? otherFutures.map((future) => `${esc(future.symbol)} ${fmt.num(future.position, 0)}`).join(" · ")
+    : "none";
+
+  const scopedEntries = model.workingEntries.filter((entry) => scope.has(entry.strategy));
+  const workingNotional = scopedEntries.reduce((sum, entry) => sum + Math.abs(entry.notional), 0);
+  const workingSpyEquiv = scopedEntries.reduce((sum, entry) => sum + entry.spyEquiv, 0);
+  const projectedBook = target.scopedSpyEquiv + workingSpyEquiv;
+  const flags = [...model.flags];
+  if (contract.approximate) flags.push(`${contract.symbol} level uses SPY × 10 approximation (no held ${contract.symbol} mark)`);
+  const flagsLine = [...new Set(flags)].length ? [...new Set(flags)].map(esc).join(" · ") : "none";
+
+  return `<div class="card hedge-card">
+    <div class="hedge-head">
+      <b>Hedge (display only)</b>
+      <span class="cap">NAV basis: ${navLabel}</span>
+      <label class="cap">β window <select id="hedge_beta">
+        <option value="beta252"${hedgePrefs.betaKey === "beta252" ? " selected" : ""}>252d</option>
+        <option value="beta63"${hedgePrefs.betaKey === "beta63" ? " selected" : ""}>63d</option>
+      </select></label>
+      <label class="cap">Contract <select id="hedge_contract">
+        <option value="MES"${hedgePrefs.contract === "MES" ? " selected" : ""}>MES</option>
+        <option value="ES"${hedgePrefs.contract === "ES" ? " selected" : ""}>ES</option>
+      </select></label>
+    </div>
+    ${betaBanner}
+    <div class="tblwrap"><table class="tbl"><thead><tr>
+      <th class="l">Strategy</th><th>Legs</th><th>Long $</th><th>Short $</th><th>β-wtd SPY-equiv</th><th>In scope</th>
+    </tr></thead><tbody>${strategyRows}<tr class="hedge-total"><td class="l">Total equity</td>
+      <td>${totalLegs}</td><td>${fmt.money(model.equityLong)}</td><td>${fmt.money(model.equityShort)}</td>
+      <td>${fmt.money(model.equitySpyEquiv)}</td><td></td></tr></tbody></table></div>
+
+    <div class="cap hedge-section-title">Index futures held</div>
+    <div class="tblwrap"><table class="tbl"><thead><tr>
+      <th class="l">Contract</th><th>Pos</th><th>Mult</th><th>Index</th><th>SPY-equiv</th><th>State</th>
+    </tr></thead><tbody>${indexRows}</tbody></table></div>
+    <p class="cap">Other futures (excluded): ${otherLine}</p>
+
+    <div class="hedge-target-row">
+      <label class="cap" for="hedge_target">Target</label>
+      <input type="range" id="hedge_target" min="0" max="150" step="5" value="${hedgePrefs.targetPct}"${target.available ? "" : " disabled aria-disabled=\"true\""}>
+      <b id="hedge_target_readout">${hedgeTargetReadout(view)}</b>
+      <span class="cap">${fmt.money(target.perContract)} / ${contract.symbol} · ${esc(contract.source)}</span>
+    </div>
+    <div class="hedge-verdict" id="hedge_verdict">${hedgeVerdict(target, contract.symbol)}</div>
+
+    <div class="cap hedge-section-title">SPY shock scenarios</div>
+    <div id="hedge_scenarios">${renderHedgeScenarios(view)}</div>
+
+    <div class="cap hedge-section-title">15-session roll-off</div>
+    ${renderHedgeRolloff(model, scope)}
+    <p class="cap">Working entries in scope: ${scopedEntries.length} · ${fmt.money(workingNotional)} — not exposure yet — would push the book to ${fmt.money(projectedBook)} if all fill.</p>
+    <p class="cap hedge-flags">Flags: ${flagsLine}</p>
+    <p class="cap hedge-display-only">Display only — nothing here sends orders.</p>
+  </div>`;
+}
+
+function updateHedgeTargetViews() {
+  const view = currentHedgeView();
+  set("hedge_target_readout", hedgeTargetReadout(view));
+  set("hedge_verdict", hedgeVerdict(view.target, view.contract.symbol));
+  set("hedge_scenarios", renderHedgeScenarios(view));
+}
+
+function refreshHedge() {
+  set("hedge", renderHedge());
+  bindHedgeControls();
+}
+
+function bindHedgeControls() {
+  const mount = document.getElementById("hedge");
+  if (!mount || typeof mount.querySelector !== "function") return;
+  const beta = mount.querySelector("#hedge_beta");
+  if (beta) beta.addEventListener("change", () => {
+    hedgePrefs.betaKey = beta.value === "beta63" ? "beta63" : "beta252";
+    hedgePersist("hedge.betaKey", hedgePrefs.betaKey);
+    refreshHedge();
+  });
+  const contract = mount.querySelector("#hedge_contract");
+  if (contract) contract.addEventListener("change", () => {
+    hedgePrefs.contract = contract.value === "ES" ? "ES" : "MES";
+    hedgePersist("hedge.contract", hedgePrefs.contract);
+    refreshHedge();
+  });
+  const target = mount.querySelector("#hedge_target");
+  if (target) target.addEventListener("input", () => {
+    const value = Number(target.value);
+    hedgePrefs.targetPct = Number.isFinite(value) ? Math.max(0, Math.min(150, value)) : 50;
+    hedgePersist("hedge.targetPct", hedgePrefs.targetPct);
+    updateHedgeTargetViews();
+  });
+  if (typeof mount.querySelectorAll === "function") {
+    mount.querySelectorAll("[data-hedge-strategy]").forEach((control) => {
+      control.addEventListener("change", () => {
+        const strategy = decodeURIComponent(control.dataset.hedgeStrategy || "");
+        const scope = hedgeScopeForAccount();
+        if (control.checked) scope.add(strategy); else scope.delete(strategy);
+        refreshHedge();
+      });
+    });
+  }
+}
+
+if (typeof globalThis !== "undefined") Object.assign(globalThis, {
+  attributeBook, hedgeTarget, hedgeScenarios, hedgeRolloff, renderHedge,
+});
 
 /* ---------- positions ---------- */
 function pnlPct(p) {

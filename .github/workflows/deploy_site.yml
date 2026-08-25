@@ -128,6 +128,11 @@ jobs:
         working-directory: generator
         run: python scripts/build_atr_downside_stats.py
 
+      - name: Build nightly SPY beta table (best effort — hedge panel input)
+        working-directory: generator
+        continue-on-error: true
+        run: python scripts/build_betas.py
+
       - name: Build risk summary JSON (required R2 bundle input)
         working-directory: generator
         run: python scripts/build_risk_json.py
