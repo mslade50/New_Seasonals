@@ -1,4 +1,4 @@
-"""Typed records shared by the EP discovery, research, and staging layers."""
+"""Typed records shared by the EP discovery and research-preview layers."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class PremarketSnapshot:
     float_shares: float | None = None
     prior_63d_return_pct: float | None = None
     sessions_since_prior_ep: int | None = None
-    market_data_status: str = "LIVE"
+    market_data_status: str = "UNKNOWN"
     halted: bool = False
     halt_status: str = "UNKNOWN"
     tradeable: bool = False
@@ -66,6 +66,18 @@ class PremarketSnapshot:
     allowed_order_types: str = ""
     quote_previous_close: float | None = None
     premarket_metrics_at: str | None = None
+    first_trigger_at: str | None = None
+    session: str = "premarket"
+    provider: str = ""
+    saved_screen_id: str = ""
+    target_session_date: str = ""
+    reported_result_count: int | None = None
+    extracted_row_count: int | None = None
+    source_file_sha256: str = ""
+    screen_exchange: str = ""
+    security_type: str = "STK"
+    reported_change_pct: float | None = None
+    reported_move_dollars: float | None = None
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "PremarketSnapshot":
@@ -75,6 +87,8 @@ class PremarketSnapshot:
         values["observed_at"] = iso_utc(values["observed_at"])
         if values.get("premarket_metrics_at"):
             values["premarket_metrics_at"] = iso_utc(values["premarket_metrics_at"])
+        if values.get("first_trigger_at"):
+            values["first_trigger_at"] = iso_utc(values["first_trigger_at"])
         return cls(**values)
 
     @property
@@ -86,8 +100,21 @@ class PremarketSnapshot:
         return self.last - self.previous_close
 
     @property
+    def discovery_gap_pct(self) -> float:
+        if self.reported_change_pct is not None:
+            return float(self.reported_change_pct)
+        return self.gap_pct
+
+    @property
+    def discovery_move_dollars(self) -> float:
+        if self.reported_move_dollars is not None:
+            return float(self.reported_move_dollars)
+        return self.move_dollars
+
+    @property
     def premarket_dollar_volume(self) -> float:
-        return float(self.premarket_volume) * float(self.premarket_vwap)
+        reference_price = self.premarket_vwap if self.premarket_vwap > 0 else self.last
+        return float(self.premarket_volume) * float(reference_price)
 
     @property
     def spread_bps(self) -> float:
@@ -99,6 +126,8 @@ class PremarketSnapshot:
         data.update(
             gap_pct=self.gap_pct,
             move_dollars=self.move_dollars,
+            discovery_gap_pct=self.discovery_gap_pct,
+            discovery_move_dollars=self.discovery_move_dollars,
             premarket_dollar_volume=self.premarket_dollar_volume,
             spread_bps=self.spread_bps,
         )
@@ -145,6 +174,7 @@ class NewsDocument:
     fetch_status: str
     catalyst_types: tuple[str, ...] = ()
     adverse_flags: tuple[str, ...] = ()
+    published_at_provenance: str = "UNKNOWN"
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "NewsDocument":
@@ -178,6 +208,9 @@ class CatalystAssessment:
     evidence_published_at: tuple[str, ...] = ()
     adverse_flags: tuple[str, ...] = ()
     reason_codes: tuple[str, ...] = ()
+    primary_source_confirmed: bool = False
+    publication_time_verified: bool = False
+    trajectory_change_verified: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -198,24 +231,21 @@ class QualificationDecision:
 
 
 @dataclass(frozen=True)
-class StagingPreview:
+class ResearchSizingPreview:
     candidate_id: str
     symbol: str
-    action: str
-    quantity: int
-    order_type: str
-    tif: str
-    regular_hours_only: bool
-    entry_limit: float
-    initial_stop: float
-    risk_per_share: float
-    risk_dollars: float
-    risk_bps: float
-    notional: float
+    research_direction: str
+    max_preview_shares: int
+    reference_entry_price: float
+    hypothetical_stop_price: float
+    modeled_risk_per_share: float
+    modeled_risk_dollars: float
+    modeled_risk_bps: float
+    hypothetical_notional: float
     expected_entry_slippage_bps: float
     max_entry_slippage_bps: float
     stressed_exit_slippage_bps: float
-    binding_cap: str
+    binding_constraint: str
     setup_type: str
     catalyst_type: str
     catalyst_summary: str
@@ -225,34 +255,50 @@ class StagingPreview:
     evidence_published_at: tuple[str, ...]
     contract_con_id: int | None
     primary_exchange: str
-    activation_min_price: float
-    activation_max_price: float
-    max_opening_gap_pct: float
-    entry_window_end_et: str
-    requires_fresh_quote_at_release: bool
-    requires_halt_recheck_at_release: bool
-    requires_opening_gap_recheck: bool
-    requires_contract_recheck_at_release: bool
-    scan_source: str = "EP_SHADOW"
-    approval: str = ""
-    execute_on: str = ""
-    live_eligible: bool = False
+    reference_activation_min_price: float
+    reference_activation_max_price: float
+    max_reference_gap_pct: float
+    reference_entry_window_end_et: str
+    target_session_date: str
+    quote_revalidation_required: bool
+    halt_revalidation_required: bool
+    gap_revalidation_required: bool
+    contract_revalidation_required: bool
+    research_source: str = "EP_SHADOW"
+    preview_only: bool = True
+    executable: bool = False
+    broker_route: str = "NONE"
+    order_submission_allowed: bool = False
+    human_review_required: bool = True
+    production_eligible: bool = False
+    live_actions_enabled: bool = False
+    record_type: str = field(
+        default="EP_RESEARCH_SIZING_PREVIEW_V1", init=False
+    )
 
     def __post_init__(self) -> None:
-        if self.live_eligible:
-            raise ValueError("shadow staging previews cannot be live eligible")
-        if self.order_type != "LMT":
-            raise ValueError("shadow staging previews must use a limit order")
-        if self.approval:
-            raise ValueError("shadow staging previews must leave approval blank")
-        if not self.requires_fresh_quote_at_release:
-            raise ValueError("shadow previews must require a fresh release-time quote")
-        if not self.requires_halt_recheck_at_release:
-            raise ValueError("shadow previews must require a release-time halt recheck")
-        if not self.requires_opening_gap_recheck:
-            raise ValueError("shadow previews must require a release-time opening-gap recheck")
-        if not self.requires_contract_recheck_at_release:
-            raise ValueError("shadow previews must require a release-time contract recheck")
+        if not self.preview_only or self.executable:
+            raise ValueError("EP research sizing must remain a non-executable preview")
+        if self.broker_route != "NONE" or self.order_submission_allowed:
+            raise ValueError("EP research sizing cannot name or enable a broker route")
+        if not self.human_review_required or self.production_eligible:
+            raise ValueError("EP research sizing always requires review and is never production eligible")
+        if self.live_actions_enabled:
+            raise ValueError("EP research sizing cannot enable live actions")
+        if self.record_type != "EP_RESEARCH_SIZING_PREVIEW_V1":
+            raise ValueError("invalid EP research sizing record type")
+        if self.research_direction not in {"LONG", "SHORT"}:
+            raise ValueError("research_direction must be LONG or SHORT")
+        if self.max_preview_shares < 1:
+            raise ValueError("max_preview_shares must be positive")
+        if not self.quote_revalidation_required:
+            raise ValueError("research previews must require a fresh quote")
+        if not self.halt_revalidation_required:
+            raise ValueError("research previews must require a halt recheck")
+        if not self.gap_revalidation_required:
+            raise ValueError("research previews must require a gap recheck")
+        if not self.contract_revalidation_required:
+            raise ValueError("research previews must require a contract recheck")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -265,4 +311,4 @@ class RunResult:
     candidates: list[Candidate] = field(default_factory=list)
     documents_by_candidate: dict[str, list[NewsDocument]] = field(default_factory=dict)
     decisions: list[QualificationDecision] = field(default_factory=list)
-    previews: list[StagingPreview] = field(default_factory=list)
+    previews: list[ResearchSizingPreview] = field(default_factory=list)

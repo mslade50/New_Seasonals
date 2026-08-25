@@ -29,7 +29,7 @@ The public material does not define one immutable setup. It evolved from classic
 | 2017-04 | [What to look for in earnings](https://stockbee.blogspot.com/2017/04/what-to-look-for-in-earnings.html) | Acceleration, meaningful beats, first important change | Materiality gate; ordinary quarterly results remain watch-only |
 | 2018-04 | [April 2018 archive / EP9 scan](https://stockbee.blogspot.com/2018/04/) | Roughly nine-million-share discovery day within a recent window | EP9M is a discovery label, never sufficient for entry by itself |
 | 2022-01 | [Always use stops](https://stockbee.blogspot.com/2022/01/always-use-stops.html) | Later fixed-percentage stop example and gap-through warning | Stop risk includes stressed exit and an extra event-gap allowance |
-| 2023-07 | [Earnings EP season](https://stockbee.blogspot.com/2023/07/earnings-episodic-pivots-season-is.html) | Delayed entries/pullbacks and changing opportunity set | >25% initial gaps route to delayed watch |
+| 2023-07 | [Earnings EP season](https://stockbee.blogspot.com/2023/07/earnings-episodic-pivots-season-is.html) | Delayed entries/pullbacks and changing opportunity set | >25% initial gaps become DEP research candidates; they are not DEP without a valid parent event and later structure |
 | 2024-09 | [Gaps in 50%+ moves](https://stockbee.blogspot.com/2024/09/gaps-in-50-plus-moves.html) | Later observation that >20% gaps often pull back and sustained winners rarely begin >25% | Warning at 20%, hard immediate-entry ceiling at 25% |
 | 2024-09 | [Trading problems and solutions](https://stockbee.blogspot.com/2024/09/what-are-your-trading-problems-and-what.html) | Classic EP frequency/deterioration and greater emphasis on adjacent variants | Avoids assuming a large daily supply of true classic EPs |
 | 2024-10 | [Success is determined by problem selection](https://stockbee.blogspot.com/2024/10/your-success-in-trading-is-determined.html) | Partial-profit/runner solution and workflow framing | Exit research reference only |
@@ -38,7 +38,7 @@ The public material does not define one immutable setup. It evolved from classic
 | 2025-09 | [Delayed-EP scans](https://stockbee.blogspot.com/2025/09/scans-irun-in-marketsurge-to-find.html) | Concrete delayed-reaction discovery workflow | Deferred until a separate DEP entry/stop study exists |
 | 2026-07 | [Premarket scan and research workflow](https://stockbee.blogspot.com/2026/07/how-to-find-and-research-pre-market.html) | Current 2% **or** $0.90, 100k PM shares, $1 price nomination floor | Frozen discovery rule, with volume/price applied to both Boolean branches |
 | 2026-07 | [Trade with situational awareness](https://stockbee.blogspot.com/2026/07/trade-with-situational-awareness.html) | Regime/opportunity-set context | Reason not to extrapolate a mechanical unconditional edge |
-| Later interview | [Direct Bonde interview](https://www.youtube.com/watch?v=A_0ep4ekGWM) | Company “arc” distinction, later regular-session entry, gap/stop context | Strongest support for research PM but protected RTH-only execution |
+| Later interview | [Direct Bonde interview](https://www.youtube.com/watch?v=A_0ep4ekGWM) | Company “arc” distinction, later regular-session entry, gap/stop context | Supports extended-hours research and a regular-session hypothetical reference; v0 has no execution path |
 
 ## Conflicts deliberately preserved
 
@@ -54,12 +54,12 @@ These are separate hypotheses. A future test may compare them, but production co
 
 ## Evidence hierarchy used by the bot
 
-1. Government/regulator or known issuer-distribution wire.
-2. Reputable independent financial news.
-3. Two independent secondary sources describing the same catalyst class within a narrow time window.
-4. Search result or snippet: discovery only, never evidence.
+1. Government/regulator or SEC source with verified publication metadata: the only automatic primary authority in v0.
+2. Issuer wire or issuer-looking IR source: useful evidence, but automatic authority is withheld until authorship/domain is bound to a stable issuer identity.
+3. Reputable independent financial news and other fetched secondary pages: research/corroboration only, never enough for automatic Classic qualification.
+4. Search result or snippet: URL discovery only, never evidence.
 
-The bot remains intentionally narrower than Bonde's discretionary practice. Analyst calls, ordinary management changes, rumors, vague products, trial initiation without positive data, capped takeovers, dilution, bankruptcy, and unresolved evidence do not create order previews.
+The bot remains intentionally narrower than Bonde's discretionary practice. Analyst calls, ordinary management changes, rumors, vague products, trial initiation without positive data, capped takeovers, dilution, bankruptcy, and unresolved evidence do not create sizing previews. Even a qualifying sizing record is fixed research metadata, not an order.
 
 ## What the historical result says
 

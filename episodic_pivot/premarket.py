@@ -14,8 +14,11 @@ from .schema import Candidate, PremarketSnapshot, parse_timestamp
 _NY = ZoneInfo("America/New_York")
 
 
-def _candidate_id(symbol: str, observed_at: str, policy_id: str) -> str:
-    session = parse_timestamp(observed_at).astimezone(_NY).date().isoformat()
+def _candidate_id(snapshot: PremarketSnapshot, policy_id: str) -> str:
+    session = snapshot.target_session_date or parse_timestamp(
+        snapshot.observed_at
+    ).astimezone(_NY).date().isoformat()
+    symbol = snapshot.symbol
     seed = f"{policy_id}|{session}|{symbol.upper()}".encode("utf-8")
     return f"EP-{session}-{symbol.upper()}-{hashlib.sha256(seed).hexdigest()[:10]}"
 
@@ -37,7 +40,7 @@ def nominate_candidates(
     """Return broad EP research nominations, newest snapshot per symbol.
 
     Data-quality problems are retained as warnings so the report explains why a
-    visible mover was not stageable.  Basic move/price/volume failures are not
+    visible mover was not preview-eligible.  Basic move/price/volume failures are not
     nominations at all.
     """
 
@@ -68,19 +71,25 @@ def nominate_candidates(
         if snapshot.premarket_volume < rules.min_premarket_volume:
             continue
 
-        direction_ok = snapshot.gap_pct > 0 if rules.long_only else snapshot.gap_pct != 0
+        discovery_gap_pct = snapshot.discovery_gap_pct
+        discovery_move_dollars = snapshot.discovery_move_dollars
+        direction_ok = (
+            discovery_gap_pct > 0
+            if rules.long_only
+            else (discovery_gap_pct != 0 or discovery_move_dollars != 0)
+        )
         move_ok = (
-            abs(snapshot.gap_pct) >= rules.min_abs_gap_pct
-            or abs(snapshot.move_dollars) >= rules.min_abs_move_dollars
+            abs(discovery_gap_pct) >= rules.min_abs_gap_pct
+            or abs(discovery_move_dollars) >= rules.min_abs_move_dollars
         )
         if not (direction_ok and move_ok):
             continue
 
-        reasons = [
-            "PREMARKET_MOVE_THRESHOLD",
-            "PREMARKET_VOLUME_THRESHOLD",
-            "PRICE_THRESHOLD",
-        ]
+        reasons = ["PREMARKET_VOLUME_THRESHOLD", "PRICE_THRESHOLD"]
+        if abs(discovery_gap_pct) >= rules.min_abs_gap_pct:
+            reasons.append("SESSION_PERCENT_MOVE_THRESHOLD")
+        if abs(discovery_move_dollars) >= rules.min_abs_move_dollars:
+            reasons.append("SESSION_DOLLAR_MOVE_THRESHOLD")
         if snapshot.premarket_volume >= 8_900_000:
             reasons.append("EP9M_VOLUME_DISCOVERY")
 
@@ -99,14 +108,16 @@ def nominate_candidates(
             warnings.append("HALT_STATUS_UNKNOWN")
         if not snapshot.tradeable:
             warnings.append("NOT_TRADEABLE")
-        if snapshot.gap_pct >= policy.execution.extension_warning_gap_pct:
+        if discovery_gap_pct < 0:
+            warnings.append("BEARISH_RESEARCH_ONLY")
+        if discovery_gap_pct > policy.execution.extension_warning_gap_pct:
             warnings.append("EXTENDED_GAP")
-        if snapshot.gap_pct > policy.execution.max_immediate_gap_pct:
+        if discovery_gap_pct > policy.execution.max_immediate_gap_pct:
             warnings.append("DELAYED_EP_PREFERRED")
 
         out.append(
             Candidate(
-                candidate_id=_candidate_id(symbol, snapshot.observed_at, policy.policy_id),
+                candidate_id=_candidate_id(snapshot, policy.policy_id),
                 snapshot=snapshot,
                 discovery_reasons=tuple(reasons),
                 discovery_warnings=tuple(warnings),

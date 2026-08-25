@@ -1,4 +1,4 @@
-"""Liquidity-aware sizing for non-executable EP order previews."""
+"""Liquidity-aware sizing for deliberately non-executable EP research previews."""
 
 from __future__ import annotations
 
@@ -7,25 +7,25 @@ from dataclasses import dataclass, replace
 from datetime import date
 
 from .config import EPPolicy
-from .schema import Candidate, QualificationDecision, StagingPreview
+from .schema import Candidate, QualificationDecision, ResearchSizingPreview
 
 
 @dataclass(frozen=True)
 class SizingOutcome:
-    preview: StagingPreview | None
+    preview: ResearchSizingPreview | None
     blockers: tuple[str, ...] = ()
 
 
 def apply_daily_preview_caps(
-    previews: list[StagingPreview], *, policy: EPPolicy
-) -> list[StagingPreview]:
-    """Pro-rata shadow previews to portfolio-level daily risk/notional caps."""
+    previews: list[ResearchSizingPreview], *, policy: EPPolicy
+) -> list[ResearchSizingPreview]:
+    """Pro-rata hypothetical previews to daily research risk/notional caps."""
 
     if not previews:
         return []
     rules = policy.execution
-    total_risk = sum(item.risk_dollars for item in previews)
-    total_notional = sum(item.notional for item in previews)
+    total_risk = sum(item.modeled_risk_dollars for item in previews)
+    total_notional = sum(item.hypothetical_notional for item in previews)
     risk_cap = rules.account_value * rules.max_daily_risk_bps / 10_000.0
     notional_cap = (
         rules.account_value * rules.max_daily_notional_pct_of_account / 100.0
@@ -39,20 +39,20 @@ def apply_daily_preview_caps(
     if factor >= 1.0:
         return previews
 
-    adjusted: list[StagingPreview] = []
+    adjusted: list[ResearchSizingPreview] = []
     for item in previews:
-        quantity = math.floor(item.quantity * factor)
+        quantity = math.floor(item.max_preview_shares * factor)
         if quantity < 1:
             continue
-        risk_dollars = quantity * item.risk_per_share
+        risk_dollars = quantity * item.modeled_risk_per_share
         adjusted.append(
             replace(
                 item,
-                quantity=quantity,
-                risk_dollars=round(risk_dollars, 2),
-                risk_bps=round(10_000.0 * risk_dollars / rules.account_value, 4),
-                notional=round(quantity * item.entry_limit, 2),
-                binding_cap=f"{item.binding_cap}+{binding}",
+                max_preview_shares=quantity,
+                modeled_risk_dollars=round(risk_dollars, 2),
+                modeled_risk_bps=round(10_000.0 * risk_dollars / rules.account_value, 4),
+                hypothetical_notional=round(quantity * item.reference_entry_price, 2),
+                binding_constraint=f"{item.binding_constraint}+{binding}",
             )
         )
     return adjusted
@@ -66,15 +66,15 @@ def _round_down_cent(value: float) -> float:
     return math.floor(value * 100.0 + 1e-9) / 100.0
 
 
-def build_staging_preview(
+def build_research_sizing_preview(
     candidate: Candidate,
     decision: QualificationDecision,
     *,
     policy: EPPolicy,
-    execute_on: date | str,
+    target_session_date: date | str,
 ) -> SizingOutcome:
-    if decision.decision != "STAGEABLE":
-        return SizingOutcome(None, ("DECISION_NOT_STAGEABLE",))
+    if decision.decision != "RESEARCH_PREVIEW_ELIGIBLE":
+        return SizingOutcome(None, ("DECISION_NOT_PREVIEW_ELIGIBLE",))
 
     snap = candidate.snapshot
     rules = policy.execution
@@ -166,25 +166,26 @@ def build_staging_preview(
         return SizingOutcome(None, (f"ZERO_QUANTITY:{binding_cap}",))
 
     risk_dollars = quantity * modeled_risk_per_share
-    execute_date = execute_on.isoformat() if isinstance(execute_on, date) else str(execute_on)
-    preview = StagingPreview(
+    session_date = (
+        target_session_date.isoformat()
+        if isinstance(target_session_date, date)
+        else str(target_session_date)
+    )
+    preview = ResearchSizingPreview(
         candidate_id=candidate.candidate_id,
         symbol=snap.symbol,
-        action="BUY",
-        quantity=quantity,
-        order_type=rules.order_type,
-        tif=rules.tif,
-        regular_hours_only=rules.regular_hours_only,
-        entry_limit=entry_limit,
-        initial_stop=stop,
-        risk_per_share=round(modeled_risk_per_share, 4),
-        risk_dollars=round(risk_dollars, 2),
-        risk_bps=round(10_000.0 * risk_dollars / rules.account_value, 4),
-        notional=round(quantity * entry_limit, 2),
+        research_direction="LONG",
+        max_preview_shares=quantity,
+        reference_entry_price=entry_limit,
+        hypothetical_stop_price=stop,
+        modeled_risk_per_share=round(modeled_risk_per_share, 4),
+        modeled_risk_dollars=round(risk_dollars, 2),
+        modeled_risk_bps=round(10_000.0 * risk_dollars / rules.account_value, 4),
+        hypothetical_notional=round(quantity * entry_limit, 2),
         expected_entry_slippage_bps=round(expected_slippage_bps, 2),
         max_entry_slippage_bps=rules.max_entry_slippage_bps,
         stressed_exit_slippage_bps=rules.stressed_exit_slippage_bps,
-        binding_cap=binding_cap,
+        binding_constraint=binding_cap,
         setup_type=decision.setup_type,
         catalyst_type=decision.catalyst.catalyst_type,
         catalyst_summary=decision.catalyst.summary,
@@ -194,16 +195,16 @@ def build_staging_preview(
         evidence_published_at=decision.catalyst.evidence_published_at,
         contract_con_id=snap.contract_con_id,
         primary_exchange=snap.primary_exchange,
-        activation_min_price=_round_up_cent(
+        reference_activation_min_price=_round_up_cent(
             snap.previous_close * (1.0 + rules.min_stage_gap_pct / 100.0)
         ),
-        activation_max_price=activation_max_price,
-        max_opening_gap_pct=rules.max_immediate_gap_pct,
-        entry_window_end_et="09:35:00",
-        requires_fresh_quote_at_release=True,
-        requires_halt_recheck_at_release=True,
-        requires_opening_gap_recheck=True,
-        requires_contract_recheck_at_release=True,
-        execute_on=execute_date,
+        reference_activation_max_price=activation_max_price,
+        max_reference_gap_pct=rules.max_immediate_gap_pct,
+        reference_entry_window_end_et=rules.reference_entry_window_end_et,
+        target_session_date=session_date,
+        quote_revalidation_required=True,
+        halt_revalidation_required=True,
+        gap_revalidation_required=True,
+        contract_revalidation_required=True,
     )
     return SizingOutcome(preview)

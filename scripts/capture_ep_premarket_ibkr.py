@@ -60,6 +60,17 @@ def _halt_status(value) -> tuple[str, float | None]:  # type: ignore[no-untyped-
     return "UNKNOWN", raw
 
 
+def _exchange_key(value: str) -> str:
+    token = "".join(character for character in str(value).upper() if character.isalnum())
+    aliases = {
+        "NYSEARCA": "ARCA",
+        "NASDAQGS": "NASDAQ",
+        "NASDAQGM": "NASDAQ",
+        "NASDAQCM": "NASDAQ",
+    }
+    return aliases.get(token, token)
+
+
 def _round_robin_keys(
     keys_by_scanner: dict[str, list[object]], scanner_codes: list[str], limit: int
 ) -> list[object]:
@@ -133,7 +144,9 @@ def _daily_metrics(bars, session_date):  # type: ignore[no-untyped-def]
     }
 
 
-def _premarket_metrics(bars, session_date):  # type: ignore[no-untyped-def]
+def _premarket_metrics(
+    bars, session_date, previous_close: float | None = None
+):  # type: ignore[no-untyped-def]
     if not bars:
         raise ValueError("no extended-hours bars")
     frame = pd.DataFrame(
@@ -157,6 +170,21 @@ def _premarket_metrics(bars, session_date):  # type: ignore[no-untyped-def]
     volume = float(frame["volume"].sum())
     typical = (frame["high"] + frame["low"] + frame["close"]) / 3.0
     vwap = float((typical * frame["volume"]).sum() / volume)
+    first_trigger_at = None
+    if previous_close and previous_close > 0:
+        cumulative_volume = frame["volume"].cumsum()
+        gap_pct = 100.0 * (frame["close"] / previous_close - 1.0)
+        move_dollars = frame["close"] - previous_close
+        triggered = (cumulative_volume >= 100_000) & (
+            (gap_pct.abs() >= 2.0) | (move_dollars.abs() >= 0.90)
+        )
+        if triggered.any():
+            first_trigger_at = (
+                frame.index[triggered][0]
+                .tz_convert(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
     return {
         "premarket_open": float(frame.iloc[0]["open"]),
         "premarket_high": float(frame["high"].max()),
@@ -164,6 +192,7 @@ def _premarket_metrics(bars, session_date):  # type: ignore[no-untyped-def]
         "premarket_vwap": vwap,
         "premarket_volume": int(volume),
         "premarket_last": float(frame.iloc[-1]["close"]),
+        "first_trigger_at": first_trigger_at,
         # This is the newest observed bar timestamp, not the local fetch clock.
         # A stalled IB series must remain visibly stale.
         "premarket_metrics_at": frame.index.max()
@@ -171,6 +200,39 @@ def _premarket_metrics(bars, session_date):  # type: ignore[no-untyped-def]
         .isoformat()
         .replace("+00:00", "Z"),
     }
+
+
+def _load_target_rows(path: Path) -> tuple[list[dict], str]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    rows = raw.get("snapshots", []) if isinstance(raw, dict) else raw
+    if not isinstance(rows, list):
+        raise ValueError("target snapshot must contain a snapshots list")
+    target_dates = {
+        str(row.get("target_session_date", "")).strip()
+        for row in rows
+        if isinstance(row, dict) and row.get("target_session_date")
+    }
+    if len(target_dates) > 1:
+        raise ValueError("target snapshot contains multiple session dates")
+    cleaned: list[dict] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("target snapshot rows must be objects")
+        symbol = str(row.get("symbol", "")).strip().upper()
+        if not symbol or symbol in seen:
+            raise ValueError(f"missing or duplicate target symbol: {symbol!r}")
+        seen.add(symbol)
+        cleaned.append(
+            {
+                "symbol": symbol,
+                "expected_primary_exchange": str(
+                    row.get("screen_exchange") or row.get("primary_exchange") or ""
+                ).strip().upper(),
+                "source_screen_id": str(row.get("saved_screen_id", "")).strip(),
+            }
+        )
+    return cleaned, next(iter(target_dates), "")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -195,6 +257,16 @@ def _parser() -> argparse.ArgumentParser:
         dest="scanner_codes",
     )
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--symbols-from",
+        type=Path,
+        help="normalized TradingView snapshot; enrich only those symbols instead of using IBKR scanners",
+    )
+    parser.add_argument(
+        "--capture",
+        action="store_true",
+        help="connect read-only and write a local snapshot; default is a no-network dry run",
+    )
     return parser
 
 
@@ -204,8 +276,30 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--max-captured must be between 1 and 150")
     if args.quote_wait_seconds <= 0 or args.quote_wait_seconds > 15:
         raise SystemExit("--quote-wait-seconds must be in (0, 15]")
+    if args.symbols_from and args.scanner_codes:
+        raise SystemExit("--symbols-from cannot be combined with --scanner-code")
+    target_rows: list[dict] = []
+    target_session = ""
+    if args.symbols_from:
+        try:
+            target_rows, target_session = _load_target_rows(args.symbols_from.resolve())
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"invalid --symbols-from snapshot: {exc}") from exc
+        if len(target_rows) > args.max_captured:
+            raise SystemExit(
+                f"target snapshot has {len(target_rows)} rows; raise --max-captured explicitly"
+            )
+    if not args.capture:
+        source = (
+            f"{len(target_rows)} TradingView target(s)"
+            if args.symbols_from
+            else "the configured rank-limited IBKR scanner union"
+        )
+        print(f"Dry run: would enrich {source} using a read-only IBKR connection.")
+        print("No broker connection or file write was performed. Add --capture to proceed.")
+        return 0
     try:
-        from ib_insync import IB, ScannerSubscription
+        from ib_insync import IB, ScannerSubscription, Stock
     except ImportError as exc:
         raise SystemExit(
             "ib_insync is required only for capture; install it in the local TWS environment"
@@ -216,6 +310,10 @@ def main(argv: list[str] | None = None) -> int:
     if not (time(4, 0) <= now_ny.time().replace(tzinfo=None) < time(9, 25)):
         raise SystemExit("IBKR EP capture is restricted to 04:00-09:25 America/New_York")
     session_date = now_ny.date()
+    if target_session and target_session != session_date.isoformat():
+        raise SystemExit(
+            f"target snapshot is for {target_session}, not today's {session_date.isoformat()} session"
+        )
     output = args.output or (
         ROOT
         / "artifacts"
@@ -226,6 +324,8 @@ def main(argv: list[str] | None = None) -> int:
     artifact_root = (ROOT / "artifacts").resolve()
     if artifact_root not in output.parents:
         raise SystemExit("--output must stay under this worktree's artifacts directory")
+    if output.exists():
+        raise SystemExit(f"refusing to overwrite existing capture: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
 
     ib = IB()
@@ -236,44 +336,80 @@ def main(argv: list[str] | None = None) -> int:
     selected_contract_count = 0
     scanner_counts: dict[str, int] = {}
     successful_scans = 0
-    scanner_codes = args.scanner_codes or ["TOP_PERC_GAIN", "HOT_BY_VOLUME", "MOST_ACTIVE"]
+    scanner_codes = (
+        []
+        if target_rows
+        else args.scanner_codes
+        or ["TOP_PERC_GAIN", "HOT_BY_VOLUME", "MOST_ACTIVE"]
+    )
     try:
         ib.connect(args.host, args.port, clientId=args.client_id, readonly=True, timeout=10)
-        contracts: dict[object, dict] = {}
-        keys_by_scanner: dict[str, list[object]] = {code: [] for code in scanner_codes}
-        for code in scanner_codes:
-            try:
-                subscription = ScannerSubscription(
-                    numberOfRows=50,
-                    instrument="STK",
-                    locationCode="STK.US.MAJOR",
-                    scanCode=code,
-                    abovePrice=1.0,
-                    aboveVolume=50_000,
-                )
-                scan_rows = ib.reqScannerData(subscription)
-                scanner_counts[code] = len(scan_rows)
-                successful_scans += 1
-                for rank, item in enumerate(scan_rows, start=1):
-                    contract = item.contractDetails.contract
-                    if contract.secType == "STK" and contract.currency == "USD":
-                        key = contract.conId or contract.symbol
-                        record = contracts.setdefault(
-                            key,
-                            {"contract": contract, "scanner_ranks": {}},
-                        )
-                        record["scanner_ranks"][code] = rank
-                        keys_by_scanner[code].append(key)
-            except Exception as exc:
-                scanner_counts[code] = 0
-                errors.append({"scanner_code": code, "error": f"{type(exc).__name__}: {exc}"})
+        if target_rows:
+            selected_records = [
+                {
+                    "contract": Stock(
+                        row["symbol"],
+                        "SMART",
+                        "USD",
+                        primaryExchange=row["expected_primary_exchange"],
+                    ),
+                    "scanner_ranks": {},
+                    "expected_primary_exchange": row["expected_primary_exchange"],
+                    "source_screen_id": row["source_screen_id"],
+                    "selection_origin": "TRADINGVIEW_TARGETED",
+                }
+                for row in target_rows
+            ]
+            scanner_unique_count = len(selected_records)
+            selected_contract_count = len(selected_records)
+            successful_scans = 1
+        else:
+            contracts: dict[object, dict] = {}
+            keys_by_scanner: dict[str, list[object]] = {
+                code: [] for code in scanner_codes
+            }
+            for code in scanner_codes:
+                try:
+                    subscription = ScannerSubscription(
+                        numberOfRows=50,
+                        instrument="STK",
+                        locationCode="STK.US.MAJOR",
+                        scanCode=code,
+                        abovePrice=1.0,
+                        aboveVolume=50_000,
+                    )
+                    scan_rows = ib.reqScannerData(subscription)
+                    scanner_counts[code] = len(scan_rows)
+                    successful_scans += 1
+                    for rank, item in enumerate(scan_rows, start=1):
+                        contract = item.contractDetails.contract
+                        if contract.secType == "STK" and contract.currency == "USD":
+                            key = contract.conId or contract.symbol
+                            record = contracts.setdefault(
+                                key,
+                                {
+                                    "contract": contract,
+                                    "scanner_ranks": {},
+                                    "selection_origin": "IBKR_SCANNER_SAMPLE",
+                                },
+                            )
+                            record["scanner_ranks"][code] = rank
+                            keys_by_scanner[code].append(key)
+                except Exception as exc:
+                    scanner_counts[code] = 0
+                    errors.append(
+                        {
+                            "scanner_code": code,
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                    )
 
-        scanner_unique_count = len(contracts)
-        selected_keys = _round_robin_keys(
-            keys_by_scanner, scanner_codes, args.max_captured
-        )
-        selected_records = [contracts[key] for key in selected_keys]
-        selected_contract_count = len(selected_records)
+            scanner_unique_count = len(contracts)
+            selected_keys = _round_robin_keys(
+                keys_by_scanner, scanner_codes, args.max_captured
+            )
+            selected_records = [contracts[key] for key in selected_keys]
+            selected_contract_count = len(selected_records)
         for scanner_record in selected_records:
             contract = scanner_record["contract"]
             if datetime.now(timezone.utc).astimezone(_NY).time().replace(tzinfo=None) >= time(9, 25):
@@ -305,16 +441,20 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("detail symbol differs from scanner symbol")
                 company_name = detail.longName or contract.symbol
                 primary_exchange = (contract.primaryExchange or "").strip()
+                expected_primary_exchange = scanner_record.get(
+                    "expected_primary_exchange", ""
+                )
+                if expected_primary_exchange and _exchange_key(
+                    primary_exchange
+                ) != _exchange_key(expected_primary_exchange):
+                    raise ValueError(
+                        "IBKR primary exchange does not match TradingView identity"
+                    )
                 valid_exchanges = str(getattr(detail, "validExchanges", "") or "")
                 allowed_order_types = str(getattr(detail, "orderTypes", "") or "")
                 valid_exchange_tokens = {
                     value.strip().upper()
                     for value in valid_exchanges.split(",")
-                    if value.strip()
-                }
-                order_type_tokens = {
-                    value.strip().upper()
-                    for value in allowed_order_types.split(",")
                     if value.strip()
                 }
                 identity_valid = bool(
@@ -324,7 +464,6 @@ def main(argv: list[str] | None = None) -> int:
                     and primary_exchange
                     and primary_exchange.upper() != "SMART"
                     and "SMART" in valid_exchange_tokens
-                    and "LMT" in order_type_tokens
                 )
                 identity_status = (
                     "UNIQUE_IBKR_MATCH"
@@ -350,7 +489,9 @@ def main(argv: list[str] | None = None) -> int:
                     formatDate=2,
                 )
                 daily = _daily_metrics(daily_bars, session_date)
-                premarket = _premarket_metrics(extended_bars, session_date)
+                premarket = _premarket_metrics(
+                    extended_bars, session_date, daily["previous_close"]
+                )
                 prepared.append(
                     {
                         "contract": contract,
@@ -364,6 +505,12 @@ def main(argv: list[str] | None = None) -> int:
                         "valid_exchanges": valid_exchanges,
                         "allowed_order_types": allowed_order_types,
                         "scanner_ranks": scanner_record["scanner_ranks"],
+                        "selection_origin": scanner_record.get(
+                            "selection_origin", "IBKR_SCANNER_SAMPLE"
+                        ),
+                        "source_screen_id": scanner_record.get(
+                            "source_screen_id", ""
+                        ),
                         "daily": daily,
                         "premarket": premarket,
                     }
@@ -475,7 +622,16 @@ def main(argv: list[str] | None = None) -> int:
                                 "halt_status": halt_status,
                                 "halt_raw": halt_raw,
                                 "tradeable": item["tradeable"],
-                                "source": "IBKR_SCANNER_SAMPLE_READ_ONLY",
+                                "source": (
+                                    "IBKR_TARGETED_READ_ONLY"
+                                    if item["selection_origin"]
+                                    == "TRADINGVIEW_TARGETED"
+                                    else "IBKR_SCANNER_SAMPLE_READ_ONLY"
+                                ),
+                                "provider": "IBKR",
+                                "session": "premarket",
+                                "target_session_date": session_date.isoformat(),
+                                "saved_screen_id": item["source_screen_id"],
                                 "scanner_sources": sorted(item["scanner_ranks"]),
                                 "scanner_ranks": item["scanner_ranks"],
                                 "price_basis": "IBKR_TRADES",
@@ -505,8 +661,16 @@ def main(argv: list[str] | None = None) -> int:
         "mode": "IBKR_READ_ONLY_SHADOW",
         "scanner_codes": scanner_codes,
         "coverage": {
-            "mode": "NON_EXHAUSTIVE_IBKR_SCANNER_SAMPLE",
+            "mode": (
+                "TARGETED_TRADINGVIEW_CANDIDATES"
+                if target_rows
+                else "NON_EXHAUSTIVE_IBKR_SCANNER_SAMPLE"
+            ),
             "exchange_complete": False,
+            "input_candidate_complete": (
+                len(rows) == len(target_rows) if target_rows else False
+            ),
+            "requested_target_count": len(target_rows),
             "scanner_limit_per_code": 50,
             "scanner_counts": scanner_counts,
             "successful_scans": successful_scans,
@@ -515,9 +679,16 @@ def main(argv: list[str] | None = None) -> int:
             "omitted_before_detailed_capture": max(
                 0, scanner_unique_count - selected_contract_count
             ),
-            "selection_method": "ROUND_ROBIN_BY_SCANNER_RANK",
+            "selection_method": (
+                "TRADINGVIEW_CANDIDATE_LIST"
+                if target_rows
+                else "ROUND_ROBIN_BY_SCANNER_RANK"
+            ),
             "warning": (
-                "IBKR API scanner results are rank-limited samples and do not prove "
+                "Targeted mode covers only the validated TradingView input list; it does "
+                "not prove that TradingView covered the full exchange."
+                if target_rows
+                else "IBKR API scanner results are rank-limited samples and do not prove "
                 "coverage of every symbol meeting the EP move/volume rule."
             ),
         },
@@ -527,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
     output.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     print(f"Captured {len(rows)} snapshot(s); {len(errors)} error(s): {output}")
     print("Safety: connected read-only and exposed no order-submission path.")
-    return 0 if successful_scans and scanner_unique_count else 2
+    return 0 if rows else 2
 
 
 if __name__ == "__main__":

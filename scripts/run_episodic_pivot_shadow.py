@@ -69,9 +69,15 @@ def _verify_evidence_manifest(evidence: Path, manifest_path: Path) -> str:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="EP shadow research: candidate -> news -> decision -> local preview"
+        description="EP shadow research: candidate -> news -> decision -> local review artifact"
     )
-    parser.add_argument("--snapshot", required=True, type=Path)
+    parser.add_argument(
+        "--snapshot",
+        required=True,
+        type=Path,
+        action="append",
+        help="normalized snapshot JSON; repeat to merge after-hours and premarket observations",
+    )
     parser.add_argument("--evidence", type=Path, help="offline actual-document evidence JSON")
     parser.add_argument(
         "--evidence-manifest",
@@ -89,7 +95,12 @@ def _parser() -> argparse.ArgumentParser:
         help="required for a Google news mode; permits read-only search/fetch requests",
     )
     parser.add_argument("--as-of", help="timezone-aware decision timestamp")
-    parser.add_argument("--execute-on", help="reviewed regular-session date")
+    parser.add_argument("--target-session-date", help="regular-session date under review")
+    parser.add_argument(
+        "--run-research",
+        action="store_true",
+        help="run research and write local artifacts; never enables broker or production actions",
+    )
     parser.add_argument(
         "--output-root",
         type=Path,
@@ -100,21 +111,34 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.news_mode != "offline" and not args.allow_network:
+    if args.news_mode != "offline" and args.run_research and not args.allow_network:
         raise SystemExit("Google news modes require the explicit --allow-network flag")
     if args.news_mode == "offline" and args.evidence is None:
         print("Note: offline mode without --evidence will leave every catalyst unconfirmed.")
     if args.evidence_manifest and not args.evidence:
         raise SystemExit("--evidence-manifest requires --evidence")
 
-    snapshots = _load_snapshots(args.snapshot)
-    if not snapshots:
-        raise SystemExit("snapshot file contains no rows")
+    snapshots = [
+        snapshot
+        for snapshot_path in args.snapshot
+        for snapshot in _load_snapshots(snapshot_path)
+    ]
     as_of = args.as_of or datetime.now(timezone.utc)
     as_of_dt = parse_timestamp(as_of)
-    execute_on = args.execute_on or as_of_dt.astimezone(_NY).date().isoformat()
-    if execute_on != as_of_dt.astimezone(_NY).date().isoformat():
-        raise SystemExit("--execute-on must equal the decision's New York session date")
+    snapshot_dates = {
+        snapshot.target_session_date
+        for snapshot in snapshots
+        if snapshot.target_session_date
+    }
+    target_session_date = (
+        args.target_session_date
+        or (next(iter(snapshot_dates)) if len(snapshot_dates) == 1 else None)
+        or as_of_dt.astimezone(_NY).date().isoformat()
+    )
+    if snapshot_dates and snapshot_dates != {target_session_date}:
+        raise SystemExit(
+            "--target-session-date must match every snapshot target_session_date"
+        )
 
     documents = _load_documents(args.evidence)
     evidence_source_run_id = None
@@ -130,6 +154,13 @@ def main(argv: list[str] | None = None) -> int:
             "Warning: offline evidence has no verified network-run manifest; "
             "it will remain UNVERIFIED_REPLAY and cannot create a preview."
         )
+    if not args.run_research:
+        print(
+            f"Dry run: validated {len(snapshots)} snapshot row(s) for "
+            f"{target_session_date}; planned news mode={args.news_mode}."
+        )
+        print("No network request or file write was performed. Use --run-research for local research artifacts.")
+        return 0
     provider = None
     if args.news_mode == "google-news":
         provider = GoogleNewsRssProvider()
@@ -139,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     result = run_shadow_pipeline(
         snapshots,
         as_of=as_of_dt,
-        execute_on=execute_on,
+        target_session_date=target_session_date,
         policy=DEFAULT_POLICY,
         offline_documents=documents,
         offline_documents_verified=bool(evidence_source_run_id),
@@ -150,7 +181,10 @@ def main(argv: list[str] | None = None) -> int:
     if output_root != allowed_root and allowed_root not in output_root.parents:
         raise SystemExit("--output-root must stay under this worktree's artifacts directory")
     run_dir = output_root / result.run_id
-    input_files = {"snapshot": args.snapshot}
+    input_files = {
+        f"snapshot_{index}": path
+        for index, path in enumerate(args.snapshot, start=1)
+    }
     if args.evidence:
         input_files["evidence"] = args.evidence
     if args.evidence_manifest:
@@ -172,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(
         f"{result.run_id}: {len(result.candidates)} nomination(s), "
-        f"{len(result.previews)} staging preview(s)"
+        f"{len(result.previews)} research sizing preview(s)"
     )
     print(f"Review artifacts: {written}")
     print("Safety: no broker, Sheets, R2, schedule, or production write was attempted.")

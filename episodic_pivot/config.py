@@ -1,6 +1,6 @@
 """Versioned policy for the Episodic Pivot shadow process.
 
-The discovery rules are intentionally broad.  A candidate is not stageable until
+The discovery rules are intentionally broad.  A candidate is not preview-eligible until
 fresh market data, fetched news evidence, and execution-capacity gates all pass.
 Nothing in this module can enable live actions.
 """
@@ -27,22 +27,27 @@ class DiscoveryPolicy:
     future_timestamp_tolerance_seconds: int = 2
     max_prior_close_basis_mismatch_pct: float = 0.5
     max_candidates: int = 25
-    long_only: bool = True
+    # Both directions are research nominations.  Bearish movers are explicitly
+    # barred from sizing previews until a separate borrow/SSR model exists.
+    long_only: bool = False
 
 
 @dataclass(frozen=True)
 class NewsPolicy:
-    lookback_hours: int = 48
+    # Covers Thursday-after-close events across Good Friday and the weekend.
+    # Automatic qualification still requires verified causal timing, so this
+    # broader discovery window does not make an old article decision-grade.
+    lookback_hours: int = 96
     # Publication metadata can be a couple of seconds ahead because publisher
     # and broker clocks are not perfectly synchronized.  Retrieval itself is
     # never allowed after the decision clock.
     future_timestamp_tolerance_seconds: int = 2
     secondary_corroboration_window_hours: int = 12
     min_article_characters: int = 350
-    max_documents_per_candidate: int = 5
+    max_documents_per_candidate: int = 8
     require_actual_document: bool = True
-    # A single primary/reputable source or two independent secondary sources can
-    # support a confirmed catalyst.  Search-result snippets never count.
+    # Secondary sources can support research but never automatic confirmation
+    # in v0.  Search-result snippets never count as evidence.
     min_independent_secondary_sources: int = 2
 
 
@@ -72,9 +77,7 @@ class ExecutionPolicy:
     stressed_exit_slippage_bps: float = 100.0
     event_gap_stress_pct: float = 2.0
     stop_buffer_bps: float = 10.0
-    order_type: str = "LMT"
-    tif: str = "DAY"
-    regular_hours_only: bool = True
+    reference_entry_window_end_et: str = "09:35:00"
 
 
 @dataclass(frozen=True)
@@ -91,8 +94,8 @@ class HistoricalPolicy:
 
 @dataclass(frozen=True)
 class EPPolicy:
-    policy_id: str = "ep-shadow-v0.1.0"
-    policy_date: str = "2026-08-24"
+    policy_id: str = "ep-shadow-v0.2.0"
+    policy_date: str = "2026-08-25"
     mode: str = "SHADOW_RESEARCH"
     live_actions_enabled: bool = False
     discovery: DiscoveryPolicy = field(default_factory=DiscoveryPolicy)
@@ -105,10 +108,6 @@ class EPPolicy:
             raise ValueError("EP shadow policy cannot enable live actions")
         if self.mode != "SHADOW_RESEARCH":
             raise ValueError("EP v0 only supports SHADOW_RESEARCH mode")
-        if self.execution.order_type != "LMT":
-            raise ValueError("EP shadow previews must use limit orders")
-        if not self.execution.regular_hours_only:
-            raise ValueError("EP v0 must remain regular-hours-only")
         if self.execution.max_daily_risk_bps <= 0:
             raise ValueError("daily risk cap must be positive")
 

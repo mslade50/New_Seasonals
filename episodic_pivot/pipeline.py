@@ -24,7 +24,7 @@ from .schema import (
     parse_timestamp,
     utc_now,
 )
-from .sizing import apply_daily_preview_caps, build_staging_preview
+from .sizing import apply_daily_preview_caps, build_research_sizing_preview
 
 
 def _run_id(
@@ -59,7 +59,7 @@ def run_shadow_pipeline(
     snapshots: list[PremarketSnapshot],
     *,
     as_of: str | datetime,
-    execute_on: date | str,
+    target_session_date: date | str,
     policy: EPPolicy,
     offline_documents: dict[str, list[NewsDocument]] | None = None,
     offline_documents_verified: bool = False,
@@ -138,19 +138,32 @@ def run_shadow_pipeline(
             policy=policy.news,
             symbol=symbol,
             company_name=candidate.snapshot.company_name,
+            first_trigger_at=(
+                candidate.snapshot.first_trigger_at
+                or (
+                    candidate.snapshot.observed_at
+                    if candidate.snapshot.source.upper().startswith("IBKR")
+                    else None
+                )
+            ),
+            target_session_date=target_session_date,
         )
         decision = qualify_candidate(
-            candidate, catalyst, policy=policy, decision_at=decision_at
+            candidate,
+            catalyst,
+            policy=policy,
+            decision_at=decision_at,
+            target_session_date=target_session_date,
         )
-        outcome = build_staging_preview(
+        outcome = build_research_sizing_preview(
             candidate,
             decision,
             policy=policy,
-            execute_on=execute_on,
+            target_session_date=target_session_date,
         )
         if outcome.preview is not None:
             previews.append(outcome.preview)
-        elif decision.decision == "STAGEABLE":
+        elif decision.decision == "RESEARCH_PREVIEW_ELIGIBLE":
             decision = replace(
                 decision,
                 decision="WATCH",

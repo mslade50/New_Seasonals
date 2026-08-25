@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import hashlib
 import csv
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import date
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+import episodic_pivot.schema as ep_schema
 
 from episodic_pivot.config import DEFAULT_POLICY
 from episodic_pivot.historical import (
@@ -27,7 +28,12 @@ from episodic_pivot.news import (
     normalize_evidence_document,
     source_tier,
 )
-from scripts.capture_ep_premarket_ibkr import _halt_status, _round_robin_keys
+from scripts.capture_ep_premarket_ibkr import (
+    _halt_status,
+    _load_target_rows,
+    _premarket_metrics,
+    _round_robin_keys,
+)
 from scripts.run_episodic_pivot_shadow import _verify_evidence_manifest
 from episodic_pivot.pipeline import run_shadow_pipeline
 from episodic_pivot.premarket import nominate_candidates
@@ -36,10 +42,13 @@ from episodic_pivot.schema import (
     NewsDocument,
     NewsHit,
     PremarketSnapshot,
+    ResearchSizingPreview,
+    RunResult,
 )
 
 
 AS_OF = "2026-08-24T12:31:00Z"
+FIRST_TRIGGER = "2026-08-24T12:30:30Z"
 
 
 def _snapshot(**overrides) -> PremarketSnapshot:
@@ -93,17 +102,18 @@ def _document(**overrides) -> NewsDocument:
     text = overrides.pop("text_excerpt", default_text)
     values = {
         "title": "Test Systems reports earnings and raises guidance",
-        "url": "https://www.businesswire.com/news/home/test-systems-quarterly-results",
-        "canonical_url": "https://www.businesswire.com/news/home/test-systems-quarterly-results",
+        "url": "https://www.sec.gov/Archives/edgar/data/123456/test-systems-quarterly-results",
+        "canonical_url": "https://www.sec.gov/Archives/edgar/data/123456/test-systems-quarterly-results",
         "publisher": "Test Systems",
         "published_at": "2026-08-24T12:00:00Z",
         "retrieved_at": AS_OF,
         "text_excerpt": text,
         "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        "source_tier": "PRIMARY",
+        "source_tier": "PRIMARY_REGULATOR",
         "fetch_status": "FETCHED",
         "catalyst_types": ("EARNINGS_GUIDANCE",),
         "adverse_flags": (),
+        "published_at_provenance": "SEC_ACCEPTED_AT",
     }
     values.update(overrides)
     return NewsDocument(**values)
@@ -135,7 +145,12 @@ def test_stale_or_delayed_snapshot_is_visible_but_not_stageable():
         observed_at="2026-08-24T12:20:00Z", market_data_status="DELAYED"
     )
     candidate = nominate_candidates([snapshot], as_of=AS_OF, policy=DEFAULT_POLICY)[0]
-    catalyst = assess_catalyst([_document()], decision_at=AS_OF, policy=DEFAULT_POLICY.news)
+    catalyst = assess_catalyst(
+        [_document()],
+        decision_at=AS_OF,
+        policy=DEFAULT_POLICY.news,
+        first_trigger_at=FIRST_TRIGGER,
+    )
     decision = qualify_candidate(
         candidate, catalyst, policy=DEFAULT_POLICY, decision_at=AS_OF
     )
@@ -161,19 +176,28 @@ def test_search_snippet_or_failed_fetch_cannot_confirm_an_ep():
         text_sha256="",
         source_tier="SEARCH_WRAPPER",
     )
-    result = assess_catalyst([failed], decision_at=AS_OF, policy=DEFAULT_POLICY.news)
+    result = assess_catalyst(
+        [failed],
+        decision_at=AS_OF,
+        policy=DEFAULT_POLICY.news,
+        first_trigger_at=FIRST_TRIGGER,
+    )
     assert result.status == "UNCONFIRMED"
     assert "NO_ACTUAL_SOURCE_EVIDENCE" in result.reason_codes
 
 
 def test_primary_actual_document_confirms_and_future_document_does_not():
     confirmed = assess_catalyst(
-        [_document()], decision_at=AS_OF, policy=DEFAULT_POLICY.news
+        [_document()],
+        decision_at=AS_OF,
+        policy=DEFAULT_POLICY.news,
+        first_trigger_at=FIRST_TRIGGER,
     )
     future = assess_catalyst(
         [_document(published_at="2026-08-24T12:40:00Z")],
         decision_at=AS_OF,
         policy=DEFAULT_POLICY.news,
+        first_trigger_at=FIRST_TRIGGER,
     )
     assert confirmed.status == "CONFIRMED"
     assert confirmed.catalyst_type == "EARNINGS_GUIDANCE"
@@ -181,11 +205,62 @@ def test_primary_actual_document_confirms_and_future_document_does_not():
     assert "POST_DECISION_SOURCE" in future.reason_codes
 
 
+@pytest.mark.parametrize(
+    "url",
+    (
+        "https://www.businesswire.com/news/home/test-systems-quarterly-results",
+        "https://www.reuters.com/markets/test-systems-quarterly-results",
+    ),
+)
+def test_wire_or_single_reputable_article_cannot_auto_confirm_classic(url):
+    document = _document(
+        url=url,
+        canonical_url=url,
+        published_at_provenance="PAGE_METADATA",
+    )
+    assessment = assess_catalyst(
+        [document],
+        decision_at=AS_OF,
+        policy=DEFAULT_POLICY.news,
+        first_trigger_at=FIRST_TRIGGER,
+        symbol="TEST",
+        company_name="Test Systems Inc.",
+    )
+    assert assessment.status == "WATCH"
+    assert assessment.primary_source_confirmed is False
+    assert "PRIMARY_SOURCE_NOT_VERIFIED" in assessment.reason_codes
+
+
+def test_source_after_price_trigger_and_search_fallback_time_cannot_confirm():
+    after_trigger = assess_catalyst(
+        [_document(published_at="2026-08-24T12:30:40Z")],
+        decision_at=AS_OF,
+        policy=DEFAULT_POLICY.news,
+        first_trigger_at=FIRST_TRIGGER,
+        symbol="TEST",
+        company_name="Test Systems Inc.",
+    )
+    fallback_time = assess_catalyst(
+        [_document(published_at_provenance="SEARCH_FALLBACK")],
+        decision_at=AS_OF,
+        policy=DEFAULT_POLICY.news,
+        first_trigger_at=FIRST_TRIGGER,
+        symbol="TEST",
+        company_name="Test Systems Inc.",
+    )
+    assert after_trigger.status == "UNCONFIRMED"
+    assert "SOURCE_AFTER_FIRST_PRICE_TRIGGER" in after_trigger.reason_codes
+    assert fallback_time.status == "WATCH"
+    assert fallback_time.publication_time_verified is False
+    assert "UNVERIFIED_PUBLICATION_TIMESTAMP" in fallback_time.reason_codes
+
+
 def test_document_retrieved_after_decision_is_not_point_in_time_evidence():
     result = assess_catalyst(
         [_document(retrieved_at="2026-08-24T12:40:00Z")],
         decision_at=AS_OF,
         policy=DEFAULT_POLICY.news,
+        first_trigger_at=FIRST_TRIGGER,
     )
     assert result.status == "UNCONFIRMED"
     assert "POST_DECISION_RETRIEVAL" in result.reason_codes
@@ -215,7 +290,7 @@ def test_article_retrieved_at_is_fetch_completion_clock(monkeypatch):
     assert document.retrieved_at == "2026-08-24T12:32:00Z"
 
 
-def test_adverse_offering_never_reaches_staging():
+def test_adverse_offering_never_reaches_research_sizing():
     doc = _document(
         text_excerpt=(
             "Test Systems announced a registered direct public offering that will issue "
@@ -227,12 +302,13 @@ def test_adverse_offering_never_reaches_staging():
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on=date(2026, 8, 24),
+        target_session_date=date(2026, 8, 24),
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [doc]},
         offline_documents_verified=True,
     )
-    assert result.decisions[0].decision == "REJECT"
+    assert result.decisions[0].decision == "WATCH"
+    assert result.decisions[0].setup_type == "CATALYST_WITH_FINANCING_RISK"
     assert result.previews == []
 
 
@@ -249,29 +325,29 @@ def test_failed_clinical_endpoint_is_adverse_not_a_positive_ep():
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [document]},
         offline_documents_verified=True,
     )
-    assert result.decisions[0].decision == "REJECT"
+    assert result.decisions[0].decision == "WATCH"
     assert "CLINICAL_OR_REGULATORY_FAILURE" in result.decisions[0].blockers
     assert result.previews == []
 
 
-def test_end_to_end_preview_is_capped_limit_only_and_never_live(tmp_path):
+def test_end_to_end_research_sizing_is_capped_and_never_executable(tmp_path):
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on=date(2026, 8, 24),
+        target_session_date=date(2026, 8, 24),
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
     )
-    assert result.decisions[0].decision == "STAGEABLE"
+    assert result.decisions[0].decision == "RESEARCH_PREVIEW_ELIGIBLE"
     preview = result.previews[0]
-    assert preview.quantity > 0
-    assert preview.binding_cap in {
+    assert preview.max_preview_shares > 0
+    assert preview.binding_constraint in {
         "RISK",
         "MAX_NOTIONAL",
         "ADDV_PARTICIPATION",
@@ -279,18 +355,19 @@ def test_end_to_end_preview_is_capped_limit_only_and_never_live(tmp_path):
         "DISPLAYED_ASK_PARTICIPATION",
         "ABSOLUTE_QUANTITY",
     }
-    assert preview.order_type == "LMT"
-    assert preview.regular_hours_only is True
-    assert preview.approval == ""
-    assert preview.live_eligible is False
-    assert preview.activation_min_price == 10.40
-    assert preview.activation_max_price == 12.50
-    assert preview.max_opening_gap_pct == 25.0
-    assert preview.entry_window_end_et == "09:35:00"
-    assert preview.requires_fresh_quote_at_release is True
-    assert preview.requires_halt_recheck_at_release is True
-    assert preview.requires_opening_gap_recheck is True
-    assert preview.risk_bps <= DEFAULT_POLICY.execution.classic_risk_bps
+    assert preview.preview_only is True
+    assert preview.executable is False
+    assert preview.broker_route == "NONE"
+    assert preview.order_submission_allowed is False
+    assert preview.production_eligible is False
+    assert preview.reference_activation_min_price == 10.40
+    assert preview.reference_activation_max_price == 12.50
+    assert preview.max_reference_gap_pct == 25.0
+    assert preview.reference_entry_window_end_et == "09:35:00"
+    assert preview.quote_revalidation_required is True
+    assert preview.halt_revalidation_required is True
+    assert preview.gap_revalidation_required is True
+    assert preview.modeled_risk_bps <= DEFAULT_POLICY.execution.classic_risk_bps
 
     input_path = tmp_path / "input.json"
     input_path.write_text("{}", encoding="utf-8")
@@ -301,14 +378,13 @@ def test_end_to_end_preview_is_capped_limit_only_and_never_live(tmp_path):
         input_files={"snapshot": input_path},
     )
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["safety"] == {
-        "live_actions_enabled": False,
-        "broker_contacted": False,
-        "sheets_written": False,
-        "r2_written": False,
-        "production_deployed": False,
-    }
-    assert (output / "staging_preview.csv").exists()
+    assert manifest["safety"]["research_only"] is True
+    assert manifest["safety"]["live_actions_enabled"] is False
+    assert manifest["safety"]["order_submission_allowed"] is False
+    assert manifest["safety"]["order_staging_performed"] is False
+    assert (output / "research_sizing_preview.csv").exists()
+    assert (output / "report.html").exists()
+    assert not (output / "staging_preview.csv").exists()
 
 
 def test_multiple_previews_are_scaled_to_daily_portfolio_risk_cap():
@@ -317,16 +393,16 @@ def test_multiple_previews_are_scaled_to_daily_portfolio_risk_cap():
     result = run_shadow_pipeline(
         snapshots,
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents=documents,
         offline_documents_verified=True,
     )
     assert len(result.previews) == 6
-    assert sum(item.risk_bps for item in result.previews) <= (
+    assert sum(item.modeled_risk_bps for item in result.previews) <= (
         DEFAULT_POLICY.execution.max_daily_risk_bps + 0.01
     )
-    assert all("DAILY_RISK" in item.binding_cap for item in result.previews)
+    assert all("DAILY_RISK" in item.binding_constraint for item in result.previews)
 
 
 def test_daily_cap_zero_quantity_is_visible_in_decision():
@@ -339,7 +415,7 @@ def test_daily_cap_zero_quantity_is_visible_in_decision():
     result = run_shadow_pipeline(
         snapshots,
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=tiny_daily_cap_policy,
         offline_documents=documents,
         offline_documents_verified=True,
@@ -362,7 +438,7 @@ def test_search_failure_fails_candidate_closed_without_aborting_run():
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         search_provider=BrokenSearch(),
     )
@@ -385,7 +461,7 @@ def test_network_research_rechecks_quote_age_after_fetch(monkeypatch):
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         search_provider=EmptySearch(),
     )
@@ -397,7 +473,7 @@ def test_entry_window_is_enforced_not_just_written_to_preview():
     result = run_shadow_pipeline(
         [_snapshot(observed_at="2026-08-24T13:35:30Z")],
         as_of=late_as_of,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
@@ -416,7 +492,7 @@ def test_offline_evidence_hash_and_labels_are_recomputed_not_trusted():
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [mislabeled]},
         offline_documents_verified=True,
@@ -431,7 +507,7 @@ def test_unverified_offline_replay_cannot_create_a_preview():
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
     )
@@ -473,7 +549,7 @@ def test_review_csv_escapes_formula_title_but_json_keeps_raw_audit_value(tmp_pat
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document(title=malicious_title)]},
         offline_documents_verified=True,
@@ -483,12 +559,14 @@ def test_review_csv_escapes_formula_title_but_json_keeps_raw_audit_value(tmp_pat
         policy=DEFAULT_POLICY,
         output_dir=tmp_path / result.run_id,
     )
-    with (output / "staging_preview.csv").open(
+    with (output / "research_sizing_preview.csv").open(
         newline="", encoding="utf-8"
     ) as handle:
         row = next(csv.DictReader(handle))
     assert row["catalyst_summary"].startswith("'=")
-    raw = json.loads((output / "staging_preview.json").read_text(encoding="utf-8"))
+    raw = json.loads(
+        (output / "research_sizing_preview.json").read_text(encoding="utf-8")
+    )
     assert raw[0]["catalyst_summary"].startswith("=")
 
 
@@ -496,7 +574,7 @@ def test_empty_and_nonempty_preview_csv_have_identical_headers(tmp_path):
     stageable = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
@@ -504,7 +582,7 @@ def test_empty_and_nonempty_preview_csv_have_identical_headers(tmp_path):
     empty = run_shadow_pipeline(
         [_snapshot(symbol="EMPTY")],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"EMPTY": []},
         offline_documents_verified=True,
@@ -519,10 +597,10 @@ def test_empty_and_nonempty_preview_csv_have_identical_headers(tmp_path):
         policy=DEFAULT_POLICY,
         output_dir=tmp_path / "empty",
     )
-    stage_header = (stage_dir / "staging_preview.csv").read_text(
+    stage_header = (stage_dir / "research_sizing_preview.csv").read_text(
         encoding="utf-8"
     ).splitlines()[0]
-    empty_header = (empty_dir / "staging_preview.csv").read_text(
+    empty_header = (empty_dir / "research_sizing_preview.csv").read_text(
         encoding="utf-8"
     ).splitlines()[0]
     assert stage_header == empty_header
@@ -635,7 +713,7 @@ def test_stale_premarket_bar_timestamp_blocks_stageability():
     result = run_shadow_pipeline(
         [_snapshot(premarket_metrics_at="2026-08-24T12:00:00Z")],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
@@ -648,7 +726,7 @@ def test_previous_close_basis_mismatch_blocks_phantom_gap():
     result = run_shadow_pipeline(
         [_snapshot(quote_previous_close=5.0)],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
@@ -667,7 +745,7 @@ def test_unknown_halt_or_unresolved_contract_cannot_be_stageable():
             )
         ],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
@@ -685,13 +763,13 @@ def test_ask_above_25_percent_routes_to_delayed_even_if_last_is_below_cap():
     result = run_shadow_pipeline(
         [_snapshot(last=12.40, bid=12.99, ask=13.00, premarket_vwap=12.75)],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
     )
     assert result.decisions[0].decision == "WATCH"
-    assert result.decisions[0].setup_type == "DELAYED_EP_WATCH"
+    assert result.decisions[0].setup_type == "EXTENDED_GAP_DEP_CANDIDATE"
     assert "GAP_TOO_EXTENDED_FOR_IMMEDIATE_ENTRY" in result.decisions[0].blockers
     assert result.previews == []
 
@@ -709,6 +787,7 @@ def test_publication_after_decision_and_entry_window_cannot_confirm():
         policy=DEFAULT_POLICY.news,
         symbol="TEST",
         company_name="Test Systems Inc.",
+        first_trigger_at=FIRST_TRIGGER,
     )
     assert result.status == "UNCONFIRMED"
     assert "POST_DECISION_RETRIEVAL" in result.reason_codes
@@ -736,9 +815,10 @@ def test_two_secondary_sources_about_different_catalysts_do_not_corroborate():
         policy=DEFAULT_POLICY.news,
         symbol="TEST",
         company_name="Test Systems Inc.",
+        first_trigger_at=FIRST_TRIGGER,
     )
     assert assessment.status == "WATCH"
-    assert "INSUFFICIENT_SOURCE_AUTHORITY" in assessment.reason_codes
+    assert "PRIMARY_SOURCE_NOT_VERIFIED" in assessment.reason_codes
 
 
 def test_trial_enrollment_is_watch_not_positive_clinical_data():
@@ -750,7 +830,7 @@ def test_trial_enrollment_is_watch_not_positive_clinical_data():
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={
             "TEST": [
@@ -764,7 +844,7 @@ def test_trial_enrollment_is_watch_not_positive_clinical_data():
     )
     assert result.decisions[0].decision == "WATCH"
     assert result.decisions[0].catalyst.catalyst_type == "CLINICAL_TRIAL_UPDATE"
-    assert "CATALYST_CLASS_NOT_STAGE_ENABLED" in result.decisions[0].blockers
+    assert "CATALYST_NOT_CONFIRMED" in result.decisions[0].blockers
 
 
 def test_negative_trial_results_cannot_be_labeled_positive_clinical_data():
@@ -776,7 +856,7 @@ def test_negative_trial_results_cannot_be_labeled_positive_clinical_data():
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={
             "TEST": [
@@ -788,7 +868,7 @@ def test_negative_trial_results_cannot_be_labeled_positive_clinical_data():
         },
         offline_documents_verified=True,
     )
-    assert result.decisions[0].decision == "REJECT"
+    assert result.decisions[0].decision == "WATCH"
     assert "CLINICAL_OR_REGULATORY_FAILURE" in result.decisions[0].blockers
     assert result.previews == []
 
@@ -802,7 +882,7 @@ def test_negated_raised_guidance_cannot_confirm_guidance_catalyst():
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={
             "TEST": [
@@ -840,6 +920,7 @@ def test_two_company_roundup_does_not_assign_other_issuers_catalyst():
         policy=DEFAULT_POLICY.news,
         symbol="TEST",
         company_name="Test Systems Inc.",
+        first_trigger_at=FIRST_TRIGGER,
     )
     assert assessment.status == "WATCH"
     assert assessment.catalyst_type == "UNCLASSIFIED"
@@ -863,6 +944,7 @@ def test_preceding_other_company_sentence_cannot_confirm_candidate():
         policy=DEFAULT_POLICY.news,
         symbol="TEST",
         company_name="Test Systems Inc.",
+        first_trigger_at=FIRST_TRIGGER,
     )
     assert assessment.status == "WATCH"
     assert assessment.catalyst_type == "UNCLASSIFIED"
@@ -882,14 +964,14 @@ def test_ordinary_quarterly_results_are_not_mislabeled_as_raised_guidance():
     result = run_shadow_pipeline(
         [_snapshot()],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [document]},
         offline_documents_verified=True,
     )
     assert result.decisions[0].catalyst.catalyst_type == "EARNINGS"
     assert result.decisions[0].decision == "WATCH"
-    assert "MATERIALITY_SCORE_BELOW_STAGE_GATE" in result.decisions[0].blockers
+    assert "CATALYST_NOT_CONFIRMED" in result.decisions[0].blockers
 
 
 def test_eps_substring_in_keeps_or_steps_is_not_an_earnings_catalyst():
@@ -908,6 +990,7 @@ def test_eps_substring_in_keeps_or_steps_is_not_an_earnings_catalyst():
         policy=DEFAULT_POLICY.news,
         symbol="TEST",
         company_name="Test Systems Inc.",
+        first_trigger_at=FIRST_TRIGGER,
     )
     assert assessment.status == "WATCH"
     assert assessment.catalyst_type == "UNCLASSIFIED"
@@ -917,7 +1000,7 @@ def test_sizing_failure_is_propagated_into_candidate_decision():
     result = run_shadow_pipeline(
         [_snapshot(prior_two_day_low=7.0)],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
@@ -939,12 +1022,12 @@ def test_gap_over_25_percent_routes_to_delayed_watch():
             )
         ],
         as_of=AS_OF,
-        execute_on="2026-08-24",
+        target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
     )
-    assert result.decisions[0].setup_type == "DELAYED_EP_WATCH"
+    assert result.decisions[0].setup_type == "EXTENDED_GAP_DEP_CANDIDATE"
     assert result.previews == []
 
 
@@ -955,6 +1038,176 @@ def test_policy_cannot_enable_live_actions():
         assert "cannot enable live actions" in str(exc)
     else:
         raise AssertionError("live policy unexpectedly constructed")
+
+
+def test_exact_extension_boundaries_and_negative_movers_are_researchable():
+    snapshots = [
+        _snapshot(symbol="G20", last=12.0, bid=11.99, ask=12.0),
+        _snapshot(symbol="G2001", last=12.001, bid=12.0, ask=12.01),
+        _snapshot(symbol="G25", last=12.5, bid=12.49, ask=12.5),
+        _snapshot(symbol="G2501", last=12.501, bid=12.50, ask=12.51),
+        _snapshot(symbol="DOWN", last=9.0, bid=8.99, ask=9.0, premarket_vwap=9.0),
+    ]
+    candidates = nominate_candidates(
+        snapshots, as_of=AS_OF, policy=DEFAULT_POLICY
+    )
+    by_symbol = {item.snapshot.symbol: item for item in candidates}
+    assert "EXTENDED_GAP" not in by_symbol["G20"].discovery_warnings
+    assert "EXTENDED_GAP" in by_symbol["G2001"].discovery_warnings
+    assert "DELAYED_EP_PREFERRED" not in by_symbol["G25"].discovery_warnings
+    assert "DELAYED_EP_PREFERRED" in by_symbol["G2501"].discovery_warnings
+    assert "BEARISH_RESEARCH_ONLY" in by_symbol["DOWN"].discovery_warnings
+
+
+def test_guidance_cut_negative_mover_routes_to_bearish_research_only():
+    text = (
+        "Test Systems lowers guidance after demand weakened. The company cuts guidance, "
+        "reduces its outlook, and described a material deterioration in revenue and margins. "
+    ) * 5
+    result = run_shadow_pipeline(
+        [_snapshot(last=9.0, bid=8.99, ask=9.0, premarket_vwap=9.0)],
+        as_of=AS_OF,
+        target_session_date="2026-08-24",
+        policy=DEFAULT_POLICY,
+        offline_documents={
+            "TEST": [
+                _document(
+                    title="Test Systems cuts guidance",
+                    text_excerpt=text,
+                )
+            ]
+        },
+        offline_documents_verified=True,
+    )
+    decision = result.decisions[0]
+    assert decision.decision == "WATCH"
+    assert decision.setup_type == "BEARISH_EP_RESEARCH"
+    assert "BEARISH_EXECUTION_NOT_IMPLEMENTED" in decision.blockers
+    assert result.previews == []
+
+
+def test_targeted_ibkr_input_preserves_symbol_identity_and_session(tmp_path):
+    path = tmp_path / "targets.json"
+    path.write_text(
+        json.dumps(
+            {
+                "snapshots": [
+                    {
+                        "symbol": "TEST",
+                        "screen_exchange": "NASDAQ",
+                        "saved_screen_id": "screen-1",
+                        "target_session_date": "2026-08-24",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    rows, session = _load_target_rows(path)
+    assert session == "2026-08-24"
+    assert rows == [
+        {
+            "symbol": "TEST",
+            "expected_primary_exchange": "NASDAQ",
+            "source_screen_id": "screen-1",
+        }
+    ]
+
+
+def test_ibkr_five_minute_bars_record_first_actual_trigger_timestamp():
+    bars = [
+        SimpleNamespace(
+            date=pd.Timestamp("2026-08-24T04:00:00", tz="America/New_York"),
+            open=10.0,
+            high=10.15,
+            low=10.0,
+            close=10.10,
+            volume=50_000,
+            barCount=100,
+        ),
+        SimpleNamespace(
+            date=pd.Timestamp("2026-08-24T04:05:00", tz="America/New_York"),
+            open=10.10,
+            high=10.25,
+            low=10.10,
+            close=10.20,
+            volume=60_000,
+            barCount=120,
+        ),
+    ]
+    metrics = _premarket_metrics(bars, date(2026, 8, 24), previous_close=10.0)
+    assert metrics["first_trigger_at"] == "2026-08-24T08:05:00Z"
+
+
+def _normalized_field(value: str) -> str:
+    return "".join(character for character in value.lower() if character.isalnum())
+
+
+def test_research_sizing_contract_is_incompatible_with_live_order_rows():
+    research = {_normalized_field(item.name) for item in fields(ResearchSizingPreview)}
+    live = {
+        _normalized_field(name)
+        for name in {
+            "Symbol",
+            "Action",
+            "Quantity",
+            "Order_Type",
+            "TIF",
+            "Limit_Price",
+            "Manual_Limit",
+            "Strategy_Ref",
+            "Trade_Direction",
+            "Risk_Amt",
+            "Risk_Bps",
+            "Approval",
+            "Execute_On",
+            "Transmit",
+        }
+    }
+    assert research & live == {"symbol"}
+    assert not hasattr(ep_schema, "StagingPreview")
+
+
+def test_every_research_preview_safety_sentinel_is_immutable():
+    result = run_shadow_pipeline(
+        [_snapshot()],
+        as_of=AS_OF,
+        target_session_date="2026-08-24",
+        policy=DEFAULT_POLICY,
+        offline_documents={"TEST": [_document()]},
+        offline_documents_verified=True,
+    )
+    preview = result.previews[0]
+    mutations = (
+        {"preview_only": False},
+        {"executable": True},
+        {"broker_route": "SMART"},
+        {"order_submission_allowed": True},
+        {"human_review_required": False},
+        {"production_eligible": True},
+        {"live_actions_enabled": True},
+    )
+    for mutation in mutations:
+        with pytest.raises(ValueError):
+            replace(preview, **mutation)
+
+    payload = preview.to_dict()
+    payload.pop("record_type")
+    payload["action"] = "BUY"
+    with pytest.raises(TypeError):
+        ResearchSizingPreview(**payload)
+
+
+def test_manifest_rejects_order_shaped_preview_before_creating_directory(tmp_path):
+    result = RunResult(
+        run_id="EP-RUN-invalid",
+        generated_at=AS_OF,
+        previews=[SimpleNamespace(symbol="TEST", action="BUY", quantity=100)],
+    )
+    output = tmp_path / "must-not-exist"
+    with pytest.raises(TypeError, match="ResearchSizingPreview"):
+        write_run_artifacts(result, policy=DEFAULT_POLICY, output_dir=output)
+    assert not output.exists()
 
 
 def test_historical_proxy_uses_prior_volume_and_suppresses_repeat_events():

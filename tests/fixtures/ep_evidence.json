@@ -9,7 +9,8 @@
       "retrieved_at": "2026-08-24T12:31:00Z",
       "text_excerpt": "Demo Systems reports quarterly results and raised guidance after revenue grew well above prior expectations. Management described durable demand, a larger order backlog, improved margins, and a higher full-year outlook. The company reported earnings per share above consensus and increased its revenue forecast. Executives said the change reflects signed customer demand rather than a one-time benefit. The release includes reconciled results, detailed segment revenue, and the assumptions behind the new full-year guidance.",
       "text_sha256": "4579ddc7217897acde21c6d3fe9122ee8d8359a02877536ee6ff759e2a7fa449",
-      "source_tier": "PRIMARY",
+      "source_tier": "ISSUER_WIRE_UNVERIFIED",
+      "published_at_provenance": "PAGE_METADATA",
       "fetch_status": "FETCHED",
       "catalyst_types": ["EARNINGS_GUIDANCE"],
       "adverse_flags": []

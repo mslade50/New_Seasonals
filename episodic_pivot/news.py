@@ -15,7 +15,7 @@ import re
 import socket
 import time as monotonic_time
 from dataclasses import replace
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Protocol
@@ -41,11 +41,13 @@ from .schema import (
 
 _UA = "NewSeasonals-EP-Research/0.1 (+shadow-only actual-source verification)"
 _TRACKING_PARAMS = {"gclid", "fbclid", "mc_cid", "mc_eid", "ref", "source"}
-_PRIMARY_DOMAINS = {
+_REGULATOR_DOMAINS = {
     "sec.gov",
     "fda.gov",
     "ftc.gov",
     "justice.gov",
+}
+_WIRE_DOMAINS = {
     "businesswire.com",
     "globenewswire.com",
     "prnewswire.com",
@@ -207,12 +209,14 @@ def source_tier(url: str) -> str:
     if _domain_in(domain, _GOOGLE_HOSTS):
         return "SEARCH_WRAPPER"
     # Unknown issuer-looking paths/subdomains are not proof of issuer ownership.
-    # Until an issuer-domain map exists, only explicit government/wire domains
-    # receive one-source PRIMARY authority.
-    if _domain_in(domain, _PRIMARY_DOMAINS):
-        return "PRIMARY"
+    # Until an issuer-domain map is bound to a stable company identity, only
+    # regulator domains receive one-source decision authority.
+    if _domain_in(domain, _REGULATOR_DOMAINS):
+        return "PRIMARY_REGULATOR"
+    if _domain_in(domain, _WIRE_DOMAINS):
+        return "ISSUER_WIRE_UNVERIFIED"
     if _domain_in(domain, _REPUTABLE_DOMAINS):
-        return "REPUTABLE"
+        return "REPUTABLE_SECONDARY"
     return "SECONDARY"
 
 
@@ -235,7 +239,13 @@ class GoogleCustomSearchProvider:
         self, *, symbol: str, company_name: str, as_of: datetime, limit: int
     ) -> list[NewsHit]:
         query_name = company_name.strip() or symbol
-        query = f'("{query_name}" OR "{symbol}") (earnings OR guidance OR contract OR FDA OR merger OR product OR filing)'
+        query = (
+            f'("{query_name}" OR "{symbol}") '
+            "(earnings OR guidance OR contract OR FDA OR merger OR product OR filing "
+            "OR offering OR ATM OR secondary OR convertible OR reverse-split "
+            "OR bankruptcy OR going-concern OR failed-endpoint OR clinical-hold "
+            "OR recall OR restatement)"
+        )
         response = requests.get(
             "https://customsearch.googleapis.com/customsearch/v1",
             params={
@@ -405,8 +415,9 @@ def normalize_evidence_document(document: NewsDocument) -> NewsDocument:
         "SEARCH_WRAPPER": 0,
         "SEARCH": 0,
         "SECONDARY": 1,
-        "REPUTABLE": 2,
-        "PRIMARY": 3,
+        "ISSUER_WIRE_UNVERIFIED": 2,
+        "REPUTABLE_SECONDARY": 2,
+        "PRIMARY_REGULATOR": 3,
     }
     verified_tier = min(tiers, key=lambda value: authority_order.get(value, 0))
     return replace(
@@ -432,6 +443,7 @@ def _materiality(
         ("PERSISTENCE_EVIDENCE", 1, ("multi-year", "backlog", "recurring revenue", "full-year outlook", "signed customer demand")),
         ("ACCELERATING_GROWTH", 1, ("accelerated", "revenue grew", "sales grew", "record revenue", "record sales")),
         ("COMMERCIAL_OR_REGULATORY_MILESTONE", 1, ("commercial launch", "primary endpoint", "fda approval", "contract award")),
+        ("GUIDANCE_IMPACT", 1, ("expected to contribute to revenue", "increases revenue guidance", "raises revenue outlook", "material to revenue")),
     )
     for label, points, needles in rules:
         if any(_contains_non_negated_phrase(text, needle) for needle in needles):
@@ -520,15 +532,22 @@ def _source_identity(url: str) -> str:
     return ".".join(labels[-2:]) if len(labels) >= 2 else domain
 
 
-def _published_timestamp(parser: _VisibleTextParser, fallback: str | None) -> str | None:
-    for candidate in [*parser.published_candidates, fallback]:
+def _published_timestamp(
+    parser: _VisibleTextParser, fallback: str | None
+) -> tuple[str | None, str]:
+    for candidate in parser.published_candidates:
         if not candidate:
             continue
         try:
-            return iso_utc(candidate)
+            return iso_utc(candidate), "PAGE_METADATA"
         except (TypeError, ValueError):
             continue
-    return None
+    if fallback:
+        try:
+            return iso_utc(fallback), "SEARCH_FALLBACK"
+        except (TypeError, ValueError):
+            pass
+    return None, "UNKNOWN"
 
 
 def _validate_public_http_url(url: str) -> tuple[str, ...]:
@@ -743,12 +762,15 @@ class ArticleFetcher:
             # Provenance is the completion clock, never the request-start clock.
             # ``retrieved_at`` exists only for deterministic tests/replays.
             fetched_at = retrieved_at or utc_now()
+            published_at, published_at_provenance = _published_timestamp(
+                parser, hit.published_at
+            )
             return NewsDocument(
                 title=title,
                 url=hit.url,
                 canonical_url=canonical_url,
                 publisher=hit.publisher or _domain(final_url),
-                published_at=_published_timestamp(parser, hit.published_at),
+                published_at=published_at,
                 retrieved_at=iso_utc(fetched_at),
                 text_excerpt=excerpt,
                 text_sha256=digest,
@@ -756,6 +778,7 @@ class ArticleFetcher:
                 fetch_status="FETCHED",
                 catalyst_types=_match_labels(combined, _CATALYST_PATTERNS),
                 adverse_flags=_match_labels(combined, _ADVERSE_PATTERNS),
+                published_at_provenance=published_at_provenance,
             )
         except Exception as exc:
             fetched_at = retrieved_at or utc_now()
@@ -770,6 +793,9 @@ class ArticleFetcher:
                 text_sha256="",
                 source_tier=source_tier(requested_url),
                 fetch_status=f"FETCH_FAILED:{type(exc).__name__}",
+                published_at_provenance=(
+                    "SEARCH_FALLBACK" if hit.published_at else "UNKNOWN"
+                ),
             )
 
 
@@ -799,6 +825,30 @@ def _secondary_corroboration_group(
     return []
 
 
+def _trajectory_change_verified(
+    catalyst_type: str, materiality_signals: tuple[str, ...]
+) -> bool:
+    signals = set(materiality_signals)
+    if catalyst_type == "REGULATORY_APPROVAL":
+        return "COMMERCIAL_OR_REGULATORY_MILESTONE" in signals
+    if catalyst_type == "CLINICAL_DATA":
+        return "COMMERCIAL_OR_REGULATORY_MILESTONE" in signals
+    if catalyst_type == "EARNINGS_GUIDANCE":
+        return "RAISED_GUIDANCE" in signals
+    if catalyst_type == "EARNINGS":
+        return "EXPECTATIONS_SURPRISE" in signals and bool(
+            signals
+            & {"RAISED_GUIDANCE", "PERSISTENCE_EVIDENCE", "ACCELERATING_GROWTH"}
+        )
+    if catalyst_type == "MATERIAL_CONTRACT":
+        return {"QUANTIFIED_IMPACT", "GUIDANCE_IMPACT"} <= signals
+    if catalyst_type == "PRODUCT_TECHNOLOGY":
+        return "GUIDANCE_IMPACT" in signals and bool(
+            signals & {"QUANTIFIED_IMPACT", "PERSISTENCE_EVIDENCE"}
+        )
+    return False
+
+
 def assess_catalyst(
     documents: list[NewsDocument],
     *,
@@ -806,16 +856,31 @@ def assess_catalyst(
     policy: NewsPolicy,
     symbol: str = "",
     company_name: str = "",
+    first_trigger_at: str | datetime | None = None,
+    target_session_date: date | str | None = None,
 ) -> CatalystAssessment:
     as_of = parse_timestamp(decision_at)
     oldest = as_of - timedelta(hours=policy.lookback_hours)
     local_as_of = as_of.astimezone(_NY)
-    entry_cutoff = datetime.combine(local_as_of.date(), time(9, 35), tzinfo=_NY).astimezone(
+    target_date = (
+        target_session_date
+        if isinstance(target_session_date, date)
+        else date.fromisoformat(target_session_date)
+        if target_session_date
+        else local_as_of.date()
+    )
+    entry_cutoff = datetime.combine(target_date, time(9, 35), tzinfo=_NY).astimezone(
         timezone.utc
     )
     publication_limit = min(
         as_of + timedelta(seconds=policy.future_timestamp_tolerance_seconds),
         entry_cutoff,
+    )
+    trigger_limit = (
+        parse_timestamp(first_trigger_at)
+        + timedelta(seconds=policy.future_timestamp_tolerance_seconds)
+        if first_trigger_at is not None
+        else None
     )
     valid: list[NewsDocument] = []
     reason_codes: list[str] = []
@@ -841,6 +906,9 @@ def assess_catalyst(
             continue
         if published > publication_limit:
             reason_codes.append("POST_DECISION_SOURCE")
+            continue
+        if trigger_limit is not None and published > trigger_limit:
+            reason_codes.append("SOURCE_AFTER_FIRST_PRICE_TRIGGER")
             continue
         if not _document_mentions_candidate(
             doc, symbol=symbol, company_name=company_name
@@ -869,23 +937,52 @@ def assess_catalyst(
             reason_codes=tuple(sorted(set(reason_codes + ["NO_ACTUAL_SOURCE_EVIDENCE"]))),
         )
 
+    authority_rank = {
+        "PRIMARY_REGULATOR": 4,
+        "ISSUER_WIRE_UNVERIFIED": 3,
+        "REPUTABLE_SECONDARY": 2,
+        "SECONDARY": 1,
+    }
+
+    def lead_key(document: NewsDocument) -> tuple[object, ...]:
+        materiality, _ = _materiality(
+            document,
+            context_text=candidate_context_by_hash.get(document.text_sha256),
+        )
+        return (
+            -authority_rank.get(document.source_tier, 0),
+            -materiality,
+            parse_timestamp(document.published_at or document.retrieved_at),
+            document.canonical_url,
+        )
+
+    valid.sort(key=lead_key)
+
     adverse = sorted({flag for doc in valid for flag in doc.adverse_flags})
     catalyst_types = [kind for doc in valid for kind in doc.catalyst_types]
     if adverse:
         adverse_score, adverse_signals = _materiality(
             valid[0], context_text=candidate_context_by_hash.get(valid[0].text_sha256)
         )
+        primary = valid[0].source_tier == "PRIMARY_REGULATOR"
+        publication_verified = valid[0].published_at_provenance in {
+            "PAGE_METADATA",
+            "SEC_ACCEPTED_AT",
+        }
         return CatalystAssessment(
             status="ADVERSE",
             catalyst_type=catalyst_types[0] if catalyst_types else "ADVERSE_EVENT",
             summary=valid[0].title,
-            confidence="HIGH" if valid[0].source_tier == "PRIMARY" else "MEDIUM",
+            confidence="HIGH" if primary else "MEDIUM",
             materiality_score=adverse_score,
             materiality_signals=adverse_signals,
             evidence_urls=tuple(doc.canonical_url for doc in valid),
             evidence_published_at=tuple(doc.published_at or "" for doc in valid),
             adverse_flags=tuple(adverse),
             reason_codes=("ADVERSE_CATALYST_FLAG",),
+            primary_source_confirmed=primary,
+            publication_time_verified=publication_verified,
+            trajectory_change_verified=False,
         )
 
     with_catalyst = [doc for doc in valid if doc.catalyst_types]
@@ -900,26 +997,37 @@ def assess_catalyst(
             reason_codes=("FETCHED_BUT_NO_MATERIAL_CATALYST",),
         )
 
-    credible = [doc for doc in with_catalyst if doc.source_tier in {"PRIMARY", "REPUTABLE"}]
-    lead = credible[0] if credible else with_catalyst[0]
+    with_catalyst.sort(key=lead_key)
+    primary_documents = [
+        doc for doc in with_catalyst if doc.source_tier == "PRIMARY_REGULATOR"
+    ]
+    lead = primary_documents[0] if primary_documents else with_catalyst[0]
     selected_type = lead.catalyst_types[0]
-    selected_documents = [doc for doc in with_catalyst if selected_type in doc.catalyst_types]
-    if credible:
-        confirmed = True
-    else:
-        corroborated = _secondary_corroboration_group(
-            with_catalyst,
-            catalyst_type=selected_type,
-            min_domains=policy.min_independent_secondary_sources,
-            max_window_hours=policy.secondary_corroboration_window_hours,
-        )
-        confirmed = bool(corroborated)
-        if corroborated:
-            selected_documents = corroborated
+    selected_documents = sorted(
+        (doc for doc in with_catalyst if selected_type in doc.catalyst_types),
+        key=lead_key,
+    )
     materiality_score, materiality_signals = _materiality(
         lead, context_text=candidate_context_by_hash.get(lead.text_sha256)
     )
-    if not confirmed:
+    primary_confirmed = lead.source_tier == "PRIMARY_REGULATOR"
+    publication_verified = lead.published_at_provenance in {
+        "PAGE_METADATA",
+        "SEC_ACCEPTED_AT",
+    }
+    trajectory_verified = _trajectory_change_verified(
+        selected_type, materiality_signals
+    )
+    confirmation_blockers: list[str] = []
+    if not primary_confirmed:
+        confirmation_blockers.append("PRIMARY_SOURCE_NOT_VERIFIED")
+    if not publication_verified:
+        confirmation_blockers.append("UNVERIFIED_PUBLICATION_TIMESTAMP")
+    if trigger_limit is None:
+        confirmation_blockers.append("MISSING_FIRST_TRIGGER_TIMESTAMP")
+    if not trajectory_verified:
+        confirmation_blockers.append("TRAJECTORY_CHANGE_NOT_VERIFIED")
+    if confirmation_blockers:
         return CatalystAssessment(
             status="WATCH",
             catalyst_type=selected_type,
@@ -929,17 +1037,23 @@ def assess_catalyst(
             materiality_signals=materiality_signals,
             evidence_urls=tuple(doc.canonical_url for doc in selected_documents),
             evidence_published_at=tuple(doc.published_at or "" for doc in selected_documents),
-            reason_codes=("INSUFFICIENT_SOURCE_AUTHORITY",),
+            reason_codes=tuple(sorted(confirmation_blockers)),
+            primary_source_confirmed=primary_confirmed,
+            publication_time_verified=publication_verified,
+            trajectory_change_verified=trajectory_verified,
         )
 
     return CatalystAssessment(
         status="CONFIRMED",
         catalyst_type=selected_type,
         summary=lead.title,
-        confidence="HIGH" if lead.source_tier == "PRIMARY" else "MEDIUM",
+        confidence="HIGH",
         materiality_score=materiality_score,
         materiality_signals=materiality_signals,
         evidence_urls=tuple(doc.canonical_url for doc in selected_documents),
         evidence_published_at=tuple(doc.published_at or "" for doc in selected_documents),
-        reason_codes=("ACTUAL_SOURCE_CONFIRMED",),
+        reason_codes=("ACTUAL_PRIMARY_SOURCE_CONFIRMED",),
+        primary_source_confirmed=True,
+        publication_time_verified=True,
+        trajectory_change_verified=True,
     )

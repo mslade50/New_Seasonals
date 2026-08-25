@@ -6,6 +6,7 @@ streamlit>=1.23.0
 plotly
 ta
 requests
+urllib3>=1.26,<3  # EP hardened fetcher imports urllib3 TLS connection primitives directly
 openpyxl
 yfscreen
 yahooquery

@@ -1,9 +1,9 @@
-"""Deterministic EP classification and stageability gates."""
+"""Deterministic EP classification and research-preview gates."""
 
 from __future__ import annotations
 
 import math
-from datetime import datetime, time
+from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 from .config import EPPolicy
@@ -22,6 +22,27 @@ _CLASSIC_TYPES = {
     "PRODUCT_TECHNOLOGY",
 }
 
+_HARD_REJECT_ADVERSE = {
+    "FIXED_PRICE_TAKEOVER",
+    "REVERSE_SPLIT",
+    "BANKRUPTCY_OR_GOING_CONCERN",
+}
+_BEARISH_RESEARCH_ADVERSE = {
+    "GUIDANCE_CUT_OR_WITHDRAWAL",
+    "CLINICAL_OR_REGULATORY_FAILURE",
+    "RESTATEMENT_OR_RECALL",
+    "INVESTIGATION",
+}
+_DIRECT_LONG_BLOCK_ADVERSE = {"DILUTION_OR_OFFERING"}
+_LONG_ENTRY_BLOCKERS = {
+    "BELOW_STAGE_PRICE",
+    "MOVE_IS_DISCOVERY_ONLY",
+    "CURRENT_ASK_BELOW_STAGE_GAP",
+    "GAP_TOO_EXTENDED_FOR_IMMEDIATE_ENTRY",
+    "PRICE_TOO_FAR_ABOVE_PREMARKET_VWAP",
+    "INVALID_INITIAL_STOP_REFERENCE",
+}
+
 
 def _valid_positive(value: object) -> bool:
     try:
@@ -37,13 +58,25 @@ def qualify_candidate(
     *,
     policy: EPPolicy,
     decision_at: str | datetime,
+    target_session_date: date | str | None = None,
 ) -> QualificationDecision:
     snap = candidate.snapshot
+    bearish = snap.discovery_gap_pct < 0 or snap.discovery_move_dollars < 0
     blockers: list[str] = []
     warnings = list(candidate.discovery_warnings)
     execution = policy.execution
     decision_timestamp = parse_timestamp(decision_at)
-    if decision_timestamp.astimezone(_NY).time() >= time(9, 35):
+    local_decision = decision_timestamp.astimezone(_NY)
+    target_date = (
+        target_session_date
+        if isinstance(target_session_date, date)
+        else date.fromisoformat(target_session_date)
+        if target_session_date
+        else local_decision.date()
+    )
+    if local_decision.date() > target_date or (
+        local_decision.date() == target_date and local_decision.time() >= time(9, 35)
+    ):
         blockers.append("ENTRY_WINDOW_EXPIRED")
     if not snap.premarket_metrics_at:
         blockers.append("MISSING_PREMARKET_METRICS_TIMESTAMP")
@@ -88,11 +121,6 @@ def qualify_candidate(
     }
     if "SMART" not in valid_exchanges:
         blockers.append("SMART_ROUTING_UNAVAILABLE")
-    allowed_order_types = {
-        item.strip().upper() for item in snap.allowed_order_types.split(",") if item.strip()
-    }
-    if execution.order_type not in allowed_order_types:
-        blockers.append("LIMIT_ORDER_UNSUPPORTED")
     if not _valid_positive(snap.quote_previous_close):
         blockers.append("MISSING_QUOTE_PREVIOUS_CLOSE")
     else:
@@ -127,13 +155,31 @@ def qualify_candidate(
         warnings.append("NOT_NEGLECTED_PRIOR_63D_RUNUP")
     if snap.sessions_since_prior_ep is not None and snap.sessions_since_prior_ep < 126:
         warnings.append("NOT_FIRST_EP_IN_SIX_MONTHS")
+    if (
+        snap.prior_63d_return_pct is not None
+        and snap.prior_63d_return_pct > 20
+        and snap.sessions_since_prior_ep is not None
+        and snap.sessions_since_prior_ep < 126
+    ):
+        blockers.append("LATE_CYCLE_RUNUP_AND_RECENT_EP")
     if snap.market_cap is not None and snap.market_cap > 10_000_000_000:
         warnings.append("LARGE_CAP_INSTITUTIONAL_VARIANT")
 
     if catalyst.status == "ADVERSE":
-        blockers.extend(catalyst.adverse_flags or ("ADVERSE_CATALYST",))
-        decision = "REJECT"
-        setup_type = "ADVERSE_EVENT"
+        adverse = set(catalyst.adverse_flags or ("ADVERSE_CATALYST",))
+        blockers.extend(adverse)
+        if adverse & _HARD_REJECT_ADVERSE:
+            decision = "REJECT"
+            setup_type = "CORPORATE_ACTION_OR_DISTRESS_REJECT"
+        elif bearish and adverse & _BEARISH_RESEARCH_ADVERSE:
+            decision = "WATCH"
+            setup_type = "BEARISH_EP_RESEARCH"
+        elif adverse & _DIRECT_LONG_BLOCK_ADVERSE:
+            decision = "WATCH"
+            setup_type = "CATALYST_WITH_FINANCING_RISK"
+        else:
+            decision = "WATCH"
+            setup_type = "ADVERSE_EVENT_RESEARCH"
     elif catalyst.status != "CONFIRMED":
         blockers.append("CATALYST_NOT_CONFIRMED")
         decision = "WATCH"
@@ -154,6 +200,18 @@ def qualify_candidate(
         blockers.append("CATALYST_CLASS_NOT_STAGE_ENABLED")
         decision = "WATCH"
         setup_type = "STORY_EP_WATCH"
+    elif not catalyst.primary_source_confirmed:
+        blockers.append("PRIMARY_SOURCE_NOT_VERIFIED")
+        decision = "WATCH"
+        setup_type = "CLASSIC_EP_REVIEW"
+    elif not catalyst.publication_time_verified:
+        blockers.append("PUBLICATION_TIME_NOT_VERIFIED")
+        decision = "WATCH"
+        setup_type = "CLASSIC_EP_REVIEW"
+    elif not catalyst.trajectory_change_verified:
+        blockers.append("TRAJECTORY_CHANGE_NOT_VERIFIED")
+        decision = "WATCH"
+        setup_type = "CLASSIC_EP_REVIEW"
     elif catalyst.materiality_score < (
         4 if catalyst.catalyst_type in {"EARNINGS", "MATERIAL_CONTRACT", "PRODUCT_TECHNOLOGY"} else 3
     ):
@@ -166,11 +224,20 @@ def qualify_candidate(
             if "EP9M_VOLUME_DISCOVERY" in candidate.discovery_reasons
             else "CLASSIC_EP"
         )
-        decision = "STAGEABLE" if not blockers else "WATCH"
+        decision = "RESEARCH_PREVIEW_ELIGIBLE" if not blockers else "WATCH"
 
     if "GAP_TOO_EXTENDED_FOR_IMMEDIATE_ENTRY" in blockers and catalyst.status == "CONFIRMED":
-        setup_type = "DELAYED_EP_WATCH"
+        setup_type = "EXTENDED_GAP_DEP_CANDIDATE"
         decision = "WATCH"
+
+    # Negative movers belong in the research funnel, but this shadow version
+    # deliberately has no borrow, locate, SSR, or short-execution contract.
+    if bearish:
+        blockers.append("BEARISH_EXECUTION_NOT_IMPLEMENTED")
+        if decision != "REJECT":
+            decision = "WATCH"
+            setup_type = "BEARISH_EP_RESEARCH"
+        blockers = [item for item in blockers if item not in _LONG_ENTRY_BLOCKERS]
 
     return QualificationDecision(
         candidate_id=candidate.candidate_id,
