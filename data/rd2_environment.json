@@ -1,8 +1,8 @@
 {
-  "date": "2026-08-24",
+  "date": "2026-08-25",
   "price_ctx": {
     "price": 763.469970703125,
-    "ret_12m": 0.19621486074163141,
+    "ret_12m": 0.1962149751364961,
     "extension_200d": 0.08224293764134027,
     "drawdown": -0.018524752004466793,
     "sma_200": 705.4515618896485,
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 44th pctile (fires below 15th) \u2014 VIX at 15.9"
+      "summary": "21d range: 44th pctile (fires below 15th) \u2014 VIX at 15.8"
     },
     "Defensive Leadership": {
       "on": true,
@@ -39,8 +39,8 @@
     },
     "Low Absorption Ratio": {
       "on": true,
-      "detail": "Absorption Ratio at 0.338 (6th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
-      "summary": "AR: 0.338 (6th pctile, fires below 10th) \u2014 near high: yes"
+      "detail": "Absorption Ratio at 0.342 (7th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
+      "summary": "AR: 0.342 (7th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
@@ -54,8 +54,8 @@
     },
     "Equity P/C Complacency": {
       "on": false,
-      "detail": "10d-MA equity P/C 252d pctile: 50 (fires < 10)",
-      "summary": "Equity P/C at the 50th pctile of its trailing year (data 2026-08-21) \u2014 no complacency"
+      "detail": "10d-MA equity P/C 252d pctile: 54 (fires < 10)",
+      "summary": "Equity P/C at the 54th pctile of its trailing year (data 2026-08-24) \u2014 no complacency"
     }
   }
 }
