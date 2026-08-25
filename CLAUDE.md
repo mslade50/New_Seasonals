@@ -1765,6 +1765,19 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   (account+perm_id+side, VWAP) with a raw-fills toggle; strategy = 3rd pipe
   field of orderRef (same contract as `daily_execution_report.py`).
   Guard: `tests/test_tradelog_site.py`.
+- **Hedge panel (Exec tab, display-only)** (`assets/execution.js`, 2026-08-25):
+  attributes each selected account's live stock positions to strategy-tagged
+  working brackets, marks them, applies 63d or 252d SPY betas, nets counted
+  equity-index futures, and shows MES/ES target arithmetic, SPY-shock scenarios,
+  working entries, and the next 15 weekday roll-off dates. It reads the existing
+  `/exec-book` snapshot, `assets/futures_specs.json`, and optional
+  `data/betas.json`; it never sends, changes, schedules, or sizes an order and
+  has no `data-mutation` controls. `scripts/build_betas.py` computes OLS slopes
+  of adjusted daily close returns against SPY (minimum 20 paired observations),
+  plus 63d residual volatility, from `master_prices.parquet`. The best-effort
+  deploy step publishes `betas.json` in the immutable generated R2 bundle and
+  `build_site.py` copies it into `dist/data/`; absent or missing-symbol betas
+  deliberately degrade to 1.00 with an on-card assumption flag.
 - **Payload contract** (written by `scripts/build_site.py` into `dist/data/`):
   `meta.json`, `trades.json` (columnar full ledger), `strategy_daily.json`
   (per `Strategy||Tier` daily MTM PnL on the FLAT $750k basis + book totals),

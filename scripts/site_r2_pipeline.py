@@ -100,6 +100,7 @@ GENERATED_INPUTS: tuple[R2Input, ...] = (
     R2Input("seasonal_ideas", "daily_seasonal_ideas.json", "data/daily_seasonal_ideas.json"),
     R2Input("site_risk", "site_risk.json", "data/site_risk.json"),
     R2Input("atr_downside", "atr_downside_stats.json", "data/atr_downside_stats.json"),
+    R2Input("betas", "betas.json", "data/betas.json", False),
 )
 
 PUBLISH_GROUPS: dict[str, tuple[R2Input, ...]] = {

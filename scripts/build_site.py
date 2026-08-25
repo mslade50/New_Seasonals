@@ -18,6 +18,7 @@ Outputs (dist/):
   - dist/data/ideas.json           copy of data/daily_seasonal_ideas.json (if present)
   - dist/data/signals.json         latest Order_Staging + Overflow rows from Sheets (if creds)
   - dist/data/risk.json            copy of data/site_risk.json (if present; see build_risk_json.py)
+  - dist/data/betas.json           nightly adjusted-close SPY betas (if present; see build_betas.py)
   - dist/data/fundamentals.json    narrow fundamental inbox: quick reviews,
                                    active research, lenses, and audit counts
   - dist/data/stopfills.json       stop-fill quality: gap-through classification of every
@@ -97,6 +98,7 @@ DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
 FRAGILITY = os.path.join(_ROOT, "data", "rd2_fragility.parquet")
 IDEAS = os.path.join(_ROOT, "data", "daily_seasonal_ideas.json")
 RISK = os.path.join(_ROOT, "data", "site_risk.json")
+BETAS = os.path.join(_ROOT, "data", "betas.json")
 FUNDAMENTAL_DAILY = os.path.join(
     _ROOT, "data", "fundamental", "current", "daily_report_latest.json")
 FUNDAMENTAL_MAPS = os.path.join(
@@ -2531,7 +2533,7 @@ def main():
     df_flat = page_shaped(df)
     flags = {"strategy_daily": False, "positions": False, "exposure": False,
              "correlation": False, "charts": False, "ideas": False, "signals": False,
-             "risk": False, "strat_notes": True, "fragility": False,
+             "risk": False, "betas": False, "strat_notes": True, "fragility": False,
              "stopfills": False, "drawdowns": False, "sector_risk": False,
              "gate_lab": False, "ext_lab": False, "trade_mtm": False,
              "sizer": False, "health": False,
@@ -2679,6 +2681,19 @@ def main():
         shutil.copy2(RISK, os.path.join(data_dir, "risk.json"))
         flags["risk"] = True
         print("  copied risk.json")
+    if os.path.exists(BETAS):
+        try:
+            with open(BETAS, encoding="utf-8") as handle:
+                beta_payload = json.load(handle)
+            if not isinstance(beta_payload, dict) or not isinstance(
+                beta_payload.get("tickers"), dict
+            ):
+                raise ValueError("top-level tickers map is missing")
+            shutil.copy2(BETAS, os.path.join(data_dir, "betas.json"))
+            flags["betas"] = True
+            print("  copied betas.json")
+        except Exception as exc:
+            print(f"  betas: unreadable ({exc}) — continuing without it")
     sig = None
     if not args.no_signals:
         sig = fetch_signals()
