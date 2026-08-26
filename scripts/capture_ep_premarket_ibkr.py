@@ -23,6 +23,9 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from episodic_pivot.config import DEFAULT_POLICY
+from episodic_pivot.premarket import nominate_candidates
+from episodic_pivot.schema import PremarketSnapshot, parse_timestamp
 
 _NY = ZoneInfo("America/New_York")
 _MARKET_DATA_STATUS = {
@@ -242,6 +245,97 @@ def _premarket_metrics(bars, session_date, previous_close: float | None = None):
 
 
 def _load_target_rows(path: Path) -> tuple[list[dict], str]:
+    return _load_target_rows_unfiltered(path)
+
+
+def _load_target_rows_many(paths: list[Path]) -> tuple[list[dict], str, int]:
+    """Merge discovery files and retain only broad EP nominations.
+
+    TradingView intentionally has no percentage-move filter so it cannot miss
+    high-dollar movers.  The local broad move rule therefore has to run before
+    the bounded IBKR request set is counted.  Repeated files are merged by the
+    newest observation for each symbol; conflicting exchange identities fail
+    closed.
+    """
+
+    snapshots: list[PremarketSnapshot] = []
+    target_dates: set[str] = set()
+    raw_count = 0
+    exchanges: dict[str, set[str]] = {}
+    screen_ids: dict[str, set[str]] = {}
+    for path in paths:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        rows = raw.get("snapshots", []) if isinstance(raw, dict) else raw
+        if not isinstance(rows, list):
+            raise TypeError("target snapshot must contain a snapshots list")
+        wrapper_date = (
+            str(raw.get("target_session_date", "")).strip()
+            if isinstance(raw, dict)
+            else ""
+        )
+        if wrapper_date:
+            target_dates.add(wrapper_date)
+        raw_count += len(rows)
+        for row in rows:
+            if not isinstance(row, dict):
+                raise TypeError("target snapshot rows must be objects")
+            snapshot = PremarketSnapshot.from_dict(row)
+            snapshots.append(snapshot)
+            if snapshot.target_session_date:
+                target_dates.add(snapshot.target_session_date)
+            exchange = _exchange_key(
+                snapshot.screen_exchange or snapshot.primary_exchange or ""
+            )
+            if exchange:
+                exchanges.setdefault(snapshot.symbol, set()).add(exchange)
+            if snapshot.saved_screen_id:
+                screen_ids.setdefault(snapshot.symbol, set()).add(
+                    snapshot.saved_screen_id
+                )
+
+    if len(target_dates) > 1:
+        raise ValueError("target snapshots contain multiple session dates")
+    exchange_conflicts = {
+        symbol: sorted(values)
+        for symbol, values in exchanges.items()
+        if len(values) > 1
+    }
+    if exchange_conflicts:
+        raise ValueError(
+            f"conflicting target exchanges: {json.dumps(exchange_conflicts, sort_keys=True)}"
+        )
+    if not snapshots:
+        return [], next(iter(target_dates), ""), raw_count
+
+    as_of = max(parse_timestamp(item.observed_at) for item in snapshots)
+    candidates = nominate_candidates(
+        snapshots,
+        as_of=as_of,
+        policy=DEFAULT_POLICY,
+        apply_candidate_limit=False,
+    )
+    cleaned = [
+        {
+            "symbol": candidate.snapshot.symbol,
+            "expected_primary_exchange": str(
+                candidate.snapshot.screen_exchange
+                or candidate.snapshot.primary_exchange
+                or ""
+            )
+            .strip()
+            .upper(),
+            "source_screen_id": "|".join(
+                sorted(screen_ids.get(candidate.snapshot.symbol, set()))
+            ),
+        }
+        for candidate in candidates
+    ]
+    return cleaned, next(iter(target_dates), ""), raw_count
+
+
+def _load_target_rows_unfiltered(path: Path) -> tuple[list[dict], str]:
+    """Legacy parsing helper retained only for narrow unit fixtures."""
+
     raw = json.loads(path.read_text(encoding="utf-8"))
     rows = raw.get("snapshots", []) if isinstance(raw, dict) else raw
     if not isinstance(rows, list):
@@ -303,7 +397,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--symbols-from",
         type=Path,
-        help="normalized TradingView snapshot; enrich only those symbols instead of using IBKR scanners",
+        action="append",
+        help=(
+            "normalized discovery/refresh snapshot; repeat to merge after-hours "
+            "and premarket files before applying the broad move rule"
+        ),
     )
     parser.add_argument(
         "--capture",
@@ -319,14 +417,18 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--max-captured must be between 1 and 150")
     if args.quote_wait_seconds <= 0 or args.quote_wait_seconds > 15:
         raise SystemExit("--quote-wait-seconds must be in (0, 15]")
-    if args.symbols_from and args.scanner_codes:
+    target_mode = bool(args.symbols_from)
+    if target_mode and args.scanner_codes:
         raise SystemExit("--symbols-from cannot be combined with --scanner-code")
     target_rows: list[dict] = []
     target_session = ""
-    if args.symbols_from:
+    target_input_rows = 0
+    if target_mode:
         try:
-            target_rows, target_session = _load_target_rows(args.symbols_from.resolve())
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            target_rows, target_session, target_input_rows = _load_target_rows_many(
+                [path.resolve() for path in args.symbols_from]
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise SystemExit(f"invalid --symbols-from snapshot: {exc}") from exc
         if len(target_rows) > args.max_captured:
             raise SystemExit(
@@ -334,8 +436,8 @@ def main(argv: list[str] | None = None) -> int:
             )
     if not args.capture:
         source = (
-            f"{len(target_rows)} TradingView target(s)"
-            if args.symbols_from
+            f"{len(target_rows)} broad nomination(s) from {target_input_rows} discovery row(s)"
+            if target_mode
             else "the configured rank-limited IBKR scanner union"
         )
         print(f"Dry run: would enrich {source} using a read-only IBKR connection.")
@@ -385,14 +487,14 @@ def main(argv: list[str] | None = None) -> int:
     successful_scans = 0
     scanner_codes = (
         []
-        if target_rows
+        if target_mode
         else args.scanner_codes or ["TOP_PERC_GAIN", "HOT_BY_VOLUME", "MOST_ACTIVE"]
     )
     try:
         ib.connect(
             args.host, args.port, clientId=args.client_id, readonly=True, timeout=10
         )
-        if target_rows:
+        if target_mode:
             selected_records = [
                 {
                     "contract": Stock(
@@ -739,13 +841,14 @@ def main(argv: list[str] | None = None) -> int:
         "coverage": {
             "mode": (
                 "TARGETED_TRADINGVIEW_CANDIDATES"
-                if target_rows
+                if target_mode
                 else "NON_EXHAUSTIVE_IBKR_SCANNER_SAMPLE"
             ),
             "exchange_complete": False,
             "input_candidate_complete": (
-                len(rows) == len(target_rows) if target_rows else False
+                len(rows) == len(target_rows) if target_mode else False
             ),
+            "input_discovery_row_count": target_input_rows,
             "requested_target_count": len(target_rows),
             "scanner_limit_per_code": 50,
             "scanner_counts": scanner_counts,
@@ -757,13 +860,13 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "selection_method": (
                 "TRADINGVIEW_CANDIDATE_LIST"
-                if target_rows
+                if target_mode
                 else "ROUND_ROBIN_BY_SCANNER_RANK"
             ),
             "warning": (
                 "Targeted mode covers only the validated TradingView input list; it does "
                 "not prove that TradingView covered the full exchange."
-                if target_rows
+                if target_mode
                 else "IBKR API scanner results are rank-limited samples and do not prove "
                 "coverage of every symbol meeting the EP move/volume rule."
             ),
@@ -776,7 +879,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"Captured {len(rows)} snapshot(s); {len(errors)} error(s): {output}")
     print("Safety: connected read-only and exposed no order-submission path.")
-    return 0 if rows else 2
+    return 0 if rows or (target_mode and not target_rows) else 2
 
 
 if __name__ == "__main__":

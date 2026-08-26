@@ -49,7 +49,7 @@ def _validate_research_previews(previews: list[ResearchSizingPreview]) -> None:
 
     forbidden = {
         _normalized_key(name)
-        for name in {
+        for name in (
             "Action",
             "Quantity",
             "Order_Type",
@@ -63,7 +63,7 @@ def _validate_research_previews(previews: list[ResearchSizingPreview]) -> None:
             "Approval",
             "Execute_On",
             "Transmit",
-        }
+        )
     }
     for preview in previews:
         if type(preview) is not ResearchSizingPreview:
@@ -84,6 +84,43 @@ def _validate_research_previews(previews: list[ResearchSizingPreview]) -> None:
             raise ValueError(
                 f"research sizing preview collides with live-order keys: {sorted(collision)}"
             )
+
+
+def _refresh_targets(result: RunResult) -> dict[str, Any]:
+    """Build a bounded, non-executable quote-refresh list after news research."""
+
+    skipped = {
+        "NEWS_RESEARCH_SKIPPED_PRIOR_ATR",
+        "NEWS_RESEARCH_NOT_SELECTED_BY_CAP",
+    }
+    researched_ids = {
+        decision.candidate_id
+        for decision in result.decisions
+        if not (skipped & set(decision.blockers))
+    }
+    snapshots = [
+        candidate.snapshot.to_dict()
+        for candidate in result.candidates
+        if candidate.candidate_id in researched_ids
+    ]
+    target_dates = sorted(
+        {
+            str(item.get("target_session_date", "")).strip()
+            for item in snapshots
+            if item.get("target_session_date")
+        }
+    )
+    return {
+        "schema_version": 1,
+        "record_type": "EP_RESEARCH_QUOTE_REFRESH_TARGETS_V1",
+        "source_run_id": result.run_id,
+        "generated_at": result.generated_at,
+        "target_session_date": target_dates[0] if len(target_dates) == 1 else None,
+        "research_only": True,
+        "broker_route": "NONE",
+        "order_submission_allowed": False,
+        "snapshots": snapshots,
+    }
 
 
 def _report(result: RunResult, policy: EPPolicy) -> str:
@@ -353,6 +390,8 @@ def write_run_artifacts(
         },
     )
     _json_dump(root / "decisions.json", [item.to_dict() for item in result.decisions])
+    refresh_targets = _refresh_targets(result)
+    _json_dump(root / "refresh_targets.json", refresh_targets)
     preview_rows = [item.to_dict() for item in result.previews]
     _json_dump(root / "research_sizing_preview.json", preview_rows)
 
@@ -383,6 +422,7 @@ def write_run_artifacts(
         "evidence.json",
         "evidence_by_symbol.json",
         "decisions.json",
+        "refresh_targets.json",
         "research_sizing_preview.json",
         "research_sizing_preview.csv",
         "report.md",

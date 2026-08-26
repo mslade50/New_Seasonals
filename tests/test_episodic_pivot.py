@@ -57,6 +57,7 @@ from scripts.capture_ep_premarket_ibkr import (
     _daily_metrics,
     _halt_status,
     _load_target_rows,
+    _load_target_rows_many,
     _premarket_metrics,
     _round_robin_keys,
 )
@@ -408,6 +409,13 @@ def test_end_to_end_research_sizing_is_capped_and_never_executable(tmp_path):
     assert manifest["safety"]["order_staging_performed"] is False
     assert (output / "research_sizing_preview.csv").exists()
     assert (output / "report.html").exists()
+    refresh = json.loads((output / "refresh_targets.json").read_text(encoding="utf-8"))
+    assert refresh["record_type"] == "EP_RESEARCH_QUOTE_REFRESH_TARGETS_V1"
+    assert refresh["research_only"] is True
+    assert refresh["broker_route"] == "NONE"
+    assert refresh["order_submission_allowed"] is False
+    assert [item["symbol"] for item in refresh["snapshots"]] == ["TEST"]
+    assert "refresh_targets.json" in manifest["artifacts"]
     assert not (output / "staging_preview.csv").exists()
 
 
@@ -1441,6 +1449,89 @@ def test_historical_atr_gate_requires_consecutive_nyse_source_sessions():
     assert result.counts["strict_prior_atr_calendar_incomplete"] == 1
     assert result.counts["strict_with_neglect_and_prior_atr"] == 0
     assert result.events.empty
+
+
+def test_targeted_ibkr_merge_dedupes_latest_and_filters_before_capture(tmp_path):
+    after = _snapshot(
+        symbol="KEEP",
+        observed_at="2026-08-23T23:45:00Z",
+        session="after_hours",
+        target_session_date="2026-08-24",
+        saved_screen_id="after-screen",
+        screen_exchange="NASDAQ",
+        last=10.50,
+        previous_close=10.0,
+        premarket_volume=150_000,
+    )
+    pre = _snapshot(
+        symbol="KEEP",
+        observed_at="2026-08-24T12:20:00Z",
+        session="premarket",
+        target_session_date="2026-08-24",
+        saved_screen_id="pre-screen",
+        screen_exchange="NASDAQ",
+        last=11.0,
+        previous_close=10.0,
+        premarket_volume=250_000,
+    )
+    low_move = _snapshot(
+        symbol="DROP",
+        observed_at="2026-08-24T12:20:00Z",
+        session="premarket",
+        target_session_date="2026-08-24",
+        saved_screen_id="pre-screen",
+        screen_exchange="NYSE",
+        last=10.10,
+        previous_close=10.0,
+        premarket_volume=250_000,
+    )
+    after_path = tmp_path / "after.json"
+    pre_path = tmp_path / "pre.json"
+    after_path.write_text(
+        json.dumps({"target_session_date": "2026-08-24", "snapshots": [after.to_dict()]}),
+        encoding="utf-8",
+    )
+    pre_path.write_text(
+        json.dumps(
+            {
+                "target_session_date": "2026-08-24",
+                "snapshots": [pre.to_dict(), low_move.to_dict()],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows, session, raw_count = _load_target_rows_many([after_path, pre_path])
+
+    assert session == "2026-08-24"
+    assert raw_count == 3
+    assert rows == [
+        {
+            "symbol": "KEEP",
+            "expected_primary_exchange": "NASDAQ",
+            "source_screen_id": "after-screen|pre-screen",
+        }
+    ]
+
+
+def test_targeted_ibkr_merge_rejects_mixed_target_sessions(tmp_path):
+    first = _snapshot(
+        symbol="ONE",
+        target_session_date="2026-08-24",
+        saved_screen_id="one",
+    )
+    second = _snapshot(
+        symbol="TWO",
+        target_session_date="2026-08-25",
+        saved_screen_id="two",
+    )
+    first_path = tmp_path / "first.json"
+    second_path = tmp_path / "second.json"
+    first_path.write_text(json.dumps({"snapshots": [first.to_dict()]}), encoding="utf-8")
+    second_path.write_text(json.dumps({"snapshots": [second.to_dict()]}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="multiple session dates"):
+        _load_target_rows_many([first_path, second_path])
 
 
 def test_low_atr_confirmed_gap_still_resets_first_event_clock():
