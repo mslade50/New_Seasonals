@@ -35,7 +35,7 @@ jobs:
         run: |
           pip install pandas numpy pyarrow scipy scikit-learn joblib plotly \
             yfinance gspread google-auth boto3 requests streamlit pytest \
-            python-dotenv
+            python-dotenv exchange-calendars
 
       - name: Run test suite
         run: python -m pytest tests/ -q
