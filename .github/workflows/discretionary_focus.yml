@@ -1,0 +1,112 @@
+name: Discretionary Focus
+
+# One pre-market, research-only attention list.  This workflow has no broker,
+# Sheets, strategy-scanner, allocation, or order-staging dependency.
+on:
+  schedule:
+    # Two UTC slots plus the session gate below produce one 08:35 New York
+    # run across both daylight and standard time. The non-matching slot exits
+    # cleanly, as do weekends and full NYSE holidays.
+    - cron: '35 12 * * 1-5'
+    - cron: '35 13 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      delivery_mode:
+        description: Manual runs are diagnostics unless current-session delivery is explicit
+        required: true
+        default: dry_run
+        type: choice
+        options:
+          - dry_run
+          - publish_and_email
+
+concurrency:
+  group: discretionary-focus
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-publish-email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install bounded dependencies
+        run: pip install pandas pyarrow numpy requests python-dotenv boto3 exchange-calendars
+
+      - name: Gate scheduled runs to NYSE sessions
+        id: session
+        run: >-
+          python scripts/check_discretionary_focus_session.py
+          --scheduled-cron "${{ github.event.schedule }}"
+
+      - name: Pull current research inputs and prior delivery receipt
+        if: github.event_name == 'workflow_dispatch' || steps.session.outputs.should_run == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/pull_discretionary_focus_inputs.py
+
+      - name: Build the final 0-2 name research shortlist
+        if: github.event_name == 'workflow_dispatch' || steps.session.outputs.should_run == 'true'
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: >-
+          python scripts/build_discretionary_focus.py
+          --phase ${{ github.event_name == 'workflow_dispatch' && inputs.delivery_mode == 'dry_run' && 'PROVISIONAL' || 'FINAL' }}
+          --fetch-news
+          --output data/discretionary_focus/current.json
+
+      - name: Gate publication and delivery to the actual pre-market window
+        id: delivery
+        if: >-
+          github.ref == 'refs/heads/main' &&
+          ((github.event_name == 'schedule' && steps.session.outputs.should_run == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.delivery_mode == 'publish_and_email'))
+        run: >-
+          python scripts/check_discretionary_focus_session.py
+          --delivery-window
+          --require-allowed
+
+      - name: Publish immutable history, then atomically replace current
+        if: >-
+          github.ref == 'refs/heads/main' &&
+          steps.delivery.outputs.should_run == 'true' &&
+          ((github.event_name == 'schedule' && steps.session.outputs.should_run == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.delivery_mode == 'publish_and_email'))
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: >-
+          python scripts/publish_discretionary_focus.py
+          --input data/discretionary_focus/current.json
+
+      - name: Send the at-most-once morning email
+        if: >-
+          github.ref == 'refs/heads/main' &&
+          steps.delivery.outputs.should_run == 'true' &&
+          ((github.event_name == 'schedule' && steps.session.outputs.should_run == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.delivery_mode == 'publish_and_email'))
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          DISCRETIONARY_FOCUS_RECIPIENTS: ${{ vars.DISCRETIONARY_FOCUS_RECIPIENTS }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: >-
+          python scripts/send_discretionary_focus_email.py
+          --input data/discretionary_focus/current.json
+          --receipt data/discretionary_focus/email_receipt.json
+          --persist-receipt-r2

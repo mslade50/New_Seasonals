@@ -15,18 +15,25 @@ import math
 import re
 from typing import Any, Mapping
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 
 SCHEMA_VERSION = "discretionary-focus.v1"
-PHASES = {"PROVISIONAL", "FINAL", "LIVE"}
+PHASES = {"PROVISIONAL", "FINAL"}
 STATUSES = {"READY", "NO_QUALIFIED_SETUP"}
 MAX_FOCUS_NAMES = 2
 RAW_PRICE_BASIS = "RAW_AS_TRADED"
+ET = ZoneInfo("America/New_York")
 
-SCREEN_MAX_AGE = timedelta(hours=36)
+# Friday's close is still the immediately prior completed session on Monday,
+# and a three-day exchange weekend can put that bar almost 89 hours behind a
+# pre-market run. The producer separately enforces exact prior-session data;
+# this wall-clock bound is a second sanity check, not the freshness policy.
+SCREEN_MAX_AGE = timedelta(hours=96)
 RESEARCH_MAX_AGE = timedelta(hours=36)
 LIVE_OBSERVATION_MAX_AGE = timedelta(minutes=5)
 FUTURE_CLOCK_TOLERANCE = timedelta(minutes=5)
+SOURCE_MAX_AGE = timedelta(days=550)
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.^/-]{0,19}$")
@@ -227,7 +234,7 @@ def _validate_invalidation(value: Any, path: str) -> None:
     _text(invalidation.get("thesis_kill"), f"{path}.thesis_kill")
 
 
-def _validate_source(value: Any, path: str) -> bool:
+def _validate_source(value: Any, path: str, *, generated_at: datetime) -> bool:
     source = _mapping(value, path)
     _text(source.get("source_id"), f"{path}.source_id")
     _text(source.get("label"), f"{path}.label")
@@ -236,9 +243,18 @@ def _validate_source(value: Any, path: str) -> bool:
         _fail(f"{path}.url", "must be an http(s) URL")
     source_as_of = source.get("as_of")
     if isinstance(source_as_of, str) and _DATE_RE.fullmatch(source_as_of):
-        _date(source_as_of, f"{path}.as_of")
+        source_date = _date(source_as_of, f"{path}.as_of")
+        generated_date = generated_at.astimezone(ET).date()
+        if source_date > generated_date:
+            _fail(f"{path}.as_of", "cannot be after generated_at")
+        if generated_date - source_date > SOURCE_MAX_AGE:
+            _fail(f"{path}.as_of", "is too stale")
     else:
-        _datetime(source_as_of, f"{path}.as_of")
+        source_time = _datetime(source_as_of, f"{path}.as_of")
+        if source_time > generated_at + FUTURE_CLOCK_TOLERANCE:
+            _fail(f"{path}.as_of", "cannot be after generated_at")
+        if generated_at - source_time > SOURCE_MAX_AGE:
+            _fail(f"{path}.as_of", "is too stale")
     if not isinstance(source.get("primary"), bool):
         _fail(f"{path}.primary", "must be boolean")
     return bool(source["primary"])
@@ -255,8 +271,7 @@ def _validate_technical(
     observed_at = _datetime(technical.get("observed_at"), f"{path}.observed_at")
     if observed_at > generated_at + FUTURE_CLOCK_TOLERANCE:
         _fail(f"{path}.observed_at", "cannot be after generated_at")
-    max_age = LIVE_OBSERVATION_MAX_AGE if phase == "LIVE" else SCREEN_MAX_AGE
-    if generated_at - observed_at > max_age:
+    if generated_at - observed_at > SCREEN_MAX_AGE:
         _fail(f"{path}.observed_at", f"is stale for phase {phase}")
     if technical.get("setup_gate") != "PASS":
         _fail(f"{path}.setup_gate", "must be PASS for a selected name")
@@ -320,7 +335,11 @@ def _validate_focus_card(
     if not sources:
         _fail(f"{path}.sources", "must contain at least one source")
     primary_count = sum(
-        _validate_source(source, f"{path}.sources[{index}]")
+        _validate_source(
+            source,
+            f"{path}.sources[{index}]",
+            generated_at=generated_at,
+        )
         for index, source in enumerate(sources)
     )
     if primary_count < 1:
@@ -377,8 +396,7 @@ def _validate_provenance(
     for name, timestamp in (("screen_captured_at", screen_at), ("research_as_of", research_at)):
         if timestamp > generated_at + FUTURE_CLOCK_TOLERANCE:
             _fail(f"{path}.{name}", "cannot be after generated_at")
-    screen_max_age = LIVE_OBSERVATION_MAX_AGE if phase == "LIVE" else SCREEN_MAX_AGE
-    if generated_at - screen_at > screen_max_age:
+    if generated_at - screen_at > SCREEN_MAX_AGE:
         _fail(f"{path}.screen_captured_at", f"is stale for phase {phase}")
     if generated_at - research_at > RESEARCH_MAX_AGE:
         _fail(f"{path}.research_as_of", "is stale")
@@ -393,6 +411,7 @@ def validate_payload(
     payload: Mapping[str, Any],
     *,
     now: datetime | str | None = None,
+    require_current: bool = False,
 ) -> dict[str, Any]:
     """Return a defensive copy after validating the v1 focus contract.
 
@@ -438,12 +457,33 @@ def validate_payload(
     expires_at = _datetime(document.get("expires_at"), "payload.expires_at")
     if expires_at <= generated_at:
         _fail("payload.expires_at", "must be after generated_at")
+    generated_local = generated_at.astimezone(ET)
+    expires_local = expires_at.astimezone(ET)
+    if phase == "FINAL" and generated_local.date() != valid_for:
+        _fail("payload.generated_at", "must be generated on valid_for in New York")
+    allowed_expiry_times = {datetime.min.time().replace(hour=13, minute=15), datetime.min.time().replace(hour=16, minute=15)}
+    expiry_clock = expires_local.time().replace(tzinfo=None)
+    if expires_local.date() != valid_for or expiry_clock not in allowed_expiry_times:
+        _fail(
+            "payload.expires_at",
+            "must be 15 minutes after a regular or early XNYS close on valid_for",
+        )
+    if not isinstance(require_current, bool):
+        _fail("require_current", "must be boolean")
     current = _now(now)
+    if require_current and current is None:
+        current = datetime.now(timezone.utc)
     if current is not None:
         if generated_at > current + FUTURE_CLOCK_TOLERANCE:
             _fail("payload.generated_at", "is implausibly in the future")
         if current >= expires_at:
             _fail("payload.expires_at", "payload is expired")
+        market_date = current.astimezone(ET).date()
+        if require_current and market_date != valid_for:
+            _fail(
+                "payload.valid_for",
+                f"current delivery requires today's session ({market_date})",
+            )
 
     focus = _list(document.get("focus"), "payload.focus")
     if len(focus) > MAX_FOCUS_NAMES:

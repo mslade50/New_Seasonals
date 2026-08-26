@@ -63,7 +63,7 @@ def _payload(*cards: dict, phase: str = "FINAL") -> dict:
         "as_of": "2026-08-26",
         "valid_for": "2026-08-27",
         "generated_at": "2026-08-27T12:45:00Z",
-        "expires_at": "2026-08-27T20:00:00Z",
+        "expires_at": "2026-08-27T20:15:00Z",
         "focus": list(cards),
         "screen_summary": {
             "input_count": 4,
@@ -91,6 +91,7 @@ def _payload(*cards: dict, phase: str = "FINAL") -> dict:
 def _technical(ticker: str, *, quality: int = 80, cluster: str = "software") -> dict:
     return {
         "ticker": ticker,
+        "company_name": f"{ticker} Incorporated",
         "technical_gate": "PASS",
         "liquidity_gate": "PASS",
         "setup_quality": quality,
@@ -116,6 +117,11 @@ def _research(ticker: str, *, attention_rank: int = 1, cluster: str = "software"
         "variant_wedge": "Consensus underweights the durability of the new growth cohort.",
         "priced_in": "The stock discounts the current guide but not another upward revision.",
         "next_proof": "The next KPI update must sustain the raised operating trajectory.",
+        "source_current": True,
+        "catalyst_reaches_economics": True,
+        "unresolved_financing_risk": False,
+        "unresolved_dilution_risk": False,
+        "unresolved_restatement_risk": False,
         "kill_condition": "Forward growth falls below the market-implied path.",
         "causal_cluster": cluster,
         "sources": [_source(f"{ticker.lower()}-ir")],
@@ -195,20 +201,48 @@ def test_payload_rejects_execution_fields_at_any_depth() -> None:
         validate_payload(payload)
 
 
-def test_current_validation_rejects_expired_and_live_stale_payloads() -> None:
+def test_current_validation_rejects_expired_and_unsupported_phase_payloads() -> None:
     payload = _payload(_card())
     with pytest.raises(FocusPayloadError, match="expired"):
         validate_payload(
             payload,
-            now=datetime(2026, 8, 27, 20, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 8, 27, 20, 16, tzinfo=timezone.utc),
         )
 
     live = _payload(_card(), phase="LIVE")
-    with pytest.raises(FocusPayloadError, match="stale for phase LIVE"):
+    with pytest.raises(FocusPayloadError, match="must be one of"):
         validate_payload(live)
 
 
-def test_selector_hard_gates_then_uses_lexicographic_priority() -> None:
+def test_current_validation_rejects_early_future_session_delivery() -> None:
+    payload = _payload(_card(), phase="PROVISIONAL")
+    payload["generated_at"] = "2026-08-26T13:00:00Z"
+    payload["focus"][0]["technical"]["observed_at"] = "2026-08-26T12:55:00Z"
+    payload["provenance"]["screen_captured_at"] = "2026-08-26T12:55:00Z"
+    payload["provenance"]["research_as_of"] = "2026-08-26T12:55:00Z"
+    with pytest.raises(FocusPayloadError, match="current delivery requires today's session"):
+        validate_payload(
+            payload,
+            now=datetime(2026, 8, 26, 13, 1, tzinfo=timezone.utc),
+            require_current=True,
+        )
+
+
+def test_current_session_date_uses_new_york_not_utc() -> None:
+    payload = _payload(_card(), phase="PROVISIONAL")
+    payload["generated_at"] = "2026-08-27T00:25:00Z"
+    payload["focus"][0]["technical"]["observed_at"] = "2026-08-27T00:20:00Z"
+    payload["provenance"]["screen_captured_at"] = "2026-08-27T00:20:00Z"
+    payload["provenance"]["research_as_of"] = "2026-08-27T00:20:00Z"
+    with pytest.raises(FocusPayloadError, match="2026-08-26"):
+        validate_payload(
+            payload,
+            now=datetime(2026, 8, 27, 0, 30, tzinfo=timezone.utc),
+            require_current=True,
+        )
+
+
+def test_selector_hard_gates_then_prioritizes_the_best_setup() -> None:
     technical = [
         _technical("AMPL", quality=90, cluster="software"),
         _technical("GTLB", quality=95, cluster="software"),
@@ -221,7 +255,7 @@ def test_selector_hard_gates_then_uses_lexicographic_priority() -> None:
     }
 
     selected, summary = select_focus(technical, research)
-    assert [row["ticker"] for row in selected] == ["AMPL", "EAT"]
+    assert [row["ticker"] for row in selected] == ["GTLB", "EAT"]
     assert [row["rank"] for row in selected] == [1, 2]
     assert summary["input_count"] == 3
     assert summary["technical_pass_count"] == 3
@@ -241,6 +275,11 @@ def test_selector_hard_gates_then_uses_lexicographic_priority() -> None:
         (lambda t, r: t.pop("earnings_td"), "earnings_missing"),
         (lambda t, r: t.update(earnings_td=4), "earnings_window"),
         (lambda t, r: r.update(catalyst=""), "catalyst_missing"),
+        (lambda t, r: r.update(source_current=False), "source_stale_or_unknown"),
+        (
+            lambda t, r: r.update(catalyst_reaches_economics=False),
+            "economic_link_unproven",
+        ),
         (lambda t, r: r.update(variant_wedge="UNTESTED"), "variant_wedge_missing"),
         (lambda t, r: r.update(kill_condition=""), "kill_condition_missing"),
         (lambda t, r: r.update(sources=[]), "sources_missing"),
@@ -253,6 +292,8 @@ def test_selector_hard_gates_then_uses_lexicographic_priority() -> None:
             "trigger_invalid",
         ),
         (lambda t, r: r.update(unresolved_financing_risk=True), "financing_risk"),
+        (lambda t, r: r.pop("unresolved_dilution_risk"), "dilution_risk"),
+        (lambda t, r: t.update(setup_quality=59), "setup_quality"),
     ],
 )
 def test_selector_fails_closed_on_each_required_gate(mutator, reason: str) -> None:
@@ -272,6 +313,29 @@ def test_selector_rejects_ambiguous_duplicate_ticker_rows() -> None:
     )
     assert selected == []
     assert summary["rejected_counts"]["duplicate_ticker"] == 2
+
+
+def test_research_cannot_overwrite_failed_technical_or_earnings_truth() -> None:
+    failed_chart = _technical("AMPL")
+    failed_chart["technical_gate"] = "FAIL"
+    attempted_rescue = _research("AMPL") | {
+        "technical_gate": "PASS",
+        "liquidity_gate": "PASS",
+        "setup_quality": 100,
+    }
+    selected, summary = select_focus([failed_chart], {"AMPL": attempted_rescue})
+    assert selected == []
+    assert summary["rejected_counts"]["technical_gate"] == 1
+
+    near_event = _technical("AMPL")
+    near_event["earnings_td"] = 3
+    attempted_rescue = _research("AMPL") | {
+        "earnings_td": 30,
+        "event_date": "2026-12-01",
+    }
+    selected, summary = select_focus([near_event], {"AMPL": attempted_rescue})
+    assert selected == []
+    assert summary["rejected_counts"]["earnings_window"] == 1
 
 
 def test_selector_caps_names_without_turning_scores_into_recommendations() -> None:

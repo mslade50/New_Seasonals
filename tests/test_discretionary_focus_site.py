@@ -13,6 +13,8 @@ SITE = ROOT / "site"
 FOCUS_HTML = SITE / "focus.html"
 FOCUS_JS = SITE / "assets" / "focus.js"
 FUNCTION = ROOT / "functions" / "discretionary-focus.js"
+HISTORY_FUNCTION = ROOT / "functions" / "discretionary-focus-history.js"
+FUNCTION_CONTRACT = ROOT / "functions" / "_discretionary-focus-contract.js"
 
 
 def test_focus_page_is_registered_and_research_only():
@@ -24,6 +26,7 @@ def test_focus_page_is_registered_and_research_only():
     assert 'assets/common.js' in html and 'assets/focus.js' in html
     assert "Research only" in html
     assert "cannot allocate capital" in html
+    assert 'id="focusHistory"' in html
     assert "<button" not in html.lower()
     assert "<form" not in html.lower()
     assert "<input" not in html.lower()
@@ -42,12 +45,22 @@ def test_focus_frontend_has_no_execution_controls():
 
 def test_focus_function_is_read_only_no_store_and_uses_exact_key():
     source = FUNCTION.read_text(encoding="utf-8")
+    contract = FUNCTION_CONTRACT.read_text(encoding="utf-8")
+    history = HISTORY_FUNCTION.read_text(encoding="utf-8")
     assert 'FOCUS_KEY = "discretionary_focus/current.json"' in source
     assert "onRequestGet" in source and "onRequestPost" not in source
     assert '"Cache-Control": "no-store"' in source
     assert ".put(" not in source and ".delete(" not in source
-    assert "payload.focus.length > 2" in source
-    assert "payload.research_only !== true" in source
+    assert "validateFocusEnvelope" in source
+    assert "payload.focus.length > 2" in contract
+    assert "payload.research_only !== true" in contract
+    assert "payload.quick_review_created !== false" in contract
+    assert "payload.live_actions_enabled !== false" in contract
+    assert "payload.order_staging_enabled !== false" in contract
+    assert "generatedAt - screenAt > 96" in contract
+    assert "HISTORY_PREFIX" in history and "onRequestPost" not in history
+    assert ".put(" not in history and ".delete(" not in history
+    assert "object.httpEtag" not in source
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")

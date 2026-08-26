@@ -35,6 +35,34 @@ _PRICE_LEVEL_KEYS = {
     "stop_price",
     "invalidation_price",
 }
+MIN_SELECTED_SETUP_QUALITY = 60.0
+
+# Research may enrich investor-facing evidence and ranking, but it must never
+# rewrite chart truth, liquidity, event timing, or the security identity that
+# came from the technical producer.
+_RESEARCH_OWNED_FIELDS = {
+    "research_gate",
+    "research_pass",
+    "research_disposition",
+    "attention_rank",
+    "catalyst_quality",
+    "source_quality",
+    "source_current",
+    "catalyst_reaches_economics",
+    "variant_wedge",
+    "priced_in",
+    "catalyst",
+    "why_now",
+    "next_proof",
+    "sources",
+    "unresolved_financing_risk",
+    "unresolved_dilution_risk",
+    "unresolved_restatement_risk",
+    "kill_condition",
+    "thesis_kill",
+    "research_priority",
+    "fundamental_score",
+}
 
 
 def _text(value: Any) -> str:
@@ -144,9 +172,9 @@ def _ranking_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
     """Lexicographic PM priority; intentionally not a blended sector score."""
 
     return (
-        _finite(row.get("attention_rank"), float("inf")),
         -_finite(row.get("setup_quality"), -1.0),
         -_finite(row.get("catalyst_quality"), -1.0),
+        _finite(row.get("attention_rank"), float("inf")),
         -_finite(row.get("source_quality"), -1.0),
         _finite(row.get("screen_rank"), float("inf")),
         _text(row.get("ticker")).upper(),
@@ -184,6 +212,8 @@ def _first_gate_failure(combined: Mapping[str, Any]) -> str | None:
     quality = _finite(combined.get("setup_quality"), -1.0)
     if quality < 0:
         return "setup_quality_missing"
+    if quality < MIN_SELECTED_SETUP_QUALITY:
+        return "setup_quality"
     if not _truthy_gate(
         _gate_value(combined, "research_gate", "research_pass", "research_disposition")
     ):
@@ -197,6 +227,10 @@ def _first_gate_failure(combined: Mapping[str, Any]) -> str | None:
         return "earnings_missing"
     if not _text(combined.get("catalyst")):
         return "catalyst_missing"
+    if combined.get("source_current") is not True:
+        return "source_stale_or_unknown"
+    if combined.get("catalyst_reaches_economics") is not True:
+        return "economic_link_unproven"
     if not _wedge_is_specific(combined.get("variant_wedge")):
         return "variant_wedge_missing"
     if not _text(combined.get("priced_in")):
@@ -221,11 +255,11 @@ def _first_gate_failure(combined: Mapping[str, Any]) -> str | None:
     invalidation = _build_invalidation(combined)
     if not _price_expression_safe(invalidation.get("technical")):
         return "invalidation_invalid"
-    if combined.get("unresolved_financing_risk") is True:
+    if combined.get("unresolved_financing_risk") is not False:
         return "financing_risk"
-    if combined.get("unresolved_dilution_risk") is True:
+    if combined.get("unresolved_dilution_risk") is not False:
         return "dilution_risk"
-    if combined.get("unresolved_restatement_risk") is True:
+    if combined.get("unresolved_restatement_risk") is not False:
         return "restatement_risk"
     return None
 
@@ -282,7 +316,12 @@ def select_focus(
             continue
 
         research = normalized_research.get(ticker, {})
-        combined = {**deepcopy(dict(raw)), **deepcopy(dict(research)), "ticker": ticker}
+        research_owned = {
+            key: deepcopy(value)
+            for key, value in research.items()
+            if key in _RESEARCH_OWNED_FIELDS
+        }
+        combined = {**deepcopy(dict(raw)), **research_owned, "ticker": ticker}
 
         technical_ok = _truthy_gate(
             _gate_value(combined, "technical_gate", "technical_pass", "setup_gate")

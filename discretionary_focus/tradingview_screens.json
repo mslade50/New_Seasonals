@@ -1,0 +1,48 @@
+{
+  "schema_version": "tradingview-focus-screens.v1",
+  "revision": "2026-08-26",
+  "armed": {
+    "screen_id": "jeff-hottest-stock-armed",
+    "url": "https://www.tradingview.com/screener/FzMHioHX/",
+    "filters": {
+      "security_type": "common_stock",
+      "primary_listing_only": true,
+      "exchanges": ["NASDAQ", "NYSE", "AMEX"],
+      "price_min": 1.0,
+      "market_cap_min": 150000000.0,
+      "market_cap_max": 25000000000.0,
+      "performance_1m_min_pct": 30.0,
+      "performance_3m_min_pct": 30.0,
+      "performance_1w_min_pct": -5.0,
+      "performance_1w_max_pct": 5.0,
+      "average_volume_60_min": 800000.0,
+      "latest_volume_min": 500000.0,
+      "float_shares_max": 200000000.0,
+      "adr_14_min_pct": 4.0,
+      "volatility_1w_min_pct": 4.0,
+      "relative_volume_min": 1.0,
+      "price_above_sma20": true,
+      "price_above_sma50": true
+    },
+    "cloud_attention_trim": {
+      "pivot_distance_min_pct": -2.0,
+      "pivot_distance_max_pct": 8.0,
+      "compression_ratio_max": 1.0,
+      "close_location_20_min": 0.65,
+      "volume_ratio_5_20_max": 1.35,
+      "setup_quality_min": 60.0
+    }
+  },
+  "live": {
+    "screen_id": "jeff-hottest-stock-live",
+    "url": "https://www.tradingview.com/screener/60i0utaT/",
+    "filters": {
+      "performance_1w_min_pct": -10.0,
+      "performance_1w_max_pct": 10.0,
+      "daily_change_min_pct": 2.0,
+      "relative_volume_at_time_min": 2.0,
+      "change_from_open_min_pct": 0.0,
+      "new_high_window": "1_month"
+    }
+  }
+}

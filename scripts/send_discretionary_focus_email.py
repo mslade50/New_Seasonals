@@ -4,12 +4,14 @@ The sender is deliberately downstream of ``discretionary_focus.contracts``.
 It never turns a malformed, stale, provisional, or live payload into a benign
 "no setup" message.  A normal run accepts only a current ``FINAL`` payload.
 
-Delivery is at-most-once for a ``(valid_for, canonical_digest)`` pair.  A
-receipt is claimed before SMTP is contacted and marked sent only after Gmail
-accepts the message.  A process that dies in the ambiguous interval leaves a
-``sending`` claim; later automatic runs refuse to resend it.  ``--force-send``
-is the explicit operator escape hatch, but it never bypasses validation,
-currentness, or the FINAL-phase requirement.
+Delivery is at-most-once for a ``valid_for`` market session; the canonical
+digest remains recorded for audit.  A receipt is claimed before SMTP is
+contacted and marked sent only after Gmail accepts the message.  In automation,
+``--persist-receipt-r2`` checkpoints that claim to R2 before SMTP.  A process
+that dies in the ambiguous interval therefore leaves a ``sending`` claim and
+later automatic runs refuse to resend it.  ``--force-send`` is the explicit
+operator escape hatch, but it never bypasses validation, currentness, or the
+FINAL-phase requirement.
 
 Usage::
 
@@ -48,12 +50,14 @@ from discretionary_focus.contracts import (  # noqa: E402
     canonical_digest,
     validate_payload,
 )
+from scripts.check_discretionary_focus_session import delivery_window_gate  # noqa: E402
 
 
 DEFAULT_RECIPIENTS = "mckinleyslade@gmail.com"
-DEFAULT_SITE_URL = "https://seasonals-mslade.pages.dev/"
+DEFAULT_SITE_URL = "https://seasonals-mslade.pages.dev/focus.html"
 DEFAULT_RECEIPT = ROOT / "data" / "discretionary_focus_email_receipt.json"
 RECEIPT_SCHEMA = "discretionary-focus-email-receipt.v1"
+RECEIPT_R2_KEY = "discretionary_focus/email_receipt.json"
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
@@ -99,6 +103,11 @@ def _plain_value(value: Any) -> str:
     if isinstance(value, str):
         return value.strip()
     if isinstance(value, dict):
+        populated = [
+            key for key, item in value.items() if item not in (None, "", [], {})
+        ]
+        if populated == ["condition"]:
+            return _plain_value(value["condition"])
         preferred = [
             "condition",
             "technical",
@@ -143,6 +152,11 @@ def _source_links(sources: list[dict[str, Any]]) -> str:
     return " &nbsp;·&nbsp; ".join(links)
 
 
+def _http_url(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text.startswith(("https://", "http://")) else ""
+
+
 def _summary_html(summary: dict[str, Any]) -> str:
     labels = (
         ("input_count", "Input"),
@@ -173,6 +187,13 @@ def render_html(payload: dict[str, Any], digest: str | None = None) -> str:
             f'<a href="{_esc(site_url)}" style="display:inline-block;margin-top:10px;'
             'color:#2457a6;font-weight:600">Open the private site</a>'
         )
+    live_url = _http_url((payload.get("provenance") or {}).get("tradingview_live_url"))
+    live_link = (
+        f'<a href="{_esc(live_url)}" style="display:inline-block;margin:10px 0 0 14px;'
+        'color:#2457a6;font-weight:600">Open the Live RVOL screen</a>'
+        if live_url
+        else ""
+    )
 
     summary = _summary_html(payload.get("screen_summary") or {})
     summary_block = (
@@ -245,7 +266,7 @@ def render_html(payload: dict[str, Any], digest: str | None = None) -> str:
   <div style="font-size:14px;color:#4b5563">Session {_esc(day)} · FINAL</div>
   {summary_block}
   {body}
-  {site_link}
+  {site_link}{live_link}
   <div style="font-size:11px;color:#7b8492;margin-top:18px;padding-top:12px;
               border-top:1px solid #d8dde6">
     This is a research-priority briefing, not an investment recommendation.
@@ -297,9 +318,11 @@ def render_text(payload: dict[str, Any], digest: str | None = None) -> str:
                 ]
             )
     site_url = os.environ.get("DISCRETIONARY_FOCUS_SITE_URL", DEFAULT_SITE_URL)
+    live_url = _http_url((payload.get("provenance") or {}).get("tradingview_live_url"))
     lines.extend(
         [
             f"Private site: {site_url}",
+            *([f"TradingView Live RVOL screen: {live_url}"] if live_url else []),
             "This is a research-priority briefing, not an investment recommendation.",
         ]
     )
@@ -311,11 +334,13 @@ def render_text(payload: dict[str, Any], digest: str | None = None) -> str:
 def _email_configuration() -> tuple[str, str, list[str]]:
     sender = os.environ.get("EMAIL_USER", "").strip()
     password = os.environ.get("EMAIL_PASS", "")
+    recipient_text = (
+        os.environ.get("DISCRETIONARY_FOCUS_RECIPIENTS", "").strip()
+        or DEFAULT_RECIPIENTS
+    )
     recipients = [
         item.strip()
-        for item in os.environ.get(
-            "DISCRETIONARY_FOCUS_RECIPIENTS", DEFAULT_RECIPIENTS
-        ).split(",")
+        for item in recipient_text.split(",")
         if item.strip()
     ]
     if not sender or not password:
@@ -342,12 +367,38 @@ def _smtp_send(
     msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
+    delivery_started = False
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
             server.starttls()
             server.login(sender, password)
-            server.sendmail(sender, recipients, msg.as_string())
+            delivery_started = True
+            refused = server.sendmail(sender, recipients, msg.as_string())
+            if refused:
+                raise AmbiguousDeliveryError(
+                    "SMTP accepted at least one recipient but refused another; "
+                    "inspect delivery before any resend"
+                )
+    except AmbiguousDeliveryError:
+        raise
+    except (
+        smtplib.SMTPRecipientsRefused,
+        smtplib.SMTPSenderRefused,
+        smtplib.SMTPDataError,
+        smtplib.SMTPHeloError,
+        smtplib.SMTPNotSupportedError,
+    ) as exc:
+        # These are explicit protocol rejections: Gmail did not accept DATA.
+        raise EmailDeliveryError(
+            f"SMTP delivery rejected: {type(exc).__name__}"
+        ) from exc
     except (smtplib.SMTPException, OSError) as exc:
+        if delivery_started:
+            # A disconnect/timeout after sendmail starts can occur after the
+            # server accepted DATA. Keep the durable claim at ``sending``.
+            raise AmbiguousDeliveryError(
+                f"SMTP outcome is ambiguous after delivery started: {type(exc).__name__}"
+            ) from exc
         raise EmailDeliveryError(f"SMTP delivery failed: {type(exc).__name__}") from exc
 
 
@@ -381,6 +432,31 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
         os.replace(temp, path)
     except OSError as exc:
         raise ReceiptError(f"cannot update receipt {path}: {type(exc).__name__}") from exc
+
+
+def _persist_receipt_r2(path: Path) -> None:
+    """Checkpoint the local receipt to R2 and verify the stored byte count."""
+    import cache_io
+
+    if not cache_io.is_configured():
+        raise ReceiptError("R2 credentials are required to checkpoint the email receipt")
+    if not cache_io.upload_from_local(str(path), RECEIPT_R2_KEY):
+        raise ReceiptError("R2 email-receipt upload failed")
+    metadata = cache_io.head(RECEIPT_R2_KEY)
+    actual_size = int((metadata or {}).get("ContentLength") or -1)
+    if actual_size != path.stat().st_size:
+        raise ReceiptError("R2 email-receipt verification failed")
+
+
+def _checkpoint_receipt(
+    path: Path,
+    receipt: dict[str, Any],
+    *,
+    persist_r2: bool,
+) -> None:
+    _write_receipt(path, receipt)
+    if persist_r2:
+        _persist_receipt_r2(path)
 
 
 @contextmanager
@@ -433,13 +509,13 @@ def _receipt_lock(path: Path, timeout_seconds: float = 10.0) -> Iterator[None]:
         handle.close()
 
 
-def _matching_deliveries(
-    receipt: dict[str, Any], valid_for: str, digest: str
+def _session_deliveries(
+    receipt: dict[str, Any], valid_for: str
 ) -> list[dict[str, Any]]:
     return [
         row
         for row in receipt["deliveries"]
-        if row.get("valid_for") == valid_for and row.get("digest") == digest
+        if row.get("valid_for") == valid_for
     ]
 
 
@@ -448,12 +524,19 @@ def deliver(
     *,
     receipt_path: Path,
     force_send: bool = False,
+    persist_r2: bool = False,
     now: dt.datetime | None = None,
 ) -> str:
     """Validate, render, and deliver once. Return ``sent`` or ``skipped``."""
-    normalized = validate_payload(payload, now=now)
+    normalized = validate_payload(payload, now=now, require_current=True)
     if normalized.get("phase") != "FINAL":
         raise FocusPayloadError("email delivery requires phase FINAL")
+    delivery_now = now or _utc_now()
+    inside_window, market_date = delivery_window_gate(delivery_now)
+    if not inside_window or market_date.isoformat() != normalized["valid_for"]:
+        raise FocusPayloadError(
+            "email delivery is allowed only 08:25-09:20 New York on valid_for"
+        )
     digest = canonical_digest(normalized)
     valid_for = normalized["valid_for"]
     subject = subject_for(normalized)
@@ -463,16 +546,18 @@ def deliver(
 
     with _receipt_lock(receipt_path):
         receipt = _load_receipt(receipt_path)
-        matches = _matching_deliveries(receipt, valid_for, digest)
-        if not force_send and any(row.get("status") == "sent" for row in matches):
+        session_rows = _session_deliveries(receipt, valid_for)
+        if not force_send and any(row.get("status") == "sent" for row in session_rows):
+            prior = next(row for row in reversed(session_rows) if row.get("status") == "sent")
+            prior_digest = str(prior.get("digest") or "unknown")[:12]
             print(
-                f"Focus email already sent for {valid_for} digest {digest[:12]}; "
-                "skipping."
+                f"Focus email already sent for {valid_for} digest {prior_digest}; "
+                f"current digest {digest[:12]} is not resent automatically."
             )
             return "skipped"
-        if not force_send and any(row.get("status") == "sending" for row in matches):
+        if not force_send and any(row.get("status") == "sending" for row in session_rows):
             raise AmbiguousDeliveryError(
-                f"prior delivery for {valid_for} digest {digest[:12]} is still "
+                f"prior delivery for {valid_for} is still "
                 "marked sending; inspect before using --force-send"
             )
 
@@ -488,7 +573,7 @@ def deliver(
             "recipients": recipients,
         }
         receipt["deliveries"].append(record)
-        _write_receipt(receipt_path, receipt)
+        _checkpoint_receipt(receipt_path, receipt, persist_r2=persist_r2)
 
         try:
             _smtp_send(
@@ -499,16 +584,26 @@ def deliver(
                 password=password,
                 recipients=recipients,
             )
+        except AmbiguousDeliveryError:
+            # Preserve the already-checkpointed ``sending`` state. A new
+            # runner will refuse to resend until an operator inspects inboxes.
+            raise
         except EmailDeliveryError as exc:
             record["status"] = "failed"
             record["completed_at"] = _iso_utc()
             record["error_type"] = type(exc.__cause__).__name__ if exc.__cause__ else type(exc).__name__
-            _write_receipt(receipt_path, receipt)
+            _checkpoint_receipt(receipt_path, receipt, persist_r2=persist_r2)
             raise
 
         record["status"] = "sent"
         record["sent_at"] = _iso_utc()
-        _write_receipt(receipt_path, receipt)
+        try:
+            _checkpoint_receipt(receipt_path, receipt, persist_r2=persist_r2)
+        except ReceiptError as exc:
+            raise AmbiguousDeliveryError(
+                "SMTP accepted the message but the sent receipt could not be "
+                "checkpointed; inspect inboxes before any resend"
+            ) from exc
 
     print(
         f"Discretionary Focus email sent to {', '.join(recipients)} "
@@ -529,7 +624,11 @@ def _load_input(path: Path) -> dict[str, Any]:
     return payload
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    now: dt.datetime | None = None,
+) -> int:
     parser = argparse.ArgumentParser(
         description="Send one validated FINAL Discretionary Focus email"
     )
@@ -549,12 +648,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="explicitly resend an already-receipted payload; validation still applies",
     )
+    parser.add_argument(
+        "--persist-receipt-r2",
+        action="store_true",
+        help="checkpoint sending/sent receipt states to R2 for runner-safe at-most-once delivery",
+    )
     args = parser.parse_args(argv)
 
     try:
         payload = _load_input(Path(args.input))
         if args.dry_run:
-            normalized = validate_payload(payload)
+            normalized = validate_payload(
+                payload,
+                now=now,
+                require_current=True,
+            )
             if normalized.get("phase") != "FINAL":
                 raise FocusPayloadError("email delivery requires phase FINAL")
             digest = canonical_digest(normalized)
@@ -572,6 +680,8 @@ def main(argv: list[str] | None = None) -> int:
             payload,
             receipt_path=Path(args.receipt),
             force_send=bool(args.force_send),
+            persist_r2=bool(args.persist_receipt_r2),
+            now=now,
         )
         return 0
     except AmbiguousDeliveryError as exc:
