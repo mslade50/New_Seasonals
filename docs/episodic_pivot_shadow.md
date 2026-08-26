@@ -1,6 +1,6 @@
 # Episodic Pivot bot — shadow specification
 
-Status: implemented as a local, research-only shadow workflow. The active Codex heartbeat runs twice on weekdays at 08:20 and 19:20 ET. Production and order staging are intentionally unavailable.
+Status: implemented as a local, research-only shadow workflow. The active Codex heartbeat runs twice on weekdays at 08:20 and 19:20 ET and delivers the night queue, morning report, or a fail-closed alert by email. Production and order staging are intentionally unavailable.
 
 ## Outcome and safety boundary
 
@@ -392,10 +392,10 @@ Capture is restricted to 04:00–09:25 ET and connects with `readonly=True`. For
 
 ### 4. Automation-ready shadow cadence
 
-- **7:20 PM ET, Monday–Friday — night phase of `EP Night and Morning Shadow Process`:** use the signed-in Codex in-app browser to refresh the saved after-hours screen, verify its identity, required filter/column state, and displayed count, export the complete CSV, and import it with an exact timezone-aware capture time. The run stores a validated queue for the next NYSE session. It does not contact IBKR or news providers.
+- **7:20 PM ET, Monday–Friday — night phase of `EP Night and Morning Shadow Process`:** use the signed-in Codex in-app browser to refresh the saved after-hours screen, verify its identity, required filter/column state, and displayed count, export the complete CSV, and import it with an exact timezone-aware capture time. The run stores a validated queue for the next NYSE session and emails the inline queue summary plus the normalized JSON attachment. It does not contact IBKR or news providers.
 - **8:20 AM ET, Monday–Friday — morning phase of `EP Night and Morning Shadow Process`:** skip non-session days; refresh and validate the saved premarket screen in the in-app browser; export and import the complete CSV; merge it with the uniquely matching prior-night queue; apply the broad local mover rule; and capture at most 150 targets through read-only IBKR.
 - **After the first morning capture:** block ATR-unresolved, unverified adjusted-basis, and prior ATR% <=4 names before the main network news pass. Research at most the configured 25 names, using Google Programmable Search when its local credentials exist and credential-free Google News otherwise.
-- **Before the final morning report:** consume the network run's hashed `refresh_targets.json`, recapture only that researched subset through read-only IBKR, and replay the verified evidence against the fresh snapshot. The final artifact is a standalone HTML review report, not an order file.
+- **Before the final morning report:** consume the network run's hashed `refresh_targets.json`, recapture only that researched subset through read-only IBKR, and replay the verified evidence against the fresh snapshot. The complete HTML report is sent as the email body; `report.html`, `report.md`, `research_sizing_preview.csv`, and `manifest.json` are attached. These are review artifacts, not order files.
 
 The news-request budget is applied only after the ATR/basis gate. Low-ATR,
 ATR-unresolved, and basis-unverified movers remain visible in the audit decisions with
@@ -403,7 +403,23 @@ ATR-unresolved, and basis-unverified movers remain visible in the audit decision
 displace a >4% candidate. ATR-qualified names beyond the configured research cap
 remain visible as `NEWS_RESEARCH_NOT_SELECTED_BY_CAP`.
 
-The active thread-attached heartbeat is `EP Night and Morning Shadow Process` (`ep-after-hours-shadow-queue`). Codex permits one heartbeat per thread, so one recurrence carries both weekday phases. Its persisted record was read back after activation on 2026-08-26. It creates local artifacts only and does not run Git, commit, push, send email, upload, publish, deploy, write Sheets, or access any broker order endpoint. The morning run may continue premarket-only when the prior-night queue is absent, but it must report that degraded coverage and may never substitute a stale queue. A missing TradingView login, saved-screen mismatch, missing required column, count mismatch, ambiguous download, mixed target date, IBKR connection/data failure, or capture outside its allowed session fails closed. A zero-result validated export is a successful empty scan.
+The active thread-attached heartbeat is `EP Night and Morning Shadow Process` (`ep-after-hours-shadow-queue`). One recurrence carries both weekday phases. Email is the research-delivery channel; the Codex task retains only a minimal delivery status or failed-run notification and does not carry ticker or research content. The heartbeat does not run Git, commit, push, upload, publish, deploy, write Sheets, or access any broker order endpoint. The morning run may continue premarket-only when the prior-night queue is absent, but it must disclose that degraded coverage and may never substitute a stale queue. A missing TradingView login, saved-screen mismatch, missing required column, count mismatch, ambiguous download, mixed target date, IBKR connection/data failure, or capture outside its allowed session fails closed and triggers a failure email. A zero-result validated export is a successful empty scan and is still emailed.
+
+Email delivery is dry-run by default and requires the explicit `--send` flag. Credentials are read from the explicitly supplied env file without being copied into the worktree. Recipients resolve in this order: `EP_RECIPIENTS`, `RECIPIENTS`, then the `EMAIL_USER` sender. Successful sends write a non-sensitive receipt containing the source digest and recipient count, but no address or password; a matching receipt prevents an accidental duplicate send. A successful receipt for a different artifact or recipient set requires an explicit reviewed `--resend`.
+
+```powershell
+python scripts/send_episodic_pivot_email.py `
+  --kind night `
+  --artifact artifacts/episodic_pivot/imports/2026-08-24-after-hours-HASH.json `
+  --env-file 'C:\Users\McKinley Slade\dev\New_Seasonals\.env' `
+  --send
+
+python scripts/send_episodic_pivot_email.py `
+  --kind morning `
+  --artifact artifacts/episodic_pivot/EP-RUN-ID `
+  --env-file 'C:\Users\McKinley Slade\dev\New_Seasonals\.env' `
+  --send
+```
 
 The final run manifest hashes `refresh_targets.json` and stamps it with `record_type=EP_RESEARCH_QUOTE_REFRESH_TARGETS_V1`, `research_only=true`, `broker_route=NONE`, and `order_submission_allowed=false`. Names skipped by the ATR gate or research cap are excluded from that recapture list.
 
