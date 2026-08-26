@@ -434,7 +434,7 @@ table{{width:100%;border-collapse:collapse;margin-top:14px;font-variant-numeric:
 </div></section>
 
 <section><h2>What should run each day</h2><div class="process-grid">
-  <article><h3>19:45 ET · Queue</h3><p>Capture and validate the completed after-hours TradingView screen for the next NYSE session. Store the full export and its displayed count. Do no broker work.</p></article>
+  <article><h3>19:20 ET · Queue</h3><p>Capture and validate the after-hours TradingView screen for the next NYSE session. Store the full export and its displayed count. Do no broker work.</p></article>
   <article><h3>08:20 ET · Verify</h3><p>Combine the night queue with fresh premarket discovery, then enrich only broad move nominees through read-only IBKR. Strictly block prior ATR ≤4%, missing/unclean ATR, identity, halt, spread, and liquidity failures.</p></article>
   <article><h3>After ATR · Explain</h3><p>Research causal news for at most 25 eligible names, recapture those bounded names for freshness, and write a review-only HTML report. No orders, sheets, uploads, deployments, or broker mutations.</p></article>
 </div></section>

@@ -1,6 +1,6 @@
 # Episodic Pivot bot — shadow specification
 
-Status: implemented as a local, research-only shadow workflow. Production and order staging are intentionally unavailable. The two heartbeat definitions are automation-ready, but the Codex automation service did not persist them during the 2026-08-25 activation attempt; see the cadence section.
+Status: implemented as a local, research-only shadow workflow. The active Codex heartbeat runs twice on weekdays at 08:20 and 19:20 ET. Production and order staging are intentionally unavailable.
 
 ## Outcome and safety boundary
 
@@ -14,7 +14,7 @@ The process can:
 6. calculate a deliberately non-executable liquidity/slippage research preview only when every gate passes; and
 7. save a standalone HTML triage report plus hashed replay artifacts.
 
-It cannot write to a broker, Google Sheets, R2, a live staging tab, or the private site. It is not in `STRATEGY_BOOK` or `daily_scan.py`. The policy constructor rejects `live_actions_enabled=True`. Every sizing record fixes `preview_only=true`, `executable=false`, `broker_route=NONE`, `order_submission_allowed=false`, and `production_eligible=false`; its schema is deliberately incompatible with the live order contract. The intended Codex heartbeats may create only local research artifacts and reports; neither is an activation path.
+It cannot write to a broker, Google Sheets, R2, a live staging tab, or the private site. It is not in `STRATEGY_BOOK` or `daily_scan.py`. The policy constructor rejects `live_actions_enabled=True`. Every sizing record fixes `preview_only=true`, `executable=false`, `broker_route=NONE`, `order_submission_allowed=false`, and `production_eligible=false`; its schema is deliberately incompatible with the live order contract. The Codex heartbeat may create only local research artifacts and reports; it is not an activation path.
 
 ```text
 TradingView full CSV export (premarket or after-hours)
@@ -392,8 +392,8 @@ Capture is restricted to 04:00–09:25 ET and connects with `readonly=True`. For
 
 ### 4. Automation-ready shadow cadence
 
-- **7:45 PM ET, Monday–Friday — `EP After-Hours Shadow Queue`:** use the signed-in Codex in-app browser to refresh the saved after-hours screen, verify its identity, required filter/column state, and displayed count, export the complete CSV, and import it with an exact timezone-aware capture time. The run stores a validated queue for the next NYSE session. It does not contact IBKR or news providers.
-- **8:20 AM ET, Monday–Friday — `EP Premarket Shadow Research`:** skip non-session days; refresh and validate the saved premarket screen in the in-app browser; export and import the complete CSV; merge it with the uniquely matching prior-night queue; apply the broad local mover rule; and capture at most 150 targets through read-only IBKR.
+- **7:20 PM ET, Monday–Friday — night phase of `EP Night and Morning Shadow Process`:** use the signed-in Codex in-app browser to refresh the saved after-hours screen, verify its identity, required filter/column state, and displayed count, export the complete CSV, and import it with an exact timezone-aware capture time. The run stores a validated queue for the next NYSE session. It does not contact IBKR or news providers.
+- **8:20 AM ET, Monday–Friday — morning phase of `EP Night and Morning Shadow Process`:** skip non-session days; refresh and validate the saved premarket screen in the in-app browser; export and import the complete CSV; merge it with the uniquely matching prior-night queue; apply the broad local mover rule; and capture at most 150 targets through read-only IBKR.
 - **After the first morning capture:** block ATR-unresolved, unverified adjusted-basis, and prior ATR% <=4 names before the main network news pass. Research at most the configured 25 names, using Google Programmable Search when its local credentials exist and credential-free Google News otherwise.
 - **Before the final morning report:** consume the network run's hashed `refresh_targets.json`, recapture only that researched subset through read-only IBKR, and replay the verified evidence against the fresh snapshot. The final artifact is a standalone HTML review report, not an order file.
 
@@ -403,7 +403,7 @@ ATR-unresolved, and basis-unverified movers remain visible in the audit decision
 displace a >4% candidate. ATR-qualified names beyond the configured research cap
 remain visible as `NEWS_RESEARCH_NOT_SELECTED_BY_CAP`.
 
-The heartbeat prompts and schedules are fully specified for the working Codex thread, but activation is currently pending: repeated create and readback calls to the Codex automation service did not return or create an automation record on 2026-08-25. Do not represent either heartbeat as active until a create call succeeds and both records are read back. Once active, they create local artifacts only. They do not run Git, commit, push, send email, upload, publish, deploy, write Sheets, or access any broker order endpoint. The morning run may continue premarket-only when the prior-night queue is absent, but it must report that degraded coverage and may never substitute a stale queue. A missing TradingView login, saved-screen mismatch, missing required column, count mismatch, ambiguous download, mixed target date, IBKR connection/data failure, or capture outside its allowed session fails closed. A zero-result validated export is a successful empty scan.
+The active thread-attached heartbeat is `EP Night and Morning Shadow Process` (`ep-after-hours-shadow-queue`). Codex permits one heartbeat per thread, so one recurrence carries both weekday phases. Its persisted record was read back after activation on 2026-08-26. It creates local artifacts only and does not run Git, commit, push, send email, upload, publish, deploy, write Sheets, or access any broker order endpoint. The morning run may continue premarket-only when the prior-night queue is absent, but it must report that degraded coverage and may never substitute a stale queue. A missing TradingView login, saved-screen mismatch, missing required column, count mismatch, ambiguous download, mixed target date, IBKR connection/data failure, or capture outside its allowed session fails closed. A zero-result validated export is a successful empty scan.
 
 The final run manifest hashes `refresh_targets.json` and stamps it with `record_type=EP_RESEARCH_QUOTE_REFRESH_TARGETS_V1`, `research_only=true`, `broker_route=NONE`, and `order_submission_allowed=false`. Names skipped by the ATR gate or research cap are excluded from that recapture list.
 
