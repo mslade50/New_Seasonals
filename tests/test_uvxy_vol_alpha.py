@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 
 from research.uvxy_vol_alpha.backtest import (
+    EX_VRC_SIMPLE_SIGNALS,
     StrategyConfig,
+    build_native_fragility_dials,
     build_signals,
     forward_trade_return,
     remove_vrc_from_simple_dial,
@@ -56,6 +58,59 @@ def test_remove_vrc_surfaces_source_vintage_mismatch_instead_of_clipping():
     assert recovered.iloc[1] > 100.0
 
 
+def test_native_fragility_dial_uses_horizon_decay_and_excludes_vrc():
+    index = pd.bdate_range("2024-01-02", periods=4)
+    history = pd.DataFrame(False, index=index, columns=EX_VRC_SIMPLE_SIGNALS)
+    history["Distribution Dominance"] = [True, False, False, False]
+    history["VIX Range Compression"] = True
+
+    dial = build_native_fragility_dials(
+        history,
+        horizons=(2,),
+        smooth_window=1,
+    )
+    expected = pd.Series([100 / 6, 50 / 6, 0.0, 0.0], index=index, name="2d")
+    pd.testing.assert_series_equal(dial["2d"], expected, check_freq=False)
+
+    # VRC is deliberately outside the overlay and cannot move the score.
+    history["VIX Range Compression"] = False
+    without_vrc = build_native_fragility_dials(
+        history,
+        horizons=(2,),
+        smooth_window=1,
+    )
+    pd.testing.assert_frame_equal(dial, without_vrc)
+
+    smoothed_once = build_native_fragility_dials(
+        history.assign(**{"Distribution Dominance": [True, False, False, False]}),
+        horizons=(2,),
+        smooth_window=2,
+    )
+    one_pass_expected = pd.Series(
+        [100 / 6, 75 / 6, 25 / 6, 0.0],
+        index=index,
+        name="2d",
+    )
+    pd.testing.assert_series_equal(
+        smoothed_once["2d"],
+        one_pass_expected,
+        check_freq=False,
+    )
+
+
+def test_native_fragility_dial_is_prefix_invariant():
+    index = pd.bdate_range("2024-01-02", periods=40)
+    history = pd.DataFrame(False, index=index, columns=EX_VRC_SIMPLE_SIGNALS)
+    history.loc[index[[2, 11, 19]], "Distribution Dominance"] = True
+    history.loc[index[[5, 14]], "Defensive Leadership"] = True
+
+    prefix = build_native_fragility_dials(history.iloc[:25])
+    changed_future = history.copy()
+    changed_future.iloc[25:, :] = True
+    full = build_native_fragility_dials(changed_future)
+    pd.testing.assert_frame_equal(prefix, full.iloc[:25])
+
+
 def test_vrc_activation_requires_five_prior_off_sessions():
     index = pd.bdate_range("2024-01-02", periods=16)
     on = pd.Series(
@@ -79,6 +134,9 @@ def test_primary_signal_uses_prior_day_fragility():
             "fragility_rank": [10.0] * 5 + [80.0, 1.0] + [10.0] * 5,
             "incumbent_rank": [10.0] * 5 + [80.0, 1.0] + [10.0] * 5,
             "incumbent_ma10": [10.0] * 5 + [60.0, 1.0] + [10.0] * 5,
+            "native_fragility_5d_rank": [10.0] * 5 + [80.0, 1.0] + [10.0] * 5,
+            "native_fragility_21d_rank": [10.0] * 5 + [80.0, 1.0] + [10.0] * 5,
+            "native_fragility_63d_rank": [10.0] * 5 + [80.0, 1.0] + [10.0] * 5,
         },
         index=index,
     )
@@ -90,12 +148,25 @@ def test_primary_signal_uses_prior_day_fragility():
 
     signals = build_signals(features, config)
     assert signals["primary"].iloc[6]
+    assert signals["vrc_x_ex_vrc_5d"].iloc[6]
+    assert signals["vrc_x_ex_vrc_21d"].iloc[6]
 
     # Same-close fragility is deliberately irrelevant; the prior close owns the gate.
     mutated = features.copy()
     mutated.loc[index[6], "fragility_rank"] = 99.0
+    mutated.loc[index[6], "native_fragility_5d_rank"] = 99.0
+    mutated.loc[index[6], "native_fragility_21d_rank"] = 99.0
     mutated_signals = build_signals(mutated, config)
     assert mutated_signals["primary"].iloc[6]
+    assert mutated_signals["vrc_x_ex_vrc_5d"].iloc[6]
+    assert mutated_signals["vrc_x_ex_vrc_21d"].iloc[6]
+
+    changed_gate = features.copy()
+    changed_gate.loc[index[5], "native_fragility_5d_rank"] = 1.0
+    changed_gate.loc[index[5], "native_fragility_21d_rank"] = 1.0
+    changed_gate_signals = build_signals(changed_gate, config)
+    assert not changed_gate_signals["vrc_x_ex_vrc_5d"].iloc[6]
+    assert not changed_gate_signals["vrc_x_ex_vrc_21d"].iloc[6]
 
 
 def test_forward_return_is_next_open_to_fifth_close_with_costs():
@@ -145,3 +216,5 @@ def test_run_trades_refuses_overlapping_positions():
 
     trades = run_trades(signal, features, config, label="test")
     assert trades["signal_date"].tolist() == [index[1], index[8]]
+    assert trades["gate_date"].tolist() == [index[0], index[7]]
+    assert trades["gate_fragility_rank"].tolist() == [80.0, 80.0]
