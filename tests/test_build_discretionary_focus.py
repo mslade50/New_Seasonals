@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -115,6 +116,7 @@ def test_armed_screen_requires_volatility_chart_and_known_earnings(tmp_path) -> 
     assert rows[0]["technical_state"] == "ARMED"
     assert rows[0]["earnings_td"] > 5
     assert "RVOL-at-Time" in rows[0]["trigger"]
+    assert counts["future_earnings_covered"] == 2
     assert counts["identity_liquidity_gate"] == 2
     assert counts["earnings_gate"] == 1
 
@@ -134,8 +136,27 @@ def test_missing_earnings_fails_the_standard_lane(tmp_path) -> None:
     )
 
     assert rows == []
+    assert counts["future_earnings_covered"] == 0
     assert counts["armed_technical_gate"] == 1
     assert counts["earnings_gate"] == 0
+
+
+def test_historical_earnings_do_not_count_as_future_coverage(tmp_path) -> None:
+    prices = _prices("FAST", volatile=True)
+    earnings = tmp_path / "earnings.parquet"
+    pd.DataFrame(
+        {"ticker": ["FAST"], "date": [pd.Timestamp("2026-05-01")]}
+    ).to_parquet(earnings, index=False)
+
+    rows, counts = builder.technical_screen(
+        prices,
+        _symbols(),
+        earnings,
+        as_of=dt.date(2026, 8, 25),
+    )
+
+    assert rows == []
+    assert counts["future_earnings_covered"] == 0
 
 
 def test_optional_overflow_calendar_extends_earnings_coverage(tmp_path) -> None:
@@ -411,6 +432,45 @@ def test_session_for_run_uses_today_before_market_and_next_after_latest_close() 
     assert builder.session_for_run(dt.date(2026, 8, 26), now) == dt.date(2026, 8, 27)
 
 
+def test_price_cutoff_ignores_a_thin_current_day_non_us_cohort(tmp_path) -> None:
+    prior = pd.Timestamp("2026-08-26")
+    current = pd.Timestamp("2026-08-27")
+    rows = []
+    for index in range(builder.MIN_PRODUCTION_UNIVERSE + 100):
+        rows.append(
+            {
+                "ticker": f"US{index}",
+                "date": prior,
+                "Open": 10.0,
+                "High": 11.0,
+                "Low": 9.0,
+                "Close": 10.5,
+                "Volume": 1_000_000,
+            }
+        )
+    for index in range(20):
+        rows.append(
+            {
+                "ticker": f"FX{index}",
+                "date": current,
+                "Open": 10.0,
+                "High": 11.0,
+                "Low": 9.0,
+                "Close": 10.5,
+                "Volume": 1_000_000,
+            }
+        )
+    path = tmp_path / "prices.parquet"
+    pd.DataFrame(rows).to_parquet(path, index=False)
+
+    prices, actual = builder.load_price_data(
+        path, minimum_session_tickers=builder.MIN_PRODUCTION_UNIVERSE
+    )
+
+    assert actual == prior.date()
+    assert prices["date"].max().date() == prior.date()
+
+
 def test_price_cutoff_must_be_immediately_prior_to_focus_session() -> None:
     builder.require_fresh_price_cutoff(
         dt.date(2026, 9, 4), dt.date(2026, 9, 8)
@@ -584,6 +644,23 @@ def _payload_research(ticker: str, cluster: str, rank: int) -> dict:
             }
         ],
     }
+
+
+def test_missing_industry_candidates_use_sector_for_cluster_deduplication() -> None:
+    candidates = [("AAA", "Technology"), ("BBB", "Industrials")]
+    technical_rows = []
+    research = {}
+    for rank, (ticker, sector) in enumerate(candidates, start=1):
+        cluster = builder._causal_cluster("Unknown", sector)
+        technical_rows.append(_payload_technical(ticker, cluster, rank))
+        research[ticker] = _payload_research(ticker, cluster, rank)
+
+    selected, summary = builder.select_focus(
+        technical_rows, research, max_names=2
+    )
+
+    assert [row["ticker"] for row in selected] == ["AAA", "BBB"]
+    assert summary["rejected_counts"].get("causal_cluster", 0) == 0
 
 
 @pytest.mark.parametrize(
@@ -788,11 +865,123 @@ def test_any_candidate_enrichment_failure_aborts_the_run() -> None:
 
 
 def test_production_coverage_floor_rejects_a_truncated_universe() -> None:
+    session = dt.date(2026, 8, 26)
     tickers = [f"T{index}" for index in range(builder.MIN_PRODUCTION_UNIVERSE - 1)]
     prices = pd.DataFrame({"ticker": tickers})
     symbols = {ticker: {"ticker": ticker} for ticker in tickers}
     with pytest.raises(builder.FocusBuildError, match="price universe"):
-        builder.validate_production_input_coverage(prices, symbols)
+        builder.validate_production_input_coverage(
+            prices, symbols, required_session=session
+        )
+
+
+def test_production_coverage_accepts_a_broad_price_superset() -> None:
+    session = dt.date(2026, 8, 26)
+    eligible = [f"S{index}" for index in range(builder.MIN_PRODUCTION_UNIVERSE)]
+    price_only = [f"ETF{index}" for index in range(builder.MIN_PRODUCTION_UNIVERSE)]
+    prices = pd.DataFrame(
+        {"ticker": eligible + price_only, "date": [session] * (len(eligible) + len(price_only))}
+    )
+    symbols = {ticker: {"ticker": ticker} for ticker in eligible}
+
+    builder.validate_production_input_coverage(
+        prices, symbols, required_session=session
+    )
+
+
+def test_production_coverage_rejects_missing_eligible_prices() -> None:
+    session = dt.date(2026, 8, 26)
+    symbol_count = builder.MIN_PRODUCTION_UNIVERSE
+    required = math.ceil(symbol_count * builder.MIN_SYMBOL_PRICE_OVERLAP)
+    eligible = [f"S{index}" for index in range(symbol_count)]
+    covered = eligible[: required - 1]
+    price_only = [f"ETF{index}" for index in range(symbol_count - len(covered))]
+    stale = pd.DataFrame(
+        {"ticker": eligible, "date": [session - dt.timedelta(days=1)] * len(eligible)}
+    )
+    current = pd.DataFrame(
+        {
+            "ticker": covered + price_only,
+            "date": [session] * (len(covered) + len(price_only)),
+        }
+    )
+    prices = pd.concat([stale, current], ignore_index=True)
+    symbols = {ticker: {"ticker": ticker} for ticker in eligible}
+
+    with pytest.raises(builder.FocusBuildError, match="eligible symbol price coverage"):
+        builder.validate_production_input_coverage(
+            prices, symbols, required_session=session
+        )
+
+
+def test_production_coverage_accepts_exact_boundary() -> None:
+    session = dt.date(2026, 8, 26)
+    symbol_count = builder.MIN_PRODUCTION_UNIVERSE
+    required = math.ceil(symbol_count * builder.MIN_SYMBOL_PRICE_OVERLAP)
+    eligible = [f"S{index}" for index in range(symbol_count)]
+    prices = pd.DataFrame(
+        {
+            "ticker": eligible,
+            "date": [session] * required
+            + [session - dt.timedelta(days=1)] * (symbol_count - required),
+        }
+    )
+    symbols = {ticker: {"ticker": ticker} for ticker in eligible}
+
+    builder.validate_production_input_coverage(
+        prices, symbols, required_session=session
+    )
+
+
+def test_future_earnings_coverage_floor_is_exact() -> None:
+    with pytest.raises(builder.FocusBuildError, match="499 current measurable"):
+        builder.validate_future_earnings_coverage(
+            {"future_earnings_covered": 499}
+        )
+
+    builder.validate_future_earnings_coverage(
+        {"future_earnings_covered": builder.MIN_PRODUCTION_EARNINGS_COVERAGE}
+    )
+
+
+def test_combined_price_cache_keeps_canonical_duplicate_rows() -> None:
+    session = pd.Timestamp("2026-08-26")
+    primary = pd.DataFrame(
+        {"ticker": ["AAA"], "date": [session], "Close": [11.0]}
+    )
+    overflow = pd.DataFrame(
+        {
+            "ticker": ["AAA", "BBB"],
+            "date": [session, session],
+            "Close": [10.0, 20.0],
+        }
+    )
+
+    combined = builder.combine_price_data(primary, overflow)
+
+    assert combined.set_index("ticker")["Close"].to_dict() == {
+        "AAA": 11.0,
+        "BBB": 20.0,
+    }
+
+
+def test_healthcare_without_industry_routes_to_specialist_lane() -> None:
+    assert builder._research_lane("Healthcare", None) == "healthcare_specialist"
+    assert builder._research_lane("Healthcare", "Unknown") == "healthcare_specialist"
+    assert (
+        builder._research_lane("Healthcare", "Medical Devices")
+        == "standard_company"
+    )
+    assert (
+        builder._research_lane("Healthcare", "Biotechnology")
+        == "biotech_pipeline_specialist"
+    )
+
+
+def test_unknown_industry_causal_cluster_falls_back_to_sector() -> None:
+    assert builder._causal_cluster("Unknown", "Technology") == "Technology"
+    assert builder._causal_cluster(None, "Industrials") == "Industrials"
+    assert builder._causal_cluster("Software", "Technology") == "Software"
 
 
 def test_pinned_tradingview_manifest_matches_the_cloud_mirror() -> None:

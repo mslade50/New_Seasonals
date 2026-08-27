@@ -152,8 +152,8 @@ def upload_to_r2(output_path: str, key: str = "earnings_calendar.parquet"):
         print(f"[r2 upload] non-fatal error: {e}")
 
 
-def derive_only(output_path: str):
-    """Read existing parquet, recompute derived columns, write back, upload to R2.
+def derive_only(output_path: str, *, upload: bool = True):
+    """Read existing parquet, recompute derived columns, and optionally upload.
 
     Used when we change the derivation logic and want to refresh without
     burning ~1060 FMP calls.
@@ -168,10 +168,20 @@ def derive_only(output_path: str):
     print("Derived column non-null counts:")
     for c in derived_cols:
         print(f"  {c:<20} {df[c].notna().sum():>7,} / {len(df):,}")
-    upload_to_r2(output_path)
+    if upload:
+        upload_to_r2(output_path)
+    else:
+        print("[r2 upload] skipped (--no-upload)")
 
 
-def build_calendar(tickers, api_key, output_path, r2_key="earnings_calendar.parquet"):
+def build_calendar(
+    tickers,
+    api_key,
+    output_path,
+    r2_key="earnings_calendar.parquet",
+    *,
+    upload: bool = True,
+):
     print(f"Building earnings calendar for {len(tickers)} tickers...")
     print(f"Output: {output_path}\n")
 
@@ -281,7 +291,10 @@ def build_calendar(tickers, api_key, output_path, r2_key="earnings_calendar.parq
         print(f"    sample: {failures[:10]}")
     print(f"\nSaved: {output_path}")
 
-    upload_to_r2(output_path, key=r2_key)
+    if upload:
+        upload_to_r2(output_path, key=r2_key)
+    else:
+        print("[r2 upload] skipped (--no-upload)")
 
 
 def main():
@@ -301,13 +314,15 @@ def main():
                              "never touched, so the daily CSV_UNIVERSE rebuild can't wipe these.")
     parser.add_argument("--derive-only", action="store_true",
                         help="Skip API calls; recompute derived columns on the existing parquet only.")
+    parser.add_argument("--no-upload", action="store_true",
+                        help="Write the refreshed parquet locally without replacing the R2 object.")
     args = parser.parse_args()
 
     if args.derive_only and args.overflow_staging:
         raise SystemExit("--derive-only cannot be combined with --overflow-staging "
                          "(derive-only would re-upload the PRODUCTION parquet).")
     if args.derive_only:
-        derive_only(args.output)
+        derive_only(args.output, upload=not args.no_upload)
         return
 
     api_key = load_env()
@@ -343,7 +358,13 @@ def main():
     if not tickers:
         raise SystemExit("No tickers to process.")
 
-    build_calendar(tickers, api_key, output, r2_key=r2_key)
+    build_calendar(
+        tickers,
+        api_key,
+        output,
+        r2_key=r2_key,
+        upload=not args.no_upload,
+    )
 
 
 if __name__ == "__main__":

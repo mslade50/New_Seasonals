@@ -46,6 +46,7 @@ ET = ZoneInfo("America/New_York")
 SCHEMA_VERSION = "discretionary-focus.v1"
 
 DEFAULT_PRICES = ROOT / "data" / "master_prices.parquet"
+DEFAULT_OVERFLOW_PRICES = ROOT / "data" / "overflow_prices.parquet"
 DEFAULT_EARNINGS = ROOT / "data" / "earnings_calendar.parquet"
 DEFAULT_EARNINGS_OVERFLOW = ROOT / "data" / "earnings_calendar_overflow.parquet"
 DEFAULT_SYMBOLS = ROOT / "data" / "symbol_master.parquet"
@@ -174,10 +175,21 @@ def _research_lane(sector: Any, industry: Any) -> str:
     if sector_text in SPECIALIST_SECTOR_LANES:
         return SPECIALIST_SECTOR_LANES[sector_text]
     industry_text = _clean_text(industry).lower()
+    if sector_text == "healthcare" and industry_text in {"", "unknown"}:
+        # Production symbol_master currently lacks industry.  Do not let an
+        # unidentified biotech slip into the generic-company underwriter.
+        return "healthcare_specialist"
     for term, lane in SPECIALIST_INDUSTRY_LANES.items():
         if term in industry_text:
             return lane
     return "standard_company"
+
+
+def _causal_cluster(industry: Any, sector: Any) -> str:
+    industry_text = _clean_text(industry)
+    if industry_text and industry_text.lower() != "unknown":
+        return industry_text
+    return _clean_text(sector, "Unknown")
 
 
 def load_screen_manifest(path: Path = DEFAULT_SCREEN_MANIFEST) -> dict[str, Any]:
@@ -259,8 +271,10 @@ def load_screen_manifest(path: Path = DEFAULT_SCREEN_MANIFEST) -> dict[str, Any]
 def validate_production_input_coverage(
     prices: pd.DataFrame,
     symbols: dict[str, dict[str, Any]],
+    *,
+    required_session: dt.date,
 ) -> None:
-    """Refuse a narrow or mismatched R2 universe before it can yield false zero."""
+    """Refuse a narrow, stale, or mismatched universe before false zero."""
     price_tickers = {
         str(value).upper().strip() for value in prices.get("ticker", []) if str(value).strip()
     }
@@ -273,10 +287,30 @@ def validate_production_input_coverage(
         raise FocusBuildError(
             f"symbol universe has {len(symbol_tickers)} tickers; minimum is {MIN_PRODUCTION_UNIVERSE}"
         )
-    overlap = len(price_tickers & symbol_tickers) / len(price_tickers)
-    if overlap < MIN_SYMBOL_PRICE_OVERLAP:
+    if "date" not in prices:
+        raise FocusBuildError("price universe lacks date coverage")
+    price_dates = pd.to_datetime(prices["date"], errors="coerce").dt.date
+    current_price_tickers = {
+        str(value).upper().strip()
+        for value in prices.loc[price_dates.eq(required_session), "ticker"]
+        if str(value).strip()
+    }
+    covered_symbols = current_price_tickers & symbol_tickers
+    coverage = len(covered_symbols) / len(symbol_tickers)
+    if coverage < MIN_SYMBOL_PRICE_OVERLAP:
         raise FocusBuildError(
-            f"price/symbol ticker overlap is {overlap:.1%}; minimum is {MIN_SYMBOL_PRICE_OVERLAP:.0%}"
+            f"eligible symbol price coverage for {required_session} is "
+            f"{coverage:.1%} ({len(covered_symbols)}/{len(symbol_tickers)}); "
+            f"minimum is {MIN_SYMBOL_PRICE_OVERLAP:.0%}"
+        )
+
+
+def validate_future_earnings_coverage(counts: dict[str, int]) -> None:
+    covered = int(counts.get("future_earnings_covered", 0))
+    if covered < MIN_PRODUCTION_EARNINGS_COVERAGE:
+        raise FocusBuildError(
+            f"only {covered} current measurable tickers have a future earnings "
+            f"event; minimum is {MIN_PRODUCTION_EARNINGS_COVERAGE}"
         )
 
 
@@ -359,7 +393,12 @@ def require_fresh_price_cutoff(price_as_of: dt.date, valid_for: dt.date) -> None
         )
 
 
-def load_price_data(path: Path, as_of: str | None = None) -> tuple[pd.DataFrame, dt.date]:
+def load_price_data(
+    path: Path,
+    as_of: str | None = None,
+    *,
+    minimum_session_tickers: int = 1,
+) -> tuple[pd.DataFrame, dt.date]:
     if not path.is_file():
         raise FocusBuildError(f"price cache is missing: {path}")
     required = ["ticker", "date", "Open", "High", "Low", "Close", "Volume"]
@@ -373,12 +412,38 @@ def load_price_data(path: Path, as_of: str | None = None) -> tuple[pd.DataFrame,
     frame["ticker"] = frame["ticker"].astype(str).str.upper().str.strip()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.tz_localize(None)
     frame = frame.dropna(subset=["ticker", "date"])
-    cutoff = pd.Timestamp(as_of).normalize() if as_of else frame["date"].max().normalize()
-    frame = frame[frame["date"].le(cutoff)]
+    requested_cutoff = (
+        pd.Timestamp(as_of).normalize() if as_of else frame["date"].max().normalize()
+    )
+    frame = frame[frame["date"].le(requested_cutoff)]
     if frame.empty:
-        raise FocusBuildError(f"price cache has no rows on or before {cutoff.date()}")
-    actual = frame["date"].max().date()
+        raise FocusBuildError(
+            f"price cache has no rows on or before {requested_cutoff.date()}"
+        )
+    daily_coverage = frame.groupby("date")["ticker"].nunique()
+    complete_dates = daily_coverage[daily_coverage.ge(minimum_session_tickers)]
+    if complete_dates.empty:
+        raise FocusBuildError(
+            "price cache has no broadly covered session on or before "
+            f"{requested_cutoff.date()}; minimum tickers is {minimum_session_tickers}"
+        )
+    actual_stamp = pd.Timestamp(complete_dates.index.max()).normalize()
+    # A few foreign-index/FX/crypto bars can be stamped with today's date
+    # before the US session. Never let that thin partial cohort redefine the
+    # completed daily-bar cutoff for the common-stock screen.
+    frame = frame[frame["date"].le(actual_stamp)]
+    actual = actual_stamp.date()
     return frame.sort_values(["ticker", "date"]), actual
+
+
+def combine_price_data(primary: pd.DataFrame, overflow: pd.DataFrame) -> pd.DataFrame:
+    """Union canonical and isolated histories, with canonical rows winning."""
+    combined = pd.concat([overflow, primary], ignore_index=True)
+    return (
+        combined.drop_duplicates(["ticker", "date"], keep="last")
+        .sort_values(["ticker", "date"])
+        .reset_index(drop=True)
+    )
 
 
 def load_symbols(path: Path) -> dict[str, dict[str, Any]]:
@@ -640,6 +705,14 @@ def technical_screen(
         raise FocusBuildError("no current common-stock price histories could be measured")
     counts = {
         "measured": len(measured),
+        "future_earnings_covered": sum(
+            1
+            for row in measured
+            if _next_earnings_event(
+                valid_for or as_of, earnings.get(row["ticker"])
+            )
+            is not None
+        ),
         "identity_liquidity_gate": 0,
         "armed_technical_gate": 0,
         "earnings_gate": 0,
@@ -754,7 +827,9 @@ def technical_screen(
                 "company_name": row["company_name"],
                 "sector": row["sector"],
                 "industry": row["industry"],
-                "causal_cluster": row["industry"] or row["sector"] or "Unknown",
+                "causal_cluster": _causal_cluster(
+                    row["industry"], row["sector"]
+                ),
                 "research_lane": row["research_lane"],
                 "technical_state": "ARMED",
                 "screen_price": row["price"],
@@ -1652,6 +1727,12 @@ def write_payload(payload: dict[str, Any], path: Path) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prices", type=Path, default=DEFAULT_PRICES)
+    parser.add_argument(
+        "--overflow-prices",
+        type=Path,
+        default=DEFAULT_OVERFLOW_PRICES,
+        help="isolated price history for symbol-master names outside master_prices",
+    )
     parser.add_argument("--earnings", type=Path, default=DEFAULT_EARNINGS)
     parser.add_argument(
         "--earnings-overflow",
@@ -1694,7 +1775,23 @@ def main() -> int:
     started_at = dt.datetime.now(dt.timezone.utc)
     try:
         screen_manifest = load_screen_manifest(args.screen_manifest)
-        prices, price_as_of = load_price_data(args.prices, args.as_of)
+        fixture_mode = bool(args.news_json)
+        prices, price_as_of = load_price_data(
+            args.prices,
+            args.as_of,
+            minimum_session_tickers=(
+                1 if fixture_mode else MIN_PRODUCTION_UNIVERSE
+            ),
+        )
+        if args.overflow_prices.is_file():
+            overflow_prices, _ = load_price_data(
+                args.overflow_prices, price_as_of.isoformat()
+            )
+            prices = combine_price_data(prices, overflow_prices)
+        elif not fixture_mode:
+            raise FocusBuildError(
+                f"overflow price cache is missing: {args.overflow_prices}"
+            )
         valid_for = (
             dt.date.fromisoformat(args.valid_for)
             if args.valid_for
@@ -1702,9 +1799,10 @@ def main() -> int:
         )
         require_fresh_price_cutoff(price_as_of, valid_for)
         symbols = load_symbols(args.symbols)
-        fixture_mode = bool(args.news_json)
         if not fixture_mode:
-            validate_production_input_coverage(prices, symbols)
+            validate_production_input_coverage(
+                prices, symbols, required_session=price_as_of
+            )
         technical_rows, counts = technical_screen(
             prices,
             symbols,
@@ -1722,6 +1820,8 @@ def main() -> int:
                 f"only {counts['measured']} tickers have current measurable history; "
                 f"minimum is {MIN_PRODUCTION_UNIVERSE}"
             )
+        if not fixture_mode:
+            validate_future_earnings_coverage(counts)
         if len(technical_rows) > MAX_ENRICHMENT_CANDIDATES:
             raise FocusBuildError(
                 f"technical cohort has {len(technical_rows)} names; capacity is "
