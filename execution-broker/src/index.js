@@ -21,6 +21,13 @@
  * Deploy standalone (NOT part of the Pages site). See README.md.
  */
 import { DurableObject } from "cloudflare:workers";
+import {
+  commandFillMatch,
+  executionFamilyId,
+  mergeCommandResult,
+  mergeExecutionFill,
+  reconcileCommandFills,
+} from "./fill-reconcile.mjs";
 
 const BROKER_NAME = "main";          // single book -> single DO instance
 const HEARTBEAT_STALE_MS = 30_000;   // online iff a heartbeat landed within this
@@ -28,6 +35,28 @@ const CMD_CAP = 50;                  // recent-command ring size (audit trail)
 const SCHEDULED_CMD_CAP = 100;       // long-lived option schedules survive recent-ring churn
 const FILLS_RETENTION_DAYS = 14;     // Trade Log trailing window
 const FILLS_DAY_CAP = 500;           // per-day row cap (keeps each value < DO 128KiB limit)
+
+function fillStorageKey(fill) {
+  return `${String((fill && fill.account_key) || "")}\u0000${executionFamilyId(fill && fill.exec_id)}`;
+}
+
+function boundedFillRows(rows, now) {
+  const byExecution = new Map();
+  for (const fill of rows || []) {
+    if (!fill || !fill.exec_id) continue;
+    const key = fillStorageKey(fill);
+    byExecution.set(key, mergeExecutionFill(byExecution.get(key), fill, now));
+  }
+  return [...byExecution.values()]
+    .sort((a, b) => {
+      const byTime = String(b.time || "").localeCompare(String(a.time || ""));
+      if (byTime) return byTime;
+      const byIngest = Number(b.ingested_at || 0) - Number(a.ingested_at || 0);
+      if (byIngest) return byIngest;
+      return String(b.exec_id || "").localeCompare(String(a.exec_id || ""));
+    })
+    .slice(0, FILLS_DAY_CAP);
+}
 
 export class ExecBroker extends DurableObject {
   _authed(request, token) {
@@ -104,6 +133,8 @@ export class ExecBroker extends DurableObject {
       // validates); >1 connected socket is an anomaly worth keeping in the audit trail
       const record = { id: cmd.id, type: cmd.type, account: cmd.account, dry_run: cmd.dry_run !== false,
                        state: "pushed", created_at: Date.now(), result: null };
+      const fillMatch = commandFillMatch(cmd);
+      if (fillMatch) record.fill_match = fillMatch;
       if (sockets.length > 1) record.sockets_at_delivery = sockets.length;
       recent.unshift(record);
       await this.ctx.storage.put("recent_commands", recent.slice(0, CMD_CAP));
@@ -316,23 +347,28 @@ export class ExecBroker extends DurableObject {
       const i = recent.findIndex((r) => r.id === msg.id);
       if (i >= 0) {
         recent[i].state = msg.state || "done";
-        recent[i].result = { ok: msg.ok, detail: msg.detail, validation: msg.validation,
-                             preview: msg.preview, fill: msg.fill, at: msg.at };
+        recent[i].result = mergeCommandResult(recent[i].result, {
+          ok: msg.ok, detail: msg.detail, validation: msg.validation,
+          preview: msg.preview, fill: msg.fill, at: msg.at,
+        });
         await this.ctx.storage.put("recent_commands", recent);
       }
       const scheduled = (await this.ctx.storage.get("scheduled_commands")) || [];
       const si = scheduled.findIndex((r) => r.id === msg.id);
       if (si >= 0) {
         scheduled[si].state = msg.state || "done";
-        scheduled[si].result = { ok: msg.ok, detail: msg.detail, validation: msg.validation,
-                                 preview: msg.preview, fill: msg.fill, at: msg.at };
+        scheduled[si].result = mergeCommandResult(scheduled[si].result, {
+          ok: msg.ok, detail: msg.detail, validation: msg.validation,
+          preview: msg.preview, fill: msg.fill, at: msg.at,
+        });
         await this.ctx.storage.put("scheduled_commands", scheduled);
       }
     }
   }
 
   // Fold a book push's per-account fills into per-day storage keys
-  // ("fills:YYYY-MM-DD", UTC day of the fill time). Upsert by exec_id — the
+  // ("fills:YYYY-MM-DD", UTC day of the fill time). Upsert by IBKR execution
+  // family so a corrected .02 execution supersedes its original .01 row. The
   // agent re-pushes the same day's fills every cycle, and commission reports
   // lag the execution by a beat, so later pushes fill in commission/PnL.
   // Day keys older than the retention window are pruned on every merge.
@@ -343,7 +379,6 @@ export class ExecBroker extends DurableObject {
         if (f && f.exec_id) incoming.push({ ...f, account_key: acc.key, account_label: acc.label });
       }
     }
-    if (!incoming.length) return;
     const now = Date.now();
     const byDay = new Map();
     for (const f of incoming) {
@@ -355,17 +390,40 @@ export class ExecBroker extends DurableObject {
     for (const [day, dayFills] of byDay) {
       const key = `fills:${day}`;
       const ring = (await this.ctx.storage.get(key)) || [];
-      const byId = new Map(ring.map((f) => [f.exec_id, f]));
-      for (const f of dayFills) {
-        const prev = byId.get(f.exec_id);
-        byId.set(f.exec_id, { ...(prev || {}), ...f, ingested_at: prev ? prev.ingested_at : now });
-      }
-      await this.ctx.storage.put(key, [...byId.values()].slice(0, FILLS_DAY_CAP));
+      // Keep the newest executions when an unusually busy day exceeds the
+      // storage cap. Map insertion order would otherwise discard every later
+      // fill once the first 500 rows had been retained.
+      await this.ctx.storage.put(key, boundedFillRows([...ring, ...dayFills], now));
     }
     const cutoffDay = new Date(now - FILLS_RETENTION_DAYS * 86_400_000).toISOString().slice(0, 10);
     const days = await this.ctx.storage.list({ prefix: "fills:" });
-    for (const key of days.keys()) {
+    const retained = [];
+    for (const [key, fills] of days) {
       if (key.slice("fills:".length) < cutoffDay) await this.ctx.storage.delete(key);
+      else if (Array.isArray(fills)) {
+        // Migrate any pre-deploy .01/.02 duplicates even when that historical
+        // day is no longer present in the agent's current-day snapshot.
+        const identities = fills.map(fillStorageKey);
+        if (new Set(identities).size !== identities.length) {
+          const collapsed = boundedFillRows(fills, now);
+          await this.ctx.storage.put(key, collapsed);
+          retained.push(...collapsed);
+        } else {
+          retained.push(...fills);
+        }
+      }
+    }
+    await this._reconcileCommandFills(retained, now);
+  }
+
+  // Resting orders often return to the Activity table as Submitted, before
+  // IBKR has an execution price. Reconcile both audit rings from later book
+  // snapshots so the same command row fills itself in after the fact.
+  async _reconcileCommandFills(incoming, now) {
+    for (const key of ["recent_commands", "scheduled_commands"]) {
+      const ring = (await this.ctx.storage.get(key)) || [];
+      const reconciled = reconcileCommandFills(ring, incoming, now);
+      if (reconciled.changed) await this.ctx.storage.put(key, reconciled.commands);
     }
   }
 
