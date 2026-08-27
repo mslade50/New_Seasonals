@@ -88,6 +88,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _resolve_artifact_output(raw: str | Path) -> Path:
+    """Resolve an output path and enforce the research-only artifacts boundary."""
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    candidate = candidate.resolve()
+    artifacts_root = (ROOT / "artifacts").resolve()
+    try:
+        candidate.relative_to(artifacts_root)
+    except ValueError as exc:
+        raise SystemExit(
+            f"Refusing non-artifact output: {candidate}. "
+            f"Use a directory under {artifacts_root}."
+        ) from exc
+    return candidate
+
+
 def main() -> int:
     args = parse_args()
     prices_path = Path(args.prices)
@@ -116,7 +133,7 @@ def main() -> int:
         config,
         sector_map=_sector_map(Path(args.sector_map) if args.sector_map else None),
     )
-    paths = write_opportunity_book(result, args.output_dir)
+    paths = write_opportunity_book(result, _resolve_artifact_output(args.output_dir))
     coverage = result.manifest["coverage"]
     selection = result.manifest["selection"]
     print("RESEARCH ONLY - no production, staging, portfolio or broker action taken")

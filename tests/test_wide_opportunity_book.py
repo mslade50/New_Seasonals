@@ -4,6 +4,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 from pandas.testing import assert_frame_equal
 
 from research.opportunity_book import (
@@ -12,6 +13,7 @@ from research.opportunity_book import (
     normalize_prices,
     write_opportunity_book,
 )
+from scripts.build_wide_opportunity_book import ROOT, _resolve_artifact_output
 
 
 def synthetic_prices(
@@ -189,6 +191,27 @@ def test_queue_caps_and_complete_local_artifact_bundle(tmp_path):
     html = paths["html"].read_text(encoding="utf-8")
     assert "NOT AN INVESTMENT RECOMMENDATION" in html
     assert "there is no universal score" in payload["selection"]["method"]
+    assert payload["no_order"] is True
+    assert payload["production_writes"] is False
+    expected_card_fields = {
+        "Actionability",
+        "Variant_Wedge",
+        "Why_Now",
+        "First_Rejection_Test",
+        "What_Makes_Researchable",
+        "What_Kills_It",
+        "Next_Workflow",
+    }
+    assert expected_card_fields <= set(result.deep_test_queue.columns)
+    assert "First rejection" in html
+    assert "What kills it" in html
+
+
+def test_cli_output_is_confined_to_worktree_artifacts(tmp_path):
+    allowed = ROOT / "artifacts" / "opportunity-book" / "test-run"
+    assert _resolve_artifact_output(allowed) == allowed.resolve()
+    with pytest.raises(SystemExit, match="Refusing non-artifact output"):
+        _resolve_artifact_output(tmp_path / "outside")
 
 
 def test_outputs_have_no_execution_contract_fields_or_actions():

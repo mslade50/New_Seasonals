@@ -20,6 +20,15 @@ broker actions.
    deep-test queue, and draw a seeded random coverage-audit sample.
 7. Emit JSON, CSVs and a self-contained local HTML report.
 
+The command-line entry point refuses to write outside this worktree's ignored
+`artifacts/` directory. The library stays pure until its explicit writer is
+called, which keeps unit tests and downstream research composition possible.
+
+Each promoted research card carries research actionability, a potential
+variant wedge, why-now evidence, a first rejection test, what makes the setup
+researchable, a kill condition, and the next research workflow. These are
+hypothesis-design fields, not recommendations.
+
 Every rank input, archetype score, rank, percentile, exclusion and freshness
 field is retained in the output bundle.
 

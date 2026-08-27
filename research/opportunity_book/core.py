@@ -564,6 +564,114 @@ def _next_workflow(archetype: str) -> str:
     return workflows[archetype]
 
 
+def _research_actionability(row: pd.Series, archetype: str) -> str:
+    """Classify readiness for research design, never readiness to trade."""
+    required = {
+        "residual_dislocation": (
+            "market_residual_5d",
+            "gap_1d",
+            "dollar_volume_shock_63d",
+        ),
+        "trend_acceleration": (
+            "ret_63d",
+            "ret_126d",
+            "dist_sma200",
+            "market_residual_5d",
+        ),
+        "trend_pullback": (
+            "ret_5d",
+            "ret_126d",
+            "dist_sma200",
+            "market_residual_5d",
+        ),
+        "participation_shock": (
+            "volume_shock_63d",
+            "dollar_volume_shock_63d",
+            "market_residual_1d",
+        ),
+        "volatility_transition": ("vol_regime_ratio", "atr_pct", "ret_1d"),
+    }[archetype]
+    present = sum(_finite(row.get(field)) is not None for field in required)
+    freshness = int(row.get("freshness_sessions", 999))
+    if present == len(required) and freshness == 0:
+        return "READY_FOR_PREREGISTRATION"
+    if present >= max(1, len(required) - 1) and freshness <= 1:
+        return "READY_AFTER_DATA_CHECK"
+    return "DATA_REVIEW_FIRST"
+
+
+def _variant_wedge(archetype: str) -> str:
+    templates = {
+        "residual_dislocation": (
+            "Potential wedge to test: the residual move is idiosyncratic information "
+            "rather than ordinary market beta or a one-day liquidity effect."
+        ),
+        "trend_acceleration": (
+            "Potential wedge to test: acceleration across multiple horizons contains "
+            "continuation information beyond generic medium-term momentum."
+        ),
+        "trend_pullback": (
+            "Potential wedge to test: recent weakness inside positive structure has a "
+            "different forward path from both generic weakness and generic momentum."
+        ),
+        "participation_shock": (
+            "Potential wedge to test: abnormal participation changes the forward "
+            "residual path rather than merely describing a known event day."
+        ),
+        "volatility_transition": (
+            "Potential wedge to test: a volatility-regime transition predicts a "
+            "distinct forward path after direction and prior-volatility controls."
+        ),
+    }
+    return templates[archetype]
+
+
+def _first_rejection_test(archetype: str) -> str:
+    tests = {
+        "residual_dislocation": (
+            "Reject first if the event is no longer unusual after point-in-time market, "
+            "sector, earnings and same-day participation controls."
+        ),
+        "trend_acceleration": (
+            "Reject first if the apparent acceleration collapses when the horizons are "
+            "lagged, sector-neutralized and compared with a plain momentum baseline."
+        ),
+        "trend_pullback": (
+            "Reject first if the setup cannot be defined before the close or is just a "
+            "relabeling of short-term reversal exposure."
+        ),
+        "participation_shock": (
+            "Reject first if abnormal volume disappears after earnings, rebalance, split "
+            "and stale-baseline exclusions."
+        ),
+        "volatility_transition": (
+            "Reject first if the transition threshold is unstable across ordinary "
+            "lookback choices or is dominated by untradeable gap observations."
+        ),
+    }
+    return tests[archetype]
+
+
+def _what_kills_it(archetype: str) -> str:
+    shared = (
+        "Kill if point-in-time, cost-aware forward tests fail out of sample, the effect "
+        "is concentrated in one year or sector, or a simple matched baseline explains it."
+    )
+    if archetype == "participation_shock":
+        return shared + " Also kill if removing scheduled event days removes the effect."
+    if archetype == "trend_pullback":
+        return shared + " Also kill if reasonable entry timing reverses the sign."
+    return shared
+
+
+def _what_makes_researchable(row: pd.Series, archetype: str) -> str:
+    return (
+        f"Freshness is {int(row.get('freshness_sessions', 999))} session(s); the "
+        f"{archetype.replace('_', ' ')} definition uses frozen bar-derived fields and "
+        "has an explicit neutral baseline. Investability is not assessed at this stage."
+    )
+
+
 def _queue_record(
     row: pd.Series, archetype: str, selection_round: int, label: str
 ) -> dict[str, Any]:
@@ -577,6 +685,7 @@ def _queue_record(
     return {
         "Ticker": row["Ticker"],
         "Research_Priority": label,
+        "Actionability": _research_actionability(row, archetype),
         "Archetype": archetype,
         "Archetype_Rank": int(row[f"archetype_{archetype}_rank"]),
         "Archetype_Percentile": round(
@@ -587,7 +696,11 @@ def _queue_record(
         "Alternate_Archetypes": ";".join(alternate),
         "Latest_Bar": row["latest_bar"],
         "Freshness_Sessions": int(row["freshness_sessions"]),
+        "Variant_Wedge": _variant_wedge(archetype),
         "Why_Now": _why_now(row, archetype),
+        "First_Rejection_Test": _first_rejection_test(archetype),
+        "What_Makes_Researchable": _what_makes_researchable(row, archetype),
+        "What_Kills_It": _what_kills_it(archetype),
         "Next_Workflow": _next_workflow(archetype),
         "Label": RESEARCH_ONLY_LABEL,
     }
@@ -597,6 +710,7 @@ def _round_robin_review(features: pd.DataFrame, limit: int) -> pd.DataFrame:
     columns = [
         "Ticker",
         "Research_Priority",
+        "Actionability",
         "Archetype",
         "Archetype_Rank",
         "Archetype_Percentile",
@@ -605,7 +719,11 @@ def _round_robin_review(features: pd.DataFrame, limit: int) -> pd.DataFrame:
         "Alternate_Archetypes",
         "Latest_Bar",
         "Freshness_Sessions",
+        "Variant_Wedge",
         "Why_Now",
+        "First_Rejection_Test",
+        "What_Makes_Researchable",
+        "What_Kills_It",
         "Next_Workflow",
         "Label",
     ]
@@ -886,6 +1004,8 @@ def build_opportunity_book(
         "schema_version": SCHEMA_VERSION,
         "asof": str(asof.date()),
         "research_only": True,
+        "no_order": True,
+        "production_writes": False,
         "label": RESEARCH_ONLY_LABEL,
         "purpose": (
             "Allocate research attention across a broad universe; outputs are "
@@ -981,6 +1101,33 @@ def _html_table(
     return f'<div class="table-wrap"><table><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
 
 
+def _candidate_cards(frame: pd.DataFrame) -> str:
+    if frame.empty:
+        return '<p class="empty">No rows.</p>'
+    fields = [
+        ("Variant wedge", "Variant_Wedge"),
+        ("Why now", "Why_Now"),
+        ("First rejection", "First_Rejection_Test"),
+        ("What makes it researchable", "What_Makes_Researchable"),
+        ("What kills it", "What_Kills_It"),
+        ("Next workflow", "Next_Workflow"),
+    ]
+    cards: list[str] = []
+    for _, row in frame.iterrows():
+        detail = "".join(
+            f"<dt>{escape(label)}</dt><dd>{escape(str(row.get(column, '')))}</dd>"
+            for label, column in fields
+        )
+        cards.append(
+            '<article class="candidate">'
+            f'<div class="candidate-head"><h3>{escape(str(row.get("Ticker", "")))}</h3>'
+            f'<span>{escape(str(row.get("Archetype", "")).replace("_", " "))}</span></div>'
+            f'<div class="readiness">{escape(str(row.get("Actionability", "")))}</div>'
+            f"<dl>{detail}</dl></article>"
+        )
+    return f'<section class="candidate-grid">{"".join(cards)}</section>'
+
+
 def render_html(result: OpportunityBookResult) -> str:
     manifest = result.manifest
     coverage = manifest["coverage"]
@@ -1001,10 +1148,13 @@ def render_html(result: OpportunityBookResult) -> str:
     review_columns = [
         "Ticker",
         "Research_Priority",
+        "Actionability",
         "Archetype",
         "Archetype_Rank",
         "Archetype_Percentile",
+        "Variant_Wedge",
         "Why_Now",
+        "First_Rejection_Test",
         "Next_Workflow",
     ]
     audit_columns = ["Ticker", "Audit_Index", "Selection_Reason", "Next_Workflow"]
@@ -1021,6 +1171,7 @@ header p{{max-width:850px;font-size:16px;color:#d9e9ee}}main{{max-width:1500px;m
 .stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0 28px}}.stat,.archetypes article{{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:0 5px 15px #263b5710}}
 .stat strong{{display:block;font-size:28px;color:var(--navy)}}.stat span{{color:var(--muted)}}h2{{font-size:24px;margin:34px 0 14px}}
 .archetypes{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}.archetypes h3{{margin:0 0 8px;color:var(--navy)}}.archetypes p{{color:var(--muted)}}.count{{font-weight:750;color:var(--teal)}}
+.candidate-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}}.candidate{{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:0 5px 15px #263b5710}}.candidate-head{{display:flex;justify-content:space-between;gap:12px;align-items:baseline}}.candidate-head h3{{font-size:24px;margin:0;color:var(--navy)}}.candidate-head span{{text-transform:capitalize;color:var(--muted)}}.readiness{{display:inline-block;margin:10px 0 12px;padding:4px 8px;border-radius:999px;background:#e5f4f2;color:#08666c;font-size:12px;font-weight:750}}dl{{margin:0}}dt{{margin-top:10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#667085;font-weight:750}}dd{{margin:2px 0 0}}
 .table-wrap{{overflow:auto;background:white;border:1px solid var(--line);border-radius:10px}}table{{border-collapse:collapse;width:100%;min-width:900px}}th{{background:#eaf0f6;text-align:left;color:#344054;position:sticky;top:0}}th,td{{padding:10px 12px;border-bottom:1px solid #edf0f4;vertical-align:top}}tr:hover td{{background:#f9fbfd}}td:nth-child(1){{font-weight:750}}
 .empty,footer{{color:var(--muted)}}code{{background:#edf1f5;padding:2px 5px;border-radius:4px}}footer{{margin-top:36px;border-top:1px solid var(--line);padding-top:18px}}
 </style></head><body>
@@ -1028,7 +1179,7 @@ header p{{max-width:850px;font-size:16px;color:#d9e9ee}}main{{max-width:1500px;m
 <main><div class="warning">{escape(RESEARCH_ONLY_LABEL)}. This local report allocates research attention only and contains no sizing, staging, portfolio or executable instructions.</div>
 <section class="stats"><div class="stat"><strong>{coverage["requested_count"]}</strong><span>requested tickers</span></div><div class="stat"><strong>{coverage["eligible_count"]}</strong><span>eligible</span></div><div class="stat"><strong>{coverage["excluded_count"]}</strong><span>excluded</span></div><div class="stat"><strong>{selection["review_count"]}</strong><span>review queue</span></div><div class="stat"><strong>{selection["deep_test_count"]}</strong><span>deep-test queue</span></div><div class="stat"><strong>{selection["audit_count"]}</strong><span>random audits</span></div></section>
 <h2>Archetype map</h2><section class="archetypes">{arch_cards}</section>
-<h2>Deep-test queue</h2>{_html_table(result.deep_test_queue, review_columns)}
+<h2>Deep-test research cards</h2>{_candidate_cards(result.deep_test_queue)}
 <h2>Review queue</h2>{_html_table(result.review_queue, review_columns)}
 <h2>Seeded coverage audit</h2>{_html_table(result.audit_sample, audit_columns)}
 <h2>First exclusions</h2>{_html_table(exclusion_rows, ["First_Rejection", "Count"])}
