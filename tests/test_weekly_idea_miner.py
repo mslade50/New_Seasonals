@@ -156,10 +156,13 @@ def test_cli_is_dry_by_default_and_writes_only_to_artifacts(tmp_path):
     assert Path(written["outputs"]["report_html"]).exists()
     assert Path(written["outputs"]["manifest"]).exists()
     assert written["production_writes"] is False
+    assert written["schema_version"] == "weekly-hypothesis-run.v1"
+    assert written["automatic_promotion"] is False
     manifest = json.loads(
         Path(written["outputs"]["manifest"]).read_text(encoding="utf-8")
     )
     assert manifest["production_writes"] is False
+    assert manifest["automatic_promotion"] is False
     records = load_records(registry)
     assert len(records) == 4  # two frozen sources + two hypotheses
     assert all(record["research_only"] and record["no_order"] for record in records)
@@ -176,6 +179,26 @@ def test_cli_is_dry_by_default_and_writes_only_to_artifacts(tmp_path):
             ),
             artifacts_root=tmp_path / "artifacts",
         )
+
+
+def test_cli_rejects_registry_aliasing_a_run_artifact(tmp_path):
+    source_path = tmp_path / "sources.jsonl"
+    _write_sources(source_path, [row(1)])
+    artifacts_root = tmp_path / "artifacts"
+    output_dir = artifacts_root / "weekly"
+    registry = output_dir / "weekly_idea_inbox_2026-08-27_manifest.json"
+    args = argparse.Namespace(
+        input=[str(source_path)],
+        output_dir=str(output_dir),
+        registry=str(registry),
+        as_of="2026-08-27",
+        max_candidates=5,
+        max_per_archetype=2,
+        write=True,
+    )
+    with pytest.raises(ValueError, match="distinct"):
+        run(args, artifacts_root=artifacts_root)
+    assert not output_dir.exists()
 
 
 def test_cli_rejects_non_artifact_destinations(tmp_path):

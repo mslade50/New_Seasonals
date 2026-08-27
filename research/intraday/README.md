@@ -113,8 +113,9 @@ audit, feasible trades, rejections, and a feasible-trade summary.
   observations only.
 - Sector residuals use fixed ETF proxies, not fitted point-in-time betas.
 - The sector map itself is today's classification, not point-in-time history.
-- Simultaneous trades can be clustered after the run, but v0 does not size a
-  portfolio, recycle capital, or cap factor/sector exposure.
+- Simultaneous trades can be clustered after the run. The optional arithmetic
+  gate tests explicitly supplied notional ceilings and reuse assumptions, but
+  v0 does not optimize portfolio sizing or cap factor/sector exposure.
 - Missing scheduled entry or close bars are rejected from return-producing
   trades and preserved in `execution_rejections.parquet`. There is no backward
   fallback. Known exchange early closes need an ex-ante calendar schedule,

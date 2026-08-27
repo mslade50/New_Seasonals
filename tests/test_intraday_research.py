@@ -566,6 +566,8 @@ def test_cli_writes_only_research_artifacts_from_local_parquets(tmp_path, capsys
     assert manifest["research_only"] is True
     assert manifest["no_order"] is True
     assert manifest["production_writes"] is False
+    assert manifest["schema_version"] == "intraday-research-run.v1"
+    assert manifest["automatic_promotion"] is False
     assert manifest["n_signals"] == 1
     assert manifest["n_trades"] == 1
     assert manifest["n_execution_rejected"] == 0

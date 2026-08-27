@@ -26,8 +26,11 @@ from .engine import (
     TargetResult,
     backtest_next_period,
     cross_sectional_targets,
+    exact_month_end_panel,
     frozen_benchmark_targets,
     multispeed_targets,
+    normalize_membership_history,
+    normalize_sector_history,
     performance_summary,
 )
 
@@ -153,6 +156,35 @@ def infer_sector_tickers(sector_history: pd.DataFrame) -> list[str]:
     raise ValueError("cannot infer stock tickers from undated sector history")
 
 
+def infer_membership_tickers(membership_history: pd.DataFrame) -> list[str]:
+    """Return the exact named universe carried by a dated membership source."""
+
+    lower = {str(column).lower(): column for column in membership_history.columns}
+    if "ticker" in lower:
+        return sorted(
+            membership_history[lower["ticker"]]
+            .dropna()
+            .astype(str)
+            .str.upper()
+            .str.strip()
+            .unique()
+        )
+    if isinstance(membership_history.index, pd.DatetimeIndex):
+        return sorted(
+            str(column).upper().strip() for column in membership_history.columns
+        )
+    raise ValueError("cannot infer stock tickers from historical membership")
+
+
+def _read_audit_source(source: str | Path) -> pd.DataFrame:
+    path = Path(source).expanduser().resolve()
+    if path.suffix.lower() == ".parquet":
+        return pd.read_parquet(path)
+    if path.suffix.lower() == ".csv":
+        return pd.read_csv(path)
+    raise ValueError(f"PIT audit source must be parquet or CSV: {path}")
+
+
 def run_trend_v2_research(
     prices: PriceData,
     sector_history: pd.DataFrame | None = None,
@@ -167,10 +199,7 @@ def run_trend_v2_research(
     cash_returns = None
     if "^IRX" in prices.close.columns:
         cash_returns = (
-            prices.close["^IRX"]
-            .dropna()
-            .resample("ME")
-            .last()
+            exact_month_end_panel(prices.close.loc[:, ["^IRX"]])["^IRX"]
             .div(100.0 * 12.0)
             .shift(1)
         )
@@ -235,12 +264,35 @@ def run_trend_v2_research(
     if sector_history is not None:
         if market_ticker not in prices.close.columns:
             raise ValueError(f"market ticker missing from prices: {market_ticker}")
-        selected = stock_tickers or infer_sector_tickers(sector_history)
-        selected = sorted(
-            ticker
-            for ticker in {ticker.upper().strip() for ticker in selected}
-            if ticker in prices.close.columns and ticker != market_ticker
+        membership_tickers = (
+            infer_membership_tickers(membership_history)
+            if membership_history is not None
+            else None
         )
+        requested = stock_tickers or membership_tickers or infer_sector_tickers(
+            sector_history
+        )
+        requested_set = {
+            ticker.upper().strip()
+            for ticker in requested
+            if ticker and ticker.upper().strip() != market_ticker
+        }
+        if stock_tickers is not None and membership_tickers is not None:
+            membership_set = {
+                ticker for ticker in membership_tickers if ticker != market_ticker
+            }
+            if requested_set != membership_set:
+                raise ValueError(
+                    "explicit stock_tickers must equal the historical membership universe"
+                )
+        missing_stock_prices = sorted(requested_set - set(prices.close.columns))
+        if missing_stock_prices:
+            preview = missing_stock_prices[:20]
+            raise ValueError(
+                "historical stock universe is missing adjusted prices for "
+                f"{len(missing_stock_prices)} tickers: {preview}"
+            )
+        selected = sorted(requested_set)
         if not selected:
             raise ValueError("no stock tickers overlap sector history and price data")
         stock_close = prices.close.loc[:, selected]
@@ -379,7 +431,10 @@ def write_research_artifacts(
         "sector_history_provenance": sector_provenance,
         "membership_history_provenance": membership_provenance,
         "exact_universe": [],
+        "missing_price_tickers": [],
         "missing_classifications": None,
+        "sector_source_reproduces_panel": False,
+        "membership_source_reproduces_panel": False,
         "audit_directory": None,
     }
     if stock_requested and stock_run is None:
@@ -391,6 +446,13 @@ def write_research_artifacts(
         stock_audit["audit_directory"] = "stock_pit_audit/"
         universe = list(target.desired_targets.columns)
         stock_audit["exact_universe"] = universe
+        missing_price_tickers = sorted(set(universe) - set(prices.close.columns))
+        stock_audit["missing_price_tickers"] = missing_price_tickers
+        if missing_price_tickers:
+            stock_audit["reasons"].append(
+                "audited stock universe is absent from the recorded price panel: "
+                + ", ".join(missing_price_tickers[:20])
+            )
         if target.sector_panel is None or target.scores is None or target.ranks is None:
             raise ValueError("stock run is missing required PIT audit panels")
         target.sector_panel.to_parquet(_safe_child(audit_dir, "sector_panel.parquet"))
@@ -412,6 +474,45 @@ def write_research_artifacts(
             stock_audit["reasons"].append(
                 "explicit historical membership input absent; stock results are not PIT-ready"
             )
+        if sector_provenance["exists"]:
+            try:
+                source_sectors = _read_audit_source(sector_history_source)
+                reproduced_sector = normalize_sector_history(
+                    source_sectors, target.scores.index, universe
+                )
+                sector_match = reproduced_sector.equals(target.sector_panel)
+                stock_audit["sector_source_reproduces_panel"] = sector_match
+                if not sector_match:
+                    stock_audit["reasons"].append(
+                        "hashed sector source does not reproduce the materialized sector panel"
+                    )
+            except Exception as exc:  # noqa: BLE001 - preserve failed audit reason
+                stock_audit["reasons"].append(
+                    f"hashed sector source could not reproduce its panel: {exc}"
+                )
+        if membership_provenance["exists"] and explicit_membership:
+            try:
+                source_membership = _read_audit_source(membership_history_source)
+                source_universe = set(infer_membership_tickers(source_membership))
+                if source_universe != set(universe):
+                    stock_audit["reasons"].append(
+                        "hashed membership source universe does not equal the audited universe"
+                    )
+                reproduced_membership = normalize_membership_history(
+                    source_membership, target.scores.index, universe
+                )
+                membership_match = reproduced_membership.equals(
+                    target.membership_panel
+                )
+                stock_audit["membership_source_reproduces_panel"] = membership_match
+                if not membership_match:
+                    stock_audit["reasons"].append(
+                        "hashed membership source does not reproduce the materialized panel"
+                    )
+            except Exception as exc:  # noqa: BLE001 - preserve failed audit reason
+                stock_audit["reasons"].append(
+                    f"hashed membership source could not reproduce its panel: {exc}"
+                )
         scored_members = target.scores.notna() & member
         missing_sector = scored_members & target.sector_panel.isna()
         coverage = pd.DataFrame(
@@ -453,6 +554,14 @@ def write_research_artifacts(
         "execution_semantics": (
             "next_open_to_next_open" if prices.open is not None else "next_close_to_next_close"
         ),
+        "cash_return_model": {
+            "source": (
+                "prior-month exact-NYSE-month-end ^IRX annual yield divided by 12"
+                if "^IRX" in prices.close.columns
+                else "zero cash return"
+            ),
+            "missing_month_policy": "explicit zero",
+        },
         "frozen_benchmark": {
             "name": FROZEN_BENCHMARK.name,
             "fingerprint_sha256": _benchmark_fingerprint(),
@@ -487,21 +596,11 @@ def write_research_artifacts(
             "support_note": "support_note.md",
         },
     }
-    _safe_child(output, "manifest.json").write_text(
-        json.dumps(_json_safe(manifest), indent=2, allow_nan=False), encoding="utf-8"
-    )
     _safe_child(output, "trial_details.json").write_text(
         json.dumps(_json_safe(trial_records), indent=2, allow_nan=False), encoding="utf-8"
     )
 
     benchmark_row = next(row for row in summary_rows if "not_a_candidate" in row["family"])
-    best = max(
-        (row for row in summary_rows if "not_a_candidate" not in row["family"]),
-        key=lambda row: float(row["net_sharpe"])
-        if row.get("net_sharpe") is not None and np.isfinite(row["net_sharpe"])
-        else -np.inf,
-        default=None,
-    )
     note_lines = [
         "# Trend V2 research support note",
         "",
@@ -517,18 +616,19 @@ def write_research_artifacts(
             else ("PASS" if stock_audit["pit_gate_passed"] else "FAILED")
         ),
     ]
-    if best is not None:
-        note_lines.append(
-            f"- Highest full-sample candidate net Sharpe: {best['name']} ({best['net_sharpe']:.3f})"
-        )
     note_lines.extend(
         [
             "",
-            "The highest in-sample row is not a selection rule. Apply the preregistered holdout, stability, cost-stress, concentration, and portfolio-increment gates in research/trend_v2/PREREGISTRATION.md before any shadow discussion.",
+            "No in-sample winner is selected. ETF candidates share one evaluation clock; the separate stock family is never ranked against them. Apply the preregistered holdout, stability, cost-stress, concentration, and portfolio-increment gates in research/trend_v2/PREREGISTRATION.md before any shadow discussion.",
             "",
         ]
     )
     _safe_child(output, "support_note.md").write_text(
         "\n".join(note_lines), encoding="utf-8"
+    )
+    # The manifest is the completion marker and is intentionally published
+    # only after every data and narrative payload succeeds.
+    _safe_child(output, "manifest.json").write_text(
+        json.dumps(_json_safe(manifest), indent=2, allow_nan=False), encoding="utf-8"
     )
     return output

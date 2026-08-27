@@ -33,6 +33,7 @@ from research.trend_v2.engine import (
 from research.trend_v2.runner import (
     TrialRun,
     _safe_child,
+    run_trend_v2_research,
     write_research_artifacts,
 )
 from scripts.run_trend_v2_research import ROOT, _resolve_project_artifact_output
@@ -58,6 +59,15 @@ def _monthly_open_panel(months: list[str], values: dict[str, list[float]]) -> pd
     return pd.DataFrame(values, index=[_first_session(month) for month in months])
 
 
+def _through_last_complete_month(frame: pd.DataFrame) -> pd.DataFrame:
+    period = frame.index[-1].to_period("M")
+    exact = pd.date_range(period.start_time, period.end_time, freq=TRADING_DAY)[-1]
+    if exact > frame.index.max():
+        period -= 1
+        exact = pd.date_range(period.start_time, period.end_time, freq=TRADING_DAY)[-1]
+    return frame.loc[:exact]
+
+
 def test_frozen_benchmark_invariance_matches_locked_rules():
     assert FROZEN_BENCHMARK_UNIVERSE == (
         "SPY", "QQQ", "IWM", "EFA", "EEM", "FXI", "VNQ",
@@ -69,7 +79,7 @@ def test_frozen_benchmark_invariance_matches_locked_rules():
     assert FROZEN_BENCHMARK.asset_weight_cap == 0.20
     assert FROZEN_BENCHMARK.rebalance_band == 0.01
 
-    close = _etf_prices()
+    close = _through_last_complete_month(_etf_prices())
     actual = frozen_benchmark_targets(close).targets
 
     monthly = close.resample("ME").last()
@@ -95,7 +105,7 @@ def test_frozen_benchmark_invariance_matches_locked_rules():
 def test_frozen_benchmark_matches_current_production_target_function():
     from trend_sleeve import compute_targets
 
-    close = _etf_prices()
+    close = _through_last_complete_month(_etf_prices())
     research = frozen_benchmark_targets(close).targets.iloc[-1]
     production = compute_targets(close, use_fragility_gate=False).set_index("Ticker")
     production = production["Weight"].reindex(research.index)
@@ -117,6 +127,22 @@ def test_multispeed_signals_do_not_change_when_future_prices_change():
     changed = multispeed_targets(mutated, spec).targets
     last_safe_month = mutation_start.to_period("M").to_timestamp("M") - pd.offsets.MonthEnd(1)
     pdt.assert_frame_equal(original.loc[:last_safe_month], changed.loc[:last_safe_month])
+
+
+def test_etf_signal_builders_fail_on_missing_required_daily_close():
+    close = _through_last_complete_month(_etf_prices())
+    period = close.index[-40].to_period("M")
+    exact_month_end = pd.date_range(
+        period.start_time, period.end_time, freq=TRADING_DAY
+    )[-1]
+    assert exact_month_end in close.index
+    broken = close.copy()
+    broken.loc[exact_month_end, "SPY"] = np.nan
+
+    with pytest.raises(ValueError, match="missing required daily closes"):
+        frozen_benchmark_targets(broken)
+    with pytest.raises(ValueError, match="missing required daily closes"):
+        multispeed_targets(broken, PREREGISTERED_MULTISPEED_SPECS[0])
 
 
 def test_hysteresis_and_execution_controls_are_path_dependent_and_bounded():
@@ -174,6 +200,29 @@ def test_hard_name_and_gross_caps_override_soft_turnover():
     assert posttrade.abs().sum() <= 0.30 + 1e-12
     assert mandatory > 0.01
     assert turnover == pytest.approx(mandatory)
+
+
+def test_backtest_applies_frozen_one_percent_band_to_drifted_weights():
+    index = pd.date_range("2023-12-31", periods=4, freq="ME")
+    targets = pd.DataFrame({"A": [0.10, 0.105, 0.12, 0.12]}, index=index)
+    opens = _monthly_open_panel(
+        ["2023-12", "2024-01", "2024-02", "2024-03", "2024-04"],
+        {"A": [100.0, 100.0, 100.0, 100.0, 100.0]},
+    )
+    result = backtest_next_period(
+        targets,
+        close=opens,
+        open_prices=opens,
+        rebalance_band=FROZEN_BENCHMARK.rebalance_band,
+        asset_weight_cap=FROZEN_BENCHMARK.asset_weight_cap,
+        gross_weight_cap=FROZEN_BENCHMARK.gross_weight_cap,
+    )
+    assert result.executed_weights.loc["2024-01-31", "A"] == pytest.approx(0.10)
+    assert result.executed_weights.loc["2024-02-29", "A"] == pytest.approx(
+        result.pretrade_weights.loc["2024-02-29", "A"]
+    )
+    assert result.monthly.loc["2024-02-29", "turnover"] == 0.0
+    assert result.executed_weights.loc["2024-03-31", "A"] == pytest.approx(0.12)
 
 
 def test_drift_aware_turnover_after_one_of_two_assets_doubles_is_one_third():
@@ -283,6 +332,43 @@ def test_stock_allocator_uses_actual_five_percent_cap_and_equal_feasible_sectors
     assert last[names_a].sum() == pytest.approx(0.10, abs=1e-10)
 
 
+def test_stock_score_does_not_substitute_a_stale_month_end_close():
+    dates = pd.bdate_range("2020-01-02", periods=420)
+    market_return = 0.0002 + 0.001 * np.sin(np.arange(len(dates)) / 15.0)
+    market = pd.Series(100.0 * np.cumprod(1.0 + market_return), index=dates)
+    stocks = pd.DataFrame(
+        {
+            "A": 40.0 * np.cumprod(1.0 + market_return + 0.0002),
+            "B": 50.0 * np.cumprod(1.0 + market_return + 0.0001),
+        },
+        index=dates,
+    )
+    complete_period = dates[-40].to_period("M")
+    exact_close = pd.date_range(
+        complete_period.start_time, complete_period.end_time, freq=TRADING_DAY
+    )[-1]
+    assert exact_close in stocks.index
+    stocks.loc[exact_close, "A"] = np.nan
+    sectors = pd.DataFrame(
+        {
+            "date": [dates[0], dates[0]],
+            "ticker": ["A", "B"],
+            "sector": ["S", "S"],
+        }
+    )
+    spec = replace(
+        PREREGISTERED_CROSS_SECTIONAL_SPEC,
+        beta_lookback_days=20,
+        residual_momentum_days=20,
+        volatility_days=20,
+        min_history_days=60,
+    )
+    result = cross_sectional_targets(stocks, market, sectors, spec)
+    label = complete_period.to_timestamp("M")
+    assert pd.isna(result.scores.loc[label, "A"])
+    assert result.desired_targets.loc[label, "A"] == 0.0
+
+
 def test_sector_history_does_not_backfill_a_future_classification():
     signal_dates = pd.DatetimeIndex(["2024-01-31", "2024-02-29", "2024-03-31"])
     history = pd.DataFrame(
@@ -326,6 +412,24 @@ def test_cost_subtraction_is_exact_and_does_not_change_gross_returns():
     actual_drag = result.monthly["gross_return"] - result.monthly["net_return"]
     expected_drag = result.monthly["turnover"] * 0.001
     pdt.assert_series_equal(actual_drag, expected_drag, check_names=False)
+
+
+def test_backtest_keeps_pre_signal_months_as_cash_on_a_common_clock():
+    index = pd.date_range("2023-12-31", periods=4, freq="ME")
+    targets = pd.DataFrame({"A": [0.0, 0.0, 0.5, 0.5]}, index=index)
+    opens = _monthly_open_panel(
+        ["2023-12", "2024-01", "2024-02", "2024-03", "2024-04"],
+        {"A": [100.0, 101.0, 102.0, 103.0, 104.0]},
+    )
+    result = backtest_next_period(
+        targets,
+        close=opens,
+        open_prices=opens,
+        cash_returns=pd.Series(0.01, index=index),
+    )
+    assert list(result.monthly.index) == list(index[1:])
+    assert result.monthly.iloc[0]["gross_exposure"] == 0.0
+    assert result.monthly.iloc[0]["gross_return"] == pytest.approx(0.01)
 
 
 def test_next_open_return_and_trade_cost_use_the_prior_month_end_target():
@@ -511,14 +615,25 @@ def test_stock_pit_audit_materializes_panels_and_requires_membership_source(tmp_
     )
     sector_source = tmp_path / "sectors.csv"
     member_source = tmp_path / "membership.csv"
-    pd.DataFrame({"date": ["2024-01-01"], "ticker": ["A"], "sector": ["S1"]}).to_csv(
-        sector_source, index=False
-    )
     pd.DataFrame(
-        {"date": ["2024-01-01"], "ticker": ["A"], "in_universe": [True]}
+        {
+            "date": ["2024-01-01", "2024-01-01"],
+            "ticker": ["A", "B"],
+            "sector": ["S1", "S2"],
+        }
+    ).to_csv(sector_source, index=False)
+    pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-01-01"],
+            "ticker": ["A", "B"],
+            "in_universe": [True, True],
+        }
     ).to_csv(member_source, index=False)
     price_data = PriceData(
-        close=pd.DataFrame({"SPY": [100.0]}, index=[pd.Timestamp("2024-01-02")]),
+        close=pd.DataFrame(
+            {"SPY": [100.0], "A": [50.0], "B": [60.0]},
+            index=[pd.Timestamp("2024-01-02")],
+        ),
         open=None,
     )
     output = write_research_artifacts(
@@ -531,6 +646,8 @@ def test_stock_pit_audit_materializes_panels_and_requires_membership_source(tmp_
     )
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["stock_pit_audit"]["pit_gate_passed"] is True
+    assert manifest["stock_pit_audit"]["sector_source_reproduces_panel"] is True
+    assert manifest["stock_pit_audit"]["membership_source_reproduces_panel"] is True
     assert manifest["stock_pit_audit"]["membership_history_provenance"]["sha256"]
     for name in (
         "sector_panel.parquet",
@@ -564,3 +681,27 @@ def test_stock_pit_audit_materializes_panels_and_requires_membership_source(tmp_
         "explicit historical membership" in reason
         for reason in failed["stock_pit_audit"]["reasons"]
     )
+
+
+def test_stock_run_uses_membership_universe_and_fails_on_missing_prices():
+    close = _through_last_complete_month(_etf_prices())
+    sector_history = pd.DataFrame(
+        {
+            "date": [close.index[0], close.index[0]],
+            "ticker": ["A", "B"],
+            "sector": ["S1", "S2"],
+        }
+    )
+    membership_history = pd.DataFrame(
+        {
+            "date": [close.index[0], close.index[0]],
+            "ticker": ["A", "B"],
+            "in_universe": [True, True],
+        }
+    )
+    with pytest.raises(ValueError, match="missing adjusted prices"):
+        run_trend_v2_research(
+            PriceData(close=close, open=close),
+            sector_history=sector_history,
+            membership_history=membership_history,
+        )

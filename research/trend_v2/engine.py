@@ -139,8 +139,50 @@ def load_adjusted_price_parquet(path: str | Path, asof: str | None = None) -> Pr
     return PriceData(close=close, open=open_panel, source=str(source))
 
 
-def _month_end(panel: pd.DataFrame) -> pd.DataFrame:
-    return panel.resample("ME").last()
+def exact_month_end_panel(panel: pd.DataFrame) -> pd.DataFrame:
+    """Sample only the exact final NYSE session of each calendar month.
+
+    ``resample(...).last()`` silently substitutes an earlier observation when
+    the actual month-end value is missing. Month-end signals must not inherit
+    that stale-data fallback.
+    """
+
+    if panel.empty:
+        return panel.copy()
+    periods = pd.period_range(
+        panel.index.min().to_period("M"), panel.index.max().to_period("M"), freq="M"
+    )
+    labels = periods.to_timestamp("M")
+    sessions = pd.DatetimeIndex(
+        [_session_for_month(period, first=False) for period in periods]
+    )
+    sampled = panel.reindex(sessions).copy()
+    sampled.index = labels
+    return sampled
+
+
+def validate_required_daily_sessions(panel: pd.DataFrame, label: str) -> None:
+    """Fail closed on missing NYSE-session closes inside a required panel."""
+
+    if panel.empty:
+        raise ValueError(f"{label} is empty")
+    required_end = pd.Timestamp(panel.index.max()).normalize()
+    failures: list[str] = []
+    for ticker in panel.columns:
+        series = panel[ticker].dropna()
+        if series.empty:
+            failures.append(f"{ticker}: no observations")
+            continue
+        expected = pd.date_range(series.index.min(), required_end, freq=TRADING_DAY)
+        missing = expected.difference(series.index)
+        if len(missing):
+            preview = ",".join(str(stamp.date()) for stamp in missing[:3])
+            failures.append(f"{ticker}: {len(missing)} missing ({preview})")
+    if failures:
+        raise ValueError(
+            f"{label} has missing required daily closes; refusing stale/forward-filled "
+            "signal inputs: " + "; ".join(failures)
+        )
 
 
 def frozen_benchmark_targets(
@@ -157,7 +199,8 @@ def frozen_benchmark_targets(
     if missing:
         raise ValueError(f"frozen benchmark tickers missing: {missing}")
     daily = daily.loc[:, list(spec.universe)]
-    monthly = _month_end(daily)
+    validate_required_daily_sessions(daily, "frozen benchmark prices")
+    monthly = exact_month_end_panel(daily)
     momentum = (
         monthly.shift(spec.momentum_skip_months)
         / monthly.shift(spec.momentum_lookback_months)
@@ -177,8 +220,7 @@ def frozen_benchmark_targets(
         .rolling(spec.volatility_days)
         .std()
         .mul(np.sqrt(252.0))
-        .resample("ME")
-        .last()
+        .pipe(exact_month_end_panel)
         .clip(lower=spec.volatility_floor)
     )
     inverse = (1.0 / volatility).where(eligible, 0.0)
@@ -315,8 +357,7 @@ def _vol_scaled_targets(
         returns.rolling(spec.volatility_days)
         .std()
         .mul(np.sqrt(252.0))
-        .resample("ME")
-        .last()
+        .pipe(exact_month_end_panel)
         .clip(lower=spec.volatility_floor)
         .reindex(active.index)
     )
@@ -349,7 +390,8 @@ def _vol_scaled_targets(
 def multispeed_targets(close: pd.DataFrame, spec: MultiSpeedSpec) -> TargetResult:
     """Build one preregistered multi-speed time-series trend target path."""
     daily = _clean_panel(close, "close prices")
-    monthly = _month_end(daily)
+    validate_required_daily_sessions(daily, "multi-speed benchmark prices")
+    monthly = exact_month_end_panel(daily)
     max_horizon = max(spec.horizons_months)
     eligible = monthly.notna() & monthly.shift(max_horizon).notna()
     states: list[pd.DataFrame] = []
@@ -417,7 +459,7 @@ def _exact_period_returns(
     months = (
         _normalized_contiguous_months(period_index)
         if period_index is not None
-        else _normalized_contiguous_months(_month_end(daily_close).index)
+        else _normalized_contiguous_months(exact_month_end_panel(daily_close).index)
     )
     periods = months.to_period("M")
     if open_prices is not None:
@@ -515,11 +557,10 @@ def backtest_next_period(
         blank = pd.DataFrame(index=empty_index, columns=desired.columns, dtype=float)
         return BacktestResult(empty_monthly, desired_all, blank, blank.copy())
 
-    actionable = desired.abs().sum(axis=1).gt(1e-14)
-    if not actionable.any():
-        return empty_result()
-    first_target_position = int(np.flatnonzero(actionable.to_numpy())[0])
-    first_holding_position = first_target_position + 1
+    # Start every strategy at the first next-period boundary. Pre-signal
+    # months stay in cash, preserving delayed activation as opportunity cost
+    # and giving the ETF family a common evaluation clock.
+    first_holding_position = 1
     if first_holding_position >= len(complete_months):
         return empty_result()
 
@@ -807,9 +848,16 @@ def normalize_membership_history(
         frame = frame[frame["ticker"].isin(ticker_set)]
         if frame.duplicated(["date", "ticker"]).any():
             raise ValueError("membership snapshots contain duplicate date/ticker rows")
-        wide = frame.pivot(index="date", columns="ticker", values="in_universe")
+        wide = frame.pivot(
+            index="date", columns="ticker", values="in_universe"
+        ).astype("boolean")
         combined = wide.reindex(wide.index.union(signal_dates)).sort_index().ffill()
-        return combined.reindex(index=signal_dates, columns=tickers).eq(True)
+        return (
+            combined.reindex(index=signal_dates, columns=tickers)
+            .eq(True)
+            .fillna(False)
+            .astype(bool)
+        )
 
     if {"ticker", "effective_from"}.issubset(lower):
         panel = pd.DataFrame(False, index=signal_dates, columns=tickers)
@@ -834,9 +882,14 @@ def normalize_membership_history(
         wide = membership.copy()
         wide.index = pd.to_datetime(wide.index).tz_localize(None).normalize()
         wide.columns = [str(column).upper().strip() for column in wide.columns]
-        wide = coerce_bool(wide)
+        wide = coerce_bool(wide).astype("boolean")
         combined = wide.reindex(wide.index.union(signal_dates)).sort_index().ffill()
-        return combined.reindex(index=signal_dates, columns=tickers).eq(True)
+        return (
+            combined.reindex(index=signal_dates, columns=tickers)
+            .eq(True)
+            .fillna(False)
+            .astype(bool)
+        )
 
     raise ValueError(
         "membership must be dated bool snapshots, effective intervals, or a wide dated panel"
@@ -919,7 +972,7 @@ def cross_sectional_targets(
         spec.residual_momentum_days,
         min_periods=spec.residual_momentum_days,
     ).sum()
-    scores = score_daily.resample("ME").last()
+    scores = exact_month_end_panel(score_daily)
     sector_panel = normalize_sector_history(
         sectors=sector_history,
         dates=scores.index,
@@ -942,8 +995,7 @@ def cross_sectional_targets(
         .rolling(spec.min_history_days)
         .sum()
         .ge(spec.min_history_days)
-        .resample("ME")
-        .last()
+        .pipe(exact_month_end_panel)
         .reindex(scores.index)
     )
     vol = (
@@ -951,8 +1003,7 @@ def cross_sectional_targets(
         .rolling(spec.volatility_days)
         .std()
         .mul(np.sqrt(252.0))
-        .resample("ME")
-        .last()
+        .pipe(exact_month_end_panel)
         .reindex(scores.index)
     )
     desired = pd.DataFrame(0.0, index=scores.index, columns=scores.columns)

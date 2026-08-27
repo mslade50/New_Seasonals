@@ -214,9 +214,11 @@ def main(
         )
         result.capital_summary.to_csv(output_dir / "capital_summary.csv", index=False)
     manifest = {
+        "schema_version": "intraday-research-run.v1",
         "research_only": True,
         "no_order": True,
         "production_writes": False,
+        "automatic_promotion": False,
         "created_utc": pd.Timestamp.now(tz="UTC").isoformat(),
         "data_dir": str(args.data_dir.resolve()),
         "sector_map": str(sector_map_path.resolve()) if sector_map_path else None,

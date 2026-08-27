@@ -10,6 +10,7 @@ from pandas.testing import assert_frame_equal
 from research.opportunity_book import (
     OpportunityConfig,
     build_opportunity_book,
+    default_universe,
     normalize_prices,
     write_opportunity_book,
 )
@@ -175,7 +176,11 @@ def test_queue_caps_and_complete_local_artifact_bundle(tmp_path):
         tickers,
         _config(prices["date"].max(), review_limit=9, deep_test_limit=4, audit_limit=3),
     )
-    paths = write_opportunity_book(result, tmp_path / "wide")
+    artifacts_root = tmp_path / "artifacts"
+    output = artifacts_root / "wide"
+    paths = write_opportunity_book(
+        result, output, artifacts_root=artifacts_root
+    )
 
     assert len(result.review_queue) == 9
     assert len(result.deep_test_queue) == 4
@@ -197,6 +202,7 @@ def test_queue_caps_and_complete_local_artifact_bundle(tmp_path):
     assert "there is no universal score" in payload["selection"]["method"]
     assert payload["no_order"] is True
     assert payload["production_writes"] is False
+    assert payload["automatic_promotion"] is False
     expected_card_fields = {
         "Actionability",
         "Variant_Wedge",
@@ -210,7 +216,24 @@ def test_queue_caps_and_complete_local_artifact_bundle(tmp_path):
     assert "First rejection" in html
     assert "What kills it" in html
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
-        write_opportunity_book(result, tmp_path / "wide")
+        write_opportunity_book(result, output, artifacts_root=artifacts_root)
+    with pytest.raises(ValueError, match="must stay under"):
+        write_opportunity_book(
+            result, tmp_path / "outside", artifacts_root=artifacts_root
+        )
+
+
+def test_default_universe_fails_loudly_if_overflow_fallback_collapses(monkeypatch):
+    import strategy_config
+
+    assert len(default_universe()) >= 1_000
+    monkeypatch.setattr(
+        strategy_config,
+        "CSV_UNIVERSE",
+        list(strategy_config.LIQUID_PLUS_COMMODITIES),
+    )
+    with pytest.raises(RuntimeError, match="incomplete"):
+        default_universe()
 
 
 def test_cli_output_is_confined_to_worktree_artifacts(tmp_path):

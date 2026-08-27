@@ -5,6 +5,7 @@ import pytest
 
 from research.experiment_registry import (
     RegistryValidationError,
+    _registry_lock,
     append_records,
     load_records,
     prepare_record,
@@ -71,6 +72,16 @@ def test_registry_append_is_idempotent_and_append_only(tmp_path):
     assert all(row["research_only"] and row["no_order"] for row in rows)
 
 
+def test_registry_concurrent_writer_fails_instead_of_racing(tmp_path):
+    path = tmp_path / "artifacts" / "registry.jsonl"
+    with (
+        _registry_lock(path),
+        pytest.raises(RegistryValidationError, match="registry is busy"),
+    ):
+        append_records(path, [source_record()], clock=_clock)
+    assert append_records(path, [source_record()], clock=_clock) == 1
+
+
 def test_preregistration_requires_trial_budget_promotion_and_kill_gates():
     prepare_record(preregistration(), clock=_clock)
 
@@ -113,4 +124,3 @@ def test_registry_summary_counts_trials_without_implying_promotion():
     assert result["by_kind"] == {"preregistration": 1, "trial": 1}
     assert result["research_only"] is True
     assert result["no_order"] is True
-

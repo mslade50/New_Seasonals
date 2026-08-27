@@ -13,7 +13,8 @@ import hashlib
 import json
 import os
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,47 @@ FORBIDDEN_KEYS = {
 
 class RegistryValidationError(ValueError):
     """Raised when a record violates the research registry contract."""
+
+
+@contextmanager
+def _registry_lock(registry_path: Path) -> Iterator[None]:
+    """Take a non-blocking cross-process lock beside the append-only file."""
+
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = registry_path.with_name(f"{registry_path.name}.lock")
+    with lock_path.open("a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise RegistryValidationError(
+                    f"registry is busy; retry after the active writer finishes: {registry_path}"
+                ) from exc
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise RegistryValidationError(
+                    f"registry is busy; retry after the active writer finishes: {registry_path}"
+                ) from exc
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def utc_now() -> dt.datetime:
@@ -195,10 +237,9 @@ def prepare_record(
     return out
 
 
-def load_records(path: str | Path, *, skip_corrupt: bool = False) -> list[dict[str, Any]]:
-    registry_path = Path(path)
-    if not registry_path.exists():
-        return []
+def _load_records_unlocked(
+    registry_path: Path, *, skip_corrupt: bool = False
+) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for line_number, raw in enumerate(
         registry_path.read_text(encoding="utf-8").splitlines(), start=1
@@ -218,6 +259,14 @@ def load_records(path: str | Path, *, skip_corrupt: bool = False) -> list[dict[s
     return records
 
 
+def load_records(path: str | Path, *, skip_corrupt: bool = False) -> list[dict[str, Any]]:
+    registry_path = Path(path)
+    if not registry_path.exists():
+        return []
+    with _registry_lock(registry_path):
+        return _load_records_unlocked(registry_path, skip_corrupt=skip_corrupt)
+
+
 def append_records(
     path: str | Path,
     records: Iterable[Mapping[str, Any]],
@@ -231,27 +280,30 @@ def append_records(
     preserving history instead of rewriting it.
     """
     registry_path = Path(path)
-    existing = load_records(registry_path)
-    known_ids = {str(record["record_id"]) for record in existing}
-    pending: list[dict[str, Any]] = []
-    for record in records:
-        prepared = prepare_record(record, clock=clock)
-        record_id = str(prepared["record_id"])
-        if record_id in known_ids:
-            continue
-        pending.append(prepared)
-        known_ids.add(record_id)
-
-    if not pending:
-        return 0
-
+    prepared_records = [prepare_record(record, clock=clock) for record in records]
     registry_path.parent.mkdir(parents=True, exist_ok=True)
-    with registry_path.open("a", encoding="utf-8", newline="\n") as handle:
-        for record in pending:
-            handle.write(canonical_json(record) + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    return len(pending)
+    with _registry_lock(registry_path):
+        existing = (
+            _load_records_unlocked(registry_path) if registry_path.exists() else []
+        )
+        known_ids = {str(record["record_id"]) for record in existing}
+        pending: list[dict[str, Any]] = []
+        for prepared in prepared_records:
+            record_id = str(prepared["record_id"])
+            if record_id in known_ids:
+                continue
+            pending.append(prepared)
+            known_ids.add(record_id)
+
+        if not pending:
+            return 0
+
+        with registry_path.open("a", encoding="utf-8", newline="\n") as handle:
+            for record in pending:
+                handle.write(canonical_json(record) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        return len(pending)
 
 
 def hypothesis_fingerprints(records: Iterable[Mapping[str, Any]]) -> set[str]:

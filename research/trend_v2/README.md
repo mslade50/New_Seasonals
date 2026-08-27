@@ -34,6 +34,9 @@ the frozen comparator.
 ## Point-in-time and execution semantics
 
 - Signals at month-end `t` use closes and histories available through `t`.
+- Month-end features require the exact final NYSE-session close. Missing daily
+  closes in the fixed ETF panel fail the run; an earlier bar is never silently
+  substituted or forward-filled.
 - Rolling market betas used for day `t` residuals are shifted and therefore use
   data only through `t-1`.
 - Dated sector snapshots are forward-filled but never backfilled. Effective
@@ -53,14 +56,25 @@ the frozen comparator.
   beyond source coverage is omitted as incomplete.
 - CAGR uses elapsed calendar time between represented monthly periods rather
   than assuming `N/12` years.
+- ETF evaluation starts on one common next-period clock. Months before a
+  strategy's first active signal remain in cash rather than being discarded,
+  so delayed activation retains its opportunity cost. The support note does
+  not select an in-sample winner and never ranks the separate stock family
+  against the ETF family.
+- Cash earns the prior exact-month-end `^IRX` annual yield divided by 12 when
+  that series is present; absent months are explicitly modeled as zero and the
+  assumption is recorded in the manifest.
 - Adjusted-price provenance is a caller responsibility; the loader cannot infer
   adjustment status from numeric values.
 
 These calculations remove signal and execution lookahead. They do not cure
-constituent survivorship. Stock mode accepts an explicit dated membership file,
-materializes it, and records a PIT-readiness gate. Without that input it may run
-for engineering diagnosis, but the manifest marks the stock gate failed and the
-results must not be described as PIT-ready.
+constituent survivorship. When supplied, dated membership—not the sector map—
+defines the exact stock universe, and missing price history fails loudly. The
+artifact writer re-materializes sector and membership panels from the hashed
+source files and requires them to match the audited panels before the PIT gate
+can pass. Without membership, stock mode may run for engineering diagnosis,
+but the manifest marks the gate failed and the results must not be described as
+PIT-ready.
 
 ## Local input formats
 

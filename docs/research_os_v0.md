@@ -24,11 +24,19 @@ An idea can move through:
 source -> hypothesis -> preregistration -> trial -> result -> disposition
 ```
 
-The append-only `research/experiment_registry.py` contract records every
-source, hypothesis, parameter trial, result, and disposition. Every record is
-stamped `research_only=true` and `no_order=true`. Preregistrations must define
-both promotion and kill gates and a positive trial budget. Identical reruns are
-idempotent; changed work becomes a new record rather than rewriting history.
+The append-only `research/experiment_registry.py` contract can record sources,
+hypotheses, preregistrations, parameter trials, results, and dispositions. The
+weekly intake writes its source and hypothesis records today. Intraday and
+Trend bundles remain self-contained artifacts until a human explicitly opens
+a formal registry experiment; v0 does not pretend those results are already
+registered. Every registry record is stamped `research_only=true` and
+`no_order=true`. Preregistrations must define both promotion and kill gates and
+a positive trial budget. Identical reruns are idempotent under a cross-process
+file lock; changed work becomes a new record rather than rewriting history.
+
+Every completed run manifest uses the same safety envelope:
+`schema_version`, `research_only=true`, `no_order=true`,
+`production_writes=false`, and `automatic_promotion=false`.
 
 ## Weekly external idea intake
 

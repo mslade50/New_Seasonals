@@ -34,6 +34,11 @@ may perform source diligence on no more than three of the ten deep-test names,
 write local artifacts, or reject the slate. It deliberately never invokes the
 production Daily Pitch publisher or an order-capable surface.
 
+The default universe read is fail-closed: it must contain at least 1,000 total
+names and 500 names beyond the liquid set. If the upstream overflow CSV loader
+falls back to liquid-only coverage, the run aborts and requires a reviewed
+`--tickers-file`. The manifest freezes the exact ticker count and SHA-256 hash.
+
 Every rank input, archetype score, rank, percentile, exclusion and freshness
 field is retained in the output bundle.
 

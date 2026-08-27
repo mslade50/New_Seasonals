@@ -105,10 +105,12 @@ def run(
     )
 
     result: dict[str, Any] = {
+        "schema_version": "weekly-hypothesis-run.v1",
         "as_of": as_of,
         "research_only": True,
         "no_order": True,
         "production_writes": False,
+        "automatic_promotion": False,
         "write_requested": bool(args.write),
         "coverage": queue["coverage"],
         "funnel": queue["funnel"],
@@ -118,19 +120,31 @@ def run(
     if not args.write:
         return result
 
-    output_dir.mkdir(parents=True, exist_ok=True)
     stem = f"weekly_idea_inbox_{as_of}"
     json_path = output_dir / f"{stem}.json"
     html_path = output_dir / f"{stem}.html"
     sources_path = output_dir / f"source_snapshot_{as_of}.jsonl"
     manifest_path = output_dir / f"{stem}_manifest.json"
     run_paths = (json_path, html_path, sources_path, manifest_path)
+    input_paths = {Path(path).expanduser().resolve() for path in args.input}
+    if registry_path is not None:
+        if registry_path == output_dir or registry_path in input_paths:
+            raise ValueError("registry path must be distinct from inputs and output directory")
+        aliases = [path for path in run_paths if registry_path == path]
+        if aliases:
+            raise ValueError(
+                "registry path must be distinct from weekly run artifacts: "
+                + ", ".join(str(path) for path in aliases)
+            )
+        if registry_path.exists() and registry_path.is_dir():
+            raise ValueError(f"registry path is a directory: {registry_path}")
     existing = [path for path in run_paths if path.exists()]
     if existing:
         raise FileExistsError(
             "refusing to overwrite existing weekly run artifacts: "
             + ", ".join(str(path) for path in existing)
         )
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     queue_json = _json(queue)
     html_text = render_weekly_inbox(queue)
@@ -153,8 +167,9 @@ def run(
         "research_only": True,
         "no_order": True,
         "production_writes": False,
+        "automatic_promotion": False,
         "network_fetch": False,
-        "input_paths": [str(Path(path).resolve()) for path in args.input],
+        "input_paths": [str(path) for path in sorted(input_paths)],
         "outputs": {
             "queue_json": {"path": str(json_path), "sha256": _sha256_text(queue_json)},
             "report_html": {"path": str(html_path), "sha256": _sha256_text(html_text)},

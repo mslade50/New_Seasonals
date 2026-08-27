@@ -25,6 +25,10 @@ import pandas as pd
 
 SCHEMA_VERSION = "wide-opportunity-book/v0"
 RESEARCH_ONLY_LABEL = "RESEARCH PRIORITY ONLY — NOT AN INVESTMENT RECOMMENDATION"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ARTIFACTS_ROOT = (PROJECT_ROOT / "artifacts").resolve()
+MIN_DEFAULT_UNIVERSE_SIZE = 1_000
+MIN_DEFAULT_OVERFLOW_SIZE = 500
 
 ARCHETYPE_DESCRIPTIONS: dict[str, str] = {
     "residual_dislocation": (
@@ -92,16 +96,23 @@ class OpportunityBookResult:
 
 
 def default_universe() -> list[str]:
-    """Return the deterministic liquid + overflow union from strategy config."""
+    """Return the liquid + overflow union, failing if fallback collapsed it."""
     from strategy_config import CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
 
-    return sorted(
-        {
-            _clean_ticker(t)
-            for t in [*LIQUID_PLUS_COMMODITIES, *CSV_UNIVERSE]
-            if _clean_ticker(t)
-        }
-    )
+    liquid = {_clean_ticker(t) for t in LIQUID_PLUS_COMMODITIES if _clean_ticker(t)}
+    broad = {_clean_ticker(t) for t in CSV_UNIVERSE if _clean_ticker(t)}
+    universe = sorted(liquid | broad)
+    overflow = broad - liquid
+    if (
+        len(universe) < MIN_DEFAULT_UNIVERSE_SIZE
+        or len(overflow) < MIN_DEFAULT_OVERFLOW_SIZE
+    ):
+        raise RuntimeError(
+            "default broad universe is incomplete "
+            f"({len(universe)} total, {len(overflow)} overflow); "
+            "supply a reviewed --tickers-file instead of silently running liquid-only"
+        )
+    return universe
 
 
 def _clean_ticker(value: Any) -> str:
@@ -1006,6 +1017,7 @@ def build_opportunity_book(
         "research_only": True,
         "no_order": True,
         "production_writes": False,
+        "automatic_promotion": False,
         "label": RESEARCH_ONLY_LABEL,
         "purpose": (
             "Allocate research attention across a broad universe; outputs are "
@@ -1187,10 +1199,18 @@ header p{{max-width:850px;font-size:16px;color:#d9e9ee}}main{{max-width:1500px;m
 
 
 def write_opportunity_book(
-    result: OpportunityBookResult, output_dir: str | Path
+    result: OpportunityBookResult,
+    output_dir: str | Path,
+    *,
+    artifacts_root: str | Path = ARTIFACTS_ROOT,
 ) -> dict[str, Path]:
-    """Write the complete local artifact bundle to an explicit directory."""
-    output = Path(output_dir)
+    """Write a complete bundle inside the explicitly allowed artifacts root."""
+    output = Path(output_dir).expanduser().resolve()
+    root = Path(artifacts_root).expanduser().resolve()
+    try:
+        output.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"artifact output must stay under {root}: {output}") from exc
     if output.exists() and not output.is_dir():
         raise FileExistsError(f"artifact output is not a directory: {output}")
     if output.exists() and any(output.iterdir()):
@@ -1207,14 +1227,16 @@ def write_opportunity_book(
         "audit": output / "audit_sample.csv",
         "html": output / "index.html",
     }
-    paths["manifest"].write_text(
-        json.dumps(result.manifest, indent=2, sort_keys=True, allow_nan=False),
-        encoding="utf-8",
-    )
     result.coverage.to_csv(paths["coverage"], index=False)
     result.features.to_csv(paths["features"], index=False)
     result.review_queue.to_csv(paths["review"], index=False)
     result.deep_test_queue.to_csv(paths["deep_test"], index=False)
     result.audit_sample.to_csv(paths["audit"], index=False)
     paths["html"].write_text(render_html(result), encoding="utf-8")
+    # A manifest is the completion marker. Publish it only after every payload
+    # succeeds so a partial directory never advertises a complete run.
+    paths["manifest"].write_text(
+        json.dumps(result.manifest, indent=2, sort_keys=True, allow_nan=False),
+        encoding="utf-8",
+    )
     return paths
