@@ -22,6 +22,7 @@ RECEIPT_KEY = "discretionary_focus/email_receipt.json"
 
 REQUIRED = {
     "master_prices.parquet": ROOT / "data" / "master_prices.parquet",
+    "overflow_prices.parquet": ROOT / "data" / "overflow_prices.parquet",
     "earnings_calendar.parquet": ROOT / "data" / "earnings_calendar.parquet",
     "symbol_master.parquet": ROOT / "data" / "symbol_master.parquet",
 }

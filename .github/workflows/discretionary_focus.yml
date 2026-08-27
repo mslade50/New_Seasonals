@@ -38,7 +38,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install bounded dependencies
-        run: pip install pandas pyarrow numpy requests python-dotenv boto3 exchange-calendars
+        run: pip install pandas pyarrow numpy requests python-dotenv boto3 exchange-calendars yfinance
 
       - name: Gate scheduled runs to NYSE sessions
         id: session
@@ -54,6 +54,23 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/pull_discretionary_focus_inputs.py
+
+      - name: Refresh isolated overflow prices locally
+        if: github.event_name == 'workflow_dispatch' || steps.session.outputs.should_run == 'true'
+        # The Focus builder clips this cache to master_prices' broadly-covered
+        # completed session. Keeping today's completed bar is required for an
+        # after-close manual diagnostic once master_prices has advanced.
+        run: python scripts/build_overflow_prices.py --no-upload
+
+      - name: Refresh isolated overflow earnings coverage
+        if: github.event_name == 'workflow_dispatch' || steps.session.outputs.should_run == 'true'
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: >-
+          python scripts/build_earnings_calendar.py
+          --overflow-staging
+          --fail-on-fetch-errors
+          --no-upload
 
       - name: Build the final 0-2 name research shortlist
         if: github.event_name == 'workflow_dispatch' || steps.session.outputs.should_run == 'true'

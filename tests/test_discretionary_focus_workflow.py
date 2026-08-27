@@ -11,6 +11,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "discretionary_focus.yml"
 def test_focus_inputs_fail_closed_on_market_identity_and_earnings() -> None:
     assert set(REQUIRED) == {
         "master_prices.parquet",
+        "overflow_prices.parquet",
         "earnings_calendar.parquet",
         "symbol_master.parquet",
     }
@@ -68,13 +69,22 @@ def test_scheduled_workflow_is_gated_to_actual_nyse_sessions() -> None:
         "if: github.event_name == 'workflow_dispatch' || "
         "steps.session.outputs.should_run == 'true'"
     )
-    # Pull, build, publish, and email all stop on scheduled exchange holidays;
+    # Pull, refresh, build, publish, and email all stop on exchange holidays;
     # an explicit workflow dispatch remains available for diagnostics.
-    assert workflow.count(condition) == 2
+    assert workflow.count(condition) == 4
     assert "default: dry_run" in workflow
     assert "publish_and_email" in workflow
     assert workflow.count("inputs.delivery_mode == 'publish_and_email'") == 3
     assert "timeout-minutes: 25" in workflow
+    assert "Refresh isolated overflow prices locally" in workflow
+    assert "build_overflow_prices.py" in workflow
+    assert "--exclude-today" not in workflow
+    assert "--no-upload" in workflow
+    assert "Refresh isolated overflow earnings coverage" in workflow
+    assert "build_earnings_calendar.py" in workflow
+    assert "--overflow-staging" in workflow
+    assert "--fail-on-fetch-errors" in workflow
+    assert "yfinance" in workflow
     assert "--delivery-window" in workflow
     assert "steps.delivery.outputs.should_run == 'true'" in workflow
     assert workflow.count("github.ref == 'refs/heads/main'") == 3
