@@ -13,9 +13,9 @@ import hashlib
 import json
 import os
 from collections import Counter
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping
-
+from typing import Any
 
 SCHEMA_VERSION = "research-experiment.v1"
 KINDS = {

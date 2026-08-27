@@ -18,28 +18,46 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+ARTIFACTS_ROOT = (ROOT / "artifacts").resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from research.experiment_registry import (  # noqa: E402
+from research.experiment_registry import (
     append_records,
     hypothesis_fingerprints,
     load_records,
     summarize,
 )
-from research.idea_miner.models import load_source_files  # noqa: E402
-from research.idea_miner.pipeline import (  # noqa: E402
+from research.idea_miner.models import load_source_files
+from research.idea_miner.pipeline import (
     build_weekly_queue,
     registry_records_for_queue,
 )
-from research.idea_miner.report import render_weekly_inbox  # noqa: E402
+from research.idea_miner.report import render_weekly_inbox
 
 
-def _artifact_path(path: str | Path) -> Path:
+def _artifact_path(
+    path: str | Path,
+    *,
+    artifacts_root: str | Path = ARTIFACTS_ROOT,
+) -> Path:
     resolved = Path(path).expanduser().resolve()
-    if "artifacts" not in {part.lower() for part in resolved.parts}:
-        raise ValueError(f"research outputs must stay under an artifacts directory: {resolved}")
+    root = Path(artifacts_root).expanduser().resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            f"research outputs must stay under this worktree's artifacts root "
+            f"({root}): {resolved}"
+        ) from exc
     return resolved
+
+
+def _as_of_date(value: str) -> str:
+    try:
+        return dt.date.fromisoformat(str(value)).isoformat()
+    except ValueError as exc:
+        raise ValueError("--as-of must be an ISO calendar date (YYYY-MM-DD)") from exc
 
 
 def _atomic_write(path: Path, data: str) -> None:
@@ -64,21 +82,30 @@ def _sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def run(args: argparse.Namespace) -> dict[str, Any]:
-    output_dir = _artifact_path(args.output_dir)
-    registry_path = _artifact_path(args.registry) if args.registry else None
+def run(
+    args: argparse.Namespace,
+    *,
+    artifacts_root: str | Path = ARTIFACTS_ROOT,
+) -> dict[str, Any]:
+    as_of = _as_of_date(args.as_of)
+    output_dir = _artifact_path(args.output_dir, artifacts_root=artifacts_root)
+    registry_path = (
+        _artifact_path(args.registry, artifacts_root=artifacts_root)
+        if args.registry
+        else None
+    )
     prior_records = load_records(registry_path) if registry_path else []
     source_records = load_source_files(args.input)
     queue = build_weekly_queue(
         source_records,
-        as_of=args.as_of,
+        as_of=as_of,
         prior_fingerprints=hypothesis_fingerprints(prior_records),
         max_candidates=args.max_candidates,
         max_per_archetype=args.max_per_archetype,
     )
 
     result: dict[str, Any] = {
-        "as_of": args.as_of,
+        "as_of": as_of,
         "research_only": True,
         "no_order": True,
         "write_requested": bool(args.write),
@@ -91,10 +118,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return result
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"weekly_idea_inbox_{args.as_of}"
+    stem = f"weekly_idea_inbox_{as_of}"
     json_path = output_dir / f"{stem}.json"
     html_path = output_dir / f"{stem}.html"
-    sources_path = output_dir / f"source_snapshot_{args.as_of}.jsonl"
+    sources_path = output_dir / f"source_snapshot_{as_of}.jsonl"
     manifest_path = output_dir / f"{stem}_manifest.json"
 
     queue_json = _json(queue)
@@ -113,7 +140,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     manifest = {
         "schema_version": "weekly-hypothesis-run.v1",
-        "as_of": args.as_of,
+        "as_of": as_of,
         "created_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "research_only": True,
         "no_order": True,
@@ -146,7 +173,10 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--input", action="append", required=True, help="local .json/.jsonl/.csv source records; repeatable")
     ap.add_argument("--output-dir", required=True, help="explicit artifacts directory")
     ap.add_argument("--registry", help="optional append-only registry path under artifacts")
-    ap.add_argument("--as-of", default=dt.date.today().isoformat())
+    ap.add_argument(
+        "--as-of",
+        default=dt.datetime.now(dt.timezone.utc).date().isoformat(),
+    )
     ap.add_argument("--max-candidates", type=int, default=5)
     ap.add_argument("--max-per-archetype", type=int, default=2)
     ap.add_argument("--write", action="store_true", help="write local artifacts; otherwise compute and print only")

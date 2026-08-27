@@ -14,6 +14,9 @@ Research OS code may read explicitly supplied local research inputs and write
 only to an explicit `artifacts/` directory. It does not import or call order
 staging, broker, Google Sheets, production deployment, R2 upload, or live-site
 code. It does not modify `STRATEGY_BOOK` or production trend state.
+The runnable CLIs resolve paths and refuse outputs outside the active isolated
+worktree's own ignored `artifacts/` root; a similarly named directory elsewhere
+is not accepted.
 
 An idea can move through:
 
@@ -129,4 +132,3 @@ Nothing in v0 promotes automatically. A future research candidate must have:
 - day/event-clustered inference where signals share a shock;
 - predefined promotion and kill gates;
 - a shadow period and explicit human decision.
-

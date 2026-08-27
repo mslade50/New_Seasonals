@@ -11,7 +11,6 @@ from research.experiment_registry import (
     summarize,
 )
 
-
 NOW = dt.datetime(2026, 8, 27, 13, 0, tzinfo=dt.timezone.utc)
 
 

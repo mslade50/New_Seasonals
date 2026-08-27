@@ -5,13 +5,13 @@ from __future__ import annotations
 import csv
 import json
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 from urllib.parse import urlparse
 
 from research.experiment_registry import content_digest, stable_id
-
 
 SOURCE_TYPES = {"x", "ssrn", "paper", "other"}
 
@@ -54,7 +54,7 @@ class SourceRecord:
     data_requirements: tuple[str, ...] = field(default_factory=tuple)
 
     @classmethod
-    def from_mapping(cls, row: Mapping[str, Any]) -> "SourceRecord":
+    def from_mapping(cls, row: Mapping[str, Any]) -> SourceRecord:
         source_type = _clean_text(row.get("source_type") or row.get("type")).lower()
         if source_type not in SOURCE_TYPES:
             raise ValueError(

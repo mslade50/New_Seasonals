@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict, deque
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from research.experiment_registry import content_digest, stable_id
 from research.idea_miner.models import SourceRecord, dedupe_sources
-
 
 ARCHETYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "intraday": ("intraday", "opening", "overnight", "vwap", "minute", "hour", "auction"),

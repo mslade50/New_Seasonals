@@ -132,7 +132,8 @@ def test_cli_is_dry_by_default_and_writes_only_to_artifacts(tmp_path):
             max_candidates=5,
             max_per_archetype=2,
             write=False,
-        )
+        ),
+        artifacts_root=tmp_path / "artifacts",
     )
     assert dry["write_requested"] is False
     assert not output_dir.exists()
@@ -147,7 +148,8 @@ def test_cli_is_dry_by_default_and_writes_only_to_artifacts(tmp_path):
             max_candidates=5,
             max_per_archetype=2,
             write=True,
-        )
+        ),
+        artifacts_root=tmp_path / "artifacts",
     )
     assert Path(written["outputs"]["report_html"]).exists()
     assert Path(written["outputs"]["manifest"]).exists()
@@ -169,9 +171,28 @@ def test_cli_rejects_non_artifact_destinations(tmp_path):
         write=False,
     )
     try:
-        run(args)
+        run(args, artifacts_root=tmp_path / "artifacts")
     except ValueError as exc:
         assert "artifacts" in str(exc)
     else:
         raise AssertionError("non-artifact output path should fail closed")
 
+
+def test_cli_rejects_date_path_traversal(tmp_path):
+    source_path = tmp_path / "sources.jsonl"
+    _write_sources(source_path, [row(1)])
+    args = argparse.Namespace(
+        input=[str(source_path)],
+        output_dir=str(tmp_path / "artifacts" / "weekly"),
+        registry=None,
+        as_of="../../data",
+        max_candidates=5,
+        max_per_archetype=2,
+        write=True,
+    )
+    try:
+        run(args, artifacts_root=tmp_path / "artifacts")
+    except ValueError as exc:
+        assert "ISO calendar date" in str(exc)
+    else:
+        raise AssertionError("non-date --as-of value should fail closed")
