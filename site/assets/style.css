@@ -756,6 +756,98 @@ footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px
   .fund-trend-overlay small { grid-column: 1; }
 }
 
+/* ---------- Discretionary Focus: 0-2 name research shortlist ---------- */
+.focus-wrap { max-width: 1120px; padding-top: 26px; }
+.focus-hero {
+  display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 28px;
+  padding: 24px; border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  border-radius: 12px; background: var(--card);
+}
+.focus-eyebrow, .focus-state-label, .focus-rank, .focus-detail-grid span, .focus-setup span,
+.focus-clock span {
+  color: var(--faint); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .65px; text-transform: uppercase;
+}
+.focus-hero h1, .focus-empty h1 { margin: 7px 0 7px; font-size: 28px; letter-spacing: -.35px; }
+.focus-hero p, .focus-empty p { margin: 0; color: var(--muted); line-height: 1.55; font-size: 14px; }
+.focus-safety {
+  margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--border);
+  color: var(--faint); font-size: 11.5px;
+}
+.focus-screen-links { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 12px; }
+.focus-screen-links a {
+  display: inline-block; padding: 6px 9px; border: 1px solid rgba(77,163,255,.4);
+  border-radius: 6px; color: var(--accent); font-size: 11px; font-weight: 650;
+  text-decoration: none;
+}
+.focus-screen-links a:hover { background: rgba(77,163,255,.08); }
+.focus-clock {
+  display: grid; gap: 8px; align-content: center; padding: 14px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--card2);
+}
+.focus-clock div { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.focus-clock strong { color: var(--text); font-size: 11.5px; text-align: right; }
+.focus-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.focus-card {
+  min-width: 0; padding: 18px; border: 1px solid var(--border);
+  border-top: 2px solid rgba(77,163,255,.7); border-radius: 10px; background: var(--card);
+}
+.focus-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.focus-ticker { display: flex; gap: 9px; align-items: baseline; margin-top: 3px; }
+.focus-ticker strong { font-size: 19px; letter-spacing: .2px; }
+.focus-ticker span { color: var(--muted); font-size: 12px; }
+.focus-live-badge {
+  white-space: nowrap; padding: 3px 7px; border: 1px solid rgba(77,163,255,.4);
+  border-radius: 999px; color: var(--accent); font-size: 9.5px; font-weight: 700; letter-spacing: .35px;
+}
+.focus-why { margin: 14px 0; color: var(--text); line-height: 1.55; }
+.focus-setup { padding: 10px 11px; border-radius: 7px; background: var(--card2); }
+.focus-setup p, .focus-detail-grid p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.focus-detail-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px;
+  margin-top: 6px; border-top: 1px solid var(--border);
+}
+.focus-detail-grid > div { min-width: 0; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.focus-sources { margin-top: 12px; color: var(--muted); font-size: 11px; }
+.focus-sources summary { cursor: pointer; }
+.focus-sources ul { margin: 7px 0 0; padding-left: 18px; line-height: 1.7; }
+.focus-sources small { display: block; color: var(--faint); }
+.focus-empty {
+  padding: 38px 28px; border: 1px solid var(--border); border-left: 4px solid var(--faint);
+  border-radius: 12px; background: var(--card); text-align: center;
+}
+.focus-empty.expired { border-left-color: var(--amber); }
+.focus-empty.clear { border-left-color: var(--green); }
+.focus-empty small { display: block; margin-top: 12px; color: var(--faint); }
+.focus-history {
+  margin-top: 20px; padding: 18px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--card);
+}
+.focus-history h2 { margin: 0 0 5px; font-size: 17px; }
+.focus-history > p { margin: 0 0 12px; color: var(--faint); font-size: 11.5px; }
+.focus-history-scroll { overflow-x: auto; }
+.focus-history table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.focus-history th, .focus-history td {
+  padding: 9px 10px; border-top: 1px solid var(--border); text-align: left;
+  white-space: nowrap;
+}
+.focus-history th {
+  color: var(--faint); font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
+}
+.focus-history td:last-child { white-space: normal; }
+@media (max-width: 900px) {
+  .focus-hero { grid-template-columns: 1fr; }
+  .focus-clock { max-width: 440px; }
+  .focus-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 650px) {
+  .focus-wrap { padding-top: 14px; }
+  .focus-hero { padding: 18px; }
+  .focus-hero h1, .focus-empty h1 { font-size: 24px; }
+  .focus-card-head { flex-direction: column; }
+  .focus-detail-grid { grid-template-columns: 1fr; }
+}
+
 /* Radar tab — the momentum radar's weekly plans (site/radar.html). */
 .radar-card { margin-bottom: 12px; }
 .radar-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
