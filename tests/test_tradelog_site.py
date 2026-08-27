@@ -34,6 +34,9 @@ def test_broker_do_fills_ring():
     assert '"/fills"' in src            # route present + registered in DO_PATHS
     assert src.count("/fills") >= 2
     assert "_mergeFills" in src
+    assert "_reconcileCommandFills" in src
+    assert "mergeExecutionFill" in src
+    assert "reconcileCommandFills" in src
     assert "FILLS_RETENTION_DAYS" in src
     assert "FILLS_DAY_CAP" in src
     # the stored book must be stripped of fills (DO per-value size limit)
