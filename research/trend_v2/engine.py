@@ -17,9 +17,9 @@ import numpy as np
 import pandas as pd
 
 from .config import (
+    FROZEN_BENCHMARK,
     BenchmarkSpec,
     CrossSectionalSpec,
-    FROZEN_BENCHMARK,
     MultiSpeedSpec,
 )
 
@@ -437,7 +437,7 @@ def performance_summary(
     net = monthly["net_return"]
     cash = monthly.get("cash_return", pd.Series(0.0, index=monthly.index))
     summary: dict[str, Any] = {
-        "months": int(len(monthly)),
+        "months": len(monthly),
         "start": str(monthly.index.min().date()) if len(monthly) else None,
         "end": str(monthly.index.max().date()) if len(monthly) else None,
         "gross_cagr": _compound_cagr(gross),
@@ -462,7 +462,7 @@ def performance_summary(
         summary["correlation_to_frozen_benchmark"] = (
             float(comparison.corr().iloc[0, 1]) if len(comparison) >= 2 else np.nan
         )
-        summary["common_benchmark_months"] = int(len(comparison))
+        summary["common_benchmark_months"] = len(comparison)
     else:
         summary["correlation_to_frozen_benchmark"] = np.nan
         summary["common_benchmark_months"] = 0

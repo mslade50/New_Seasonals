@@ -25,6 +25,7 @@ from research.trend_v2.engine import (
     votes_to_hysteresis,
 )
 from research.trend_v2.runner import write_research_artifacts
+from scripts.run_trend_v2_research import ROOT, _resolve_project_artifact_output
 
 
 def _etf_prices(periods: int = 900) -> pd.DataFrame:
@@ -68,6 +69,21 @@ def test_frozen_benchmark_invariance_matches_locked_rules():
     slots = inverse.div(inverse.sum(axis=1).replace(0.0, np.nan), axis=0).fillna(0.0)
     expected = slots.clip(upper=0.20).mul(signal.astype(float)).fillna(0.0)
     pdt.assert_frame_equal(actual, expected)
+
+
+def test_frozen_benchmark_matches_current_production_target_function():
+    from trend_sleeve import compute_targets
+
+    close = _etf_prices()
+    research = frozen_benchmark_targets(close).targets.iloc[-1]
+    production = compute_targets(close, use_fragility_gate=False).set_index("Ticker")
+    production = production["Weight"].reindex(research.index)
+    pdt.assert_series_equal(
+        research.round(4),
+        production,
+        check_names=False,
+        check_dtype=False,
+    )
 
 
 def test_multispeed_signals_do_not_change_when_future_prices_change():
@@ -179,6 +195,35 @@ def test_cost_subtraction_is_exact_and_does_not_change_gross_returns():
     pdt.assert_series_equal(actual_drag, expected_drag, check_names=False)
 
 
+def test_next_open_return_and_trade_cost_use_the_prior_month_end_target():
+    dates = pd.to_datetime(
+        [
+            "2024-01-02",
+            "2024-01-31",
+            "2024-02-01",
+            "2024-02-29",
+            "2024-03-01",
+            "2024-03-28",
+        ]
+    )
+    close = pd.DataFrame({"A": [100, 102, 110, 115, 121, 125]}, index=dates)
+    opens = pd.DataFrame({"A": [100, 101, 110, 114, 121, 124]}, index=dates)
+    months = close.resample("ME").last().index
+    targets = pd.DataFrame({"A": [1.0, 0.0, 0.0]}, index=months)
+
+    result = backtest_next_period(
+        targets,
+        close,
+        open_prices=opens,
+        cost_bps_per_side=10.0,
+    ).monthly
+
+    february = result.loc[pd.Timestamp("2024-02-29")]
+    assert february["gross_return"] == pytest.approx(121.0 / 110.0 - 1.0)
+    assert february["turnover"] == pytest.approx(1.0)
+    assert february["net_return"] == pytest.approx(121.0 / 110.0 - 1.0 - 0.001)
+
+
 def test_artifact_writer_refuses_source_paths_and_reports_trial_count(tmp_path):
     close = _etf_prices()
     price_data = PriceData(close=close, open=None, source=None)
@@ -186,8 +231,8 @@ def test_artifact_writer_refuses_source_paths_and_reports_trial_count(tmp_path):
     benchmark_backtest = backtest_next_period(
         benchmark_target.targets, close, cost_bps_per_side=5.0
     )
-    from research.trend_v2.runner import TrialRun
     from research.trend_v2.engine import performance_summary
+    from research.trend_v2.runner import TrialRun
 
     run = TrialRun(
         name=FROZEN_BENCHMARK.name,
@@ -214,5 +259,13 @@ def test_artifact_writer_refuses_source_paths_and_reports_trial_count(tmp_path):
     )
     manifest = pd.read_json(written / "manifest.json", typ="series")
     assert manifest["research_only"] is True
+    assert manifest["no_order"] is True
     assert manifest["production_writes"] is False
     assert manifest["trial_accounting"]["candidate_trials_executed"] == 0
+
+
+def test_trend_cli_output_is_confined_to_worktree_artifacts(tmp_path):
+    allowed = ROOT / "artifacts" / "trend_v2" / "test-run"
+    assert _resolve_project_artifact_output(allowed) == allowed.resolve()
+    with pytest.raises(SystemExit, match="Refusing non-artifact output"):
+        _resolve_project_artifact_output(tmp_path / "outside")

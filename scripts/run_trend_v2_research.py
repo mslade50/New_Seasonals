@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -49,6 +48,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _resolve_project_artifact_output(raw: str | Path) -> Path:
+    """Confine command-line output to this isolated worktree's artifacts root."""
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    candidate = candidate.resolve()
+    artifacts_root = (ROOT / "artifacts").resolve()
+    try:
+        candidate.relative_to(artifacts_root)
+    except ValueError as exc:
+        raise SystemExit(
+            f"Refusing non-artifact output: {candidate}. "
+            f"Use a directory under {artifacts_root}."
+        ) from exc
+    return candidate
+
+
 def main() -> int:
     args = parse_args()
     prices = load_adjusted_price_parquet(args.prices, asof=args.asof)
@@ -59,7 +75,7 @@ def main() -> int:
         market_ticker=args.market_ticker,
     )
     output = write_research_artifacts(
-        output_dir=args.output_dir,
+        output_dir=_resolve_project_artifact_output(args.output_dir),
         prices=prices,
         runs=runs,
         stock_family_requested=sectors is not None,

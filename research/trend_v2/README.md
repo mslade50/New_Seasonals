@@ -83,6 +83,8 @@ python scripts/run_trend_v2_research.py `
 
 The output directory is required, must live under `artifacts/`, and must be
 empty. The runner refuses source, production-data, site, and deployment paths.
+The command-line entry point further confines output to this worktree's own
+ignored `artifacts/` root; it cannot write beside production modules or data.
 It writes:
 
 - `summary.csv`: gross/net performance, turnover, drawdown, costs, and frozen

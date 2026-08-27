@@ -30,7 +30,6 @@ from .engine import (
     performance_summary,
 )
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESERVED_OUTPUT_ROOTS = {
     "data",
@@ -225,7 +224,7 @@ def _input_metadata(prices: PriceData) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "source": prices.source,
         "price_basis_declared": "adjusted",
-        "rows": int(len(prices.close)),
+        "rows": len(prices.close),
         "tickers": int(prices.close.shape[1]),
         "start": str(prices.close.index.min().date()),
         "end": str(prices.close.index.max().date()),
@@ -289,6 +288,7 @@ def write_research_artifacts(
         "schema_version": "trend_v2_research_bundle.v1",
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "research_only": True,
+        "no_order": True,
         "production_writes": False,
         "automatic_promotion": False,
         "input": _input_metadata(prices),
