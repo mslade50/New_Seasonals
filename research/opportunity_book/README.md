@@ -29,6 +29,11 @@ variant wedge, why-now evidence, a first rejection test, what makes the setup
 researchable, a kill condition, and the next research workflow. These are
 hypothesis-design fields, not recommendations.
 
+[`CODEX_HANDOFF.md`](CODEX_HANDOFF.md) defines the bounded second stage: Codex
+may perform source diligence on no more than three of the ten deep-test names,
+write local artifacts, or reject the slate. It deliberately never invokes the
+production Daily Pitch publisher or an order-capable surface.
+
 Every rank input, archetype score, rank, percentile, exclusion and freshness
 field is retained in the output bundle.
 
