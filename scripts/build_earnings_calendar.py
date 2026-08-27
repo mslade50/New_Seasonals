@@ -236,11 +236,13 @@ def build_calendar(
     df = df.dropna(subset=["date"])
     df = compute_derived_columns(df)
 
-    # Coverage sanity gate: a degraded FMP day (5xx / quota) drops tickers,
+    # Upload coverage gate: a degraded FMP day (5xx / quota) drops tickers,
     # which silently disables the OVS earnings blackout for the missing names
     # (NaN-as-True pass-through downstream). Refuse to overwrite the last good
-    # calendar if this build lost more than COVERAGE_DROP_TOL of the prior
-    # ticker coverage or row count.
+    # R2 calendar if this build lost more than COVERAGE_DROP_TOL of the prior
+    # ticker coverage or row count. Local-only Focus refreshes instead use the
+    # strict fetch-error gate above plus the downstream future-event floor;
+    # their requested universe can legitimately differ from an old R2 sidecar.
     COVERAGE_DROP_TOL = 0.02
     new_tickers = df["ticker"].nunique()
     new_rows = len(df)
@@ -249,7 +251,7 @@ def build_calendar(
     # against and a shrunken build uploaded unconditionally — able to
     # overwrite a gated local build (2026-07-16). Pull the last good copy
     # from R2 so the gate is live in both environments.
-    if not os.path.exists(output_path):
+    if upload and not os.path.exists(output_path):
         try:
             from cache_io import download_to_local
             if download_to_local(r2_key, output_path):
@@ -258,7 +260,7 @@ def build_calendar(
                 print(f"[coverage-check] warn: no prior calendar locally or on R2 ({r2_key}) — gate has no baseline this run")
         except Exception as _e:
             print(f"[coverage-check] warn: R2 pull of prior calendar failed: {_e}")
-    if os.path.exists(output_path):
+    if upload and os.path.exists(output_path):
         try:
             prev = pd.read_parquet(output_path, columns=["ticker"])
             prev_tickers = prev["ticker"].nunique()
@@ -278,6 +280,8 @@ def build_calendar(
             raise
         except Exception as _e:
             print(f"[coverage-check] warn: could not read existing parquet: {_e}")
+    elif not upload:
+        print("[coverage-check] skipped prior-object comparison for local-only refresh")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     df.to_parquet(output_path, index=False)
