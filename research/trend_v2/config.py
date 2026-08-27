@@ -34,6 +34,9 @@ class BenchmarkSpec:
     volatility_days: int = 63
     volatility_floor: float = 0.04
     asset_weight_cap: float = 0.20
+    gross_weight_cap: float = 1.00
+    rebalance_band: float = 0.01
+    max_monthly_turnover: float | None = None
     cost_bps_per_side: float = 5.0
     execution: str = "next_period"
     frozen_asof: str = "2026-08-27"
@@ -112,4 +115,3 @@ class CrossSectionalSpec:
 
 
 PREREGISTERED_CROSS_SECTIONAL_SPEC = CrossSectionalSpec()
-

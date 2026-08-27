@@ -38,6 +38,13 @@ def parse_args() -> argparse.Namespace:
         "--sector-history",
         help="optional dated sector snapshots/intervals (.parquet or .csv) for stock mode",
     )
+    parser.add_argument(
+        "--membership-history",
+        help=(
+            "optional explicit historical universe membership (.parquet or .csv); "
+            "without it stock mode runs with a failed PIT-readiness gate"
+        ),
+    )
     parser.add_argument("--market-ticker", default="SPY")
     parser.add_argument("--asof", help="optional inclusive data cutoff (YYYY-MM-DD)")
     parser.add_argument(
@@ -69,9 +76,15 @@ def main() -> int:
     args = parse_args()
     prices = load_adjusted_price_parquet(args.prices, asof=args.asof)
     sectors = _local_table(args.sector_history) if args.sector_history else None
+    membership = (
+        _local_table(args.membership_history) if args.membership_history else None
+    )
+    if membership is not None and sectors is None:
+        raise ValueError("--membership-history requires --sector-history")
     runs = run_trend_v2_research(
         prices=prices,
         sector_history=sectors,
+        membership_history=membership,
         market_ticker=args.market_ticker,
     )
     output = write_research_artifacts(
@@ -79,6 +92,8 @@ def main() -> int:
         prices=prices,
         runs=runs,
         stock_family_requested=sectors is not None,
+        sector_history_source=args.sector_history,
+        membership_history_source=args.membership_history,
     )
     print(f"Trend V2 research bundle: {output}")
     print(f"Rows: {len(runs)} (frozen benchmark + candidate trials); production writes: 0")

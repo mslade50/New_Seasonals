@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from trading_calendar import TRADING_DAY
+
 from .config import (
     FROZEN_BENCHMARK,
     BenchmarkSpec,
@@ -35,18 +37,34 @@ class PriceData:
 
 @dataclass(frozen=True)
 class TargetResult:
-    targets: pd.DataFrame
+    desired_targets: pd.DataFrame
     signal_state: pd.DataFrame
     votes: pd.DataFrame | None = None
     scores: pd.DataFrame | None = None
     ranks: pd.DataFrame | None = None
+    sector_panel: pd.DataFrame | None = None
+    membership_panel: pd.DataFrame | None = None
+
+    @property
+    def targets(self) -> pd.DataFrame:
+        """Compatibility alias; these are desired, not executed, weights."""
+        return self.desired_targets
 
 
 @dataclass(frozen=True)
 class BacktestResult:
     monthly: pd.DataFrame
-    targets: pd.DataFrame
-    held_weights: pd.DataFrame
+    desired_targets: pd.DataFrame
+    executed_weights: pd.DataFrame
+    pretrade_weights: pd.DataFrame
+
+    @property
+    def targets(self) -> pd.DataFrame:
+        return self.desired_targets
+
+    @property
+    def held_weights(self) -> pd.DataFrame:
+        return self.executed_weights
 
 
 def _clean_panel(panel: pd.DataFrame, label: str) -> pd.DataFrame:
@@ -167,7 +185,7 @@ def frozen_benchmark_targets(
     slots = inverse.div(inverse.sum(axis=1).replace(0.0, np.nan), axis=0).fillna(0.0)
     slots = slots.clip(upper=spec.asset_weight_cap)
     targets = slots.mul(signal.astype(float)).fillna(0.0)
-    return TargetResult(targets=targets, signal_state=signal)
+    return TargetResult(desired_targets=targets, signal_state=signal)
 
 
 def votes_to_hysteresis(
@@ -216,40 +234,75 @@ def _channel_state(monthly: pd.DataFrame, horizon: int) -> pd.DataFrame:
     return state.astype(bool)
 
 
-def apply_turnover_controls(
-    desired: pd.DataFrame,
-    rebalance_band: float,
-    max_turnover: float,
-) -> pd.DataFrame:
-    """Apply a no-trade band and a soft turnover cap to a target path.
+def _project_hard_caps(
+    weights: pd.Series,
+    asset_weight_cap: float,
+    gross_weight_cap: float,
+) -> pd.Series:
+    """Project weights into hard name/gross limits without changing signs."""
+    if asset_weight_cap <= 0.0 or gross_weight_cap <= 0.0:
+        raise ValueError("hard name and gross caps must be positive")
+    projected = weights.fillna(0.0).astype(float).clip(
+        lower=-asset_weight_cap, upper=asset_weight_cap
+    )
+    gross = float(projected.abs().sum())
+    if gross > gross_weight_cap:
+        projected *= gross_weight_cap / gross
+    return projected.where(projected.abs().ge(1e-14), 0.0)
 
-    Full exits are never throttled merely to satisfy a turnover budget.  When
-    forced exits alone exceed ``max_turnover``, reported turnover can therefore
-    exceed the soft cap; discretionary entries/rebalances receive no budget in
-    that period.
+
+def transition_from_drifted_weights(
+    pretrade: pd.Series,
+    desired: pd.Series,
+    rebalance_band: float,
+    max_turnover: float | None,
+    asset_weight_cap: float,
+    gross_weight_cap: float,
+    force_signal_flips: bool = True,
+) -> tuple[pd.Series, float, float]:
+    """Execute toward a desired target from drifted weights.
+
+    Hard name/gross-limit corrections happen first and may exceed the soft
+    turnover budget.  The no-trade band and remaining turnover budget then
+    apply to the discretionary move toward the hard-capped desired target.
+    Returns ``(posttrade, total_turnover, mandatory_cap_turnover)``.
     """
-    if rebalance_band < 0.0 or max_turnover <= 0.0:
-        raise ValueError("rebalance_band must be nonnegative and max_turnover positive")
-    wanted = desired.fillna(0.0).astype(float)
-    controlled = pd.DataFrame(0.0, index=wanted.index, columns=wanted.columns)
-    previous = pd.Series(0.0, index=wanted.columns)
-    for when in wanted.index:
-        goal = wanted.loc[when]
-        delta = goal - previous
-        forced_exit = goal.abs().lt(1e-14) & previous.abs().ge(1e-14)
-        forced_delta = delta.where(forced_exit, 0.0)
-        discretionary = delta.where(~forced_exit, 0.0)
-        discretionary = discretionary.where(discretionary.abs().ge(rebalance_band), 0.0)
-        forced_turnover = float(forced_delta.abs().sum())
-        room = max(0.0, max_turnover - forced_turnover)
-        discretionary_turnover = float(discretionary.abs().sum())
+    if rebalance_band < 0.0:
+        raise ValueError("rebalance_band cannot be negative")
+    if max_turnover is not None and max_turnover <= 0.0:
+        raise ValueError("max_turnover must be positive or None")
+    if not pretrade.index.equals(desired.index):
+        raise ValueError("pretrade and desired weights must have identical tickers")
+
+    raw_pretrade = pretrade.fillna(0.0).astype(float)
+    base = _project_hard_caps(raw_pretrade, asset_weight_cap, gross_weight_cap)
+    mandatory_delta = base - raw_pretrade
+    mandatory_turnover = float(mandatory_delta.abs().sum())
+
+    goal = _project_hard_caps(desired, asset_weight_cap, gross_weight_cap)
+    discretionary = goal - base
+    flips = base.abs().lt(1e-14) != goal.abs().lt(1e-14)
+    discretionary = discretionary.where(
+        discretionary.abs().ge(rebalance_band) | (flips if force_signal_flips else False),
+        0.0,
+    )
+    discretionary_turnover = float(discretionary.abs().sum())
+    if max_turnover is not None:
+        room = max(0.0, max_turnover - mandatory_turnover)
         if discretionary_turnover > room and discretionary_turnover > 0.0:
             discretionary *= room / discretionary_turnover
-        current = previous + forced_delta + discretionary
-        current = current.where(current.abs().ge(1e-14), 0.0)
-        controlled.loc[when] = current
-        previous = current
-    return controlled
+    posttrade = base + discretionary
+    # Convex movement between two valid points is cap-safe, but project again
+    # for floating-point protection and count any correction as mandatory.
+    final = _project_hard_caps(posttrade, asset_weight_cap, gross_weight_cap)
+    final_correction = final - posttrade
+    mandatory_turnover += float(final_correction.abs().sum())
+    turnover = float((final - raw_pretrade).abs().sum())
+    if float(final.abs().max()) > asset_weight_cap + 1e-12:
+        raise AssertionError("posttrade name cap violated")
+    if float(final.abs().sum()) > gross_weight_cap + 1e-12:
+        raise AssertionError("posttrade gross cap violated")
+    return final, turnover, mandatory_turnover
 
 
 def _vol_scaled_targets(
@@ -315,31 +368,97 @@ def multispeed_targets(close: pd.DataFrame, spec: MultiSpeedSpec) -> TargetResul
         exit_votes=spec.exit_votes,
     )
     desired = _vol_scaled_targets(daily=daily, active=signal, spec=spec)
-    targets = apply_turnover_controls(
-        desired,
-        rebalance_band=spec.rebalance_band,
-        max_turnover=spec.max_monthly_turnover,
-    )
-    return TargetResult(targets=targets, signal_state=signal, votes=votes)
+    return TargetResult(desired_targets=desired, signal_state=signal, votes=votes)
 
 
 def next_period_asset_returns(
     close: pd.DataFrame,
     open_prices: pd.DataFrame | None = None,
+    period_index: pd.DatetimeIndex | None = None,
 ) -> tuple[pd.DataFrame, str]:
-    """Return monthly holding-period returns with no same-period signal use.
+    """Return exact-session monthly returns without silently using later bars."""
+    returns, execution, _ = _exact_period_returns(
+        close=close,
+        open_prices=open_prices,
+        period_index=period_index,
+    )
+    return returns, execution
 
-    With opens, row ``M`` is first-open(M+1)/first-open(M)-1.  A target formed
-    at month-end M-1 is shifted into row M.  Without opens, the conservative
-    fallback is close(M)/close(M-1)-1, again earned by the prior target.
-    """
+
+def _session_for_month(month: pd.Period, first: bool) -> pd.Timestamp:
+    sessions = pd.date_range(
+        month.start_time.normalize(), month.end_time.normalize(), freq=TRADING_DAY
+    )
+    if sessions.empty:  # pragma: no cover - defensive against a broken calendar
+        raise ValueError(f"NYSE calendar has no session in {month}")
+    return pd.Timestamp(sessions[0] if first else sessions[-1]).normalize()
+
+
+def _normalized_contiguous_months(index: pd.Index) -> pd.DatetimeIndex:
+    raw = pd.DatetimeIndex(pd.to_datetime(index))
+    if raw.has_duplicates:
+        raise ValueError("desired targets contain duplicate months")
+    periods = raw.to_period("M")
+    if periods.duplicated().any():
+        raise ValueError("desired targets contain multiple rows in one month")
+    if len(periods) > 1:
+        expected = pd.period_range(periods.min(), periods.max(), freq="M")
+        if not periods.equals(expected):
+            raise ValueError("desired target months must be contiguous; no time compression")
+    return periods.to_timestamp("M")
+
+
+def _exact_period_returns(
+    close: pd.DataFrame,
+    open_prices: pd.DataFrame | None,
+    period_index: pd.DatetimeIndex | None,
+) -> tuple[pd.DataFrame, str, pd.Series]:
     daily_close = _clean_panel(close, "close prices")
+    months = (
+        _normalized_contiguous_months(period_index)
+        if period_index is not None
+        else _normalized_contiguous_months(_month_end(daily_close).index)
+    )
+    periods = months.to_period("M")
     if open_prices is not None:
-        daily_open = _clean_panel(open_prices, "open prices").reindex(columns=daily_close.columns)
-        first_open = daily_open.resample("ME").first()
-        return first_open.shift(-1).div(first_open).sub(1.0), "next_open_to_next_open"
-    monthly = _month_end(daily_close)
-    return monthly.pct_change(fill_method=None), "next_close_to_next_close"
+        panel = _clean_panel(open_prices, "open prices").reindex(
+            columns=daily_close.columns
+        )
+        execution = "next_open_to_next_open"
+        first = True
+    else:
+        panel = daily_close
+        execution = "next_close_to_next_close"
+        first = False
+
+    current_dates = pd.Series(
+        [_session_for_month(month, first=first) for month in periods], index=months
+    )
+    next_dates = pd.Series(
+        [_session_for_month(month + 1, first=first) for month in periods], index=months
+    )
+    # A trailing period whose next boundary lies beyond the source is simply
+    # not complete yet. Any missing boundary inside source coverage is retained
+    # as NaN and will fail if the simulator needs that held return.
+    complete = next_dates.le(panel.index.max())
+    if (~complete).any():
+        first_incomplete = int(np.flatnonzero((~complete).to_numpy())[0])
+        if complete.iloc[first_incomplete:].any():
+            raise ValueError("non-terminal incomplete months would compress time")
+    complete_months = months[complete.to_numpy()]
+    current_dates = current_dates.loc[complete_months]
+    next_dates = next_dates.loc[complete_months]
+    current_prices = panel.reindex(pd.DatetimeIndex(current_dates.values))
+    next_prices = panel.reindex(pd.DatetimeIndex(next_dates.values))
+    current_prices.index = complete_months
+    next_prices.index = complete_months
+    returns = next_prices.div(current_prices).sub(1.0)
+    boundary = pd.Series(
+        [f"{a.date()}->{b.date()}" for a, b in zip(current_dates, next_dates)],
+        index=complete_months,
+        name="execution_boundary",
+    )
+    return returns, execution, boundary
 
 
 def backtest_next_period(
@@ -348,60 +467,129 @@ def backtest_next_period(
     open_prices: pd.DataFrame | None = None,
     cost_bps_per_side: float = 5.0,
     cash_returns: pd.Series | None = None,
+    rebalance_band: float = 0.0,
+    max_turnover: float | None = None,
+    asset_weight_cap: float = 1.0,
+    gross_weight_cap: float = 1.0,
+    force_signal_flips: bool = True,
 ) -> BacktestResult:
-    """Apply every target one period later and subtract turnover costs."""
+    """Drift-aware next-period execution and cost simulator.
+
+    Desired target ``M-1`` executes at the boundary starting month ``M``.
+    Existing positions first drift through their prior holding-period returns;
+    band/soft-turnover decisions are made against those drifted weights. Hard
+    name/gross caps always win over the soft turnover budget.
+    """
     if cost_bps_per_side < 0.0:
         raise ValueError("cost_bps_per_side cannot be negative")
-    weights = targets.fillna(0.0).astype(float).copy()
-    weights.index = pd.to_datetime(weights.index)
-    weights = weights.sort_index()
-    asset_returns, execution = next_period_asset_returns(close, open_prices)
-    asset_returns = asset_returns.reindex(index=weights.index, columns=weights.columns)
-    held = weights.shift(1).fillna(0.0)
-
-    changes = weights.diff()
-    if len(changes):
-        changes.iloc[0] = weights.iloc[0]
-    turnover = changes.abs().sum(axis=1).shift(1).fillna(0.0)
-    missing_held_return = (held.abs().gt(1e-14) & asset_returns.isna()).any(axis=1)
-    usable = asset_returns.notna().any(axis=1) & ~missing_held_return
-    # Warm-up rows before the first actionable target are not observations of
-    # the strategy.  Keep later all-cash months, which are genuine signal
-    # outcomes, but do not let years of pre-eligibility zeroes flatter risk.
-    actionable = weights.abs().sum(axis=1).gt(1e-14)
-    if actionable.any():
-        first_target_position = int(np.flatnonzero(actionable.to_numpy())[0])
-        first_holding_position = first_target_position + 1
-        if first_holding_position < len(weights):
-            usable.iloc[:first_holding_position] = False
-        else:
-            usable.iloc[:] = False
-    else:
-        usable.iloc[:] = False
-
-    cash = (
-        pd.Series(0.0, index=weights.index, name="cash_return")
-        if cash_returns is None
-        else cash_returns.reindex(weights.index).fillna(0.0).rename("cash_return")
+    desired_all = targets.fillna(0.0).astype(float).copy().sort_index()
+    desired_all.index = _normalized_contiguous_months(desired_all.index)
+    desired_all.columns = [str(column).upper().strip() for column in desired_all.columns]
+    if desired_all.columns.duplicated().any():
+        raise ValueError("desired targets contain duplicate tickers")
+    asset_returns, execution, boundaries = _exact_period_returns(
+        close=close,
+        open_prices=open_prices,
+        period_index=desired_all.index,
     )
-    asset_pnl = held.mul(asset_returns.fillna(0.0)).sum(axis=1)
-    cash_weight = 1.0 - held.sum(axis=1)
-    gross = asset_pnl + cash_weight * cash
-    cost = turnover * (cost_bps_per_side / 10_000.0)
-    monthly = pd.DataFrame(
-        {
-            "gross_return": gross,
-            "net_return": gross - cost,
-            "cash_return": cash,
-            "turnover": turnover,
-            "cost": cost,
-            "gross_exposure": held.abs().sum(axis=1),
-            "net_exposure": held.sum(axis=1),
-            "cash_weight": cash_weight,
-            "execution": execution,
-        }
-    ).loc[usable]
-    return BacktestResult(monthly=monthly, targets=weights, held_weights=held)
+    asset_returns = asset_returns.reindex(columns=desired_all.columns)
+    complete_months = asset_returns.index
+    desired = desired_all.reindex(complete_months)
+    cash = (
+        pd.Series(0.0, index=complete_months, name="cash_return")
+        if cash_returns is None
+        else cash_returns.reindex(complete_months).fillna(0.0).rename("cash_return")
+    )
+
+    def empty_result() -> BacktestResult:
+        empty_index = pd.DatetimeIndex([], name=desired.index.name)
+        empty_monthly = pd.DataFrame(
+            columns=[
+                "gross_return", "net_return", "cash_return", "turnover",
+                "mandatory_cap_turnover", "cost", "gross_exposure",
+                "net_exposure", "cash_weight", "execution",
+                "execution_boundary",
+            ],
+            index=empty_index,
+        )
+        blank = pd.DataFrame(index=empty_index, columns=desired.columns, dtype=float)
+        return BacktestResult(empty_monthly, desired_all, blank, blank.copy())
+
+    actionable = desired.abs().sum(axis=1).gt(1e-14)
+    if not actionable.any():
+        return empty_result()
+    first_target_position = int(np.flatnonzero(actionable.to_numpy())[0])
+    first_holding_position = first_target_position + 1
+    if first_holding_position >= len(complete_months):
+        return empty_result()
+
+    simulation_months = complete_months[first_holding_position:]
+    executed = pd.DataFrame(0.0, index=simulation_months, columns=desired.columns)
+    pretrade_frame = pd.DataFrame(0.0, index=simulation_months, columns=desired.columns)
+    records: list[dict[str, Any]] = []
+    pretrade = pd.Series(0.0, index=desired.columns)
+    rate = cost_bps_per_side / 10_000.0
+    for position, month in enumerate(simulation_months, start=first_holding_position):
+        goal = desired.iloc[position - 1]
+        posttrade, turnover, mandatory_turnover = transition_from_drifted_weights(
+            pretrade=pretrade,
+            desired=goal,
+            rebalance_band=rebalance_band,
+            max_turnover=max_turnover,
+            asset_weight_cap=asset_weight_cap,
+            gross_weight_cap=gross_weight_cap,
+            force_signal_flips=force_signal_flips,
+        )
+        period_returns = asset_returns.loc[month]
+        missing = posttrade.abs().gt(1e-14) & period_returns.isna()
+        if missing.any():
+            names = list(missing.index[missing])
+            boundary = boundaries.loc[month]
+            kind = "first-session open" if open_prices is not None else "month-end close"
+            raise ValueError(
+                f"missing exact {kind}/held return for {names} at {boundary}; "
+                "refusing delayed-bar substitution or month dropping"
+            )
+        period_returns = period_returns.fillna(0.0)
+        cash_return = float(cash.loc[month])
+        cash_weight = 1.0 - float(posttrade.sum())
+        asset_pnl = float((posttrade * period_returns).sum())
+        gross_return = asset_pnl + cash_weight * cash_return
+        cost = turnover * rate
+        net_return = gross_return - cost
+        ending_nav = 1.0 + net_return
+        if ending_nav <= 0.0:
+            raise ValueError(f"portfolio NAV is non-positive in {month.date()}")
+
+        executed.loc[month] = posttrade
+        pretrade_frame.loc[month] = pretrade
+        records.append(
+            {
+                "month": month,
+                "gross_return": gross_return,
+                "net_return": net_return,
+                "cash_return": cash_return,
+                "turnover": turnover,
+                "mandatory_cap_turnover": mandatory_turnover,
+                "cost": cost,
+                "gross_exposure": float(posttrade.abs().sum()),
+                "net_exposure": float(posttrade.sum()),
+                "cash_weight": cash_weight,
+                "execution": execution,
+                "execution_boundary": boundaries.loc[month],
+            }
+        )
+        # Cost is paid from cash at execution. Asset notionals then drift with
+        # their realized returns and are normalized by ending net NAV.
+        pretrade = posttrade.mul(1.0 + period_returns).div(ending_nav)
+
+    monthly = pd.DataFrame(records).set_index("month")
+    return BacktestResult(
+        monthly=monthly,
+        desired_targets=desired_all,
+        executed_weights=executed,
+        pretrade_weights=pretrade_frame,
+    )
 
 
 def _compound_cagr(returns: pd.Series) -> float:
@@ -409,7 +597,9 @@ def _compound_cagr(returns: pd.Series) -> float:
     if clean.empty:
         return np.nan
     terminal = float((1.0 + clean).prod())
-    years = len(clean) / 12.0
+    first_start = clean.index[0].to_period("M").start_time
+    last_end = (clean.index[-1].to_period("M") + 1).start_time
+    years = (last_end - first_start).days / 365.2425
     return terminal ** (1.0 / years) - 1.0 if terminal > 0.0 and years > 0.0 else np.nan
 
 
@@ -450,7 +640,21 @@ def performance_summary(
         "net_max_drawdown": _max_drawdown(net),
         "monthly_hit_rate": float(net.gt(0.0).mean()) if len(net) else np.nan,
         "average_monthly_turnover": float(monthly["turnover"].mean()),
-        "annualized_turnover": float(monthly["turnover"].mean() * 12.0),
+        "annualized_turnover": (
+            float(
+                monthly["turnover"].sum()
+                / max(
+                    (
+                        (monthly.index[-1].to_period("M") + 1).start_time
+                        - monthly.index[0].to_period("M").start_time
+                    ).days
+                    / 365.2425,
+                    1.0 / 12.0,
+                )
+            )
+            if len(monthly)
+            else np.nan
+        ),
         "cumulative_cost": float(monthly["cost"].sum()),
         "average_gross_exposure": float(monthly["gross_exposure"].mean()),
         "worst_month": float(net.min()) if len(net) else np.nan,
@@ -559,6 +763,123 @@ def normalize_sector_history(
     )
 
 
+def normalize_membership_history(
+    membership: pd.DataFrame,
+    dates: pd.DatetimeIndex,
+    tickers: list[str],
+) -> pd.DataFrame:
+    """Materialize explicit historical universe membership without backfill."""
+    if not isinstance(membership, pd.DataFrame) or membership.empty:
+        raise ValueError("historical membership must be a non-empty dated DataFrame")
+    lower = {str(column).lower(): column for column in membership.columns}
+    signal_dates = pd.DatetimeIndex(pd.to_datetime(dates)).tz_localize(None).sort_values()
+    ticker_set = {ticker.upper() for ticker in tickers}
+    value_name = next(
+        (name for name in ("in_universe", "member", "eligible") if name in lower),
+        None,
+    )
+
+    def coerce_bool(values: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
+        def one(value: Any) -> bool | float:
+            if pd.isna(value):
+                return np.nan
+            if isinstance(value, (bool, np.bool_)):
+                return bool(value)
+            if isinstance(value, (int, float, np.integer, np.floating)):
+                return bool(value)
+            normalized = str(value).strip().lower()
+            if normalized in {"true", "t", "yes", "y", "1"}:
+                return True
+            if normalized in {"false", "f", "no", "n", "0"}:
+                return False
+            raise ValueError(f"unrecognized membership boolean: {value!r}")
+
+        return values.map(one)
+
+    if {"date", "ticker"}.issubset(lower) and value_name is not None:
+        frame = membership[
+            [lower["date"], lower["ticker"], lower[value_name]]
+        ].copy()
+        frame.columns = ["date", "ticker", "in_universe"]
+        frame["date"] = pd.to_datetime(frame["date"]).dt.tz_localize(None).dt.normalize()
+        frame["ticker"] = frame["ticker"].astype(str).str.upper().str.strip()
+        frame["in_universe"] = coerce_bool(frame["in_universe"])
+        frame = frame[frame["ticker"].isin(ticker_set)]
+        if frame.duplicated(["date", "ticker"]).any():
+            raise ValueError("membership snapshots contain duplicate date/ticker rows")
+        wide = frame.pivot(index="date", columns="ticker", values="in_universe")
+        combined = wide.reindex(wide.index.union(signal_dates)).sort_index().ffill()
+        return combined.reindex(index=signal_dates, columns=tickers).eq(True)
+
+    if {"ticker", "effective_from"}.issubset(lower):
+        panel = pd.DataFrame(False, index=signal_dates, columns=tickers)
+        for _, row in membership.iterrows():
+            ticker = str(row[lower["ticker"]]).upper().strip()
+            if ticker not in ticker_set:
+                continue
+            start = pd.Timestamp(row[lower["effective_from"]]).tz_localize(None).normalize()
+            end_value = row[lower["effective_to"]] if "effective_to" in lower else pd.NaT
+            end = (
+                pd.Timestamp(end_value).tz_localize(None).normalize()
+                if pd.notna(end_value)
+                else signal_dates.max()
+            )
+            mask = (signal_dates >= start) & (signal_dates <= end)
+            if panel.loc[mask, ticker].any():
+                raise ValueError(f"overlapping membership intervals for {ticker}")
+            panel.loc[mask, ticker] = True
+        return panel.astype(bool)
+
+    if isinstance(membership.index, pd.DatetimeIndex):
+        wide = membership.copy()
+        wide.index = pd.to_datetime(wide.index).tz_localize(None).normalize()
+        wide.columns = [str(column).upper().strip() for column in wide.columns]
+        wide = coerce_bool(wide)
+        combined = wide.reindex(wide.index.union(signal_dates)).sort_index().ffill()
+        return combined.reindex(index=signal_dates, columns=tickers).eq(True)
+
+    raise ValueError(
+        "membership must be dated bool snapshots, effective intervals, or a wide dated panel"
+    )
+
+
+def capped_proportional_weights(
+    preference: pd.Series,
+    budget: float,
+    asset_cap: float,
+) -> pd.Series:
+    """Water-fill a positive budget without clip-and-abandon distortion."""
+    if budget < -1e-14 or asset_cap <= 0.0:
+        raise ValueError("budget must be nonnegative and asset cap positive")
+    preference = preference.dropna().astype(float)
+    preference = preference.where(preference > 0.0, 0.0)
+    result = pd.Series(0.0, index=preference.index)
+    feasible = min(max(0.0, budget), len(preference) * asset_cap)
+    remaining = feasible
+    active = list(preference.index)
+    while active and remaining > 1e-14:
+        pref = preference.loc[active]
+        if float(pref.sum()) <= 0.0:
+            pref = pd.Series(1.0, index=active)
+        proposal = pref / pref.sum() * remaining
+        capped = list(proposal.index[proposal.gt(asset_cap + 1e-14)])
+        if not capped:
+            result.loc[active] += proposal
+            remaining = 0.0
+            break
+        for ticker in capped:
+            room = asset_cap - result.loc[ticker]
+            add = max(0.0, room)
+            result.loc[ticker] += add
+            remaining -= add
+            active.remove(ticker)
+    if abs(float(result.sum()) - feasible) > 1e-10:
+        raise AssertionError("capped allocation failed to use feasible budget")
+    if len(result) and float(result.max()) > asset_cap + 1e-12:
+        raise AssertionError("capped allocation violated asset cap")
+    return result
+
+
 def sector_neutral_percentile_ranks(
     scores: pd.DataFrame,
     sector_panel: pd.DataFrame,
@@ -585,6 +906,7 @@ def cross_sectional_targets(
     market_close: pd.Series,
     sector_history: pd.DataFrame,
     spec: CrossSectionalSpec,
+    membership_history: pd.DataFrame | None = None,
 ) -> TargetResult:
     """Build the separate stock residual-trend, sector-neutral research family."""
     daily = _clean_panel(stock_close, "stock closes")
@@ -603,7 +925,18 @@ def cross_sectional_targets(
         dates=scores.index,
         tickers=list(scores.columns),
     )
-    ranks = sector_neutral_percentile_ranks(scores, sector_panel)
+    membership_panel = (
+        normalize_membership_history(
+            membership=membership_history,
+            dates=scores.index,
+            tickers=list(scores.columns),
+        )
+        if membership_history is not None
+        else pd.DataFrame(True, index=scores.index, columns=scores.columns)
+    )
+    ranks = sector_neutral_percentile_ranks(
+        scores.where(membership_panel), sector_panel
+    )
     history_ok = (
         daily.notna()
         .rolling(spec.min_history_days)
@@ -625,7 +958,12 @@ def cross_sectional_targets(
     desired = pd.DataFrame(0.0, index=scores.index, columns=scores.columns)
     signal = pd.DataFrame(False, index=scores.index, columns=scores.columns)
     for when in scores.index:
-        valid = history_ok.loc[when] & ranks.loc[when].notna() & vol.loc[when].gt(0.0)
+        valid = (
+            history_ok.loc[when]
+            & membership_panel.loc[when]
+            & ranks.loc[when].notna()
+            & vol.loc[when].gt(0.0)
+        )
         top = valid & ranks.loc[when].ge(spec.top_quantile)
         bottom = valid & ranks.loc[when].le(spec.bottom_quantile)
         sectors_with_longs = sorted(set(sector_panel.loc[when, top].dropna()))
@@ -638,33 +976,47 @@ def cross_sectional_targets(
             side_budget = spec.gross_weight_cap
         if not active_sectors:
             continue
-        sector_budget = side_budget / len(active_sectors)
+        long_groups = {
+            sector: list(top.index[top & sector_panel.loc[when].eq(sector)])
+            for sector in active_sectors
+        }
+        short_groups = {
+            sector: list(bottom.index[bottom & sector_panel.loc[when].eq(sector)])
+            for sector in active_sectors
+        }
+        nominal_sector_budget = side_budget / len(active_sectors)
+        capacities = [len(long_groups[sector]) * spec.asset_weight_cap for sector in active_sectors]
+        if spec.long_short:
+            capacities.extend(
+                len(short_groups[sector]) * spec.asset_weight_cap
+                for sector in active_sectors
+            )
+        # Every active sector receives the same feasible budget. A narrow
+        # sector reduces all sectors instead of letting broad sectors dominate.
+        sector_budget = min(nominal_sector_budget, min(capacities))
         for sector in active_sectors:
-            long_names = list(top.index[top & sector_panel.loc[when].eq(sector)])
+            long_names = long_groups[sector]
             if long_names:
                 inv = 1.0 / vol.loc[when, long_names]
-                weights = (inv / inv.sum() * sector_budget).clip(
-                    upper=spec.asset_weight_cap
+                weights = capped_proportional_weights(
+                    inv, budget=sector_budget, asset_cap=spec.asset_weight_cap
                 )
                 desired.loc[when, long_names] = weights
                 signal.loc[when, long_names] = True
             if spec.long_short:
-                short_names = list(bottom.index[bottom & sector_panel.loc[when].eq(sector)])
+                short_names = short_groups[sector]
                 if short_names:
                     inv = 1.0 / vol.loc[when, short_names]
-                    weights = (inv / inv.sum() * sector_budget).clip(
-                        upper=spec.asset_weight_cap
+                    weights = capped_proportional_weights(
+                        inv, budget=sector_budget, asset_cap=spec.asset_weight_cap
                     )
                     desired.loc[when, short_names] = -weights
                     signal.loc[when, short_names] = True
-    targets = apply_turnover_controls(
-        desired,
-        rebalance_band=spec.rebalance_band,
-        max_turnover=spec.max_monthly_turnover,
-    )
     return TargetResult(
-        targets=targets,
+        desired_targets=desired,
         signal_state=signal,
         scores=scores,
         ranks=ranks,
+        sector_panel=sector_panel,
+        membership_panel=membership_panel if membership_history is not None else None,
     )

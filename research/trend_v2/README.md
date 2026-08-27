@@ -9,7 +9,8 @@ the frozen comparator.
 
 1. **Frozen production core benchmark (not a candidate trial).** The 12 ETFs, 12-1
    momentum above zero, price above the 10-month moving average, inverse-63-day
-   volatility slots, 20% asset cap, long/flat. This is a copied research
+   volatility slots, 20% asset cap, production 1% rebalance band, long/flat.
+   This is a copied research
    specification frozen on 2026-08-27; production code is never changed. The
    book-level month-entry fragility gate is deliberately held outside this
    price-only signal comparison and must be replayed in the later portfolio
@@ -25,7 +26,10 @@ the frozen comparator.
    rolling betas known before each return, ranks 126-day residual momentum only
    against contemporaneous sector peers, and gives active sectors equal risk
    budgets. Stock mode requires dated sector history; undated current-sector
-   maps are rejected.
+   maps are rejected. Sector budgets use cap-aware water filling: if one active
+   sector cannot deploy its nominal budget under the 5% name cap, every active
+   sector is reduced to that same feasible budget rather than allowing broader
+   sectors to dominate.
 
 ## Point-in-time and execution semantics
 
@@ -34,18 +38,29 @@ the frozen comparator.
   data only through `t-1`.
 - Dated sector snapshots are forward-filled but never backfilled. Effective
   intervals are applied only inside their stated dates.
-- Targets formed at month-end `t` are shifted into the next holding period.
-  When adjusted Open prices exist, results are next-open to next-open. A
-  close-only file uses next-close to next-close, still with the prior target.
-- Missing returns for a held security invalidate that month rather than being
-  silently treated as zero.
+- Builders emit **desired** targets only. At each next-period boundary, the
+  simulator first drifts prior executed weights through realized returns, then
+  applies the no-trade band and soft turnover cap against those drifted weights.
+  Hard name/gross-cap repairs always override the soft turnover budget. Costs
+  are charged on the actual executed delta, not `target.diff()`.
+- Targets formed at month-end `t` execute at the exact first NYSE session of
+  `t+1`. Open-to-open returns use the exact first sessions; a later available
+  bar is never substituted. Close-only exploration uses exact NYSE month-end
+  closes and the same prior-target shift.
+- A missing exact boundary price for a held security, an internal missing
+  holding return, or a gap in target months raises an error. It is never dropped
+  or time-compressed. Only a trailing period whose next boundary is genuinely
+  beyond source coverage is omitted as incomplete.
+- CAGR uses elapsed calendar time between represented monthly periods rather
+  than assuming `N/12` years.
 - Adjusted-price provenance is a caller responsibility; the loader cannot infer
   adjustment status from numeric values.
 
 These calculations remove signal and execution lookahead. They do not cure
-constituent survivorship. A stock study must encode historical membership with
-missing prices or an upstream point-in-time universe before its results can be
-considered reliable.
+constituent survivorship. Stock mode accepts an explicit dated membership file,
+materializes it, and records a PIT-readiness gate. Without that input it may run
+for engineering diagnosis, but the manifest marks the stock gate failed and the
+results must not be described as PIT-ready.
 
 ## Local input formats
 
@@ -60,6 +75,13 @@ Sector history can be:
 - effective intervals: `ticker`, `sector`, `effective_from`, optional
   `effective_to`; or
 - a wide dated panel with tickers as columns.
+
+Historical membership can be:
+
+- dated long booleans: `date`, `ticker`, and one of `in_universe`, `member`, or
+  `eligible`;
+- effective intervals: `ticker`, `effective_from`, optional `effective_to`; or
+- a wide dated boolean panel.
 
 No downloader exists in this package.
 
@@ -77,6 +99,7 @@ Optional stock mode:
 python scripts/run_trend_v2_research.py `
   --prices artifacts/research_inputs/adjusted_prices.parquet `
   --sector-history artifacts/research_inputs/sector_history.parquet `
+  --membership-history artifacts/research_inputs/membership_history.parquet `
   --market-ticker SPY `
   --output-dir artifacts/trend_v2/2026-08-27_with_stocks
 ```
@@ -90,10 +113,14 @@ It writes:
 - `summary.csv`: gross/net performance, turnover, drawdown, costs, and frozen
   benchmark correlation;
 - `trial_details.json`: complete specifications and metrics;
-- `manifest.json`: input provenance, execution semantics, and explicit trial
-  and parameter counts;
+- `manifest.json`: input provenance, execution semantics, exact sanitized
+  artifact slugs, explicit trial/parameter counts, and the stock PIT gate;
 - `monthly_returns/`: auditable return/cost series;
-- `targets/`: auditable target-weight panels; and
+- `desired_targets/`, `pretrade_weights/`, and `executed_weights/`: separate
+  intent, drift, and actual execution panels;
+- `stock_pit_audit/` when stock mode runs: source hashes, exact universe,
+  materialized sector/membership panels, scores, ranks, and missing-sector
+  coverage; and
 - `support_note.md`: a brief research-only first read.
 
 Read [PREREGISTRATION.md](PREREGISTRATION.md) before interpreting or extending

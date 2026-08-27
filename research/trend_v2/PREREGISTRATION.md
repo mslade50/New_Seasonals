@@ -12,6 +12,7 @@ freeze date:
 - universe: SPY, QQQ, IWM, EFA, EEM, FXI, VNQ, GLD, SLV, DBC, TLT, LQD;
 - month-end signal: 12-1 momentum > 0 **and** close > 10-month SMA;
 - inverse-63-day-volatility slots over eligible assets, 20% cap, long/flat;
+- production 1% of sleeve-NAV per-name rebalance band;
 - next-period execution and 5 bps per side.
 
 The live month-entry fragility gate is a separate book-state overlay, not a
@@ -50,6 +51,8 @@ when discussing what “improved” the production trend sleeve.
 - monthly rebalance after ranking within the sector known on that date;
 - long-only top sector quintile for v0;
 - equal budget across sectors, inverse vol within sector;
+- cap-aware water filling and a common feasible post-cap budget across every
+  active sector;
 - 5% asset cap, 100% gross cap, 25 bp no-trade band;
 - 75% soft monthly turnover cap and 10 bps per side;
 - minimum 252 daily observations.
@@ -76,7 +79,10 @@ Every candidate must pass all of these on a separately recorded run:
 
 1. **Data integrity:** adjusted OHLC provenance, split checks, duplicate audit,
    coverage report, and historical sector/universe membership. A current
-   survivor list or undated sector map fails the stock-family gate.
+   survivor list or undated sector map fails the stock-family gate. The run
+   manifest must contain hashes for both sector and explicit historical
+   membership sources, zero missing classifications among scored members, and
+   the materialized audit panels.
 2. **Timing:** identical conclusions under true next-open execution. A
    close-only run can explore but cannot promote.
 3. **Trial ledger:** every tested family, threshold, horizon, universe, cost,
@@ -100,6 +106,8 @@ Every candidate must pass all of these on a separately recorded run:
    drawdown improvement.
 9. **Operational fit:** stale/missing inputs fail closed, target turnover is
    executable, and any short version separately proves borrow and financing.
+   Exact first-session opens and held returns are mandatory; no later-bar
+   substitution or dropped internal month is permitted.
 
 Passing these gates authorizes only a human review for shadow tracking. Shadow
 promotion, live promotion, sizing, and retirement require separate explicit

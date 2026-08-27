@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
@@ -71,6 +72,47 @@ def _spec_parameter_fields(spec: object) -> list[str]:
     return [field.name for field in fields(spec) if field.name != "name"]
 
 
+def _safe_trial_slug(name: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", str(name)).strip("._-")
+    slug = slug[:120]
+    if not slug or slug in {".", ".."}:
+        raise ValueError(f"trial name cannot form a safe artifact slug: {name!r}")
+    windows_devices = {"CON", "PRN", "AUX", "NUL"} | {
+        f"{prefix}{number}" for prefix in ("COM", "LPT") for number in range(1, 10)
+    }
+    if slug.split(".", 1)[0].upper() in windows_devices:
+        slug = f"trial_{slug}"
+    return slug
+
+
+def _safe_child(root: Path, *parts: str) -> Path:
+    resolved_root = root.resolve()
+    child = resolved_root.joinpath(*parts).resolve()
+    try:
+        child.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"artifact path escapes output root: {child}") from exc
+    return child
+
+
+def _source_provenance(source: str | Path | None) -> dict[str, Any]:
+    if source is None:
+        return {"path": None, "exists": False, "sha256": None, "size_bytes": None}
+    path = Path(source).expanduser().resolve()
+    if not path.is_file():
+        return {"path": str(path), "exists": False, "sha256": None, "size_bytes": None}
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "path": str(path),
+        "exists": True,
+        "sha256": digest.hexdigest(),
+        "size_bytes": int(path.stat().st_size),
+    }
+
+
 def _prepare_output_dir(output_dir: str | Path) -> Path:
     """Create a new artifact directory and refuse production-adjacent paths."""
     output = Path(output_dir).expanduser().resolve()
@@ -114,6 +156,7 @@ def infer_sector_tickers(sector_history: pd.DataFrame) -> list[str]:
 def run_trend_v2_research(
     prices: PriceData,
     sector_history: pd.DataFrame | None = None,
+    membership_history: pd.DataFrame | None = None,
     market_ticker: str = "SPY",
     stock_tickers: list[str] | None = None,
     multispeed_specs: tuple[MultiSpeedSpec, ...] = PREREGISTERED_MULTISPEED_SPECS,
@@ -147,6 +190,10 @@ def run_trend_v2_research(
         open_prices=benchmark_open,
         cost_bps_per_side=FROZEN_BENCHMARK.cost_bps_per_side,
         cash_returns=cash_returns,
+        rebalance_band=FROZEN_BENCHMARK.rebalance_band,
+        max_turnover=FROZEN_BENCHMARK.max_monthly_turnover,
+        asset_weight_cap=FROZEN_BENCHMARK.asset_weight_cap,
+        gross_weight_cap=FROZEN_BENCHMARK.gross_weight_cap,
     )
     benchmark_summary = performance_summary(benchmark_backtest)
     benchmark_net = benchmark_backtest.monthly["net_return"]
@@ -169,6 +216,10 @@ def run_trend_v2_research(
             open_prices=benchmark_open,
             cost_bps_per_side=spec.cost_bps_per_side,
             cash_returns=cash_returns,
+            rebalance_band=spec.rebalance_band,
+            max_turnover=spec.max_monthly_turnover,
+            asset_weight_cap=spec.asset_weight_cap,
+            gross_weight_cap=spec.gross_weight_cap,
         )
         runs.append(
             TrialRun(
@@ -199,6 +250,7 @@ def run_trend_v2_research(
             market_close=prices.close[market_ticker],
             sector_history=sector_history,
             spec=cross_sectional_spec,
+            membership_history=membership_history,
         )
         backtest = backtest_next_period(
             targets=target.targets,
@@ -206,6 +258,10 @@ def run_trend_v2_research(
             open_prices=stock_open,
             cost_bps_per_side=cross_sectional_spec.cost_bps_per_side,
             cash_returns=cash_returns,
+            rebalance_band=cross_sectional_spec.rebalance_band,
+            max_turnover=cross_sectional_spec.max_monthly_turnover,
+            asset_weight_cap=cross_sectional_spec.asset_weight_cap,
+            gross_weight_cap=cross_sectional_spec.gross_weight_cap,
         )
         runs.append(
             TrialRun(
@@ -255,19 +311,44 @@ def write_research_artifacts(
     prices: PriceData,
     runs: list[TrialRun],
     stock_family_requested: bool,
+    sector_history_source: str | Path | None = None,
+    membership_history_source: str | Path | None = None,
 ) -> Path:
     """Write an append-free, self-contained research bundle under artifacts/."""
+    slugs: dict[str, str] = {}
+    used_slugs: set[str] = set()
+    for run in runs:
+        slug = _safe_trial_slug(run.name)
+        if slug in used_slugs:
+            raise ValueError(f"trial artifact slug collision: {run.name!r} -> {slug!r}")
+        used_slugs.add(slug)
+        slugs[run.name] = slug
     output = _prepare_output_dir(output_dir)
-    returns_dir = output / "monthly_returns"
-    targets_dir = output / "targets"
+    returns_dir = _safe_child(output, "monthly_returns")
+    desired_dir = _safe_child(output, "desired_targets")
+    executed_dir = _safe_child(output, "executed_weights")
+    pretrade_dir = _safe_child(output, "pretrade_weights")
     returns_dir.mkdir()
-    targets_dir.mkdir()
+    desired_dir.mkdir()
+    executed_dir.mkdir()
+    pretrade_dir.mkdir()
 
     summary_rows: list[dict[str, Any]] = []
     trial_records: list[dict[str, Any]] = []
     for run in runs:
-        run.backtest.monthly.to_csv(returns_dir / f"{run.name}.csv", index_label="month")
-        run.targets.targets.to_parquet(targets_dir / f"{run.name}.parquet")
+        slug = slugs[run.name]
+        run.backtest.monthly.to_csv(
+            _safe_child(returns_dir, f"{slug}.csv"), index_label="month"
+        )
+        run.targets.desired_targets.to_parquet(
+            _safe_child(desired_dir, f"{slug}.parquet")
+        )
+        run.backtest.executed_weights.to_parquet(
+            _safe_child(executed_dir, f"{slug}.parquet")
+        )
+        run.backtest.pretrade_weights.to_parquet(
+            _safe_child(pretrade_dir, f"{slug}.parquet")
+        )
         row = {"name": run.name, "family": run.family, **run.summary}
         summary_rows.append(row)
         trial_records.append(
@@ -279,13 +360,90 @@ def write_research_artifacts(
             }
         )
     summary = pd.DataFrame(summary_rows)
-    summary.to_csv(output / "summary.csv", index=False)
+    summary.to_csv(_safe_child(output, "summary.csv"), index=False)
 
     candidate_runs = [run for run in runs if "not_a_candidate" not in run.family]
     multi_fields = _spec_parameter_fields(PREREGISTERED_MULTISPEED_SPECS[0])
     stock_fields = _spec_parameter_fields(PREREGISTERED_CROSS_SECTIONAL_SPEC)
+    stock_run = next(
+        (run for run in runs if run.family.startswith("stock_cross_sectional")), None
+    )
+    stock_requested = bool(stock_family_requested or stock_run is not None)
+    sector_provenance = _source_provenance(sector_history_source)
+    membership_provenance = _source_provenance(membership_history_source)
+    stock_audit: dict[str, Any] = {
+        "requested": stock_requested,
+        "ran": stock_run is not None,
+        "pit_gate_passed": False,
+        "reasons": [],
+        "sector_history_provenance": sector_provenance,
+        "membership_history_provenance": membership_provenance,
+        "exact_universe": [],
+        "missing_classifications": None,
+        "audit_directory": None,
+    }
+    if stock_requested and stock_run is None:
+        stock_audit["reasons"].append("stock family requested but no stock run exists")
+    if stock_run is not None:
+        target = stock_run.targets
+        audit_dir = _safe_child(output, "stock_pit_audit")
+        audit_dir.mkdir()
+        stock_audit["audit_directory"] = "stock_pit_audit/"
+        universe = list(target.desired_targets.columns)
+        stock_audit["exact_universe"] = universe
+        if target.sector_panel is None or target.scores is None or target.ranks is None:
+            raise ValueError("stock run is missing required PIT audit panels")
+        target.sector_panel.to_parquet(_safe_child(audit_dir, "sector_panel.parquet"))
+        target.scores.to_parquet(_safe_child(audit_dir, "scores.parquet"))
+        target.ranks.to_parquet(_safe_child(audit_dir, "sector_neutral_ranks.parquet"))
+        _safe_child(audit_dir, "exact_universe.json").write_text(
+            json.dumps(universe, indent=2), encoding="utf-8"
+        )
+        explicit_membership = target.membership_panel is not None
+        if explicit_membership:
+            target.membership_panel.to_parquet(
+                _safe_child(audit_dir, "membership_panel.parquet")
+            )
+            member = target.membership_panel.astype(bool)
+        else:
+            member = pd.DataFrame(
+                True, index=target.scores.index, columns=target.scores.columns
+            )
+            stock_audit["reasons"].append(
+                "explicit historical membership input absent; stock results are not PIT-ready"
+            )
+        scored_members = target.scores.notna() & member
+        missing_sector = scored_members & target.sector_panel.isna()
+        coverage = pd.DataFrame(
+            {
+                "members": member.sum(axis=1),
+                "members_with_score": scored_members.sum(axis=1),
+                "missing_sector_classifications": missing_sector.sum(axis=1),
+            }
+        )
+        coverage.to_csv(
+            _safe_child(audit_dir, "classification_coverage.csv"), index_label="month"
+        )
+        missing_count = int(missing_sector.to_numpy().sum())
+        stock_audit["missing_classifications"] = missing_count
+        if missing_count:
+            stock_audit["reasons"].append(
+                f"{missing_count} scored member-months lack a sector classification"
+            )
+        if not sector_provenance["exists"]:
+            stock_audit["reasons"].append(
+                "sector history source provenance/hash is unavailable"
+            )
+        if not membership_provenance["exists"] and explicit_membership:
+            stock_audit["reasons"].append(
+                "membership panel was supplied in memory but source provenance/hash is unavailable"
+            )
+        stock_audit["pit_gate_passed"] = not stock_audit["reasons"]
+    elif not stock_requested:
+        stock_audit["reasons"].append("stock family not requested")
+
     manifest = {
-        "schema_version": "trend_v2_research_bundle.v1",
+        "schema_version": "trend_v2_research_bundle.v2",
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "research_only": True,
         "no_order": True,
@@ -307,7 +465,7 @@ def write_research_artifacts(
         "trial_accounting": {
             "preregistered_multispeed_trials": len(PREREGISTERED_MULTISPEED_SPECS),
             "preregistered_stock_family_trials": 1,
-            "stock_family_requested": bool(stock_family_requested),
+            "stock_family_requested": stock_requested,
             "candidate_trials_executed": len(candidate_runs),
             "total_rows_including_benchmark": len(runs),
             "multispeed_parameter_field_count": len(multi_fields),
@@ -316,18 +474,23 @@ def write_research_artifacts(
             "stock_parameter_fields": stock_fields,
             "warning": "Every unreported rerun, threshold, universe, and cost variant also counts as a trial.",
         },
+        "trial_artifact_slugs": slugs,
+        "stock_pit_audit": stock_audit,
         "artifacts": {
             "summary": "summary.csv",
             "trial_details": "trial_details.json",
             "monthly_returns": "monthly_returns/",
-            "targets": "targets/",
+            "desired_targets": "desired_targets/",
+            "executed_weights": "executed_weights/",
+            "pretrade_weights": "pretrade_weights/",
+            "stock_pit_audit": stock_audit["audit_directory"],
             "support_note": "support_note.md",
         },
     }
-    (output / "manifest.json").write_text(
+    _safe_child(output, "manifest.json").write_text(
         json.dumps(_json_safe(manifest), indent=2, allow_nan=False), encoding="utf-8"
     )
-    (output / "trial_details.json").write_text(
+    _safe_child(output, "trial_details.json").write_text(
         json.dumps(_json_safe(trial_records), indent=2, allow_nan=False), encoding="utf-8"
     )
 
@@ -347,6 +510,12 @@ def write_research_artifacts(
         f"- Frozen benchmark net Sharpe: {benchmark_row['net_sharpe']:.3f}",
         f"- Candidate trials executed: {len(candidate_runs)}",
         f"- Execution: {manifest['execution_semantics']}",
+        "- Stock PIT gate: "
+        + (
+            "NOT RUN"
+            if not stock_audit["requested"]
+            else ("PASS" if stock_audit["pit_gate_passed"] else "FAILED")
+        ),
     ]
     if best is not None:
         note_lines.append(
@@ -359,5 +528,7 @@ def write_research_artifacts(
             "",
         ]
     )
-    (output / "support_note.md").write_text("\n".join(note_lines), encoding="utf-8")
+    _safe_child(output, "support_note.md").write_text(
+        "\n".join(note_lines), encoding="utf-8"
+    )
     return output
