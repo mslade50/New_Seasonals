@@ -13,7 +13,11 @@ from research.opportunity_book import (
     normalize_prices,
     write_opportunity_book,
 )
-from scripts.build_wide_opportunity_book import ROOT, _resolve_artifact_output
+from scripts.build_wide_opportunity_book import (
+    ROOT,
+    _latest_market_asof,
+    _resolve_artifact_output,
+)
 
 
 def synthetic_prices(
@@ -212,6 +216,19 @@ def test_cli_output_is_confined_to_worktree_artifacts(tmp_path):
     assert _resolve_artifact_output(allowed) == allowed.resolve()
     with pytest.raises(SystemExit, match="Refusing non-artifact output"):
         _resolve_artifact_output(tmp_path / "outside")
+
+
+def test_cli_default_cutoff_uses_latest_market_bar_not_latest_other_ticker():
+    prices = pd.DataFrame(
+        {
+            "ticker": ["SPY", "SPY", "FUTURE"],
+            "date": ["2026-08-25", "2026-08-26", "2026-08-27"],
+            "Close": [100.0, 101.0, 50.0],
+        }
+    )
+    assert _latest_market_asof(prices, "spy") == pd.Timestamp("2026-08-26")
+    with pytest.raises(ValueError, match="pass --asof explicitly"):
+        _latest_market_asof(prices, "QQQ")
 
 
 def test_outputs_have_no_execution_contract_fields_or_actions():

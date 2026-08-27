@@ -41,9 +41,13 @@ bars; it is never relabeled from a shorter history.
 
 ```powershell
 python scripts/build_wide_opportunity_book.py `
-  --asof 2026-08-27 `
   --output-dir artifacts/opportunity_book/2026-08-27
 ```
+
+Without `--asof`, the runner uses the latest local SPY bar—not the wall-clock
+date—as the inclusive cutoff. This prevents a pre-close run from mixing a few
+new-calendar-date instruments into an otherwise prior-session US equity book.
+Pass `--asof` only when deliberately replaying a frozen historical date.
 
 Useful development overrides:
 

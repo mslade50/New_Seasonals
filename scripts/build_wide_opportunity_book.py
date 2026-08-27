@@ -73,7 +73,13 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="explicit local directory for JSON/CSV/HTML outputs",
     )
-    parser.add_argument("--asof", default=str(pd.Timestamp.today().date()))
+    parser.add_argument(
+        "--asof",
+        help=(
+            "inclusive signal-date cutoff; defaults to the latest local bar for "
+            "--market-ticker rather than the wall-clock date"
+        ),
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--tickers", help="comma-separated explicit universe")
     group.add_argument("--tickers-file", help="text/CSV/TSV explicit universe")
@@ -105,6 +111,23 @@ def _resolve_artifact_output(raw: str | Path) -> Path:
     return candidate
 
 
+def _latest_market_asof(prices: pd.DataFrame, market_ticker: str) -> pd.Timestamp:
+    """Infer the completed research cutoff from the local market anchor."""
+    lower = {str(column).lower(): column for column in prices.columns}
+    if {"date", "ticker"}.issubset(lower):
+        ticker = prices[lower["ticker"]].astype(str).str.upper().str.strip()
+        dates = pd.to_datetime(
+            prices.loc[ticker.eq(market_ticker.upper()), lower["date"]],
+            errors="coerce",
+        ).dropna()
+        if not dates.empty:
+            return pd.Timestamp(dates.max()).normalize()
+    raise ValueError(
+        f"cannot infer latest {market_ticker.upper()} bar from local prices; "
+        "pass --asof explicitly"
+    )
+
+
 def main() -> int:
     args = parse_args()
     prices_path = Path(args.prices)
@@ -117,8 +140,10 @@ def main() -> int:
     else:
         tickers = default_universe()
 
+    prices = pd.read_parquet(prices_path)
+    asof = args.asof or _latest_market_asof(prices, args.market_ticker)
     config = OpportunityConfig(
-        asof=args.asof,
+        asof=asof,
         review_limit=args.review_limit,
         deep_test_limit=args.deep_test_limit,
         audit_limit=args.audit_limit,
@@ -128,7 +153,7 @@ def main() -> int:
         market_ticker=args.market_ticker,
     )
     result = build_opportunity_book(
-        pd.read_parquet(prices_path),
+        prices,
         tickers,
         config,
         sector_map=_sector_map(Path(args.sector_map) if args.sector_map else None),
