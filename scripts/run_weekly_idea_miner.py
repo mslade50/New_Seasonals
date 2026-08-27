@@ -108,6 +108,7 @@ def run(
         "as_of": as_of,
         "research_only": True,
         "no_order": True,
+        "production_writes": False,
         "write_requested": bool(args.write),
         "coverage": queue["coverage"],
         "funnel": queue["funnel"],
@@ -123,6 +124,13 @@ def run(
     html_path = output_dir / f"{stem}.html"
     sources_path = output_dir / f"source_snapshot_{as_of}.jsonl"
     manifest_path = output_dir / f"{stem}_manifest.json"
+    run_paths = (json_path, html_path, sources_path, manifest_path)
+    existing = [path for path in run_paths if path.exists()]
+    if existing:
+        raise FileExistsError(
+            "refusing to overwrite existing weekly run artifacts: "
+            + ", ".join(str(path) for path in existing)
+        )
 
     queue_json = _json(queue)
     html_text = render_weekly_inbox(queue)
@@ -144,6 +152,7 @@ def run(
         "created_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "research_only": True,
         "no_order": True,
+        "production_writes": False,
         "network_fetch": False,
         "input_paths": [str(Path(path).resolve()) for path in args.input],
         "outputs": {

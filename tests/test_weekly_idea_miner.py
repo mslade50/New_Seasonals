@@ -2,6 +2,8 @@ import argparse
 import json
 from pathlib import Path
 
+import pytest
+
 from research.experiment_registry import load_records
 from research.idea_miner.models import SourceRecord, dedupe_sources, load_source_files
 from research.idea_miner.pipeline import build_weekly_queue
@@ -153,9 +155,27 @@ def test_cli_is_dry_by_default_and_writes_only_to_artifacts(tmp_path):
     )
     assert Path(written["outputs"]["report_html"]).exists()
     assert Path(written["outputs"]["manifest"]).exists()
+    assert written["production_writes"] is False
+    manifest = json.loads(
+        Path(written["outputs"]["manifest"]).read_text(encoding="utf-8")
+    )
+    assert manifest["production_writes"] is False
     records = load_records(registry)
     assert len(records) == 4  # two frozen sources + two hypotheses
     assert all(record["research_only"] and record["no_order"] for record in records)
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        run(
+            argparse.Namespace(
+                input=[str(source_path)],
+                output_dir=str(output_dir),
+                registry=str(registry),
+                as_of="2026-08-27",
+                max_candidates=5,
+                max_per_archetype=2,
+                write=True,
+            ),
+            artifacts_root=tmp_path / "artifacts",
+        )
 
 
 def test_cli_rejects_non_artifact_destinations(tmp_path):

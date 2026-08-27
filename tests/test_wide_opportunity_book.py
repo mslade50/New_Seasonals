@@ -209,6 +209,8 @@ def test_queue_caps_and_complete_local_artifact_bundle(tmp_path):
     assert expected_card_fields <= set(result.deep_test_queue.columns)
     assert "First rejection" in html
     assert "What kills it" in html
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        write_opportunity_book(result, tmp_path / "wide")
 
 
 def test_cli_output_is_confined_to_worktree_artifacts(tmp_path):

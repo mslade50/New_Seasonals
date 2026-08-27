@@ -1191,6 +1191,12 @@ def write_opportunity_book(
 ) -> dict[str, Path]:
     """Write the complete local artifact bundle to an explicit directory."""
     output = Path(output_dir)
+    if output.exists() and not output.is_dir():
+        raise FileExistsError(f"artifact output is not a directory: {output}")
+    if output.exists() and any(output.iterdir()):
+        raise FileExistsError(
+            f"refusing to overwrite non-empty artifact directory: {output}"
+        )
     output.mkdir(parents=True, exist_ok=True)
     paths = {
         "manifest": output / "opportunity_book.json",
