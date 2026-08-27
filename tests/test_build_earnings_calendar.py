@@ -52,6 +52,65 @@ def test_build_calendar_no_upload_keeps_refresh_local(tmp_path, monkeypatch) -> 
     assert refreshed["date"].dt.date.tolist() == [pd.Timestamp("2026-08-26").date()]
 
 
+def test_local_refresh_can_replace_a_superseded_prior_universe(
+    tmp_path, monkeypatch
+) -> None:
+    output = tmp_path / "earnings.parquet"
+    prior = pd.DataFrame(
+        {
+            "ticker": ["AAA", "BBB"],
+            "date": [pd.Timestamp("2026-05-01")] * 2,
+        }
+    )
+    prior.to_parquet(output, index=False)
+    monkeypatch.setattr(builder, "fetch_ticker", lambda *_: [_earnings_row()])
+    monkeypatch.setattr(builder, "SLEEP_BETWEEN_CALLS", 0)
+
+    builder.build_calendar(
+        ["AAA"],
+        "test-key",
+        str(output),
+        r2_key="earnings_calendar_overflow.parquet",
+        upload=False,
+        fail_on_fetch_errors=True,
+    )
+
+    assert pd.read_parquet(output)["ticker"].tolist() == ["AAA"]
+
+
+def test_upload_still_refuses_a_degraded_prior_universe(
+    tmp_path, monkeypatch
+) -> None:
+    output = tmp_path / "earnings.parquet"
+    prior = pd.DataFrame(
+        {
+            "ticker": ["AAA", "BBB"],
+            "date": [pd.Timestamp("2026-05-01")] * 2,
+        }
+    )
+    prior.to_parquet(output, index=False)
+    original_bytes = output.read_bytes()
+    uploads: list[tuple[object, object]] = []
+    monkeypatch.setattr(builder, "fetch_ticker", lambda *_: [_earnings_row()])
+    monkeypatch.setattr(builder, "SLEEP_BETWEEN_CALLS", 0)
+    monkeypatch.setattr(
+        builder,
+        "upload_to_r2",
+        lambda path, key="earnings_calendar.parquet": uploads.append((path, key)),
+    )
+
+    with pytest.raises(SystemExit, match="coverage dropped beyond 2%"):
+        builder.build_calendar(
+            ["AAA"],
+            "test-key",
+            str(output),
+            upload=True,
+        )
+
+    assert output.read_bytes() == original_bytes
+    assert uploads == []
+
+
 def test_strict_fetch_failure_preserves_prior_file_and_skips_upload(
     tmp_path, monkeypatch
 ) -> None:
