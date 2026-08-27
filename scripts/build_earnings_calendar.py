@@ -181,6 +181,7 @@ def build_calendar(
     r2_key="earnings_calendar.parquet",
     *,
     upload: bool = True,
+    fail_on_fetch_errors: bool = False,
 ):
     print(f"Building earnings calendar for {len(tickers)} tickers...")
     print(f"Output: {output_path}\n")
@@ -215,6 +216,13 @@ def build_calendar(
                 "last_updated": r.get("lastUpdated"),
             })
         time.sleep(SLEEP_BETWEEN_CALLS)
+
+    if failures and fail_on_fetch_errors:
+        raise SystemExit(
+            f"\nABORT: {len(failures)} hard ticker fetch failure(s) under "
+            f"--fail-on-fetch-errors; not writing or uploading. "
+            f"Sample: {failures[:10]}"
+        )
 
     if not rows:
         # Exit nonzero: a green no-op run leaves the R2 calendar stale and,
@@ -316,6 +324,8 @@ def main():
                         help="Skip API calls; recompute derived columns on the existing parquet only.")
     parser.add_argument("--no-upload", action="store_true",
                         help="Write the refreshed parquet locally without replacing the R2 object.")
+    parser.add_argument("--fail-on-fetch-errors", action="store_true",
+                        help="Abort before write if any ticker has a hard provider failure.")
     args = parser.parse_args()
 
     if args.derive_only and args.overflow_staging:
@@ -364,6 +374,7 @@ def main():
         output,
         r2_key=r2_key,
         upload=not args.no_upload,
+        fail_on_fetch_errors=args.fail_on_fetch_errors,
     )
 
 

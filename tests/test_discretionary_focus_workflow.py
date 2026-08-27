@@ -76,13 +76,14 @@ def test_scheduled_workflow_is_gated_to_actual_nyse_sessions() -> None:
     assert "publish_and_email" in workflow
     assert workflow.count("inputs.delivery_mode == 'publish_and_email'") == 3
     assert "timeout-minutes: 25" in workflow
-    assert "Refresh isolated overflow prices" in workflow
+    assert "Refresh isolated overflow prices locally" in workflow
     assert "build_overflow_prices.py" in workflow
-    assert "--exclude-today" in workflow
+    assert "--exclude-today" not in workflow
     assert "--no-upload" in workflow
     assert "Refresh isolated overflow earnings coverage" in workflow
     assert "build_earnings_calendar.py" in workflow
     assert "--overflow-staging" in workflow
+    assert "--fail-on-fetch-errors" in workflow
     assert "yfinance" in workflow
     assert "--delivery-window" in workflow
     assert "steps.delivery.outputs.should_run == 'true'" in workflow

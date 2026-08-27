@@ -471,6 +471,48 @@ def test_price_cutoff_ignores_a_thin_current_day_non_us_cohort(tmp_path) -> None
     assert prices["date"].max().date() == prior.date()
 
 
+def test_after_close_manual_run_keeps_current_overflow_session(tmp_path) -> None:
+    session = pd.Timestamp("2026-08-27")
+    eligible = [f"S{index}" for index in range(builder.MIN_PRODUCTION_UNIVERSE)]
+    master_tickers = eligible[:200] + [f"ETF{index}" for index in range(300)]
+    overflow_tickers = eligible[200:]
+
+    def bars(tickers: list[str]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "ticker": tickers,
+                "date": [session] * len(tickers),
+                "Open": [10.0] * len(tickers),
+                "High": [11.0] * len(tickers),
+                "Low": [9.0] * len(tickers),
+                "Close": [10.5] * len(tickers),
+                "Volume": [1_000_000] * len(tickers),
+            }
+        )
+
+    primary_path = tmp_path / "master.parquet"
+    overflow_path = tmp_path / "overflow.parquet"
+    bars(master_tickers).to_parquet(primary_path, index=False)
+    bars(overflow_tickers).to_parquet(overflow_path, index=False)
+
+    primary, price_as_of = builder.load_price_data(
+        primary_path,
+        minimum_session_tickers=builder.MIN_PRODUCTION_UNIVERSE,
+    )
+    overflow, overflow_as_of = builder.load_price_data(
+        overflow_path, price_as_of.isoformat()
+    )
+    combined = builder.combine_price_data(primary, overflow)
+
+    assert price_as_of == session.date()
+    assert overflow_as_of == session.date()
+    builder.validate_production_input_coverage(
+        combined,
+        {ticker: {"ticker": ticker} for ticker in eligible},
+        required_session=price_as_of,
+    )
+
+
 def test_price_cutoff_must_be_immediately_prior_to_focus_session() -> None:
     builder.require_fresh_price_cutoff(
         dt.date(2026, 9, 4), dt.date(2026, 9, 8)

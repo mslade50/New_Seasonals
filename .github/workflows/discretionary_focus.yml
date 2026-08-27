@@ -55,9 +55,12 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/pull_discretionary_focus_inputs.py
 
-      - name: Refresh isolated overflow prices through the prior session
+      - name: Refresh isolated overflow prices locally
         if: github.event_name == 'workflow_dispatch' || steps.session.outputs.should_run == 'true'
-        run: python scripts/build_overflow_prices.py --exclude-today --no-upload
+        # The Focus builder clips this cache to master_prices' broadly-covered
+        # completed session. Keeping today's completed bar is required for an
+        # after-close manual diagnostic once master_prices has advanced.
+        run: python scripts/build_overflow_prices.py --no-upload
 
       - name: Refresh isolated overflow earnings coverage
         if: github.event_name == 'workflow_dispatch' || steps.session.outputs.should_run == 'true'
@@ -66,6 +69,7 @@ jobs:
         run: >-
           python scripts/build_earnings_calendar.py
           --overflow-staging
+          --fail-on-fetch-errors
           --no-upload
 
       - name: Build the final 0-2 name research shortlist
