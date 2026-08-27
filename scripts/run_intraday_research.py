@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+ARTIFACTS_ROOT = (ROOT / "artifacts").resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -37,16 +38,39 @@ def _read_metadata(path: Path | None) -> pd.DataFrame | None:
     raise ValueError("--sector-map must be parquet or CSV")
 
 
-def _default_output_dir() -> Path:
+def _default_output_dir(*, artifacts_root: Path = ARTIFACTS_ROOT) -> Path:
     stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-    return ROOT / "artifacts" / "intraday_research" / stamp
+    return artifacts_root / "intraday_research" / stamp
+
+
+def _resolve_artifact_output(
+    requested: Path | None, *, artifacts_root: Path = ARTIFACTS_ROOT
+) -> Path:
+    """Resolve a fresh output directory confined to the ignored artifact root."""
+
+    root = artifacts_root.resolve()
+    output = (
+        requested.resolve()
+        if requested is not None
+        else _default_output_dir(artifacts_root=root).resolve()
+    )
+    try:
+        output.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"--output-dir must stay under {root}") from exc
+    if output.exists():
+        if not output.is_dir():
+            raise ValueError(f"--output-dir is not a directory: {output}")
+        if any(output.iterdir()):
+            raise ValueError(f"--output-dir must be empty: {output}")
+    return output
 
 
 def _write_manifest(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Research-only fixed-clock intraday template runner (local files only)."
     )
@@ -86,11 +110,13 @@ def parse_args() -> argparse.Namespace:
         help="Tie-break capacity for trades sharing an entry timestamp.",
     )
     parser.add_argument("--output-dir", type=Path, default=None)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def main(
+    argv: list[str] | None = None, *, artifacts_root: Path = ARTIFACTS_ROOT
+) -> int:
+    args = parse_args(argv)
     market_ticker = args.market_ticker.upper()
     sector_map_path = args.sector_map
     if (
@@ -165,7 +191,9 @@ def main() -> int:
         ),
     )
 
-    output_dir = (args.output_dir or _default_output_dir()).resolve()
+    output_dir = _resolve_artifact_output(
+        args.output_dir, artifacts_root=artifacts_root
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     result.eligibility.to_parquet(output_dir / "eligibility.parquet", index=False)
     result.signals.to_parquet(output_dir / "signals.parquet", index=False)
@@ -187,6 +215,8 @@ def main() -> int:
         result.capital_summary.to_csv(output_dir / "capital_summary.csv", index=False)
     manifest = {
         "research_only": True,
+        "no_order": True,
+        "production_writes": False,
         "created_utc": pd.Timestamp.now(tz="UTC").isoformat(),
         "data_dir": str(args.data_dir.resolve()),
         "sector_map": str(sector_map_path.resolve()) if sector_map_path else None,

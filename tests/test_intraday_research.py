@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
-from pathlib import Path
 
 import pandas as pd
 import pytest
 
+import scripts.run_intraday_research as intraday_cli
 from research.intraday import (
     AmbiguousCapitalTieError,
     CapitalReuseConfig,
@@ -506,6 +504,9 @@ def test_oversubscribed_capital_tie_requires_priority_and_is_row_order_invariant
     )
     with pytest.raises(AmbiguousCapitalTieError, match="pre-registered priority"):
         apply_capital_feasibility(trades, config)
+    tied = trades.assign(priority=1.0)
+    with pytest.raises(AmbiguousCapitalTieError, match="is tied"):
+        apply_capital_feasibility(tied, config, priority_column="priority")
     forward = apply_capital_feasibility(trades, config, priority_column="priority")
     reverse = apply_capital_feasibility(
         trades.iloc[::-1].reset_index(drop=True), config, priority_column="priority"
@@ -514,21 +515,19 @@ def test_oversubscribed_capital_tie_requires_priority_and_is_row_order_invariant
     assert list(reverse.feasible_trades["ticker"]) == ["BBB"]
 
 
-def test_cli_writes_only_research_artifacts_from_local_parquets(tmp_path):
+def test_cli_writes_only_research_artifacts_from_local_parquets(tmp_path, capsys):
     frames, _ = _gap_frames()
     data_dir = tmp_path / "intraday"
-    output_dir = tmp_path / "output"
+    artifacts_root = tmp_path / "artifacts"
+    output_dir = artifacts_root / "output"
     data_dir.mkdir()
     for ticker, frame in frames.items():
         frame.to_parquet(data_dir / f"{ticker}_15min.parquet", index=False)
     sector_map = tmp_path / "sector_map.parquet"
     _metadata().to_parquet(sector_map, index=False)
 
-    root = Path(__file__).resolve().parents[1]
-    completed = subprocess.run(
+    return_code = intraday_cli.main(
         [
-            sys.executable,
-            str(root / "scripts" / "run_intraday_research.py"),
             "--data-dir",
             str(data_dir),
             "--sector-map",
@@ -544,13 +543,10 @@ def test_cli_writes_only_research_artifacts_from_local_parquets(tmp_path):
             "--output-dir",
             str(output_dir),
         ],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
+        artifacts_root=artifacts_root,
     )
-    assert completed.returncode == 0, completed.stderr
-    assert "Research-only" in completed.stdout
+    assert return_code == 0
+    assert "Research-only" in capsys.readouterr().out
     expected = {
         "eligibility.parquet",
         "signals.parquet",
@@ -568,9 +564,28 @@ def test_cli_writes_only_research_artifacts_from_local_parquets(tmp_path):
         (output_dir / "run_manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["research_only"] is True
+    assert manifest["no_order"] is True
+    assert manifest["production_writes"] is False
     assert manifest["n_signals"] == 1
     assert manifest["n_trades"] == 1
     assert manifest["n_execution_rejected"] == 0
     assert manifest["n_capital_feasible"] == 1
     assert manifest["n_capital_rejected"] == 0
     assert manifest["capital_config"]["same_day_reuse_allowed"] is False
+
+
+def test_cli_output_guard_rejects_paths_outside_artifacts_and_nonempty_runs(tmp_path):
+    artifacts_root = tmp_path / "artifacts"
+    outside = tmp_path / "outside"
+    with pytest.raises(ValueError, match="must stay under"):
+        intraday_cli._resolve_artifact_output(
+            outside, artifacts_root=artifacts_root
+        )
+
+    occupied = artifacts_root / "occupied"
+    occupied.mkdir(parents=True)
+    (occupied / "existing.txt").write_text("do not overwrite", encoding="utf-8")
+    with pytest.raises(ValueError, match="must be empty"):
+        intraday_cli._resolve_artifact_output(
+            occupied, artifacts_root=artifacts_root
+        )

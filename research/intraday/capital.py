@@ -171,69 +171,98 @@ def apply_capital_feasibility(
             concurrent_available = _available(
                 config.max_concurrent_notional, open_notional
             )
-            if priority_column is None and len(entry_batch) > 1:
-                batch_notional = float(entry_batch["requested_notional"].sum())
-                capacities = (
-                    cash_available,
-                    buying_power_available,
-                    concurrent_available,
-                )
-                if any(
-                    capacity is not None and batch_notional > capacity + 1e-9
-                    for capacity in capacities
-                ):
-                    raise AmbiguousCapitalTieError(
-                        f"{trade_day.date()} {entry_ts.time()} simultaneous batch "
-                        "is oversubscribed; supply a pre-registered priority column"
+            allocation_batches = (
+                [entry_batch]
+                if priority_column is None
+                else [
+                    group
+                    for _, group in entry_batch.groupby(priority_column, sort=False)
+                ]
+            )
+            for allocation_batch in allocation_batches:
+                if len(allocation_batch) > 1:
+                    batch_notional = float(
+                        allocation_batch["requested_notional"].sum()
                     )
+                    capacities = [
+                        capacity
+                        for capacity in (
+                            _available(
+                                config.starting_settled_cash, used_settled_cash
+                            ),
+                            _available(
+                                config.intraday_buying_power, used_buying_power
+                            ),
+                            _available(
+                                config.max_concurrent_notional, open_notional
+                            ),
+                        )
+                        if capacity is not None
+                    ]
+                    effective_capacity = min(capacities, default=float("inf"))
+                    if 0 < effective_capacity < batch_notional - 1e-9:
+                        priority_detail = (
+                            "supply a pre-registered priority column"
+                            if priority_column is None
+                            else f"priority column {priority_column!r} is tied"
+                        )
+                        raise AmbiguousCapitalTieError(
+                            f"{trade_day.date()} {entry_ts.time()} simultaneous batch "
+                            f"is oversubscribed; {priority_detail}"
+                        )
 
-            for record in entry_batch.to_dict("records"):
-                requested = float(record["requested_notional"])
-                cash_available = _available(
-                    config.starting_settled_cash, used_settled_cash
-                )
-                buying_power_available = _available(
-                    config.intraday_buying_power, used_buying_power
-                )
-                concurrent_available = _available(
-                    config.max_concurrent_notional, open_notional
-                )
-                reasons: list[str] = []
-                if cash_available is not None and requested > cash_available + 1e-9:
-                    reasons.append("settled_cash")
-                if (
-                    buying_power_available is not None
-                    and requested > buying_power_available + 1e-9
-                ):
-                    reasons.append("intraday_buying_power")
-                if (
-                    concurrent_available is not None
-                    and requested > concurrent_available + 1e-9
-                ):
-                    reasons.append("max_concurrent_notional")
+                for record in allocation_batch.to_dict("records"):
+                    requested = float(record["requested_notional"])
+                    cash_available = _available(
+                        config.starting_settled_cash, used_settled_cash
+                    )
+                    buying_power_available = _available(
+                        config.intraday_buying_power, used_buying_power
+                    )
+                    concurrent_available = _available(
+                        config.max_concurrent_notional, open_notional
+                    )
+                    reasons: list[str] = []
+                    if (
+                        cash_available is not None
+                        and requested > cash_available + 1e-9
+                    ):
+                        reasons.append("settled_cash")
+                    if (
+                        buying_power_available is not None
+                        and requested > buying_power_available + 1e-9
+                    ):
+                        reasons.append("intraday_buying_power")
+                    if (
+                        concurrent_available is not None
+                        and requested > concurrent_available + 1e-9
+                    ):
+                        reasons.append("max_concurrent_notional")
 
-                accepted = not reasons
-                result = dict(record)
-                result.update(
-                    {
-                        "capital_sequence": sequence,
-                        "capital_trade_date": trade_day,
-                        "capital_feasible": accepted,
-                        "capital_rejection_reason": "|".join(reasons),
-                        "same_day_reuse_assumed": config.same_day_reuse_allowed,
-                        "open_notional_before": open_notional,
-                        "settled_cash_available_before": cash_available,
-                        "intraday_buying_power_available_before": buying_power_available,
-                        "concurrent_notional_available_before": concurrent_available,
-                    }
-                )
-                sequence += 1
-                if accepted:
-                    used_settled_cash += requested
-                    used_buying_power += requested
-                    open_notional += requested
-                    open_positions.append((pd.Timestamp(record["exit_ts"]), requested))
-                audit_rows.append(result)
+                    accepted = not reasons
+                    result = dict(record)
+                    result.update(
+                        {
+                            "capital_sequence": sequence,
+                            "capital_trade_date": trade_day,
+                            "capital_feasible": accepted,
+                            "capital_rejection_reason": "|".join(reasons),
+                            "same_day_reuse_assumed": config.same_day_reuse_allowed,
+                            "open_notional_before": open_notional,
+                            "settled_cash_available_before": cash_available,
+                            "intraday_buying_power_available_before": buying_power_available,
+                            "concurrent_notional_available_before": concurrent_available,
+                        }
+                    )
+                    sequence += 1
+                    if accepted:
+                        used_settled_cash += requested
+                        used_buying_power += requested
+                        open_notional += requested
+                        open_positions.append(
+                            (pd.Timestamp(record["exit_ts"]), requested)
+                        )
+                    audit_rows.append(result)
 
     audit = pd.DataFrame(audit_rows).drop(columns=["_original_order"], errors="ignore")
     feasible = audit.loc[audit["capital_feasible"]].reset_index(drop=True)
