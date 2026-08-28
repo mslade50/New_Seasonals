@@ -23,14 +23,10 @@ the live book (mismatch = staged order never executed -> phantom future
 exits); event positions entered TODAY are skipped (the MOC fill and the book
 push race the 4:30 report).
 
-Scheduling: .github/workflows/execution_report.yml runs at 20:30 AND 21:30 UTC
-on weekdays; exactly one of the two sends at ~4:30 PM ET year-round. The gate
-decides by WHICH cron fired (GHA_SCHEDULE env = github.event.schedule) and
-whether the date is in daylight time — not by the actual clock, because GHA's
-shared cron queue can start runs 60-90 min late (both 2026-07-08 and -09 runs
-arrived past 5 PM ET and the old hour==16 gate dropped the email). Without
-GHA_SCHEDULE (local runs) the legacy hour==16 gate applies. --force bypasses
-the gate for manual runs.
+Scheduling: the pinned local-primary `execution` task invokes this at 4:30 PM
+ET with `--force`; `.github/workflows/execution_report.yml` is dispatch-only
+backup and also uses `--force`. The legacy GHA twin-cron helpers remain for
+backward-compatible manual invocations but no production cron depends on them.
 
 Env:
   EXEC_BROKER_URL  broker base URL (default the deployed workers.dev URL)
@@ -68,7 +64,7 @@ def et_now() -> datetime:
     return datetime.now(tz=ET)
 
 
-# Must match the cron strings in .github/workflows/execution_report.yml.
+# Retained only for backward-compatible legacy/manual invocation tests.
 EDT_CRON = "30 20 * * 1-5"  # 4:30 PM ET while daylight time
 EST_CRON = "30 21 * * 1-5"  # 4:30 PM ET while standard time
 
@@ -563,7 +559,10 @@ def main() -> int:
         print(f"HTML written to {args.html_out}")
 
     if not args.no_send:
-        send_email("Position Sheet", html)
+        sent = send_email("Position Sheet", html)
+        if os.environ.get("LOCAL_AUTOMATION_STRICT") == "1" and not sent:
+            print("ERROR: execution report email was not sent in strict mode")
+            return 1
     return 0
 
 

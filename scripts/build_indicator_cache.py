@@ -21,8 +21,8 @@ Usage (locally, mainly for dry-runs):
     python scripts/build_indicator_cache.py --no-upload  # build only
     python scripts/build_indicator_cache.py --liquid-only
 
-In the weekly GHA workflow the script runs with the R2 secrets in the
-environment; uploads are gated on those being present.
+The Monday local-primary task runs with R2 credentials in its process
+environment. The dispatch-only GitHub workflow is the receipt-gated backup.
 """
 from __future__ import annotations
 
@@ -213,7 +213,13 @@ def _run_pass(label: str, overflow: bool, sznl_map, atr_sznl_map, vix_series, dr
     changed = _detect_changed(before)
     print(f'[{label}] precompute took {elapsed:.1f}s; {len(changed):,} cache files touched')
     if changed:
-        _upload_changed(changed, dry_upload)
+        uploaded = _upload_changed(changed, dry_upload)
+        if (os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1'
+                and not dry_upload and uploaded != len(changed)):
+            raise RuntimeError(
+                f'indicator cache upload incomplete for {label}: '
+                f'{uploaded}/{len(changed)} objects uploaded'
+            )
 
 
 def main():

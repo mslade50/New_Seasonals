@@ -54,24 +54,15 @@ def test_workflow_publishes_before_sending_email() -> None:
     assert publish < email
 
 
-def test_scheduled_workflow_is_gated_to_actual_nyse_sessions() -> None:
+def test_dispatch_workflow_keeps_session_and_delivery_safety_gates() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    gate = workflow.index("Gate scheduled runs to NYSE sessions")
+    gate = workflow.index("Resolve current NYSE session")
     pull = workflow.index("Pull current research inputs")
     assert gate < pull
     assert "id: session" in workflow
     assert "check_discretionary_focus_session.py" in workflow
-    assert "35 12 * * 1-5" in workflow
-    assert "35 13 * * 1-5" in workflow
-    assert '--scheduled-cron "${{ github.event.schedule }}"' in workflow
-
-    condition = (
-        "if: github.event_name == 'workflow_dispatch' || "
-        "steps.session.outputs.should_run == 'true'"
-    )
-    # Pull, refresh, build, publish, and email all stop on exchange holidays;
-    # an explicit workflow dispatch remains available for diagnostics.
-    assert workflow.count(condition) == 4
+    assert "  schedule:" not in workflow
+    assert "automation_token:" in workflow
     assert "default: dry_run" in workflow
     assert "publish_and_email" in workflow
     assert workflow.count("inputs.delivery_mode == 'publish_and_email'") == 3

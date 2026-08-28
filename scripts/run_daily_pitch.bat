@@ -49,25 +49,15 @@ cd /d "%REPO%"
 
 echo ===== RUN START %DATE% %TIME% ===== > "%LOG%"
 
-REM ---- 0. Refresh the inputs. Without this the pitch reasons about whatever
-REM happens to be on disk. The AM chain publishes to two different places:
-REM   committed to main  - rd2_fragility, rd2_environment, exposure_state,
-REM                        cboe_putcall (risk_report.yml + daily_screener.yml
-REM                        + update_cboe_putcall.yml all push back)
-REM   R2                 - master_prices, earnings_calendar
-REM `git restore --worktree` takes just those paths from origin without
-REM touching the branch or the (very dirty) working tree, so this never
-REM rebases and never stages anything.
-git fetch origin main --quiet >> "%LOG%" 2>&1
-git restore --source=origin/main --worktree -- data/rd2_fragility.parquet data/rd2_environment.json data/exposure_state.json data/cboe_putcall.parquet >> "%LOG%" 2>&1
-echo [git restore of committed state exit code: %ERRORLEVEL%] >> "%LOG%"
-
-REM Best effort by design: a stale price cache surfaces as a freshness WARNING
-REM in pitch_state.json, which daily_pitch renders in a red box at the top of
-REM the email. Aborting here would trade a visible warning for a silent
-REM no-delivery.
-python "%REPO%\scripts\pull_scan_caches.py" >> "%LOG%" 2>&1
-echo [pull_scan_caches exit code: %ERRORLEVEL%] >> "%LOG%"
+REM ---- 0. Refresh the inputs from R2. The local-primary AM pipeline publishes
+REM master prices, earnings, fragility, environment, exposure and CBOE state
+REM there before this task starts. R2 is also the private site's authoritative
+REM production boundary, so the pitch no longer depends on generated-state bot
+REM commits or mutates the user's dirty development checkout with git restore.
+REM Best effort by design: a stale/missing cache surfaces as a freshness WARNING
+REM in pitch_state.json, which daily_pitch renders in a red box at the top.
+python "%REPO%\scripts\pull_scan_caches.py" --set pitch >> "%LOG%" 2>&1
+echo [pull pitch caches exit code: %ERRORLEVEL%] >> "%LOG%"
 
 python "%REPO%\scripts\grade_pitch_journal.py" >> "%LOG%" 2>&1
 echo [grade_pitch_journal exit code: %ERRORLEVEL%] >> "%LOG%"

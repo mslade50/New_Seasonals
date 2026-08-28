@@ -1,0 +1,7 @@
+-r ../requirements.txt
+
+# Explicit runtime dependencies used by the scheduler/session gates.  They
+# may arrive transitively today, but the unattended runtime must not depend
+# on that remaining true.
+exchange-calendars
+google-auth

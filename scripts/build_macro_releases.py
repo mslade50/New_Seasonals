@@ -216,11 +216,23 @@ def load_existing(output: Path, try_r2: bool) -> pd.DataFrame:
 
 def upload(output: Path) -> None:
     try:
-        from cache_io import upload_from_local
+        from cache_io import head, upload_from_local
 
-        if not upload_from_local(str(output), R2_KEY):
+        ok = upload_from_local(str(output), R2_KEY)
+        if not ok:
             print("[r2 upload] skipped or unsuccessful")
+        if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+            meta = head(R2_KEY)
+            actual = int((meta or {}).get("ContentLength") or -1)
+            expected = output.stat().st_size
+            if not ok or actual != expected:
+                raise RuntimeError(
+                    f"R2 macro-release verification failed: "
+                    f"uploaded={ok}, size={actual}, expected={expected}"
+                )
     except Exception as exc:
+        if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+            raise
         print(f"[r2 upload] non-fatal: {exc}")
 
 

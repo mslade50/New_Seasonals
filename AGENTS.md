@@ -53,18 +53,22 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── correlation_heatmaps.py     # Correlation analysis
 │   ├── macro_seasonality.py        # Macro seasonality (formerly sector_trends)
 │   └── user_input.py               # User input page
-├── .github/workflows/              # GitHub Actions — see "Automated Pipeline" below
-│   ├── daily_screener.yml          # 2x/day unified scan — pre-market (08:47 UTC) and post-close (22:00 UTC) bookends, both --scope=all
-│   ├── build_earnings_calendar.yml # Nightly FMP refresh → R2
-│   ├── update_master_prices.yml    # Nightly yfinance incremental → R2
-│   ├── update_intraday_prices.yml  # Nightly 15min yfinance incremental → R2 (intraday cache)
-│   ├── portfolio_report.yml        # Daily portfolio email
+├── .github/workflows/              # Dispatch-only recovery jobs + cloud-only site deploys
+│   ├── local_automation_fallback.yml # Sole migrated-job cron; receipt-gated backup controller
+│   ├── daily_screener.yml          # Dispatch-only AM/PM unified-scan backup
+│   ├── build_earnings_calendar.yml # Dispatch-only FMP refresh backup → R2
+│   ├── update_master_prices.yml    # Dispatch-only yfinance backup → R2
+│   ├── update_intraday_prices.yml  # Dispatch-only 15min-cache backup → R2
+│   ├── portfolio_report.yml        # Dispatch-only portfolio-report backup
 │   ├── bootstrap_caches.yml        # workflow_dispatch only — one-shot full master_prices rebuild
-│   ├── risk_report.yml             # Daily risk dashboard email
-│   ├── verify_fills.yml            # Post-close fill verification
-│   ├── deploy_site.yml             # Private-site build + Pages deploy — reusable workflow (workflow_call) invoked by daily_screener's deploy-site job, same run (2x/day)
-│   └── weekly_rundown.yml          # Sunday weekly PDF
-├── scripts/                        # Task Scheduler PowerShell wrappers (most disabled post-Phase-2)
+│   ├── risk_report.yml             # Dispatch-only risk-report backup
+│   ├── verify_fills.yml            # Dispatch-only fill-verification backup
+│   ├── deploy_site.yml             # Cloud-only private-site build + Pages deploy
+│   └── weekly_rundown.yml          # Dispatch-only weekly PDF backup
+├── scripts/                        # Local-primary scheduler, producers, and maintenance tools
+│   ├── automation_supervisor.py    # Component receipts, leases, strict runs, GitHub fallback
+│   ├── install_local_automation_tasks.ps1 # Phased pinned-runtime/task installer
+│   ├── run_local_automation.ps1    # Task Scheduler boundary for pinned runtime
 │   ├── run_radar_weekly.ps1        # Sundays 8:30 AM ET — runs radar digest, commits + pushes
 │   ├── run_earnings_calendar.ps1   # Weekdays 5:30 PM ET — local backup of GHA build (dual writers OK)
 │   ├── build_earnings_calendar.py  # FMP earnings backfill (used by both local + GHA)
@@ -137,7 +141,7 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 **Strategy modules** (`strat_backtester.py`, `daily_scan.py`, `daily_portfolio_report.py`) all depend on `strategy_config.py` for `STRATEGY_BOOK` and `ACCOUNT_VALUE`.
 
-**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three. Runs in **GitHub Actions** (weekdays 21:30 UTC = 5:30 PM ET) — pulls `data/master_prices.parquet` and `data/earnings_calendar.parquet` from Cloudflare R2 before running. Reports cover both liquid (LIQUID_PLUS_COMMODITIES) and overflow (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES) universes — overflow-eligible strategies get a second deep-copied pass with `OVERFLOW_RISK_OVERRIDES` (only OLV 35→25 bps nominal remains; OVS uses path-1 nominal 40 bps for both tiers; all nominals scale by `GLOBAL_RISK_MULTIPLIER` — see "Sizing Conventions"). Workflow: `.github/workflows/portfolio_report.yml`.
+**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three. The pinned local-primary `postclose` Task Scheduler pipeline runs it after pulling canonical R2 inputs; `.github/workflows/portfolio_report.yml` is receipt-gated backup only. Reports cover both liquid (LIQUID_PLUS_COMMODITIES) and overflow (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES) universes — overflow-eligible strategies get a second deep-copied pass with `OVERFLOW_RISK_OVERRIDES` (only OLV 35→25 bps nominal remains; OVS uses path-1 nominal 40 bps for both tiers; all nominals scale by `GLOBAL_RISK_MULTIPLIER` — see "Sizing Conventions").
 
 **daily_scan.py** is the single unified scanner (post-2026-04-30 merge with the retired `local_overflow_scan.py`). CLI flags:
 - `--scope=liquid` (default) — scans every strategy against its native universe (typically LIQUID_PLUS_COMMODITIES)
@@ -650,11 +654,27 @@ strategies are untouched. Aligned sites (change together):
   the live date math is validated by the entry-expire chain (daily_scan exit-date
   build ↔ order_staging back-computation, identical `CustomBusinessDay` calendar).
 
-## Cloudflare R2 Cache + GHA Migration
+## Local-primary Automation + Cloudflare R2 (effective 2026-08-28)
 
-As of 2026-04-30, the nightly pipeline runs entirely in GitHub Actions. The local Task Scheduler retains the radar tasks plus (as of 2026-05-13) two AM `workflow_dispatch` triggers that bypass GitHub's congested 8-9 UTC cron-queue lag. R2 is the persistence layer that lets cloud workflows share parquet caches.
+The production data, scan, sleeve, report, and weekly jobs run on this machine through seven Windows Task Scheduler entries backed by a dedicated clean worktree, immutable Git fallback tag, and dedicated virtual environment. The development checkout is never the production runtime. Scheduled runs never fetch, merge, reset, or upgrade their own code.
 
-### R2 secrets (in GHA repo settings)
+| Task pipeline | Eastern schedule | Scope |
+|---|---|---|
+| `premarket` | Weekdays 04:10 | CBOE, settled master prices, risk correction, event sleeve, AM scan, cloud site handoffs |
+| `discretionary` | Weekdays 08:35 | Research-only Discretionary Focus |
+| `execution` | Weekdays 16:30 | Live-position execution email |
+| `postclose` | Weekdays 17:10 | PM prices/risk/fills/earnings/portfolio/CBOE/trend/intraday/scan/macro/sites |
+| `indicator` | Monday 03:00 | Backtester indicator cache |
+| `weekly-rundown` | Sunday 08:00 | Weekly PDF email |
+| `health` | Weekdays 07:30 | R2 receipts, data, delivery, and local-runtime log checks |
+
+`scripts/automation_supervisor.py` claims every component with a CAS-updated R2 receipt under `automation/receipts/v1/<ET-date>/<job>/`. Fresh leases prevent overlap; successful or indeterminate receipts block duplicate work. Before a non-rerun-safe command can touch Sheets, SMTP, or other external state, the receipt becomes `indeterminate`; a crash or ambiguous result then requires the explicit `resolve` command and can never trigger an automatic duplicate. Producer runs set `LOCAL_AUTOMATION_STRICT=1` and validate required R2 or external readbacks.
+
+GitHub Actions is backup, not the primary scheduler. Migrated child workflows are `workflow_dispatch`-only and include the receipt token in `run-name`. The sole migrated-job cron is `.github/workflows/local_automation_fallback.yml`; it checks receipts during bounded ET windows and dispatches only missing/retryable components. Private and shared production sites remain cloud-only: local pipelines publish bounded canonical inputs to R2 and dispatch `deploy_site.yml` / `deploy_shared_seasonals.yml`; they never build or deploy a production site locally.
+
+Installation and cutover are documented in `docs/local_automation_task_scheduler.md`. Never re-enable the superseded per-workflow trigger tasks alongside the local-primary set. R2 is the canonical persistence and cross-runtime handoff layer.
+
+### R2 secrets (machine `.env` and GitHub backup secrets)
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET=seasonals-cache`
 
 ### Bucket contents (key-value)
@@ -672,9 +692,9 @@ is_configured()                                          # bool: R2_* env vars s
 ```
 Both helpers no-op gracefully when R2 isn't configured (returns False, prints a notice). ASCII-only output to avoid Windows cp1252 crashes when running locally.
 
-## Automated Pipeline
+## Historical GitHub-first Schedule (retired 2026-08-28; do not operate from this table)
 
-All five trading-day workflows now run in GHA. Order staging stays local (IBKR-bound).
+The table below records the former GitHub-first design for incident archaeology only. Its schedules are disabled; the local-primary catalog and installer document above are authoritative. Order staging remains local and IBKR-bound.
 
 | Workflow file | Schedule | What it does |
 |---|---|---|
@@ -692,7 +712,7 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `trend_sleeve.yml` | Weekdays 21:35 UTC (no-ops except the month's last trading day) | Monthly trend-following ballast rebalance — writes MOO orders to the `Trend` Sheets tab + state to R2. See "Trend Sleeve" section. |
 | `execution_report.yml` | Weekdays 20:30 AND 21:30 UTC — `daily_execution_report.py` gates on WHICH cron fired (`GHA_SCHEDULE` = `github.event.schedule`) + the date's DST regime, so exactly one sends at ~4:30 PM ET year-round even when GHA cron lag starts the run an hour+ late (the old hour==16 gate silently dropped the 2026-07-08/09 emails). Cron strings must match `EDT_CRON`/`EST_CRON` in the script; unknown cron fails open (sends). | Nightly email of LIVE primary-account positions (mirrors the site Execution tab). Pulls the execution-broker DO's `/book` snapshot (Bearer `STATUS_TOKEN`; URL via `EXEC_BROKER_URL` secret, defaults to the workers.dev URL), excludes OPT rows, and enriches each position from its own working exit legs: target = closing LMT `lmt`, stop = closing STP `aux` (NA if none), time stop = closing MKT leg's `goodAfterTime` date, strategy = 3rd pipe field of any leg's `orderRef` (requires `order_ref` in `book_snapshot.py` — added 2026-07-08 in `OneDrive\trading_ibkr`). No strategy-tagged legs → "Trend Sleeve" (symbol in `trend_sleeve_state.json` on R2) else "Discretionary". Recipients: repo variable `EXECUTION_REPORT_RECIPIENTS` (comma-separated; defaults to mckinleyslade@gmail.com). Guard: `tests/test_execution_report.py`. |
 
-### Local Task Scheduler (post-Phase-2)
+### Historical Task Scheduler State (retired at local-primary cutover)
 
 | Task | State | Notes |
 |---|---|---|
@@ -707,7 +727,7 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 
 Order staging (`C:\Users\mckin\OneDrive\trading_ibkr\order_staging.py`) is a manual / scheduled local launch — talks to IBKR TWS on `127.0.0.1:7496`. Reads `Order_Staging` + `Overflow` Sheets tabs and submits orders pre-market.
 
-### AM Trigger Architecture (added 2026-05-13)
+### Historical AM Dispatch Architecture (retired 2026-08-28)
 
 GitHub's shared cron scheduler had 1-3h queue delays at 8:47 UTC, pushing the AM scan past pre-market staging deadlines. Fix: fire the AM runs from this machine via the GitHub REST API (`workflow_dispatch`), which has near-zero queue lag.
 
@@ -723,11 +743,10 @@ GitHub's shared cron scheduler had 1-3h queue delays at 8:47 UTC, pushing the AM
 - Logs: `C:\Scripts\logs\trigger_*.log` (one line per dispatch attempt)
 - PAT: `HKCU\Environment\GH_PAT_NEW_SEASONALS` (fine-grained, scoped to `mslade50/New_Seasonals`, permissions: Actions/Workflows/Contents — read+write, Metadata read). Rotate annually.
 
-**Maintenance:** if the local task or PAT breaks, the fallback cron picks up the slack the same day. If both break, the PM cron at 20:30 / 22:00 UTC still runs (independent of any of this).
+**Current maintenance:** inspect R2 component receipts and the pinned-runtime logs. The central hourly receipt controller supplies the GitHub backup; the old independent PM/AM child crons no longer exist.
 
-### Sunday Pipeline (two-step, still partially local)
-1. **8:30 AM ET (local)**: `radar_weekly_summary.py` reads last 7 days of radar briefs from `C:\Users\mckin\projects\last30days-radar\output\briefs\`, pulls yfinance snapshots for all tickers, pipes to Codex subprocess with PM-style distillation framework (variant perception required, "who's on the other side" required). Output committed + pushed to `data/radar_weekly_summary.md`.
-2. **9:00 AM ET (Actions)**: `weekly_market_rundown.py` generates tabloid (17x11") landscape PDF with all risk charts, reads the radar digest and includes it as styled HTML email body alongside the PDF attachment.
+### Sunday Pipeline
+1. **8:00 AM ET (local-primary)**: `weekly_market_rundown.py` generates the tabloid landscape PDF and emails it. The receipt-gated `weekly_rundown.yml` workflow is backup only.
 
 ### Daily Risk Report — Forward Returns Table
 Uses `compute_similar_reading_returns()` from `risk_dashboard_v2.py`. Forward returns at similar fragility readings include:

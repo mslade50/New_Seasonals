@@ -233,8 +233,8 @@ def main():
     # FAIL-LOUD GATES (2026-07-16). This cache sizes live orders book-wide;
     # a green run that fetched nothing (yfinance outage, network failure)
     # used to exit 0 and leave the cache silently stale — the scan would then
-    # re-detect already-traded signals. Exit nonzero instead so the GHA
-    # failure email is the alert.
+    # re-detect already-traded signals. Exit nonzero so the supervisor receipt
+    # and health battery surface the failure.
     if not all_frames:
         print("ERROR: zero rows fetched for the entire universe — yfinance "
               "outage or network failure. Refusing to exit green.")
@@ -347,19 +347,26 @@ def main():
     new_max = combined.groupby("ticker")["date"].max().max()
     print(f"\nDone in {elapsed:.1f}s. Added {added:,} rows. New max date: {new_max.date()}")
 
-    # Push the updated parquet to Cloudflare R2 so GHA workflows can pull the
-    # same cache. Locally a failed/unconfigured upload is a non-fatal notice;
-    # in GHA the R2 write IS the point of the run — fail loud so downstream
-    # scans don't silently pull a stale cache (2026-07-16).
+    # Push the updated parquet to canonical R2 so local-primary consumers and
+    # GitHub backups read the same cache. Ad-hoc non-strict local runs retain
+    # the historical notice; production local/GitHub runs fail loud.
     upload_ok = False
     try:
-        from cache_io import upload_from_local
+        from cache_io import head, upload_from_local
         upload_ok = bool(upload_from_local(PATH, "master_prices.parquet"))
+        if upload_ok and os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+            meta = head("master_prices.parquet")
+            actual = int((meta or {}).get("ContentLength") or -1)
+            expected = os.path.getsize(PATH)
+            if actual != expected:
+                print(f"ERROR: R2 master size mismatch: {actual} != {expected}")
+                upload_ok = False
     except Exception as e:
         print(f"[r2 upload] error: {e}")
     if not upload_ok:
-        if os.environ.get("GITHUB_ACTIONS"):
-            print("ERROR: R2 upload failed in GHA — downstream scans would pull "
+        if (os.environ.get("GITHUB_ACTIONS")
+                or os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1"):
+            print("ERROR: R2 upload failed in strict automation — downstream scans would pull "
                   "a stale cache while this run shows green. Failing loud.")
             return 1
         print("[r2 upload] skipped/failed (local run — non-fatal)")

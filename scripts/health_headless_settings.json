@@ -1,5 +1,5 @@
 {
-  "_comment": "Scoped allowlist for the unattended repo health check (claude -p, headless). Read-only diagnosis: the battery script, gh/git inspection, targeted pytest, and writing the verdict report. No web, no broker, no data writes (the battery script maintains its own tripwire state internally). Deny list hard-blocks secrets, market-context convention.",
+  "_comment": "Scoped allowlist for unattended local-primary health diagnosis: the receipt/data battery, GitHub backup inspection, targeted pytest, and the verdict report. No web, broker writes, producer reruns, or code mutation; the battery alone maintains its PIT tripwire state.",
   "permissions": {
     "allow": [
       "Skill",
@@ -11,7 +11,6 @@
       "Bash(gh run view:*)",
       "Bash(git log:*)",
       "Bash(git status:*)",
-      "Bash(git fetch:*)",
       "Read",
       "Glob",
       "Grep",

@@ -11,7 +11,7 @@ Process instructions for the agent: `.claude/skills/daily-pitch/SKILL.md`.
 
 | time (ET) | what runs | where |
 |---|---|---|
-| 4:17 / 4:30 / 4:47 | the existing chain refreshes prices, the risk dial and the scan | GHA + local triggers |
+| 4:10 onward | the `premarket` pipeline refreshes CBOE/prices/risk, stages Event, scans, and hands sites to cloud deploys | pinned local-primary Task Scheduler runtime |
 | 5:10 | `scripts/run_daily_pitch.bat` | this machine, Task Scheduler |
 | 5:10 | grade yesterday's ideas, rebuild the scoreboard | `scripts/grade_pitch_journal.py` |
 | 5:11 | assemble state | `scripts/build_pitch_state.py` |
@@ -181,21 +181,21 @@ Every pitch email carries one line near the top:
 Pipeline: 7/7 overnight jobs ran | prices 2026-08-06 | dial 2026-08-06 | P/C 2026-08-05 (1 bd) - all current
 ```
 
-Green when every tracked workflow has a successful run dated on or after the
-previous trading session AND no cache is behind that session; red, naming what
-is missing or stale, otherwise.
+Green when every tracked component has a successful R2 automation receipt dated
+on or after the previous trading session AND no cache is behind that session;
+red, naming any failed, missing, indeterminate, or stale component otherwise.
 
 It exists because of the 2026-08-06 GitHub Actions incident, which skipped an
-entire evening of crons. A job that runs and FAILS is already loud. A job that
-never STARTS leaves no trace at all, and missed crons are never backfilled, so
-the whole PM chain went missing with nothing to show for it. The rule (last
-success on or after the prior session) covers both the pre-market dispatches
-and the prior evening's crons, and does not false-alarm on Mondays the way a
-flat 24-hour window would.
+entire evening of crons. The local-primary supervisor now writes a receipt for
+each component, including explicit `failure` and `indeterminate` states, while
+the central GitHub backup controller looks for missing receipts. The rule (last
+success on or after the prior session) covers both the premarket pipeline and
+the prior evening's post-close pipeline without Monday false alarms.
 
 Green days print too, deliberately: silence would otherwise be ambiguous
-between "all good" and "the check itself broke". Needs `GH_PAT_NEW_SEASONALS`;
-without it the line says the check was unavailable rather than implying health.
+between "all good" and "the check itself broke". Receipt reads use the existing
+R2 credentials; an unavailable receipt check is reported as unavailable, never
+as healthy.
 
 ## Conventions worth knowing before you change anything
 

@@ -1,4 +1,5 @@
 name: Build Macro Release History
+run-name: "Build Macro Release History — ${{ inputs.automation_token || 'manual' }}"
 
 # Captures U.S. economic actuals, consensus estimates, prior values, and
 # release timestamps from FMP.  The normalized cache is stored in R2 for
@@ -8,13 +9,17 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
+
 on:
-  schedule:
-    # 22:15 UTC = 6:15 PM ET during daylight time.  Same-day releases have
-    # settled, while the cache is ready before the next morning's research.
-    - cron: '15 22 * * 1-5'
   workflow_dispatch:
     inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
       full:
         description: 'Refetch the full FMP history from 2013'
         required: false

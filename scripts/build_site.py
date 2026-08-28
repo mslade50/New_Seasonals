@@ -1606,12 +1606,10 @@ def build_health(sig, data_dir, ideas=None, *, build_id, built_at):
         arts["fragility"] = {"last_date": None, "last_63d": None, "age_td": None,
                              "status": "missing", "note": str(e)}
 
-    # exposure_state.json (committed mid-run by the AM scan). Two structural
-    # lags stack on AM deploys: its asof trails one session by construction
-    # (it reads the fragility parquet, appended only at the PM risk run), and
-    # the deploy checkout SHA predates the same morning's mid-run commit. So
-    # a healthy pipeline legitimately reads 2 TDs old here every AM build —
-    # only flag stale beyond that.
+    # exposure_state.json is published by the AM scan to canonical R2 before
+    # the cloud-only deploy hydrates its isolated build workspace. Its asof can
+    # still trail the current date because it consumes settled session state;
+    # allow two trading days for holidays/recovery, then flag it stale.
     try:
         with open(EXPOSURE_STATE, encoding="utf-8") as f:
             es = json.load(f)

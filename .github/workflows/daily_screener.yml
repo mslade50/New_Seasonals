@@ -3,7 +3,7 @@ name: Daily Strategy Scan (Liquid + Overflow)
 # Pre-market and post-close bookend scans only — intraday MOC slots were
 # retired when the strategy book lost its last MOC entry. Add them back if
 # a Signal Close strategy is reintroduced.
-run-name: "Daily Strategy Scan — ${{ github.event_name == 'workflow_dispatch' && 'manual full' || 'bookend full (scope=all)' }}"
+run-name: "Daily Strategy Scan (${{ inputs.bookend || 'am' }}) — ${{ inputs.automation_token || 'manual' }}"
 
 # Unified scan: each run hits LIQUID_PLUS_COMMODITIES (190 tickers) AND
 # the overflow universe CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES (~870
@@ -19,79 +19,40 @@ concurrency:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
+
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
 
 on:
-  schedule:
-    # Post-close full scan: 6:00 PM EDT (22:00 UTC). Runs 1.5h after the
-    # update_master_prices job (20:30 UTC + ~3 min runtime + cron lag) so
-    # the overflow tier reads a fresh master_prices.parquet that includes
-    # today's close.
-    - cron: '0 22 * * 1-5'
-    # AM fallback: 10:30 UTC (6:30 AM EDT / 5:30 AM EST). Only runs if the
-    # local workflow_dispatch at 4:47 AM ET didn't fire today (machine off,
-    # network outage, etc.). The `check` job below queries this workflow's
-    # recent runs and skips if a workflow_dispatch's scanner job already
-    # succeeded today UTC, even when a later deploy job failed.
-    - cron: '30 10 * * 1-5'
-
-  # Pre-market full scan (4:47 AM ET weekdays) is fired via workflow_dispatch
-  # from a local Task Scheduler entry on McKinley's machine — GitHub's shared
-  # cron scheduler had 1-3h queue delays at 8:47 UTC. The 10:30 UTC cron
-  # above is a fallback that auto-skips when the local dispatch fired.
   workflow_dispatch:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
+      bookend:
+        description: 'AM writes exposure state; PM scans the completed close'
+        required: true
+        default: am
+        type: choice
+        options:
+          - am
+          - pm
+      run_event_sleeve:
+        description: 'Also stage the once-only event sleeve (AM only)'
+        required: false
+        default: true
+        type: boolean
+      deploy_after_scan:
+        description: 'Run cloud-only private/shared site deploys after a successful scan'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.gate.outputs.should_run }}
-    steps:
-      - name: Decide whether to run
-        # Only the AM fallback cron is gated — dispatch and PM cron always run.
-        id: gate
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHOULD_RUN=true
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "30 10 * * 1-5" ]; then
-            TODAY=$(date -u +%Y-%m-%d)
-            # Only count a dispatch inside the AM pre-market window (local trigger
-            # fires 4:47 AM ET = 08:47 UTC EDT / 09:47 UTC EST). Keying on the whole
-            # UTC day let an evening manual dispatch (after 00:00 UTC = 8 PM EDT /
-            # 7 PM EST the prior night) suppress this fallback, so no pre-market
-            # scan ran and order_staging read the stale prior-evening tabs.
-            # Check the scanner job itself rather than the overall run. The scan
-            # can succeed while a downstream site deploy fails; treating that as
-            # a missed scan causes the fallback to stage and email everything twice.
-            DISPATCH_RUN_IDS=$(gh run list \
-              --workflow=daily_screener.yml \
-              --event=workflow_dispatch \
-              --created="${TODAY}T07:00Z..${TODAY}T10:30Z" \
-              --repo "${{ github.repository }}" \
-              --limit=20 \
-              --json databaseId --jq '.[].databaseId')
-            SUCCESSFUL_SCANNER_RUNS=0
-            for RUN_ID in $DISPATCH_RUN_IDS; do
-              SCANNER_OK=$(gh api \
-                "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?per_page=100" \
-                --jq '[.jobs[] | select(.name == "run-scanner" and .conclusion == "success")] | length')
-              if [ "$SCANNER_OK" -gt 0 ]; then
-                SUCCESSFUL_SCANNER_RUNS=$((SUCCESSFUL_SCANNER_RUNS + 1))
-              fi
-            done
-            if [ "$SUCCESSFUL_SCANNER_RUNS" -gt 0 ]; then
-              echo "::notice::Local AM scanner already succeeded today ($SUCCESSFUL_SCANNER_RUNS run). Skipping fallback."
-              SHOULD_RUN=false
-            else
-              echo "::notice::No successful AM scanner job found. Running fallback."
-            fi
-          fi
-          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
-
   run-scanner:
-    needs: check
-    if: needs.check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -118,6 +79,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          LOCAL_AUTOMATION_STRICT: '1'
         run: python scripts/pull_scan_caches.py
 
       - name: Stage event sleeve (AM bookend only)
@@ -129,7 +91,7 @@ jobs:
         # already traded; event_sleeve.py refuses past 9:00 ET as a second
         # guard. A missed EXIT self-heals on the next AM run (state-driven
         # exits); a missed ENTRY is a skipped trade.
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 10 * * 1-5'
+        if: inputs.bookend == 'am' && inputs.run_event_sleeve
         continue-on-error: true
         env:
           GCP_JSON: ${{ secrets.GCP_JSON }}
@@ -148,51 +110,22 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          LOCAL_AUTOMATION_STRICT: '1'
           # Overflow universe gate. "1" = comprehensive (dynamic ∪ static, ~1,351);
           # "0" = legacy static tier (~870). Currently REVERTED to static — flip to
           # "1" to re-activate the comprehensive universe live (the cache pulls + R2
           # creds above stay wired, so re-enabling is a one-character change).
           OVERFLOW_UNIVERSE_ACTIVE: "0"
-        run: python daily_scan.py --scope=all
+        run: python daily_scan.py --scope=all --bookend="${{ inputs.bookend }}"
 
       - name: Publish private-site exposure input to R2 (AM bookend only)
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 10 * * 1-5'
+        if: inputs.bookend == 'am'
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/site_r2_pipeline.py publish-group --group exposure
-
-      - name: Commit exposure state (AM bookend only)
-        # Only the AM bookend writes data/exposure_state.json (PM bookend
-        # leaves it untouched). git diff exits 0 when no change, so this is
-        # a no-op on the PM run.
-        if: always()
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -f data/exposure_state.json ]; then
-            git add data/exposure_state.json
-            if git diff --cached --quiet; then
-              echo "No exposure_state.json change to commit."
-            else
-              git commit -m "exposure: state snapshot $(date -u +'%Y-%m-%d %H:%M UTC')"
-              # Race other bot commits: rebase then verify the push landed. A lost
-              # push here drops the morning exposure snapshot order_staging reads.
-              pushed=false
-              for attempt in 1 2 3; do
-                git pull --rebase origin main || true
-                if git push; then pushed=true; break; fi
-                echo "push attempt $attempt rejected; re-rebasing and retrying."
-                sleep 5
-              done
-              if [ "$pushed" != true ]; then
-                echo "::error::failed to push exposure_state.json after 3 attempts"
-                exit 1
-              fi
-            fi
-          fi
 
   deploy-site:
     # Tail of the pipeline: rebuild + deploy the private analytics site in the
@@ -201,6 +134,7 @@ jobs:
     # workflow. `needs: run-scanner` means a skipped (AM fallback) or failed
     # scan also skips the deploy, leaving the previous deploy up.
     needs: run-scanner
+    if: inputs.deploy_after_scan
     uses: ./.github/workflows/deploy_site.yml
     secrets: inherit
 
@@ -209,5 +143,6 @@ jobs:
     # snapshot. The dedicated builder has a strict output allow-list and never
     # packages portfolio, order, execution, or research data.
     needs: run-scanner
+    if: inputs.deploy_after_scan
     uses: ./.github/workflows/deploy_shared_seasonals.yml
     secrets: inherit

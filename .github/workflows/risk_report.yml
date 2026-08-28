@@ -1,20 +1,14 @@
 name: Daily Risk Report
+run-name: "Daily Risk Report (${{ inputs.mode || 'full' }}) — ${{ inputs.automation_token || 'manual' }}"
 
 on:
-  schedule:
-    # PM full run at 21:15 UTC (5:15 PM EDT), weekdays — email + data caches.
-    # The row it appends comes from a just-closed yfinance bar that can be
-    # provisional; the AM correction below refreshes it with settled prices
-    # BEFORE daily_scan sizes off it (~4:47 AM ET).
-    - cron: '15 21 * * 1-5'
-    # AM fallback cron (9:00 UTC = 5:00 AM EDT — late vs the scan; the
-    # PRIMARY AM trigger is the local Task Scheduler workflow_dispatch at
-    # 4:30 AM ET, same architecture as daily_screener/update_master_prices).
-    # Data-only + refresh-last; idempotent, so a duplicate after a successful
-    # dispatch is harmless.
-    - cron: '0 9 * * 1-5'
   workflow_dispatch:
     inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
       mode:
         description: "full (email) or data_only (AM price correction)"
         type: choice
@@ -22,7 +16,10 @@ on:
         default: full
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
 
 jobs:
   risk_report:
@@ -43,14 +40,21 @@ jobs:
           pip install -r requirements.txt
           pip install kaleido
 
+      - name: Pull canonical append-only risk state from R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/pull_scan_caches.py --set risk
+
       - name: Run risk report
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          GHA_SCHEDULE: ${{ github.event.schedule }}
           RUN_MODE: ${{ inputs.mode }}
         run: |
-          if [ "$RUN_MODE" = "data_only" ] || [ "$GHA_SCHEDULE" = "0 9 * * 1-5" ]; then
+          if [ "$RUN_MODE" = "data_only" ]; then
             python daily_risk_report.py --data-only --refresh-last
           else
             python daily_risk_report.py
@@ -63,33 +67,3 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/site_r2_pipeline.py publish-group --group risk
-
-      - name: Commit updated data caches
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/rd2_fragility.parquet data/rd2_environment.json
-          git add data/rd2_fragility_simple.parquet data/dial_sleeve_paper.json 2>/dev/null || true
-          if git diff --cached --quiet; then
-            echo "No fragility change to commit."
-          else
-            git commit -m "Detailed Update: $(date -u +'%Y-%m-%d %H:%M UTC')"
-            # This push races the 21:32 UTC CBOE commit. A bare push loses to a
-            # non-fast-forward and silently strands rd2_fragility.parquet at
-            # yesterday's values, which daily_scan reads to size every order.
-            # Rebase, verify the push landed, and fail the job loudly if it did not.
-            pushed=false
-            for attempt in 1 2 3; do
-              # --autostash: the run leaves other tracked caches (e.g.
-              # rd2_spy_ohlc.parquet) dirty, which otherwise blocks the rebase
-              # and defeats this retry loop exactly when the race happens.
-              git pull --rebase --autostash origin main || true
-              if git push; then pushed=true; break; fi
-              echo "push attempt $attempt rejected; re-rebasing and retrying."
-              sleep 5
-            done
-            if [ "$pushed" != true ]; then
-              echo "::error::failed to push rd2_fragility.parquet after 3 attempts — live sizing would read stale fragility"
-              exit 1
-            fi
-          fi

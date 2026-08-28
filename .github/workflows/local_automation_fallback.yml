@@ -1,0 +1,68 @@
+name: Local Automation Guarded Fallback
+run-name: "Local Automation Guarded Fallback — ${{ inputs.pipeline || 'all' }}"
+
+# This is the only remaining GitHub cron for the migrated production jobs.
+# It never performs production work directly. It asks the same supervisor used
+# by Task Scheduler to inspect R2 completion receipts and dispatch only due,
+# missing workflow_dispatch backups with unique child automation tokens.
+on:
+  schedule:
+    - cron: '47 * * * *'
+    # The research-only discretionary recovery window is 08:50-09:20 ET,
+    # which no hourly :47 tick can enter. One DST-safe 08:50 ET probe (plus
+    # the out-of-window companion) leaves the backup its full delivery window.
+    - cron: '50 12,13 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      pipeline:
+        description: 'Limit a manual fallback check to one pipeline (default: all)'
+        required: false
+        default: all
+        type: string
+
+concurrency:
+  # The 08:50 ET discretionary probe must not queue behind a potentially long
+  # 08:47 premarket recovery. R2 receipt CAS still arbitrates component claims.
+  group: local-automation-guarded-fallback-${{ github.event.schedule == '50 12,13 * * 1-5' && 'discretionary' || 'general' }}
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+# Checked-in operational pin. The local runtime marker, this controller's own
+# checkout, and every child workflow dispatch all resolve the same immutable tag.
+env:
+  AUTOMATION_RUNTIME_REF: automation-runtime-2026-08-28
+
+jobs:
+  dispatch-missing:
+    runs-on: ubuntu-latest
+    # A machine-off PM recovery may serially wait for the producer/report/scan
+    # workflows. Keep one controller alive long enough to preserve ordering.
+    timeout-minutes: 240
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.AUTOMATION_RUNTIME_REF }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install supervisor dependencies
+        run: pip install boto3 requests python-dotenv
+
+      - name: Dispatch only due jobs missing verified R2 receipts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          PIPELINE: ${{ github.event.schedule == '50 12,13 * * 1-5' && 'discretionary' || inputs.pipeline || 'all' }}
+          PYTHONUNBUFFERED: '1'
+        run: python scripts/automation_supervisor.py fallback-due --pipeline "$PIPELINE" --ref "$AUTOMATION_RUNTIME_REF"

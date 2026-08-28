@@ -45,6 +45,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import pitch_journal  # noqa: E402
+import cache_io  # noqa: E402
 from macro_calendar import EVENT_TYPES, load_macro_events  # noqa: E402
 from pitch_lab import load_watchlist  # noqa: E402
 from pitch_grammar import REPEAT_BLOCK_TD, wilder_atr  # noqa: E402
@@ -80,19 +81,18 @@ CALENDAR_LOOKBACK_TD = 5
 
 # Overnight jobs the pitch depends on, checked so the email can say in one
 # line whether the chain actually ran. Added after the 2026-08-06 GitHub
-# Actions incident, when every PM cron was silently skipped: scheduled runs
-# are what GitHub sheds under load and missed crons are never backfilled, so
-# a job that never STARTS leaves no failure notification behind. A job that
-# runs and fails is already loud; this covers the silent half.
-GH_REPO = "mslade50/New_Seasonals"
-TRACKED_WORKFLOWS = [
-    ("update_cboe_putcall.yml", "put/call"),
-    ("update_master_prices.yml", "prices"),
-    ("risk_report.yml", "risk dial"),
-    ("daily_screener.yml", "scan"),
-    ("verify_fills.yml", "fills"),
-    ("portfolio_report.yml", "portfolio"),
-    ("build_earnings_calendar.yml", "earnings"),
+# Actions incident, when every PM cron was silently skipped. The local-primary
+# design now writes component receipts for local or backup execution, so both
+# explicit failures and jobs that never started are visible.
+AUTOMATION_RECEIPT_SCHEMA = "automation-receipt.v1"
+TRACKED_AUTOMATION_RECEIPTS = [
+    ("cboe_am", "put/call", "today"),
+    ("master_prices_am", "prices", "today"),
+    ("risk_am", "risk dial", "today"),
+    ("scan_am", "scan", "today"),
+    ("verify_fills", "fills", "previous"),
+    ("portfolio_report", "portfolio", "previous"),
+    ("earnings_and_grades", "earnings", "previous"),
 ]
 
 
@@ -401,57 +401,54 @@ def build_seasonality(today: pd.Timestamp, warnings: list[str]) -> dict:
     return out
 
 
-def _latest_success(workflow: str, token: str) -> str | None:
-    """UTC date of the newest successful run, or None."""
-    import requests
-    url = (f"https://api.github.com/repos/{GH_REPO}/actions/workflows/"
-           f"{workflow}/runs")
-    resp = requests.get(url, params={"status": "success", "per_page": 1},
-                        headers={"Authorization": f"Bearer {token}",
-                                 "Accept": "application/vnd.github+json",
-                                 "X-GitHub-Api-Version": "2022-11-28"},
-                        timeout=15)
-    resp.raise_for_status()
-    runs = resp.json().get("workflow_runs") or []
-    return runs[0]["created_at"][:10] if runs else None
+def _automation_receipt(job_id: str, run_date: dt.date) -> dict | None:
+    key = f"automation/receipts/v1/{run_date.isoformat()}/{job_id}/latest.json"
+    local = ROOT / "artifacts" / "daily_pitch" / "automation_receipts" / run_date.isoformat() / f"{job_id}.json"
+    if not cache_io.download_to_local(key, str(local)):
+        return None
+    try:
+        receipt = json.loads(local.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (receipt.get("schema_version") != AUTOMATION_RECEIPT_SCHEMA
+            or receipt.get("job_id") != job_id
+            or receipt.get("run_date_et") != run_date.isoformat()):
+        return None
+    return receipt
 
 
 def build_pipeline(today: pd.Timestamp, tape: dict, risk: dict,
                    warnings: list[str], fetch=None) -> dict:
     """Did the overnight chain run, and are the caches current?
 
-    A workflow counts as green when its newest SUCCESSFUL run is dated on or
-    after the previous trading session. That one rule covers both the
-    pre-market dispatches (which run today) and the prior evening's crons
-    (which run on the previous session's date), and it does not false-alarm
-    on Monday mornings the way a flat 24-hour window would.
+    A job counts as green only when the local-primary supervisor (or its
+    GitHub fallback) wrote a verified R2 success receipt for the expected ET
+    session. This replaces GitHub-run freshness: successful local jobs should
+    not need to create a cloud run merely to make the pitch status green.
     """
     prev_session = (today - TRADING_DAY).normalize()
     out: dict = {"since": str(prev_session.date()), "checked": 0, "green": 0,
                  "missing": [], "available": False, "stale": []}
 
-    token = os.environ.get("GH_PAT_NEW_SEASONALS", "")
-    # Test the no-token case BEFORE defaulting fetch: the old order made the
-    # identity check always-true, so a missing PAT hit the GitHub API with an
-    # empty Bearer and reported a misleading 401 instead of the config gap.
-    use_check = bool(token) or fetch is not None
-    fetch = fetch or (lambda wf: _latest_success(wf, token))
-    if use_check:
-        try:
-            for workflow, label in TRACKED_WORKFLOWS:
-                last = fetch(workflow)
-                out["checked"] += 1
-                if last and last >= str(prev_session.date()):
-                    out["green"] += 1
-                else:
-                    out["missing"].append({"job": label, "last_success": last})
-            out["available"] = True
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"pipeline: run check unavailable ({exc})")
-            out["error"] = str(exc)
-    else:
-        out["error"] = "GH_PAT_NEW_SEASONALS not set"
-        warnings.append("pipeline: no GitHub token, overnight run check skipped")
+    fetch = fetch or _automation_receipt
+    try:
+        for job_id, label, date_basis in TRACKED_AUTOMATION_RECEIPTS:
+            expected = today.date() if date_basis == "today" else prev_session.date()
+            receipt = fetch(job_id, expected)
+            out["checked"] += 1
+            if receipt and receipt.get("status") == "success":
+                out["green"] += 1
+            else:
+                out["missing"].append({
+                    "job": label,
+                    "job_id": job_id,
+                    "expected_date": expected.isoformat(),
+                    "status": (receipt or {}).get("status"),
+                })
+        out["available"] = True
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"pipeline: automation receipt check unavailable ({exc})")
+        out["error"] = str(exc)
 
     # Cache freshness, from what the rest of the state already measured.
     freshest = tape.get("freshest_bar")

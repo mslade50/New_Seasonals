@@ -1,4 +1,5 @@
 name: Deploy Shared Seasonality Site
+run-name: "Deploy Shared Seasonality Site — ${{ inputs.automation_token || 'manual/chained' }}"
 
 on:
   push:
@@ -13,7 +14,19 @@ on:
       - 'scripts/configure_shared_access.py'
       - '.github/workflows/deploy_shared_seasonals.yml'
   workflow_call:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
   workflow_dispatch:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: deploy-shared-seasonality-site

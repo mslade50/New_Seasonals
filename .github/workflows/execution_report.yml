@@ -1,16 +1,22 @@
 name: Nightly Execution Report
+run-name: "Nightly Execution Report — ${{ inputs.automation_token || 'manual' }}"
 
-# 4:30 PM ET email of live primary-account positions (site Execution tab mirror).
-# Two crons cover both DST regimes; daily_execution_report.py picks the sender
-# by which cron fired (GHA_SCHEDULE) + the date's DST regime, so exactly one
-# sends each day even when GHA's cron queue starts the run an hour+ late.
-# Cron strings must match EDT_CRON / EST_CRON in daily_execution_report.py.
+# Dispatch-only backup for the 4:30 PM ET local Task Scheduler email of live
+# primary-account positions (site Execution tab mirror). The controller owns
+# the ET schedule, so this remote path explicitly bypasses the retired UTC
+# twin-cron gate with --force.
 
 on:
-  schedule:
-    - cron: '30 20 * * 1-5'  # sends while EDT (summer); gated off in EST
-    - cron: '30 21 * * 1-5'  # sends while EST (winter); gated off in EDT
   workflow_dispatch:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
+
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
 
 jobs:
   execution_report:
@@ -39,6 +45,5 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          GHA_SCHEDULE: ${{ github.event.schedule }}
-        # Manual dispatches bypass the DST-twin gate.
-        run: python daily_execution_report.py ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
+        # Dispatch-only backup runs once at the controller-selected ET slot.
+        run: python daily_execution_report.py --force

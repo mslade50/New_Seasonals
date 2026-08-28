@@ -1,10 +1,17 @@
 name: Verify Fills (Post-Close)
+run-name: "Verify Fills — ${{ inputs.automation_token || 'manual' }}"
 
 on:
-  schedule:
-    # 5:15 PM EDT = 21:15 UTC (after market close, after daily_scan finishes)
-    - cron: '15 21 * * 1-5'
-  workflow_dispatch:  # Manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
+
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
 
 jobs:
   verify:

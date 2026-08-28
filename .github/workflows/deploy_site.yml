@@ -1,4 +1,5 @@
 name: Deploy Private Site
+run-name: "Deploy Private Site — ${{ inputs.automation_token || 'manual/chained' }}"
 
 # R2-only production pipeline for the private analytics site. The repository
 # checkout is source code only: both build workspaces are staged without
@@ -30,8 +31,19 @@ concurrency:
 
 on:
   workflow_call:
+    inputs:
+      automation_token:
+        description: "Opaque token supplied by the guarded fallback controller"
+        required: false
+        default: ""
+        type: string
   workflow_dispatch:
     inputs:
+      automation_token:
+        description: "Opaque token supplied by the guarded fallback controller"
+        required: false
+        default: ""
+        type: string
       full_chart_rebuild:
         description: "Re-render ALL signal charts (drop --skip-existing). One-time use after a chart-style change; normal runs stay incremental."
         type: boolean

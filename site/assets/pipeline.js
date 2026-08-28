@@ -13,7 +13,7 @@ const ART_ORDER = [
   ["master_prices",     "Master prices",     "R2 OHLCV cache — feeds scans, ledger, site"],
   ["earnings_calendar", "Earnings calendar", "FMP backfill — OVS blackout filter"],
   ["fragility",         "rd2 fragility",     "Append-only dial series — SIZES LIVE ORDERS"],
-  ["exposure_state",    "Exposure state",    "Committed by the AM scan"],
+  ["exposure_state",    "Exposure state",    "AM scan snapshot — canonical on R2"],
   ["signals",           "Staged signals",    "Order_Staging + Overflow Sheets fetch"],
 ];
 
@@ -21,30 +21,24 @@ const ART_ORDER = [
 const BUILD_WARN_H = 26, BUILD_STALE_H = 75;
 
 const SCHEDULE = [
-  ["update_master_prices", "Weekdays 4:17 AM ET (local dispatch; GHA cron fallback 5:30 AM) + 4:30 PM ET",
-   "Incremental yfinance bar append to master_prices.parquet on R2. AM runs exclude today's placeholder bar."],
-  ["daily_screener", "Weekdays 4:47 AM ET (local dispatch; fallback 6:30 AM) + 6:00 PM ET",
-   "Unified scan, both runs --scope=all (liquid + overflow). AM run commits exposure_state.json."],
-  ["deploy_site (this site)", "Same run as each successful daily_screener scan (2x/trading day)",
-   "Ledger rebuild -> new trade charts -> seasonal ideas -> risk JSON -> site payloads -> Cloudflare Pages deploy. A skipped/failed scan skips the deploy; the prior deploy stays up."],
-  ["update_intraday_prices", "Weekdays 4:45 PM ET",
-   "15-min OHLCV cache refresh on R2 (liquid universe)."],
-  ["risk_report", "Weekdays 5:15 PM ET",
-   "Daily risk email; APPENDS today's row to rd2_fragility.parquet (sizes live orders via frag_risk_bands)."],
-  ["verify_fills", "Weekdays 5:15 PM ET",
-   "Post-close fill verification -> Trade_Signals_Log sheet."],
-  ["build_earnings_calendar", "Weekdays 5:30 PM ET (+ local Task Scheduler mirror)",
-   "FMP earnings pull -> earnings_calendar.parquet -> R2."],
-  ["portfolio_report", "Weekdays 5:30 PM ET",
-   "Portfolio health email + Portfolio Sheets tab (open-position counts for ladder sizing)."],
-  ["trend_sleeve", "Weekdays 5:35 PM ET (no-op except month's last trading day)",
-   "Monthly trend-following ballast rebalance -> Trend Sheets tab + state on R2."],
-  ["radar_weekly_summary (local)", "Sundays 8:30 AM ET",
-   "Radar digest distilled by Claude, committed to the repo."],
-  ["weekly_rundown", "Sundays 9:00 AM ET",
-   "Tabloid PDF rundown email incorporating the radar digest."],
-  ["bootstrap_caches", "Manual only (workflow_dispatch)",
-   "One-shot full master_prices rebuild to seed R2."],
+  ["premarket pipeline", "Weekdays 4:10 AM ET — local Task Scheduler primary",
+   "Serial CBOE, settled prices, risk correction, Event sleeve and full scan; then hands both sites to their required cloud-only deploy workflows. Publishes canonical state to R2."],
+  ["Daily Pitch (agent)", "Weekdays 5:10 AM ET — existing local Task Scheduler task",
+   "Pulls the completed premarket state from R2, grades prior ideas, builds today's state and sends the research pitch."],
+  ["health pipeline", "Weekdays 7:30 AM ET — local Task Scheduler primary",
+   "Checks receipts, state freshness, delivery evidence and the targeted automation test battery."],
+  ["discretionary pipeline", "Weekdays 8:35 AM ET — local Task Scheduler primary",
+   "Research-only 0-2 name attention list; no capital allocation, staging or broker actions."],
+  ["execution pipeline", "Weekdays 4:30 PM ET — local Task Scheduler primary",
+   "Sends the live-account execution status report once."],
+  ["postclose pipeline", "Weekdays 5:10 PM ET — local Task Scheduler primary",
+   "Serial close prices, risk/fills/earnings/portfolio/CBOE/sleeves/intraday/scan/macro jobs; then hands both sites to cloud-only deploy workflows."],
+  ["indicator pipeline", "Mondays 3:00 AM ET — local Task Scheduler primary",
+   "Builds and uploads the liquid and overflow strategy-indicator caches."],
+  ["weekly-rundown pipeline", "Sundays 8:00 AM ET — local Task Scheduler primary",
+   "Renders and emails the tabloid weekly market rundown."],
+  ["GitHub guarded backup", "Hourly at :47 UTC plus DST-safe 8:50 AM ET probes",
+   "Reads R2 receipts and dispatches only missing jobs inside bounded recovery windows. Private and shared sites always build and deploy in GitHub Actions from R2."],
 ];
 
 async function init() {
@@ -62,8 +56,8 @@ async function init() {
     html += `<h2>Artifact freshness</h2>
       <p class="cap">Judged server-side against the expected last trading day
         (${esc(health.expected_last_td || "?")}); "fresh" tolerates one trading day
-        (&ge; ${esc(health.prev_td || "?")}) to absorb the AM deploy's checkout lag on
-        committed inputs like exposure_state.</p>
+        (&ge; ${esc(health.prev_td || "?")}) for session-lagged state and
+        weekend/holiday continuity.</p>
       <div class="sigcards">${(ART_ORDER.map(([k, name, desc]) =>
         artifactCard(k, name, desc, (health.artifacts || {})[k]))).join("")}</div>`;
     html += ledgerCard((health.artifacts || {}).ledger);
@@ -71,9 +65,9 @@ async function init() {
 
   html += `<h2>What runs when</h2>
     <p class="cap">Static reference (ET), transcribed from the repo's Automated Pipeline
-      docs. AM runs fire from the local machine via workflow_dispatch to dodge GitHub's
-      shared-cron queue lag; each has a later GHA cron fallback that auto-skips if the
-      dispatch already succeeded.</p>
+      docs. Primary production pipelines execute on this machine from a pinned Task
+      Scheduler runtime. GitHub is the receipt-guarded backup and remains the mandatory
+      cloud builder/deployer for both sites.</p>
     <div class="card"><div class="tblwrap"><table class="tbl">
       <thead><tr><th class="l">Workflow</th><th class="l">Schedule</th><th class="l">What it does</th></tr></thead>
       <tbody>${SCHEDULE.map(([w, s, d]) =>

@@ -33,6 +33,8 @@ from scripts.stage_private_site_cloud_build import STAGE_MARKER
 PROVENANCE_PATH = "data/.site-r2-provenance.json"
 GENERATED_MANIFEST_NAME = "manifest.json"
 GENERATED_PREFIX = "site/builds"
+LOCAL_PRIMARY_ENV = "LOCAL_AUTOMATION_PRIMARY"
+LOCAL_RUN_TOKEN_ENV = "LOCAL_AUTOMATION_RUN_TOKEN"
 
 
 @dataclass(frozen=True)
@@ -150,15 +152,26 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _head_metadata(key: str) -> dict:
+def _head_metadata(key: str, *, expected_size: int | None = None) -> dict:
     meta = cache_io.head(key)
     if not meta:
         raise RuntimeError(f"R2 HEAD failed after transfer: {key}")
+    if "ContentLength" not in meta:
+        raise RuntimeError(f"R2 HEAD did not return ContentLength after transfer: {key}")
+    try:
+        remote_size = int(meta["ContentLength"])
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"R2 HEAD returned invalid ContentLength after transfer: {key}") from exc
+    if expected_size is not None and remote_size != expected_size:
+        raise RuntimeError(
+            f"R2 HEAD ContentLength mismatch after transfer: {key} "
+            f"(local={expected_size}, remote={remote_size})"
+        )
     modified = meta.get("LastModified")
     return {
         "etag": str(meta.get("ETag") or "").strip('"'),
         "last_modified": modified.isoformat() if hasattr(modified, "isoformat") else str(modified or ""),
-        "size": int(meta.get("ContentLength") or 0),
+        "size": remote_size,
     }
 
 
@@ -170,8 +183,13 @@ def _entry(item: R2Input, path: Path, *, key: str | None = None) -> dict:
         "path": item.path,
         "required": item.required,
         "sha256": _sha256(path),
-        **_head_metadata(r2_key),
+        **_head_metadata(r2_key, expected_size=path.stat().st_size),
     }
+
+
+def _verify_uploaded_file(path: Path, key: str) -> dict:
+    """Fail closed unless R2 confirms the exact uploaded byte count."""
+    return _head_metadata(key, expected_size=path.stat().st_size)
 
 
 def _download(root: Path, item: R2Input, *, key: str | None = None) -> dict | None:
@@ -244,6 +262,7 @@ def publish_generated(root: Path, run_id: str) -> dict:
     manifest_key = f"{prefix}/{GENERATED_MANIFEST_NAME}"
     if not cache_io.upload_from_local(str(local_manifest), manifest_key):
         raise RuntimeError(f"failed to publish generated bundle manifest: {manifest_key}")
+    _verify_uploaded_file(local_manifest, manifest_key)
     print(f"[site-r2] published immutable generated bundle {prefix}")
     return payload
 
@@ -282,8 +301,26 @@ def pull_assembler(root: Path, run_id: str) -> dict:
     return _write_provenance(root, phase="assembler", run_id=str(run_id), marker=marker, entries=entries)
 
 
-def publish_group(root: Path, group: str) -> list[dict]:
-    _require_github_actions()
+def _require_publish_group_authority(*, local_primary: bool) -> None:
+    if not local_primary:
+        _require_github_actions()
+        return
+
+    if os.environ.get(LOCAL_PRIMARY_ENV, "").strip() != "1":
+        raise RuntimeError(f"{LOCAL_PRIMARY_ENV}=1 is required for local-primary publishing")
+    if not os.environ.get(LOCAL_RUN_TOKEN_ENV, "").strip():
+        raise RuntimeError(f"nonempty {LOCAL_RUN_TOKEN_ENV} is required for local-primary publishing")
+
+
+def publish_group(root: Path, group: str, *, local_primary: bool = False) -> list[dict]:
+    """Publish a bounded canonical group from an explicitly trusted producer.
+
+    GitHub Actions remains the default and only implicit authority.  A local
+    primary runner must opt in at the CLI *and* carry two process-scoped
+    environment markers.  The ephemeral run token is intentionally read only
+    from the environment so it never appears in command lines or logs.
+    """
+    _require_publish_group_authority(local_primary=local_primary)
     items = PUBLISH_GROUPS[group]
     entries: list[dict] = []
     for item in items:
@@ -310,6 +347,14 @@ def main() -> int:
     publisher = sub.add_parser("publish-group")
     publisher.add_argument("--root", default=".")
     publisher.add_argument("--group", choices=sorted(PUBLISH_GROUPS), required=True)
+    publisher.add_argument(
+        "--local-primary",
+        action="store_true",
+        help=(
+            "allow the guarded local primary publisher; also requires "
+            f"{LOCAL_PRIMARY_ENV}=1 and a nonempty {LOCAL_RUN_TOKEN_ENV}"
+        ),
+    )
     args = parser.parse_args()
     root = Path(args.root).resolve()
 
@@ -323,7 +368,7 @@ def main() -> int:
     elif args.command == "publish-generated":
         publish_generated(root, args.run_id)
     else:
-        publish_group(root, args.group)
+        publish_group(root, args.group, local_primary=args.local_primary)
     return 0
 
 

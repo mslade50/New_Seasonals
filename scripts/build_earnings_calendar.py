@@ -146,10 +146,24 @@ def compute_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
 def upload_to_r2(output_path: str, key: str = "earnings_calendar.parquet"):
     """Push the parquet to R2 so cloud workflows + Streamlit Cloud can read it."""
     try:
-        from cache_io import upload_from_local
-        upload_from_local(output_path, key)
+        from cache_io import head, upload_from_local
+        ok = upload_from_local(output_path, key)
+        if ok and os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+            meta = head(key)
+            actual = int((meta or {}).get("ContentLength") or -1)
+            expected = os.path.getsize(output_path)
+            if actual != expected:
+                raise RuntimeError(
+                    f"R2 size mismatch for {key}: {actual} != {expected}"
+                )
+        if not ok and os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+            raise RuntimeError(f"R2 upload failed: {key}")
+        return bool(ok)
     except Exception as e:
+        if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+            raise
         print(f"[r2 upload] non-fatal error: {e}")
+        return False
 
 
 def derive_only(output_path: str, *, upload: bool = True):
