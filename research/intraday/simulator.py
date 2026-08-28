@@ -135,6 +135,19 @@ def simulate_fixed_time_signals_audited(
             )
             rejections.append(rejected)
             continue
+        entry_bar = ticker_bars.loc[entry_bar_ts]
+        if float(entry_bar["volume"]) <= 0:
+            rejected = dict(record)
+            rejected.update(
+                {
+                    "execution_status": "zero_volume_scheduled_entry_bar",
+                    "execution_rejection_reason": (
+                        f"entry bar {entry_bar_ts} has non-positive volume"
+                    ),
+                }
+            )
+            rejections.append(rejected)
+            continue
         if scheduled_exit_bar_ts not in ticker_bars.index:
             rejected = dict(record)
             rejected.update(
@@ -149,9 +162,19 @@ def simulate_fixed_time_signals_audited(
             continue
 
         exit_bar_ts = scheduled_exit_bar_ts
-
-        entry_bar = ticker_bars.loc[entry_bar_ts]
         exit_bar = ticker_bars.loc[exit_bar_ts]
+        if float(exit_bar["volume"]) <= 0:
+            rejected = dict(record)
+            rejected.update(
+                {
+                    "execution_status": "zero_volume_scheduled_exit_bar",
+                    "execution_rejection_reason": (
+                        f"exit bar {exit_bar_ts} has non-positive volume"
+                    ),
+                }
+            )
+            rejections.append(rejected)
+            continue
         entry_price = float(entry_bar["open"])
         exit_price = float(exit_bar["close"])
         side = int(record["side"])

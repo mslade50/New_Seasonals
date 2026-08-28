@@ -102,13 +102,74 @@ missing parquets abort the run. Outputs are `eligibility.parquet`,
 When capital constraints are supplied, it additionally writes the full capital
 audit, feasible trades, rejections, and a feasible-trade summary.
 
+## Streaming real-data runner
+
+`scripts/run_intraday_streaming_research.py` is the full-history evaluation
+path. It requires an explicit local data directory, sector map, and frozen
+candidate universe. It loads SPY and each required sector proxy once, reduces
+those proxies to daily event features, then loads, evaluates, and releases one
+candidate parquet at a time. It never imports a downloader, R2 client, broker,
+strategy scanner, or production writer.
+
+```powershell
+python scripts/run_intraday_streaming_research.py `
+  --data-dir artifacts/intraday_input/frozen_2026-08-26 `
+  --sector-map artifacts/intraday_input/sector_map.parquet `
+  --universe-file artifacts/intraday_input/liquid_single_stocks.csv `
+  --output-dir artifacts/intraday_streaming_research/pilot_2026-08-26
+```
+
+The output path must be a fresh directory under this worktree's ignored
+`artifacts/` root. The manifest is written last and declares the run
+research-only, order-free, production-write-free, and ineligible for automatic
+promotion. There is intentionally no investor-facing HTML output.
+
+The event clocks, thresholds, directions, SPY/sector residual arithmetic, and
+prior-session eligibility rules remain the locked v0 definitions. The
+real-data path layers on stricter validity gates:
+
+- expected sessions come from the repository's NYSE `TRADING_DAY` calendar,
+  exposing dates absent from every loaded input;
+- an exact observed 09:30--12:45 14-bar SPY tape is labeled and excluded as an
+  observed early close; other incomplete SPY sessions remain separately
+  labeled rather than becoming opaque missing-close trades;
+- the gap feature requires all four 09:30, 09:45, 10:00, and 10:15 bars, and
+  the shock feature requires every 15-minute bar from 09:30 through 13:00;
+- all candidate and proxy feature-window bars must have positive volume;
+- scheduled candidate entry and exit bars must exist and have positive volume;
+- sector metadata and the mapped sector-proxy parquet are mandatory per
+  candidate. Affected candidates are explicitly excluded; there is no silent
+  SPY fallback;
+- raw overnight ratios near common split factors (1:2, 1:3, 1:4, 1:5, 1:10
+  and their reverse-split counterparts, within 12%) are flagged and filtered
+  from the gap template. This is a conservative discontinuity heuristic, not
+  proof of a corporate action.
+
+The locked primary result uses 10 bps round-trip cost. The default stress grid
+is 5/10/15/20/30 bps. Outputs include full coverage and calendar audits,
+signal-generation and execution rejection audits, event-level trades, raw
+day-cluster returns, two-sided day-cluster t/p values, deterministic
+day-cluster bootstrap confidence intervals, and Holm adjustment across the two
+10-bps primary template tests. Annual and rolling five-calendar-year
+train/one-year test tables diagnose stability without refitting or selecting a
+rule. Ticker and sector summaries expose concentration.
+
+Top-strength K=1/3/5/10 overlays are explicitly **slot-based**: each day takes
+the K strongest pre-existing signals, splits notional equally across K slots,
+and leaves unused slots in cash. They do not model integer shares, per-share
+commissions, account settlement, buying power, short permissions, spreads, or
+broker capacity.
+
 ## Deliberate limitations
 
 - A 15-minute bar cannot reveal within-bar sequence, spread, queue position,
   partial fills, opening/closing auction behavior, or whether the displayed
   open was realistically obtainable.
-- The cost input is a single round-trip bps stress, not a quote-aware model.
-- There is no news/earnings/halts/corporate-action filter yet.
+- The v0 CLI cost input is a single round-trip bps stress. The streaming path
+  provides a fixed grid, but neither path is a quote-aware cost model.
+- There is no news, earnings, halt, or authoritative corporate-action source.
+  The streaming split-factor heuristic is deliberately only a raw-price
+  discontinuity filter.
 - There is no short-locate or borrow model. Short candidates are research
   observations only.
 - Sector residuals use fixed ETF proxies, not fitted point-in-time betas.
@@ -116,14 +177,21 @@ audit, feasible trades, rejections, and a feasible-trade summary.
 - Simultaneous trades can be clustered after the run. The optional arithmetic
   gate tests explicitly supplied notional ceilings and reuse assumptions, but
   v0 does not optimize portfolio sizing or cap factor/sector exposure.
-- Missing scheduled entry or close bars are rejected from return-producing
-  trades and preserved in `execution_rejections.parquet`. There is no backward
-  fallback. Known exchange early closes need an ex-ante calendar schedule,
-  which v0 does not yet implement.
+- The streaming K overlays model scarce signal slots, not a brokerage account.
+  Neither path provides integer-share sizing, per-share commissions, or a
+  spread/participation capacity model.
+- Missing or zero-volume scheduled entry/close bars are rejected from
+  return-producing trades and preserved in `execution_rejections.parquet`.
+  There is no backward fallback. The streaming path labels exact observed SPY
+  early-close tapes, but it still lacks an authoritative ex-ante early-close
+  schedule.
 - Canonical sessions are the union of dates observed across the supplied
   frames. This exposes a wholly missing proxy session when another supplied
   ticker has that date, but it cannot detect a date missing from every input;
   an exchange calendar is still required for that case.
+- Current-universe and current-sector-map tests have survivorship and
+  classification lookahead. Results cannot be described as point-in-time
+  universe evidence without historical membership and classification inputs.
 - Results are not recommendations and have no path to production execution.
 
 The next validity step is to run unchanged v0 definitions over a frozen local

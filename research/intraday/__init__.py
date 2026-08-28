@@ -19,6 +19,13 @@ from .simulator import (
     simulate_fixed_time_signals,
     simulate_fixed_time_signals_audited,
 )
+from .streaming import (
+    RawPriceDiscontinuityConfig,
+    StreamingIntradayResearchResult,
+    reduce_bars_to_daily,
+    run_streaming_intraday_research,
+    write_streaming_research_artifacts,
+)
 from .templates import (
     GAP_FIRST_HOUR_TEMPLATE_ID,
     INTRADAY_SHOCK_TEMPLATE_ID,
@@ -43,6 +50,8 @@ __all__ = [
     "IntradayShockConfig",
     "LookaheadError",
     "MissingExecutionBarError",
+    "RawPriceDiscontinuityConfig",
+    "StreamingIntradayResearchResult",
     "apply_capital_feasibility",
     "calculate_eligibility",
     "generate_gap_first_hour_signals",
@@ -50,8 +59,11 @@ __all__ = [
     "load_parquet_frames",
     "normalize_bars",
     "prepare_metadata",
+    "reduce_bars_to_daily",
     "run_intraday_research",
+    "run_streaming_intraday_research",
     "simulate_fixed_time_signals",
     "simulate_fixed_time_signals_audited",
     "summarize_trades",
+    "write_streaming_research_artifacts",
 ]
