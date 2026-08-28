@@ -71,7 +71,7 @@ def test_only_guarded_controller_retains_a_cron_for_migrated_jobs() -> None:
         'scripts/automation_supervisor.py fallback-due --pipeline "$PIPELINE" '
         '--ref "$AUTOMATION_RUNTIME_REF"'
     ) in fallback
-    assert "AUTOMATION_RUNTIME_REF: automation-runtime-2026-08-28" in fallback
+    assert "AUTOMATION_RUNTIME_REF: automation-runtime-2026-08-28.1" in fallback
     assert "ref: ${{ env.AUTOMATION_RUNTIME_REF }}" in fallback
     assert "&& 'discretionary' || inputs.pipeline || 'all'" in fallback
     assert "&& 'discretionary' || 'general'" in fallback

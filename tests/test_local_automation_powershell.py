@@ -72,3 +72,4 @@ def test_automation_requirements_are_explicit():
     assert "-r ../requirements.txt" in requirements
     assert "exchange-calendars" in requirements
     assert "google-auth" in requirements
+    assert "pytest" in requirements

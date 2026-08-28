@@ -5,3 +5,4 @@
 # on that remaining true.
 exchange-calendars
 google-auth
+pytest

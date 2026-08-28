@@ -13,7 +13,7 @@ scheduler change is merged and verified on `origin/main`:
 ```powershell
 $repo = 'C:\Users\McKinley Slade\dev\New_Seasonals'
 $runtime = 'C:\Users\McKinley Slade\dev\New_Seasonals-automation-runtime'
-$fallbackTag = 'automation-runtime-2026-08-28'
+$fallbackTag = 'automation-runtime-2026-08-28.1'
 git -C $repo fetch origin main
 $sha = git -C $repo rev-parse origin/main
 

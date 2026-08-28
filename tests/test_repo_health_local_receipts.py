@@ -1,6 +1,31 @@
 import datetime as dt
+from types import SimpleNamespace
 
 from scripts import repo_health_check as health
+
+
+def test_guard_collection_process_error_fails_loud(monkeypatch):
+    health.RESULTS.clear()
+    monkeypatch.setattr(
+        health.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="No module named pytest",
+        ),
+    )
+
+    health.check_test_collection()
+
+    assert health.RESULTS == [
+        (
+            "FAIL",
+            "tests:collect",
+            "collection process failed (exit 1: No module named pytest); "
+            "run pytest --collect-only tests for detail",
+        )
+    ]
 
 
 def _receipt(job_id: str, day: dt.date, status: str = "success",
