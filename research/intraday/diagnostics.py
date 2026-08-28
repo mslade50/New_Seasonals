@@ -120,19 +120,22 @@ def _cluster_bootstrap_mean_ci(
     return float(lower), float(upper)
 
 
-def _holm_adjust_primary(rows: pd.DataFrame) -> pd.DataFrame:
+def _holm_adjust_primary(
+    rows: pd.DataFrame,
+    primary_template_ids: tuple[str, ...] = PRIMARY_TEMPLATE_IDS,
+) -> pd.DataFrame:
     output = rows.copy()
     output["holm_p_value_primary"] = np.nan
     primary = output.loc[
         output["cost_bps"].eq(PRIMARY_COST_BPS)
-        & output["template_id"].isin(PRIMARY_TEMPLATE_IDS)
+        & output["template_id"].isin(primary_template_ids)
         & output["p_value_two_sided"].notna()
     ].sort_values(["p_value_two_sided", "template_id"])
     if primary.empty:
         return output
     # The family always contains both pre-registered templates.  A template
     # with no testable observations does not make the surviving test cheaper.
-    family_size = len(PRIMARY_TEMPLATE_IDS)
+    family_size = len(primary_template_ids)
     running = 0.0
     for rank, (index, row) in enumerate(primary.iterrows()):
         adjusted = min(1.0, (family_size - rank) * float(row["p_value_two_sided"]))
@@ -146,12 +149,17 @@ def day_cluster_statistics(
     *,
     cost_grid_bps: tuple[float, ...] = DEFAULT_COST_GRID_BPS,
     bootstrap_reps: int = 2_000,
+    primary_template_ids: tuple[str, ...] = PRIMARY_TEMPLATE_IDS,
 ) -> pd.DataFrame:
     """Compute day-cluster t tests and deterministic cluster-bootstrap CIs."""
 
     costs = validate_cost_grid(cost_grid_bps)
     rows: list[dict[str, float | int | str]] = []
-    for template_id in PRIMARY_TEMPLATE_IDS:
+    if not primary_template_ids or len(set(primary_template_ids)) != len(
+        primary_template_ids
+    ):
+        raise ValueError("primary_template_ids must be non-empty and unique")
+    for template_id in primary_template_ids:
         for cost_bps in costs:
             group = daily_returns.loc[
                 daily_returns["template_id"].eq(template_id)
@@ -196,7 +204,7 @@ def day_cluster_statistics(
                     "bootstrap_reps": bootstrap_reps,
                 }
             )
-    return _holm_adjust_primary(pd.DataFrame(rows))
+    return _holm_adjust_primary(pd.DataFrame(rows), primary_template_ids)
 
 
 def annual_diagnostics(
