@@ -20,6 +20,10 @@ from research.intraday.gap_reversal import (
     simulate_gap_reversal_signals,
     write_gap_reversal_artifacts,
 )
+from research.intraday.streaming import (
+    RawPriceDiscontinuityConfig,
+    _frame_coverage_row,
+)
 from trading_calendar import TRADING_DAY
 
 BAR_TIMES = pd.date_range("2026-01-05 09:30", "2026-01-05 15:45", freq="15min").time
@@ -113,6 +117,38 @@ def test_atr_is_simple_14_session_mean_lagged_through_t_minus_one():
     prior_changed.loc[prior, "low"] = 86.0
     changed = calculate_lagged_atr(prior_changed, dates)
     assert changed.loc[signal_day, "atr_14_lagged"] > 2.0
+
+
+def test_coverage_handles_reindexed_nullable_session_flags_fail_closed(
+    tmp_path: Path,
+):
+    expected_sessions = _dates()
+    observed_sessions = expected_sessions[2:]
+    aligned = calculate_lagged_atr(
+        _frame(observed_sessions), expected_sessions
+    )
+
+    # This matches the real snapshot shape that triggered unary ``~`` on a
+    # float NaN: calendar alignment promotes the original bool flags to object.
+    assert aligned["is_exact_full_session"].dtype == object
+    assert aligned["is_exact_full_session"].isna().sum() == 2
+    coverage = _frame_coverage_row(
+        ticker="AAA",
+        role="candidate",
+        path=tmp_path / "AAA_15min.parquet",
+        input_hash="synthetic",
+        daily=aligned,
+        expected_sessions=expected_sessions,
+        discontinuity_config=RawPriceDiscontinuityConfig(),
+    )
+    assert coverage["n_observed_expected_sessions"] == len(observed_sessions)
+    assert coverage["n_missing_expected_sessions"] == 2
+    assert coverage["n_exact_full_sessions"] == len(observed_sessions)
+    assert coverage["n_observed_early_closes"] == 0
+    assert coverage["n_partial_sessions"] == 0
+    assert coverage["coverage_fraction"] == pytest.approx(
+        len(observed_sessions) / len(expected_sessions)
+    )
 
 
 def test_gap_sign_assigns_distinct_co_primary_arm_and_side_ids(tmp_path: Path):

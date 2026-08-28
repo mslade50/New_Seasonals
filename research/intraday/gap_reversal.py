@@ -928,6 +928,7 @@ def run_gap_reversal_research(
             )
             continue
         bars = normalize_bars(pd.read_parquet(path), ticker=ticker)
+        observed_daily = reduce_bars_to_daily(bars)
         daily = calculate_lagged_atr(
             bars, expected_sessions, frames_are_normalized=True
         )
@@ -938,12 +939,12 @@ def run_gap_reversal_research(
                 role="candidate",
                 path=path,
                 input_hash=input_hash,
-                daily=daily,
+                daily=observed_daily,
                 expected_sessions=expected_sessions,
                 discontinuity_config=discontinuity_config,
             )
         )
-        for day in pd.DatetimeIndex(daily.index[daily["bars_in_session"].notna()]):
+        for day in pd.DatetimeIndex(observed_daily.index):
             if day in expected_sessions:
                 observed_counts[pd.Timestamp(day)] += 1
         loaded_candidates.append(ticker)
@@ -979,7 +980,7 @@ def run_gap_reversal_research(
             sensitivity_trade_frames.append(sensitivity_trades)
         if not sensitivity_rejections.empty:
             sensitivity_rejection_frames.append(sensitivity_rejections)
-        del bars, daily, eligibility
+        del bars, daily, observed_daily, eligibility
 
     if not loaded_candidates:
         raise ValueError(f"no candidate could be evaluated: {dict(Counter(exclusions.values()))}")

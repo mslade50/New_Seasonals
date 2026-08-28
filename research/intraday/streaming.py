@@ -832,10 +832,21 @@ def _frame_coverage_row(
     exclusion_reason: str = "",
     discontinuity_config: RawPriceDiscontinuityConfig,
 ) -> dict[str, object]:
-    observed = pd.DatetimeIndex(daily.index).normalize()
+    # Some research callers align daily features to the canonical exchange
+    # calendar before requesting coverage. Reindexing turns bool flags into an
+    # object/nullable shape with NaN on sessions absent from the instrument.
+    # Treat only rows with an observed bar count as sessions and coerce quality
+    # flags fail-closed; unary ``~`` on the raw object series is both unsafe and
+    # would misclassify missing sessions as partial tapes.
+    observed_mask = daily["bars_in_session"].notna()
+    observed = pd.DatetimeIndex(daily.index[observed_mask]).normalize()
     expected_observed = observed.intersection(expected_sessions)
     unexpected = observed.difference(expected_sessions)
     aligned = daily.reindex(expected_sessions)
+    exact_full = daily["is_exact_full_session"].eq(True).fillna(False).astype(bool)
+    observed_early = (
+        daily["is_exact_observed_early_close"].eq(True).fillna(False).astype(bool)
+    )
     ratios = aligned["open_0930"] / aligned["valid_session_close"].shift(1)
     discontinuity, _ = _nearest_common_factor(ratios, discontinuity_config)
     return {
@@ -853,15 +864,10 @@ def _frame_coverage_row(
         "n_observed_expected_sessions": len(expected_observed),
         "n_missing_expected_sessions": len(expected_sessions.difference(observed)),
         "n_unexpected_non_nyse_sessions": len(unexpected),
-        "n_exact_full_sessions": int(daily["is_exact_full_session"].sum()),
-        "n_observed_early_closes": int(
-            daily["is_exact_observed_early_close"].sum()
-        ),
+        "n_exact_full_sessions": int((observed_mask & exact_full).sum()),
+        "n_observed_early_closes": int((observed_mask & observed_early).sum()),
         "n_partial_sessions": int(
-            (
-                ~daily["is_exact_full_session"]
-                & ~daily["is_exact_observed_early_close"]
-            ).sum()
+            (observed_mask & ~exact_full & ~observed_early).sum()
         ),
         "n_zero_volume_bars": int(daily["zero_volume_bars"].sum()),
         "n_zero_volume_1045_bars": int(aligned["volume_1045"].eq(0).sum()),
