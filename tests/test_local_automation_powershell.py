@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -65,6 +66,23 @@ def test_cutover_is_explicit_and_preserves_task_objects():
     assert "DeleteTask" not in INSTALLER
     assert "TASK_CREATE (not" in INSTALLER
     assert "task enabled states were rolled back" in INSTALLER
+
+
+def test_pinned_runtime_validator_output_cannot_pollute_marker_return_value():
+    function = re.search(
+        r"function Assert-PinnedRuntime \{(?P<body>.*?)\n\}",
+        INSTALLER,
+        flags=re.DOTALL,
+    )
+    assert function is not None
+    body = function.group("body")
+    assert re.search(
+        r"\$validationOutput\s*=\s*\(& \$powershell.*?-ValidateOnly 2>&1 \| Out-String\)\.Trim\(\)",
+        body,
+        flags=re.DOTALL,
+    )
+    assert "$validationExitCode = $LASTEXITCODE" in body
+    assert "return $marker" in body
 
 
 def test_automation_requirements_are_explicit():
