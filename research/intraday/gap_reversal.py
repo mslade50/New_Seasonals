@@ -26,7 +26,6 @@ from .diagnostics import (
     DEFAULT_COST_GRID_BPS,
     PRIMARY_COST_BPS,
     annual_diagnostics,
-    concentration_summaries,
     day_cluster_statistics,
     leave_one_year_out_diagnostics,
     make_daily_returns,
@@ -125,6 +124,8 @@ class GapReversalResearchResult:
     opening_bar_sensitivity_summary: pd.DataFrame
     opening_bar_sensitivity_stats: pd.DataFrame
     combined_diagnostic: pd.DataFrame
+    primary_selected_candidates: pd.DataFrame
+    primary_selected_fills: pd.DataFrame
     ticker_summary: pd.DataFrame
     sector_summary: pd.DataFrame
     coverage_audit: pd.DataFrame
@@ -491,6 +492,197 @@ def simulate_gap_reversal_signals(
     return trade_frame, rejection_frame
 
 
+def _merge_candidates_and_fills(
+    signals: pd.DataFrame, trades: pd.DataFrame
+) -> pd.DataFrame:
+    fill_keys = ["template_id", "ticker", "trade_date"]
+    execution_columns = [
+        "entry_bar_ts",
+        "entry_price",
+        "fill_type",
+        "exit_price",
+        "gross_return",
+    ]
+    available = [column for column in execution_columns if column in trades.columns]
+    fills = (
+        trades[fill_keys + available].copy()
+        if not trades.empty
+        else pd.DataFrame(columns=fill_keys + execution_columns)
+    )
+    candidates = signals.merge(fills, on=fill_keys, how="left", validate="one_to_one")
+    candidates["filled"] = candidates["gross_return"].notna()
+    return candidates
+
+
+def select_candidate_slots(
+    signals: pd.DataFrame,
+    trades: pd.DataFrame,
+    *,
+    capacity_slots: int = PRIMARY_CAPACITY_SLOTS,
+    min_abs_gap_atr: float = 0.0,
+    cost_bps: float = PRIMARY_COST_BPS,
+) -> pd.DataFrame:
+    """Return the actual candidates reserved before fills for one slot view.
+
+    Ranking is performed independently by arm and day using information fixed
+    at 09:30.  The result retains selected-but-unfilled candidates so an audit
+    can prove that a lower-ranked eventual fill never substitutes for them.
+    """
+
+    if capacity_slots < 1:
+        raise ValueError("capacity_slots must be positive")
+    if not np.isfinite(min_abs_gap_atr) or min_abs_gap_atr < 0:
+        raise ValueError("min_abs_gap_atr must be finite and non-negative")
+    if not np.isfinite(cost_bps) or cost_bps < 0:
+        raise ValueError("cost_bps must be finite and non-negative")
+    if signals.empty:
+        return pd.DataFrame(
+            columns=[
+                *SIGNAL_COLUMNS,
+                "candidate_count",
+                "selected_rank",
+                "capacity_slots",
+                "min_abs_gap_atr",
+                "filled",
+                "gross_return",
+                "cost_bps",
+                "net_return",
+                "slot_return_contribution",
+            ]
+        )
+    candidates = _merge_candidates_and_fills(signals, trades)
+    eligible = candidates.loc[
+        candidates["signal_strength"].ge(min_abs_gap_atr)
+    ]
+    selected_frames: list[pd.DataFrame] = []
+    for _, group in eligible.groupby(
+        ["template_id", "trade_date"], sort=True, observed=True
+    ):
+        ranked = group.sort_values(
+            ["signal_strength", "ticker"], ascending=[False, True]
+        ).copy()
+        selected = ranked.head(capacity_slots).copy()
+        selected["candidate_count"] = len(group)
+        selected["selected_rank"] = np.arange(1, len(selected) + 1, dtype=int)
+        selected_frames.append(selected)
+    if not selected_frames:
+        return pd.DataFrame()
+    selected = pd.concat(selected_frames, ignore_index=True)
+    selected["capacity_slots"] = capacity_slots
+    selected["min_abs_gap_atr"] = float(min_abs_gap_atr)
+    selected["cost_bps"] = float(cost_bps)
+    selected["net_return"] = np.where(
+        selected["filled"],
+        selected["gross_return"] - cost_bps / 10_000.0,
+        np.nan,
+    )
+    selected["slot_return_contribution"] = np.where(
+        selected["filled"], selected["net_return"] / capacity_slots, 0.0
+    )
+    return selected.sort_values(
+        ["trade_date", "template_id", "selected_rank"], ignore_index=True
+    )
+
+
+def selected_slot_concentration_summaries(
+    selected_candidates: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Summarize only filled members of the preregistered selected slots."""
+
+    columns = [
+        "template_id",
+        "concentration_population",
+        "capacity_slots",
+        "cost_bps",
+        "group",
+        "n_trades",
+        "n_days",
+        "mean_net_return",
+        "median_net_return",
+        "win_rate_net",
+        "share_of_template_trades",
+        "endpoint_contribution_sum",
+        "absolute_endpoint_contribution_sum",
+        "share_of_template_endpoint_return",
+        "share_of_template_absolute_endpoint_contribution",
+    ]
+    if selected_candidates.empty:
+        empty = pd.DataFrame(columns=columns)
+        return empty.copy(), empty.copy()
+    required = {
+        "template_id",
+        "ticker",
+        "sector",
+        "trade_date",
+        "filled",
+        "net_return",
+        "slot_return_contribution",
+        "capacity_slots",
+        "cost_bps",
+    }
+    missing = required.difference(selected_candidates.columns)
+    if missing:
+        raise ValueError(f"selected candidates missing concentration columns: {sorted(missing)}")
+    filled = selected_candidates.loc[selected_candidates["filled"]].copy()
+    if filled.empty:
+        empty = pd.DataFrame(columns=columns)
+        return empty.copy(), empty.copy()
+    if filled["capacity_slots"].nunique() != 1 or filled["cost_bps"].nunique() != 1:
+        raise ValueError("concentration requires exactly one slot count and cost case")
+    totals = filled.groupby("template_id", observed=True).size()
+    return_totals = filled.groupby("template_id", observed=True)[
+        "slot_return_contribution"
+    ].sum()
+    absolute_totals = (
+        filled.assign(
+            absolute_endpoint_contribution=filled["slot_return_contribution"].abs()
+        )
+        .groupby("template_id", observed=True)["absolute_endpoint_contribution"]
+        .sum()
+    )
+
+    def summarize(group_column: str) -> pd.DataFrame:
+        rows: list[dict[str, object]] = []
+        for (template_id, label), group in filled.groupby(
+            ["template_id", group_column], sort=True, observed=True, dropna=False
+        ):
+            returns = group["net_return"].astype(float)
+            contribution = float(group["slot_return_contribution"].sum())
+            absolute = float(group["slot_return_contribution"].abs().sum())
+            template_return = float(return_totals[template_id])
+            template_absolute = float(absolute_totals[template_id])
+            rows.append(
+                {
+                    "template_id": template_id,
+                    "concentration_population": "prefill_ranked_top3_filled_slots_10bps",
+                    "capacity_slots": int(group["capacity_slots"].iloc[0]),
+                    "cost_bps": float(group["cost_bps"].iloc[0]),
+                    "group": str(label),
+                    "n_trades": len(group),
+                    "n_days": int(pd.to_datetime(group["trade_date"]).nunique()),
+                    "mean_net_return": float(returns.mean()),
+                    "median_net_return": float(returns.median()),
+                    "win_rate_net": float(returns.gt(0).mean()),
+                    "share_of_template_trades": float(len(group) / totals[template_id]),
+                    "endpoint_contribution_sum": contribution,
+                    "absolute_endpoint_contribution_sum": absolute,
+                    "share_of_template_endpoint_return": (
+                        contribution / template_return
+                        if not np.isclose(template_return, 0.0)
+                        else np.nan
+                    ),
+                    "share_of_template_absolute_endpoint_contribution": (
+                        absolute / template_absolute
+                        if not np.isclose(template_absolute, 0.0)
+                        else np.nan
+                    ),
+                }
+            )
+        return pd.DataFrame(rows, columns=columns)
+
+    return summarize("ticker"), summarize("sector")
+
+
 def candidate_slot_portfolios(
     signals: pd.DataFrame,
     trades: pd.DataFrame,
@@ -540,10 +732,7 @@ def candidate_slot_portfolios(
     ]
     if signals.empty:
         return pd.DataFrame(columns=columns), pd.DataFrame(columns=summary_columns)
-    fill_keys = ["template_id", "ticker", "trade_date"]
-    fills = trades[fill_keys + ["gross_return"]].copy() if not trades.empty else pd.DataFrame(columns=fill_keys + ["gross_return"])
-    candidates = signals.merge(fills, on=fill_keys, how="left", validate="one_to_one")
-    candidates["filled"] = candidates["gross_return"].notna()
+    candidates = _merge_candidates_and_fills(signals, trades)
     rows: list[dict[str, object]] = []
     for threshold in thresholds:
         eligible = candidates.loc[candidates["signal_strength"].ge(threshold)]
@@ -849,8 +1038,19 @@ def run_gap_reversal_research(
         bootstrap_reps=bootstrap_reps,
         primary_template_ids=GAP_REVERSAL_TEMPLATE_IDS,
     )
-    primary_trades = cost_grid_trades.loc[cost_grid_trades["cost_bps"].eq(PRIMARY_COST_BPS)]
-    ticker_summary, sector_summary = concentration_summaries(primary_trades)
+    primary_selected_candidates = select_candidate_slots(
+        signals,
+        trades,
+        capacity_slots=PRIMARY_CAPACITY_SLOTS,
+        min_abs_gap_atr=0.0,
+        cost_bps=PRIMARY_COST_BPS,
+    )
+    primary_selected_fills = primary_selected_candidates.loc[
+        primary_selected_candidates["filled"]
+    ].copy()
+    ticker_summary, sector_summary = selected_slot_concentration_summaries(
+        primary_selected_candidates
+    )
 
     market_aligned = market_daily.reindex(expected_sessions)
     calendar_rows = [
@@ -906,6 +1106,8 @@ def run_gap_reversal_research(
         opening_bar_sensitivity_summary=sensitivity_summary,
         opening_bar_sensitivity_stats=sensitivity_stats,
         combined_diagnostic=_combined_diagnostic(primary_daily),
+        primary_selected_candidates=primary_selected_candidates,
+        primary_selected_fills=primary_selected_fills,
         ticker_summary=ticker_summary,
         sector_summary=sector_summary,
         coverage_audit=pd.DataFrame(coverage_rows).sort_values(
@@ -955,13 +1157,16 @@ h1,h2{{color:#fff}}.warning{{padding:14px;border:1px solid #ba7b14;background:#2
 .table-wrap{{overflow:auto;background:#11182a;border-radius:8px}}table{{border-collapse:collapse;width:100%;font-size:12px}}th,td{{padding:7px 9px;border-bottom:1px solid #26314a;text-align:right;white-space:nowrap}}th:first-child,td:first-child{{text-align:left}}th{{position:sticky;top:0;background:#19233a}}
 </style></head><body><main><h1>Gap-Reversal v1</h1>
 <p class="warning"><strong>Research only.</strong> No order, broker action, production write, schedule, deployment, or automatic promotion. The two arms are co-primary; the combined view cannot rescue either arm.</p>
-<div class="cards"><div class="card"><strong>{len(result.requested_tickers)}</strong><br>requested tickers</div><div class="card"><strong>{len(result.loaded_candidate_tickers)}</strong><br>evaluated tickers</div><div class="card"><strong>{len(result.signals):,}</strong><br>valid gap candidates</div><div class="card"><strong>{len(result.trades):,}</strong><br>primary fills</div></div>
+<div class="cards"><div class="card"><strong>{len(result.requested_tickers)}</strong><br>requested tickers</div><div class="card"><strong>{len(result.loaded_candidate_tickers)}</strong><br>evaluated tickers</div><div class="card"><strong>{len(result.signals):,}</strong><br>valid gap candidates</div><div class="card"><strong>{len(result.trades):,}</strong><br>all eligible fills</div><div class="card"><strong>{len(result.primary_selected_fills):,}</strong><br>selected top-3 fills</div></div>
 <h2>Primary: fixed three slots, 10 bps, literal signed gaps</h2><p class="muted">Candidates rank at 09:30 by |gap/ATR|. Unfilled retained slots earn zero; lower-ranked candidates do not substitute. Holm covers the two arms.</p>{_html_table(primary)}
 <h2>Cost and slot robustness</h2>{_html_table(result.slot_summary)}
 <h2>Prespecified material-gap views</h2><p class="muted">The 0.50-ATR row is the economically cleaner prespecified view, not a replacement primary or winner selection.</p>{_html_table(material)}
 <h2>Conditional-on-fill secondary view</h2>{_html_table(result.conditional_day_cluster_stats)}
 <h2>Optimistic opening-bar sensitivity</h2><p class="muted">Allows an exact-limit touch inside the 09:30 bar. It is non-primary because 15-minute data cannot establish the causal sequence.</p>{_html_table(result.opening_bar_sensitivity_stats.loc[result.opening_bar_sensitivity_stats["primary_cost_case"]])}
 <h2>Combined diagnostic only</h2>{_html_table(result.combined_diagnostic)}
+<h2>Primary selected-slot concentration</h2><p class="muted">Ticker and sector concentration use only actual fills among each arm/day's pre-fill-ranked top three candidates at 10 bps. Each fill contributes return divided by the fixed three-slot denominator; lower-ranked fills are excluded.</p>
+<h3>Ticker concentration</h3>{_html_table(result.ticker_summary)}
+<h3>Sector concentration</h3>{_html_table(result.sector_summary)}
 <h2>Coverage</h2>{_html_table(result.coverage_audit, max_rows=250)}
 </main></body></html>"""
 
@@ -987,7 +1192,7 @@ def write_gap_reversal_artifacts(
         "signals.parquet": result.signals,
         "signal_rejections.parquet": result.signal_rejections,
         "signal_input_rejections.parquet": result.input_rejections,
-        "trades_primary_10bps.parquet": result.trades,
+        "all_eligible_fills_10bps.parquet": result.trades,
         "execution_rejections.parquet": result.execution_rejections,
         "opening_bar_sensitivity_trades.parquet": result.opening_bar_sensitivity_trades,
         "opening_bar_sensitivity_rejections.parquet": result.opening_bar_sensitivity_rejections,
@@ -995,6 +1200,8 @@ def write_gap_reversal_artifacts(
         "conditional_daily_returns.parquet": result.conditional_daily_returns,
         "slot_daily_returns.parquet": result.slot_daily_returns,
         "primary_three_slot_daily_returns.parquet": result.primary_daily_returns,
+        "primary_selected_candidates_10bps.parquet": result.primary_selected_candidates,
+        "primary_selected_fills_10bps.parquet": result.primary_selected_fills,
     }
     csv_outputs = {
         "signal_generation_audit.csv": result.signal_generation_audit,
@@ -1064,7 +1271,11 @@ def write_gap_reversal_artifacts(
         "eligibility_config": asdict(result.eligibility_config),
         "raw_price_discontinuity_config": asdict(result.discontinuity_config),
         "n_signals": len(result.signals),
-        "n_primary_fills": len(result.trades),
+        "n_all_eligible_fills": len(result.trades),
+        "n_primary_selected_fills": len(result.primary_selected_fills),
+        "concentration_population": "actual_fills_among_prefill_ranked_top3_per_arm_day_at_10bps",
+        "concentration_return_weight": "net_return_divided_by_fixed_3_slot_denominator",
+        "lower_ranked_fills_excluded_from_concentration": True,
         "n_execution_rejections": len(result.execution_rejections),
         "opening_bar_sensitivity_is_optimistic_non_primary": True,
         "report": {"filename": report_path.name, "sha256": report_sha256},

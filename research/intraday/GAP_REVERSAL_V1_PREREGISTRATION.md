@@ -100,7 +100,10 @@ on all actual fills are secondary and cannot replace the slot-primary result.
   and none can overwrite the literal primary result.
 - Calendar-year, leave-one-year-out, and rolling five-calendar-year history to
   one-calendar-year test diagnostics for the fixed three-slot primary series.
-- Ticker and sector concentration, fill rate, and long/short arm economics.
+- Ticker and sector concentration uses only actual fills among each arm/day's
+  pre-fill-ranked top three candidates at 10 bps. Lower-ranked fills are
+  excluded, and each included fill retains the fixed one-third slot weight.
+  Fill rate and long/short arm economics are also reported.
 - The opening-bar-touch sensitivity is optimistic, secondary, and cannot
   advance either arm.
 - A combined long/short portfolio is diagnostic only.

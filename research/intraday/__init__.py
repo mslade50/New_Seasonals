@@ -20,6 +20,8 @@ from .gap_reversal import (
     calculate_lagged_atr,
     candidate_slot_portfolios,
     run_gap_reversal_research,
+    select_candidate_slots,
+    selected_slot_concentration_summaries,
     simulate_gap_reversal_signals,
     write_gap_reversal_artifacts,
 )
@@ -80,6 +82,8 @@ __all__ = [
     "run_gap_reversal_research",
     "run_intraday_research",
     "run_streaming_intraday_research",
+    "select_candidate_slots",
+    "selected_slot_concentration_summaries",
     "simulate_fixed_time_signals",
     "simulate_fixed_time_signals_audited",
     "simulate_gap_reversal_signals",

@@ -15,6 +15,8 @@ from research.intraday.gap_reversal import (
     calculate_lagged_atr,
     candidate_slot_portfolios,
     run_gap_reversal_research,
+    select_candidate_slots,
+    selected_slot_concentration_summaries,
     simulate_gap_reversal_signals,
     write_gap_reversal_artifacts,
 )
@@ -252,6 +254,21 @@ def test_costs_apply_only_to_prefill_ranked_fills_and_lower_rank_cannot_substitu
     assert row["unused_slots"] == 2
     assert row["slot_portfolio_return"] == pytest.approx((0.02 - 0.001) / 3.0)
 
+    selected = select_candidate_slots(signals, trades)
+    assert selected["ticker"].tolist() == ["A", "B", "C"]
+    selected_fills = selected.loc[selected["filled"]]
+    assert selected_fills["ticker"].tolist() == ["A"]
+    assert "D" not in selected_fills["ticker"].tolist()
+    ticker_summary, sector_summary = selected_slot_concentration_summaries(selected)
+    assert ticker_summary["group"].tolist() == ["A"]
+    assert sector_summary["group"].tolist() == ["Technology"]
+    assert ticker_summary.iloc[0]["endpoint_contribution_sum"] == pytest.approx(
+        (0.02 - 0.001) / 3.0
+    )
+    assert ticker_summary.iloc[0]["concentration_population"] == (
+        "prefill_ranked_top3_filled_slots_10bps"
+    )
+
 
 def test_writer_stays_under_artifacts_and_manifest_freezes_research_only(tmp_path: Path):
     dates = _dates()
@@ -280,9 +297,15 @@ def test_writer_stays_under_artifacts_and_manifest_freezes_research_only(tmp_pat
     written = write_gap_reversal_artifacts(result, output)
     manifest = json.loads((written / "run_manifest.json").read_text(encoding="utf-8"))
     assert (written / "report.html").is_file()
+    assert (written / "primary_selected_candidates_10bps.parquet").is_file()
+    assert (written / "primary_selected_fills_10bps.parquet").is_file()
     assert manifest["research_only"] is True
     assert manifest["production_writes"] is False
     assert manifest["primary_capacity_slots"] == 3
     assert manifest["holm_family_size"] == 2
+    assert manifest["concentration_population"] == (
+        "actual_fills_among_prefill_ranked_top3_per_arm_day_at_10bps"
+    )
+    assert manifest["lower_ranked_fills_excluded_from_concentration"] is True
     with pytest.raises(ValueError, match="artifact root"):
         write_gap_reversal_artifacts(result, tmp_path / "outside")
