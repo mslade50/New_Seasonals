@@ -28,9 +28,11 @@ from .diagnostics import (
     capacity_overlays,
     concentration_summaries,
     day_cluster_statistics,
+    leave_one_year_out_diagnostics,
     make_daily_returns,
     materialize_cost_grid,
     rolling_five_year_train_one_year_test,
+    side_diagnostics,
     validate_cost_grid,
 )
 from .eligibility import EligibilityConfig
@@ -100,13 +102,22 @@ class RawPriceDiscontinuityConfig:
         0.25,
         1.0 / 3.0,
         0.5,
+        2.0 / 3.0,
+        0.75,
+        0.8,
+        1.25,
+        4.0 / 3.0,
+        1.5,
         2.0,
         3.0,
         4.0,
         5.0,
         10.0,
     )
-    relative_tolerance: float = 0.12
+    relative_tolerance: float = 0.03
+    min_abs_deviation_from_one: float = 0.20
+    extreme_low_ratio: float = 0.20
+    extreme_high_ratio: float = 5.0
 
     def __post_init__(self) -> None:
         if not self.common_factors or any(
@@ -116,6 +127,17 @@ class RawPriceDiscontinuityConfig:
             raise ValueError("common split factors must be finite, positive, and not 1")
         if not np.isfinite(self.relative_tolerance) or not 0 < self.relative_tolerance < 0.5:
             raise ValueError("relative_tolerance must be in (0, 0.5)")
+        if (
+            not np.isfinite(self.min_abs_deviation_from_one)
+            or not 0 < self.min_abs_deviation_from_one < 1
+        ):
+            raise ValueError("min_abs_deviation_from_one must be in (0, 1)")
+        if (
+            not np.isfinite(self.extreme_low_ratio)
+            or not np.isfinite(self.extreme_high_ratio)
+            or not 0 < self.extreme_low_ratio < 1 < self.extreme_high_ratio
+        ):
+            raise ValueError("extreme ratio bounds must straddle one")
 
 
 @dataclass
@@ -128,16 +150,21 @@ class StreamingIntradayResearchResult:
     full_sessions: pd.DatetimeIndex
     signals: pd.DataFrame
     signal_rejections: pd.DataFrame
+    input_rejections: pd.DataFrame
     signal_generation_audit: pd.DataFrame
     eligibility_summary: pd.DataFrame
     trades: pd.DataFrame
     execution_rejections: pd.DataFrame
+    unfiltered_gap_trades: pd.DataFrame
+    discontinuity_sensitivity: pd.DataFrame
     cost_grid_trades: pd.DataFrame
     cost_grid_summary: pd.DataFrame
     daily_returns: pd.DataFrame
     day_cluster_stats: pd.DataFrame
     annual_stats: pd.DataFrame
+    leave_one_year_out: pd.DataFrame
     rolling_diagnostics: pd.DataFrame
+    side_summary: pd.DataFrame
     capacity_daily_returns: pd.DataFrame
     capacity_summary: pd.DataFrame
     ticker_summary: pd.DataFrame
@@ -150,6 +177,7 @@ class StreamingIntradayResearchResult:
     bootstrap_reps: int
     metadata_fingerprint: str
     universe_fingerprint: str
+    source_provenance: dict[str, object]
 
 
 def _sha256_file(path: Path) -> str:
@@ -190,6 +218,8 @@ def reduce_bars_to_daily(bars: pd.DataFrame) -> pd.DataFrame:
         bars_in_session=("ts", "size"),
         first_bar_minute=("minute", "min"),
         last_bar_minute=("minute", "max"),
+        session_close=("close", "last"),
+        session_close_volume=("volume", "last"),
         session_dollar_volume=("dollar_volume", "sum"),
         zero_volume_bars=("volume", lambda values: int(values.eq(0).sum())),
     )
@@ -238,6 +268,13 @@ def reduce_bars_to_daily(bars: pd.DataFrame) -> pd.DataFrame:
         daily["bars_in_session"].eq(EARLY_CLOSE_BAR_COUNT)
         & daily["first_bar_minute"].eq(SESSION_OPEN_MINUTE)
         & daily["last_bar_minute"].eq(EARLY_CLOSE_LAST_MINUTE)
+    )
+    daily["valid_session_close"] = daily["session_close"].where(
+        (
+            daily["is_exact_full_session"]
+            | daily["is_exact_observed_early_close"]
+        )
+        & daily["session_close_volume"].gt(0)
     )
     return daily.sort_index()
 
@@ -322,9 +359,14 @@ def _calculate_streaming_eligibility(
     work["session_completeness"] = (
         work["bars_in_session"] / config.expected_bars_per_session
     ).clip(upper=1.0)
+    valid_observed_session = (
+        work["is_exact_full_session"].eq(True)
+        | work["is_exact_observed_early_close"].eq(True)
+    )
+    work.loc[valid_observed_session, "session_completeness"] = 1.0
     prior_dollar_volume = work["session_dollar_volume"].shift(1)
     prior_completeness = work["session_completeness"].shift(1)
-    work["price_proxy"] = work["close_1545"].shift(1)
+    work["price_proxy"] = work["valid_session_close"].shift(1)
     work["median_dollar_volume"] = prior_dollar_volume.rolling(
         config.lookback_sessions,
         min_periods=config.min_history_sessions,
@@ -395,8 +437,20 @@ def _nearest_common_factor(
     )
     nearest_index = distances.argmin(axis=1)
     nearest_distance = distances[np.arange(len(ratio_values)), nearest_index]
-    flagged = finite & (nearest_distance <= config.relative_tolerance)
-    factor_values = np.where(flagged, factors[nearest_index], np.nan)
+    near_factor = (
+        finite
+        & (
+            np.abs(ratio_values - 1.0)
+            >= config.min_abs_deviation_from_one - 1e-12
+        )
+        & (nearest_distance <= config.relative_tolerance)
+    )
+    extreme = finite & (
+        (ratio_values < config.extreme_low_ratio)
+        | (ratio_values > config.extreme_high_ratio)
+    )
+    flagged = near_factor | extreme
+    factor_values = np.where(near_factor, factors[nearest_index], np.nan)
     return (
         pd.Series(flagged, index=ratios.index, dtype=bool),
         pd.Series(factor_values, index=ratios.index, dtype=float),
@@ -433,6 +487,50 @@ def _signal_frame(rows: pd.DataFrame) -> pd.DataFrame:
     return output
 
 
+def _input_rejection_frame(
+    *,
+    template_id: str,
+    ticker: str,
+    eligibility: pd.DataFrame,
+    market_status: pd.Series,
+    component_complete: dict[str, pd.Series],
+) -> pd.DataFrame:
+    """Materialize explicit reasons when an eligible session cannot be evaluated."""
+
+    rows: list[dict[str, object]] = []
+    eligible_days = eligibility.index[eligibility["eligible"].eq(True)]
+    aligned_status = market_status.reindex(eligibility.index)
+    for day in eligible_days:
+        reasons: list[str] = []
+        status = aligned_status.loc[day]
+        if status != "full_session":
+            reasons.append(f"market_session_status:{status}")
+        else:
+            for component, complete in component_complete.items():
+                if not bool(complete.loc[day]):
+                    reasons.append(
+                        f"{component}_feature_missing_or_nonpositive_volume"
+                    )
+        if reasons:
+            rows.append(
+                {
+                    "template_id": template_id,
+                    "ticker": ticker,
+                    "trade_date": day,
+                    "input_rejection_reasons": "|".join(reasons),
+                }
+            )
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "template_id",
+            "ticker",
+            "trade_date",
+            "input_rejection_reasons",
+        ],
+    )
+
+
 def _gap_signals(
     *,
     ticker: str,
@@ -444,7 +542,13 @@ def _gap_signals(
     eligibility: pd.DataFrame,
     market_status: pd.Series,
     discontinuity_config: RawPriceDiscontinuityConfig,
-) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int | str]]:
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    dict[str, int | str],
+    pd.DataFrame,
+    pd.DataFrame,
+]:
     config = GapFirstHourConfig()
     index = eligibility.index
     a = asset.reindex(index)
@@ -452,32 +556,47 @@ def _gap_signals(
     s = proxy.reindex(index)
     same_proxy = sector_proxy in {"SPY", ticker}
 
-    feature_quality = (
-        a["gap_feature_quality_ok"].eq(True)
-        & m["gap_feature_quality_ok"].eq(True)
-        & s["gap_feature_quality_ok"].eq(True)
-    )
-    required = pd.concat(
-        [
-            a[["open_0930", "close_1015"]],
-            a[["close_1545"]].shift(1).add_prefix("prior_asset_"),
-            m[["open_0930", "close_1015"]].add_prefix("market_"),
-            m[["close_1545"]].shift(1).add_prefix("prior_market_"),
-            s[["open_0930", "close_1015"]].add_prefix("sector_"),
-            s[["close_1545"]].shift(1).add_prefix("prior_sector_"),
-        ],
+    asset_required = pd.concat(
+        [a[["open_0930", "close_1015"]], a[["valid_session_close"]].shift(1)],
         axis=1,
     )
-    feature_complete = required.notna().all(axis=1) & feature_quality
+    market_required = pd.concat(
+        [m[["open_0930", "close_1015"]], m[["valid_session_close"]].shift(1)],
+        axis=1,
+    )
+    sector_required = pd.concat(
+        [s[["open_0930", "close_1015"]], s[["valid_session_close"]].shift(1)],
+        axis=1,
+    )
+    component_complete = {
+        "asset": asset_required.notna().all(axis=1)
+        & a["gap_feature_quality_ok"].eq(True),
+        "market_proxy": market_required.notna().all(axis=1)
+        & m["gap_feature_quality_ok"].eq(True),
+        "sector_proxy": sector_required.notna().all(axis=1)
+        & s["gap_feature_quality_ok"].eq(True),
+    }
+    feature_complete = (
+        component_complete["asset"]
+        & component_complete["market_proxy"]
+        & component_complete["sector_proxy"]
+    )
     quality = (
         eligibility["eligible"]
         & market_status.reindex(index).eq("full_session")
         & feature_complete
     )
+    input_rejections = _input_rejection_frame(
+        template_id=GAP_FIRST_HOUR_TEMPLATE_ID,
+        ticker=ticker,
+        eligibility=eligibility,
+        market_status=market_status,
+        component_complete=component_complete,
+    )
 
-    asset_gap_ratio = a["open_0930"] / a["close_1545"].shift(1)
-    market_gap_ratio = m["open_0930"] / m["close_1545"].shift(1)
-    sector_gap_ratio = s["open_0930"] / s["close_1545"].shift(1)
+    asset_gap_ratio = a["open_0930"] / a["valid_session_close"].shift(1)
+    market_gap_ratio = m["open_0930"] / m["valid_session_close"].shift(1)
+    sector_gap_ratio = s["open_0930"] / s["valid_session_close"].shift(1)
     asset_gap = asset_gap_ratio - 1.0
     market_gap = market_gap_ratio - 1.0
     sector_gap = sector_gap_ratio - 1.0
@@ -527,7 +646,10 @@ def _gap_signals(
         ):
             if bool(flag.loc[day]):
                 components.append(name)
-                factors.append(f"{name}:{factor.loc[day]:g}")
+                nearest = factor.loc[day]
+                factors.append(
+                    f"{name}:{nearest:g}" if np.isfinite(nearest) else f"{name}:extreme"
+                )
         rejection_rows.append(
             {
                 "template_id": GAP_FIRST_HOUR_TEMPLATE_ID,
@@ -542,38 +664,40 @@ def _gap_signals(
             }
         )
 
-    selected_index = index[selected]
-    rows = pd.DataFrame(index=selected_index)
-    rows["template_id"] = GAP_FIRST_HOUR_TEMPLATE_ID
-    rows["ticker"] = ticker
-    rows["sector"] = sector
-    rows["sector_proxy"] = sector_proxy
-    rows["trade_date"] = selected_index
-    rows["side"] = np.sign(residual_gap.loc[selected_index]).astype(int)
-    rows["decision_ts"] = _clock_index(selected_index, config.decision_time)
-    rows["feature_bar_ts"] = rows["decision_ts"] - BAR_DELTA
-    rows["feature_available_ts"] = rows["feature_bar_ts"] + BAR_DELTA
-    rows["entry_bar_ts"] = _clock_index(selected_index, config.entry_time)
-    rows["entry_ts"] = rows["entry_bar_ts"]
-    rows["exit_bar_ts"] = _clock_index(selected_index, config.exit_bar_time)
-    rows["exit_ts"] = rows["exit_bar_ts"] + BAR_DELTA
-    for column, series in (
-        ("asset_gap", asset_gap),
-        ("market_gap", market_gap),
-        ("sector_gap", sector_gap),
-        ("residual_gap", residual_gap),
-        ("asset_first_hour", asset_first_hour),
-        ("market_first_hour", market_first_hour),
-        ("sector_first_hour", sector_first_hour),
-        ("residual_first_hour", residual_first_hour),
-    ):
-        rows[column] = series.loc[selected_index].to_numpy()
-    rows["signal_strength"] = (
-        residual_gap.loc[selected_index].abs()
-        + residual_first_hour.loc[selected_index].abs()
-    ).to_numpy()
-    for column in ("price_proxy", "median_dollar_volume", "data_completeness"):
-        rows[column] = eligibility.loc[selected_index, column].to_numpy()
+    def build_rows(mask: pd.Series) -> pd.DataFrame:
+        selected_index = index[mask]
+        rows = pd.DataFrame(index=selected_index)
+        rows["template_id"] = GAP_FIRST_HOUR_TEMPLATE_ID
+        rows["ticker"] = ticker
+        rows["sector"] = sector
+        rows["sector_proxy"] = sector_proxy
+        rows["trade_date"] = selected_index
+        rows["side"] = np.sign(residual_gap.loc[selected_index]).astype(int)
+        rows["decision_ts"] = _clock_index(selected_index, config.decision_time)
+        rows["feature_bar_ts"] = rows["decision_ts"] - BAR_DELTA
+        rows["feature_available_ts"] = rows["feature_bar_ts"] + BAR_DELTA
+        rows["entry_bar_ts"] = _clock_index(selected_index, config.entry_time)
+        rows["entry_ts"] = rows["entry_bar_ts"]
+        rows["exit_bar_ts"] = _clock_index(selected_index, config.exit_bar_time)
+        rows["exit_ts"] = rows["exit_bar_ts"] + BAR_DELTA
+        for column, series in (
+            ("asset_gap", asset_gap),
+            ("market_gap", market_gap),
+            ("sector_gap", sector_gap),
+            ("residual_gap", residual_gap),
+            ("asset_first_hour", asset_first_hour),
+            ("market_first_hour", market_first_hour),
+            ("sector_first_hour", sector_first_hour),
+            ("residual_first_hour", residual_first_hour),
+        ):
+            rows[column] = series.loc[selected_index].to_numpy()
+        rows["signal_strength"] = (
+            residual_gap.loc[selected_index].abs()
+            + residual_first_hour.loc[selected_index].abs()
+        ).to_numpy()
+        for column in ("price_proxy", "median_dollar_volume", "data_completeness"):
+            rows[column] = eligibility.loc[selected_index, column].to_numpy()
+        return _signal_frame(rows)
 
     eligible = eligibility["eligible"]
     full_market = market_status.reindex(index).eq("full_session")
@@ -590,7 +714,13 @@ def _gap_signals(
         "n_raw_discontinuity_filtered": int((threshold_pass & discontinuity).sum()),
         "n_signals": int(selected.sum()),
     }
-    return _signal_frame(rows), pd.DataFrame(rejection_rows), audit
+    return (
+        build_rows(selected),
+        pd.DataFrame(rejection_rows),
+        audit,
+        build_rows(threshold_pass),
+        input_rejections,
+    )
 
 
 def _shock_signals(
@@ -603,29 +733,35 @@ def _shock_signals(
     proxy: pd.DataFrame,
     eligibility: pd.DataFrame,
     market_status: pd.Series,
-) -> tuple[pd.DataFrame, dict[str, int | str]]:
+) -> tuple[pd.DataFrame, dict[str, int | str], pd.DataFrame]:
     config = IntradayShockConfig()
     index = eligibility.index
     a = asset.reindex(index)
     m = market.reindex(index)
     s = proxy.reindex(index)
     same_proxy = sector_proxy in {"SPY", ticker}
-    feature_quality = (
-        a["shock_feature_quality_ok"].eq(True)
-        & m["shock_feature_quality_ok"].eq(True)
-        & s["shock_feature_quality_ok"].eq(True)
+    component_complete = {
+        "asset": a[["open_0930", "close_1300"]].notna().all(axis=1)
+        & a["shock_feature_quality_ok"].eq(True),
+        "market_proxy": m[["open_0930", "close_1300"]].notna().all(axis=1)
+        & m["shock_feature_quality_ok"].eq(True),
+        "sector_proxy": s[["open_0930", "close_1300"]].notna().all(axis=1)
+        & s["shock_feature_quality_ok"].eq(True),
+    }
+    feature_complete = (
+        component_complete["asset"]
+        & component_complete["market_proxy"]
+        & component_complete["sector_proxy"]
     )
-    required = pd.concat(
-        [
-            a[["open_0930", "close_1300"]],
-            m[["open_0930", "close_1300"]].add_prefix("market_"),
-            s[["open_0930", "close_1300"]].add_prefix("sector_"),
-        ],
-        axis=1,
-    )
-    feature_complete = required.notna().all(axis=1) & feature_quality
     full_market = market_status.reindex(index).eq("full_session")
     quality = eligibility["eligible"] & full_market & feature_complete
+    input_rejections = _input_rejection_frame(
+        template_id=INTRADAY_SHOCK_TEMPLATE_ID,
+        ticker=ticker,
+        eligibility=eligibility,
+        market_status=market_status,
+        component_complete=component_complete,
+    )
 
     asset_shock = a["close_1300"] / a["open_0930"] - 1.0
     market_shock = m["close_1300"] / m["open_0930"] - 1.0
@@ -682,7 +818,7 @@ def _shock_signals(
         "n_raw_discontinuity_filtered": 0,
         "n_signals": int(selected.sum()),
     }
-    return _signal_frame(rows), audit
+    return _signal_frame(rows), audit, input_rejections
 
 
 def _frame_coverage_row(
@@ -700,7 +836,7 @@ def _frame_coverage_row(
     expected_observed = observed.intersection(expected_sessions)
     unexpected = observed.difference(expected_sessions)
     aligned = daily.reindex(expected_sessions)
-    ratios = aligned["open_0930"] / aligned["close_1545"].shift(1)
+    ratios = aligned["open_0930"] / aligned["valid_session_close"].shift(1)
     discontinuity, _ = _nearest_common_factor(ratios, discontinuity_config)
     return {
         "ticker": ticker,
@@ -813,6 +949,70 @@ def _cost_grid_summary(cost_grid_trades: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
+def _discontinuity_sensitivity(
+    filtered_trades: pd.DataFrame,
+    unfiltered_trades: pd.DataFrame,
+    *,
+    filtered_signal_count: int,
+    unfiltered_signal_count: int,
+) -> pd.DataFrame:
+    """Compare gross gap-template economics with and without the frozen filter."""
+
+    columns = [
+        "view",
+        "n_signals",
+        "n_executed_trades",
+        "n_days",
+        "mean_trade_gross_return",
+        "median_trade_gross_return",
+        "win_rate_trade_gross",
+        "mean_daily_equal_notional_gross_return",
+        "median_daily_equal_notional_gross_return",
+        "n_additional_signals_vs_filtered",
+        "n_additional_executed_trades_vs_filtered",
+    ]
+    rows: list[dict[str, float | int | str]] = []
+    cases = (
+        ("preregistered_filter_on", filtered_trades, filtered_signal_count),
+        ("audit_filter_off", unfiltered_trades, unfiltered_signal_count),
+    )
+    for view, frame, signal_count in cases:
+        gross = frame.get("gross_return", pd.Series(dtype=float)).astype(float)
+        daily = (
+            frame.groupby("trade_date", observed=True)["gross_return"].mean()
+            if not frame.empty
+            else pd.Series(dtype=float)
+        )
+        rows.append(
+            {
+                "view": view,
+                "n_signals": int(signal_count),
+                "n_executed_trades": len(frame),
+                "n_days": int(frame["trade_date"].nunique()) if not frame.empty else 0,
+                "mean_trade_gross_return": float(gross.mean()) if len(gross) else np.nan,
+                "median_trade_gross_return": (
+                    float(gross.median()) if len(gross) else np.nan
+                ),
+                "win_rate_trade_gross": (
+                    float(gross.gt(0).mean()) if len(gross) else np.nan
+                ),
+                "mean_daily_equal_notional_gross_return": (
+                    float(daily.mean()) if len(daily) else np.nan
+                ),
+                "median_daily_equal_notional_gross_return": (
+                    float(daily.median()) if len(daily) else np.nan
+                ),
+                "n_additional_signals_vs_filtered": int(
+                    signal_count - filtered_signal_count
+                ),
+                "n_additional_executed_trades_vs_filtered": int(
+                    len(frame) - len(filtered_trades)
+                ),
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
 def run_streaming_intraday_research(
     data_dir: str | Path,
     metadata: pd.DataFrame,
@@ -823,6 +1023,7 @@ def run_streaming_intraday_research(
     discontinuity_config: RawPriceDiscontinuityConfig | None = None,
     cost_grid_bps: tuple[float, ...] = DEFAULT_COST_GRID_BPS,
     bootstrap_reps: int = 2_000,
+    source_provenance: dict[str, object] | None = None,
 ) -> StreamingIntradayResearchResult:
     """Run both locked v0 templates from an explicit local parquet directory."""
 
@@ -926,9 +1127,11 @@ def run_streaming_intraday_research(
 
     signal_frames: list[pd.DataFrame] = []
     signal_rejection_frames: list[pd.DataFrame] = []
+    input_rejection_frames: list[pd.DataFrame] = []
     generation_rows: list[dict[str, int | str]] = []
     eligibility_rows: list[dict[str, int | str]] = []
     trade_frames: list[pd.DataFrame] = []
+    unfiltered_gap_trade_frames: list[pd.DataFrame] = []
     execution_rejection_frames: list[pd.DataFrame] = []
     loaded_candidates: list[str] = []
 
@@ -982,7 +1185,13 @@ def run_streaming_intraday_research(
             _eligibility_summary(ticker, eligibility, eligibility_config)
         )
 
-        gap_signals, gap_rejections, gap_audit = _gap_signals(
+        (
+            gap_signals,
+            gap_rejections,
+            gap_audit,
+            unfiltered_gap_signals,
+            gap_input_rejections,
+        ) = _gap_signals(
             ticker=ticker,
             sector=sector,
             sector_proxy=sector_proxy,
@@ -993,7 +1202,7 @@ def run_streaming_intraday_research(
             market_status=market_status,
             discontinuity_config=discontinuity_config,
         )
-        shock_signals, shock_audit = _shock_signals(
+        shock_signals, shock_audit, shock_input_rejections = _shock_signals(
             ticker=ticker,
             sector=sector,
             sector_proxy=sector_proxy,
@@ -1003,12 +1212,17 @@ def run_streaming_intraday_research(
             eligibility=eligibility,
             market_status=market_status,
         )
-        candidate_signals = pd.concat(
-            [gap_signals, shock_signals], ignore_index=True
-        ).sort_values(["trade_date", "template_id"], ignore_index=True)
+        candidate_records: list[dict[str, object]] = []
+        for frame in (gap_signals, shock_signals):
+            if not frame.empty:
+                candidate_records.extend(frame.to_dict("records"))
+        candidate_signals = _signal_frame(pd.DataFrame.from_records(candidate_records))
         signal_frames.append(candidate_signals)
         if not gap_rejections.empty:
             signal_rejection_frames.append(gap_rejections)
+        for frame in (gap_input_rejections, shock_input_rejections):
+            if not frame.empty:
+                input_rejection_frames.append(frame)
         generation_rows.extend([gap_audit, shock_audit])
         simulation = simulate_fixed_time_signals_audited(
             candidate_signals,
@@ -1020,6 +1234,14 @@ def run_streaming_intraday_research(
             trade_frames.append(simulation.trades)
         if not simulation.execution_rejections.empty:
             execution_rejection_frames.append(simulation.execution_rejections)
+        unfiltered_gap_simulation = simulate_fixed_time_signals_audited(
+            unfiltered_gap_signals,
+            {ticker: bars},
+            round_trip_cost_bps=0.0,
+            frames_are_normalized=True,
+        )
+        if not unfiltered_gap_simulation.trades.empty:
+            unfiltered_gap_trade_frames.append(unfiltered_gap_simulation.trades)
         del bars, daily, eligibility, candidate_signals
 
     if not loaded_candidates:
@@ -1070,6 +1292,41 @@ def run_streaming_intraday_research(
             ]
         )
     )
+    input_rejections = (
+        pd.concat(input_rejection_frames, ignore_index=True).sort_values(
+            ["trade_date", "template_id", "ticker"], ignore_index=True
+        )
+        if input_rejection_frames
+        else pd.DataFrame(
+            columns=[
+                "template_id",
+                "ticker",
+                "trade_date",
+                "input_rejection_reasons",
+            ]
+        )
+    )
+    unfiltered_gap_trades = (
+        pd.concat(unfiltered_gap_trade_frames, ignore_index=True).sort_values(
+            ["trade_date", "ticker"], ignore_index=True
+        )
+        if unfiltered_gap_trade_frames
+        else pd.DataFrame(columns=[*SIGNAL_COLUMNS, "gross_return", "net_return"])
+    )
+    filtered_gap_trades = trades.loc[
+        trades["template_id"].eq(GAP_FIRST_HOUR_TEMPLATE_ID)
+    ].copy()
+    discontinuity_sensitivity = _discontinuity_sensitivity(
+        filtered_gap_trades,
+        unfiltered_gap_trades,
+        filtered_signal_count=int(
+            signals["template_id"].eq(GAP_FIRST_HOUR_TEMPLATE_ID).sum()
+        ),
+        unfiltered_signal_count=int(
+            signals["template_id"].eq(GAP_FIRST_HOUR_TEMPLATE_ID).sum()
+            + len(signal_rejections)
+        ),
+    )
     cost_grid_trades = materialize_cost_grid(trades, costs)
     daily_returns = make_daily_returns(cost_grid_trades)
     day_stats = day_cluster_statistics(
@@ -1103,16 +1360,23 @@ def run_streaming_intraday_research(
         full_sessions=full_sessions,
         signals=signals,
         signal_rejections=signal_rejections,
+        input_rejections=input_rejections,
         signal_generation_audit=pd.DataFrame(generation_rows),
         eligibility_summary=pd.DataFrame(eligibility_rows),
         trades=trades,
         execution_rejections=execution_rejections,
+        unfiltered_gap_trades=unfiltered_gap_trades,
+        discontinuity_sensitivity=discontinuity_sensitivity,
         cost_grid_trades=cost_grid_trades,
         cost_grid_summary=_cost_grid_summary(cost_grid_trades),
         daily_returns=daily_returns,
         day_cluster_stats=day_stats,
         annual_stats=annual_diagnostics(daily_returns, full_sessions),
-        rolling_diagnostics=rolling_five_year_train_one_year_test(daily_returns),
+        leave_one_year_out=leave_one_year_out_diagnostics(daily_returns),
+        rolling_diagnostics=rolling_five_year_train_one_year_test(
+            daily_returns, expected_sessions
+        ),
+        side_summary=side_diagnostics(cost_grid_trades),
         capacity_daily_returns=capacity_daily,
         capacity_summary=capacity_summary,
         ticker_summary=ticker_summary,
@@ -1127,6 +1391,7 @@ def run_streaming_intraday_research(
         bootstrap_reps=bootstrap_reps,
         metadata_fingerprint=metadata_fingerprint,
         universe_fingerprint=universe_fingerprint,
+        source_provenance=dict(source_provenance or {}),
     )
 
 
@@ -1152,8 +1417,10 @@ def write_streaming_research_artifacts(
     parquet_outputs = {
         "signals.parquet": result.signals,
         "signal_rejections.parquet": result.signal_rejections,
+        "signal_input_rejections.parquet": result.input_rejections,
         "trades_primary_10bps.parquet": result.trades,
         "execution_rejections.parquet": result.execution_rejections,
+        "gap_trades_filter_off_gross.parquet": result.unfiltered_gap_trades,
         "cost_grid_trades.parquet": result.cost_grid_trades,
         "daily_returns.parquet": result.daily_returns,
         "capacity_daily_returns.parquet": result.capacity_daily_returns,
@@ -1164,7 +1431,10 @@ def write_streaming_research_artifacts(
         "cost_grid_summary.csv": result.cost_grid_summary,
         "day_cluster_stats.csv": result.day_cluster_stats,
         "annual_stats.csv": result.annual_stats,
+        "leave_one_year_out.csv": result.leave_one_year_out,
         "rolling_5y_train_1y_test.csv": result.rolling_diagnostics,
+        "side_summary.csv": result.side_summary,
+        "discontinuity_sensitivity.csv": result.discontinuity_sensitivity,
         "capacity_summary.csv": result.capacity_summary,
         "ticker_summary.csv": result.ticker_summary,
         "sector_summary.csv": result.sector_summary,
@@ -1189,6 +1459,7 @@ def write_streaming_research_artifacts(
         "loaded_proxy_tickers": list(result.loaded_proxy_tickers),
         "universe_sha256": result.universe_fingerprint,
         "metadata_sha256": result.metadata_fingerprint,
+        "raw_source_provenance": result.source_provenance,
         "input_files": result.coverage_audit[
             ["ticker", "role", "status", "input_path", "input_sha256"]
         ].to_dict("records"),
@@ -1208,8 +1479,10 @@ def write_streaming_research_artifacts(
         "raw_price_discontinuity_config": asdict(result.discontinuity_config),
         "n_signals": len(result.signals),
         "n_signal_rejections": len(result.signal_rejections),
+        "n_signal_input_rejections": len(result.input_rejections),
         "n_primary_trades": len(result.trades),
         "n_execution_rejections": len(result.execution_rejections),
+        "n_gap_filter_off_trades": len(result.unfiltered_gap_trades),
         "manifest_written_last": True,
     }
     (target / "run_manifest.json").write_text(

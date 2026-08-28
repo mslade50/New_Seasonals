@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from trading_calendar import TRADING_DAY
+
 from .templates import GAP_FIRST_HOUR_TEMPLATE_ID, INTRADAY_SHOCK_TEMPLATE_ID
 
 DEFAULT_COST_GRID_BPS: Final[tuple[float, ...]] = (5.0, 10.0, 15.0, 20.0, 30.0)
@@ -240,8 +242,99 @@ def annual_diagnostics(
     return pd.DataFrame(rows, columns=columns)
 
 
+def leave_one_year_out_diagnostics(
+    daily_returns: pd.DataFrame,
+) -> pd.DataFrame:
+    """Show whether a fixed-rule mean survives removal of each calendar year."""
+
+    columns = [
+        "template_id",
+        "cost_bps",
+        "omitted_year",
+        "n_remaining_days",
+        "full_sample_mean_return",
+        "remaining_mean_return",
+        "remaining_win_rate",
+        "mean_sign_preserved",
+    ]
+    if daily_returns.empty:
+        return pd.DataFrame(columns=columns)
+    work = daily_returns.copy()
+    work["year"] = pd.to_datetime(work["trade_date"]).dt.year
+    rows: list[dict[str, float | int | str | bool]] = []
+    for (template_id, cost_bps), group in work.groupby(
+        ["template_id", "cost_bps"], sort=True, observed=True
+    ):
+        full_mean = float(group["daily_equal_notional_return"].mean())
+        for omitted_year in sorted(group["year"].unique()):
+            remaining = group.loc[
+                group["year"].ne(omitted_year), "daily_equal_notional_return"
+            ].astype(float)
+            remaining_mean = float(remaining.mean()) if len(remaining) else np.nan
+            rows.append(
+                {
+                    "template_id": template_id,
+                    "cost_bps": float(cost_bps),
+                    "omitted_year": int(omitted_year),
+                    "n_remaining_days": len(remaining),
+                    "full_sample_mean_return": full_mean,
+                    "remaining_mean_return": remaining_mean,
+                    "remaining_win_rate": (
+                        float(remaining.gt(0).mean()) if len(remaining) else np.nan
+                    ),
+                    "mean_sign_preserved": (
+                        bool(np.sign(remaining_mean) == np.sign(full_mean))
+                        if np.isfinite(remaining_mean) and not np.isclose(full_mean, 0.0)
+                        else False
+                    ),
+                }
+            )
+    return pd.DataFrame(rows, columns=columns)
+
+
+def side_diagnostics(cost_grid_trades: pd.DataFrame) -> pd.DataFrame:
+    """Report prespecified long/short economics without selecting a side."""
+
+    columns = [
+        "template_id",
+        "cost_bps",
+        "side",
+        "direction",
+        "n_trades",
+        "n_days",
+        "mean_trade_net_return",
+        "mean_daily_equal_notional_return",
+        "median_daily_equal_notional_return",
+        "win_rate_daily",
+    ]
+    if cost_grid_trades.empty:
+        return pd.DataFrame(columns=columns)
+    rows: list[dict[str, float | int | str]] = []
+    grouped = cost_grid_trades.groupby(
+        ["template_id", "cost_bps", "side"], sort=True, observed=True
+    )
+    for (template_id, cost_bps, side), group in grouped:
+        daily = group.groupby("trade_date", observed=True)["net_return"].mean()
+        rows.append(
+            {
+                "template_id": template_id,
+                "cost_bps": float(cost_bps),
+                "side": int(side),
+                "direction": "long" if int(side) > 0 else "short",
+                "n_trades": len(group),
+                "n_days": int(group["trade_date"].nunique()),
+                "mean_trade_net_return": float(group["net_return"].mean()),
+                "mean_daily_equal_notional_return": float(daily.mean()),
+                "median_daily_equal_notional_return": float(daily.median()),
+                "win_rate_daily": float(daily.gt(0).mean()),
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
 def rolling_five_year_train_one_year_test(
     daily_returns: pd.DataFrame,
+    expected_sessions: pd.DatetimeIndex,
 ) -> pd.DataFrame:
     """Materialize fixed-rule five-calendar-year/train, one-year/test windows."""
 
@@ -257,19 +350,35 @@ def rolling_five_year_train_one_year_test(
         "test_mean_return",
         "train_win_rate",
         "test_win_rate",
+        "test_year_complete",
+        "eligible_for_stability_gate",
         "rule_selected_or_refit",
     ]
     if daily_returns.empty:
         return pd.DataFrame(columns=columns)
+    expected = pd.DatetimeIndex(expected_sessions).normalize().sort_values().unique()
+    if expected.empty:
+        raise ValueError("expected_sessions cannot be empty")
     work = daily_returns.copy()
     work["year"] = pd.to_datetime(work["trade_date"]).dt.year
+    calendar_years = range(int(expected.year.min()), int(expected.year.max()) + 1)
+    complete_years = {
+        year
+        for year in calendar_years
+        if pd.date_range(
+            f"{year}-01-01", f"{year}-12-31", freq=TRADING_DAY
+        ).normalize().isin(expected).all()
+    }
     rows: list[dict[str, float | int | str | bool]] = []
     for (template_id, cost_bps), group in work.groupby(
         ["template_id", "cost_bps"], sort=True, observed=True
     ):
-        min_year = int(group["year"].min())
-        max_year = int(group["year"].max())
+        min_year = int(expected.year.min())
+        max_year = int(expected.year.max())
         for test_year in range(min_year + 5, max_year + 1):
+            prior_years = set(range(test_year - 5, test_year))
+            if not prior_years.issubset(complete_years):
+                continue
             train = group.loc[group["year"].between(test_year - 5, test_year - 1)]
             test = group.loc[group["year"].eq(test_year)]
             if train.empty and test.empty:
@@ -298,6 +407,10 @@ def rolling_five_year_train_one_year_test(
                     ),
                     "test_win_rate": (
                         float(test_returns.gt(0).mean()) if len(test_returns) else np.nan
+                    ),
+                    "test_year_complete": test_year in complete_years,
+                    "eligible_for_stability_gate": (
+                        test_year in complete_years and len(test_returns) > 0
                     ),
                     "rule_selected_or_refit": False,
                 }
@@ -420,18 +533,42 @@ def concentration_summaries(
         "median_net_return",
         "win_rate_net",
         "share_of_template_trades",
+        "endpoint_contribution_sum",
+        "absolute_endpoint_contribution_sum",
+        "share_of_template_endpoint_return",
+        "share_of_template_absolute_endpoint_contribution",
     ]
     if primary_trades.empty:
         empty = pd.DataFrame(columns=columns)
         return empty.copy(), empty.copy()
 
+    weighted = primary_trades.copy()
+    day_counts = weighted.groupby(
+        ["template_id", "trade_date"], observed=True
+    )["ticker"].transform("size")
+    weighted["endpoint_contribution"] = weighted["net_return"] / day_counts
+
     def summarize(group_column: str) -> pd.DataFrame:
-        totals = primary_trades.groupby("template_id", observed=True).size()
+        totals = weighted.groupby("template_id", observed=True).size()
+        return_totals = weighted.groupby("template_id", observed=True)[
+            "endpoint_contribution"
+        ].sum()
+        absolute_return_totals = (
+            weighted.assign(
+                absolute_endpoint_contribution=weighted["endpoint_contribution"].abs()
+            )
+            .groupby("template_id", observed=True)["absolute_endpoint_contribution"]
+            .sum()
+        )
         rows: list[dict[str, float | int | str]] = []
-        for (template_id, label), group in primary_trades.groupby(
+        for (template_id, label), group in weighted.groupby(
             ["template_id", group_column], sort=True, observed=True, dropna=False
         ):
             returns = group["net_return"].astype(float)
+            contribution_sum = float(group["endpoint_contribution"].sum())
+            absolute_sum = float(group["endpoint_contribution"].abs().sum())
+            template_net_sum = float(return_totals[template_id])
+            template_absolute_sum = float(absolute_return_totals[template_id])
             rows.append(
                 {
                     "template_id": template_id,
@@ -442,6 +579,18 @@ def concentration_summaries(
                     "median_net_return": float(returns.median()),
                     "win_rate_net": float(returns.gt(0).mean()),
                     "share_of_template_trades": float(len(group) / totals[template_id]),
+                    "endpoint_contribution_sum": contribution_sum,
+                    "absolute_endpoint_contribution_sum": absolute_sum,
+                    "share_of_template_endpoint_return": (
+                        contribution_sum / template_net_sum
+                        if not np.isclose(template_net_sum, 0.0)
+                        else np.nan
+                    ),
+                    "share_of_template_absolute_endpoint_contribution": (
+                        absolute_sum / template_absolute_sum
+                        if not np.isclose(template_absolute_sum, 0.0)
+                        else np.nan
+                    ),
                 }
             )
         return pd.DataFrame(rows, columns=columns)

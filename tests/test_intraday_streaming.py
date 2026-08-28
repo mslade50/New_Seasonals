@@ -13,6 +13,10 @@ from research.intraday import (
     simulate_fixed_time_signals_audited,
     write_streaming_research_artifacts,
 )
+from research.intraday.streaming import (
+    RawPriceDiscontinuityConfig,
+    _nearest_common_factor,
+)
 from trading_calendar import TRADING_DAY
 
 BAR_TIMES = pd.date_range("2026-02-02 09:30", "2026-02-02 15:45", freq="15min").time
@@ -352,6 +356,19 @@ def test_common_split_factor_gap_is_flagged_and_filtered(tmp_path: Path):
     )
 
 
+def test_discontinuity_filter_matches_preregistered_bounds_and_tolerance():
+    ratios = pd.Series([0.79, 0.80, 0.81, 1.19, 1.26, 0.19, 5.01])
+    flagged, factors = _nearest_common_factor(
+        ratios, RawPriceDiscontinuityConfig()
+    )
+    assert flagged.tolist() == [True, True, False, False, True, True, True]
+    assert factors.iloc[0] == pytest.approx(0.8)
+    assert factors.iloc[1] == pytest.approx(0.8)
+    assert factors.iloc[4] == pytest.approx(1.25)
+    assert pd.isna(factors.iloc[5])
+    assert factors.iloc[6] == pytest.approx(5.0)
+
+
 def test_repo_calendar_surfaces_missing_all_inputs_and_classifies_half_day(
     tmp_path: Path,
 ):
@@ -384,6 +401,56 @@ def test_repo_calendar_surfaces_missing_all_inputs_and_classifies_half_day(
     assert bool(missing["missing_from_all_loaded_inputs"])
     assert missing["market_session_status"] == "missing_market_proxy_session"
     assert early["market_session_status"] == "observed_early_close_excluded"
+
+
+def test_valid_half_day_close_remains_available_to_next_full_session(tmp_path: Path):
+    frames, signal_day = _frames(both_templates=False)
+    early_day = _dates()[-2]
+    for ticker, frame in frames.items():
+        keep = ~(
+            frame["ts"].dt.normalize().eq(early_day)
+            & (frame["ts"].dt.time > pd.Timestamp("12:45").time())
+        )
+        frames[ticker] = frame.loc[keep].reset_index(drop=True)
+    _write_frames(tmp_path, frames)
+    result = run_streaming_intraday_research(
+        tmp_path,
+        _metadata(),
+        ["AAA"],
+        eligibility_config=_eligibility(),
+        bootstrap_reps=100,
+    )
+    gap = result.signals.loc[result.signals["template_id"].str.startswith("gap_")]
+    assert gap["trade_date"].tolist() == [signal_day]
+    eligibility = result.eligibility_summary.iloc[0]
+    assert eligibility["n_completeness_gate_fail"] < len(_dates())
+
+
+def test_zero_volume_prior_session_close_cannot_seed_gap(tmp_path: Path):
+    frames, signal_day = _frames(both_templates=False)
+    prior_day = _dates()[-2]
+    prior_close = frames["AAA"]["ts"].eq(
+        prior_day + pd.Timedelta(hours=15, minutes=45)
+    )
+    frames["AAA"].loc[prior_close, "volume"] = 0.0
+    _write_frames(tmp_path, frames)
+    result = run_streaming_intraday_research(
+        tmp_path,
+        _metadata(),
+        ["AAA"],
+        eligibility_config=_eligibility(),
+        bootstrap_reps=100,
+    )
+    gap_on_day = result.signals.loc[
+        result.signals["template_id"].astype(str).str.startswith("gap_")
+        & result.signals["trade_date"].eq(signal_day)
+    ]
+    assert gap_on_day.empty
+    coverage = result.coverage_audit.loc[
+        (result.coverage_audit["ticker"] == "AAA")
+        & (result.coverage_audit["role"] == "candidate")
+    ].iloc[0]
+    assert coverage["n_zero_volume_1545_bars"] == 1
 
 
 def test_missing_sector_proxy_excludes_only_affected_candidate(tmp_path: Path):
