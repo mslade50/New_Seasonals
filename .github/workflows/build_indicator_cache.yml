@@ -1,4 +1,5 @@
 name: Build Indicator Cache (weekly)
+run-name: "Build Indicator Cache — ${{ inputs.automation_token || 'manual' }}"
 
 # Precomputes the per-ticker indicator parquets the strat_backtester loads on
 # every cold start and mirrors them to R2 under bt_indicator_cache/. Streamlit
@@ -19,9 +20,13 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  schedule:
-    - cron: '0 7 * * 1'
   workflow_dispatch:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   build:

@@ -1,4 +1,5 @@
 name: Update Intraday Prices
+run-name: "Update Intraday Prices — ${{ inputs.automation_token || 'manual' }}"
 
 # Daily incremental update of data/intraday/*.parquet (15-min OHLCV cache).
 # Pulls each ticker's parquet from R2, appends recent bars from yfinance,
@@ -14,15 +15,13 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  schedule:
-    # 21:45 UTC = 5:45 PM EDT / 4:45 PM EST — post-close in BOTH DST regimes
-    # (the old 20:45 slot = 3:45 PM EST ran BEFORE the winter close, the same
-    # bug class fixed for master prices), after update_master_prices' 21:10
-    # cron so they don't compete for yfinance throughput, and still before
-    # the post-close daily_screener bookend at 22:00 UTC.
-    - cron: '45 21 * * 1-5'
-
   workflow_dispatch:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   update:

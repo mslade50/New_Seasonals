@@ -1,4 +1,5 @@
 name: Update Master Prices
+run-name: "Update Master Prices (${{ inputs.mode || 'am' }}) — ${{ inputs.automation_token || 'manual' }}"
 
 # Daily incremental update of master_prices.parquet (the canonical
 # 2000-ticker, 25-yr price cache). Pulls fresh bars from yfinance,
@@ -12,27 +13,21 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  schedule:
-    # 21:10 UTC — post-close year-round (16:10 PM EST / 17:10 PM EDT). The
-    # old 20:30 UTC slot was 30 min after the EDT close but 30 min BEFORE the
-    # EST close, so every winter weekday this was the one path that appended
-    # yfinance's in-progress 3:30 PM bar as the canonical daily close. 21:10
-    # stays before portfolio_report (21:30) and the daily_screener bookend
-    # (22:00) so ordering is preserved; the 'Determine update args' step below
-    # adds a belt-and-suspenders ET-time guard.
-    - cron: '10 21 * * 1-5'
-    # AM fallback: 9:30 UTC (5:30 AM EDT / 4:30 AM EST). Only runs if the
-    # local workflow_dispatch at 4:17 AM ET didn't fire today. The `check`
-    # job below skips it when a successful workflow_dispatch already
-    # happened today UTC.
-    - cron: '30 9 * * 1-5'
-
-  # Pre-market refresh (4:17 AM ET weekdays, 30 min before daily_screener AM
-  # dispatch) is fired via workflow_dispatch from a local Task Scheduler entry.
-  # The 9:30 UTC cron above is a fallback that auto-skips when the local
-  # dispatch fired.
   workflow_dispatch:
     inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
+      mode:
+        description: 'AM excludes the in-progress current-day bar; PM includes the completed close'
+        required: true
+        default: am
+        type: choice
+        options:
+          - am
+          - pm
       add_tickers:
         description: 'Optional space-separated tickers to backfill into the canonical cache'
         required: false
@@ -45,44 +40,7 @@ on:
         type: string
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.gate.outputs.should_run }}
-    steps:
-      - name: Decide whether to run
-        # Only the AM fallback cron is gated — dispatch and PM cron always run.
-        id: gate
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHOULD_RUN=true
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "30 9 * * 1-5" ]; then
-            TODAY=$(date -u +%Y-%m-%d)
-            # Only count a dispatch inside the AM pre-market window (local
-            # trigger fires 4:17 AM ET = 08:17 UTC EDT / 09:17 UTC EST).
-            # Keying on the whole UTC day let an evening manual dispatch
-            # (after 00:00 UTC the prior night) suppress this fallback —
-            # the same bug already fixed in daily_screener.yml.
-            COUNT=$(gh run list \
-              --workflow=update_master_prices.yml \
-              --status=success \
-              --event=workflow_dispatch \
-              --created="${TODAY}T07:00Z..${TODAY}T09:30Z" \
-              --repo "${{ github.repository }}" \
-              --json databaseId --jq 'length')
-            if [ "$COUNT" -gt 0 ]; then
-              echo "::notice::Local AM dispatch already succeeded today ($COUNT run). Skipping fallback."
-              SHOULD_RUN=false
-            else
-              echo "::notice::No successful AM dispatch found. Running fallback."
-            fi
-          fi
-          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
-
   update:
-    needs: check
-    if: needs.check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -109,15 +67,12 @@ jobs:
         run: |
           python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet')"
 
-      - name: Determine update args by trigger
-        # PM cron (21:10 UTC, post-close year-round) pulls everything yfinance
-        # has, including today's close. Everything else (AM workflow_dispatch
-        # from the local trigger, AM fallback cron, manual dispatch) is
-        # pre-market and passes --exclude-today so yfinance's placeholder
-        # bar for today is filtered out.
+      - name: Determine update args by bookend mode
+        # AM excludes yfinance's in-progress placeholder bar. PM is selected
+        # only after the controller's post-close freshness window.
         id: cfg
         run: |
-          if [ "${{ github.event.schedule }}" = "10 21 * * 1-5" ]; then
+          if [ "${{ inputs.mode }}" = "pm" ]; then
             echo "args=" >> "$GITHUB_OUTPUT"
           else
             echo "args=--exclude-today" >> "$GITHUB_OUTPUT"

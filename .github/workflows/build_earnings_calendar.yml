@@ -1,4 +1,5 @@
 name: Build Earnings Calendar + Analyst Grades
+run-name: "Build Earnings Calendar + Analyst Grades — ${{ inputs.automation_token || 'manual' }}"
 
 # Refreshes two FMP-sourced parquets and uploads them to R2 so downstream
 # workflows (daily_scan, portfolio_report, the cloud backtester) can pull
@@ -15,12 +16,13 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  schedule:
-    # 21:30 UTC = 5:30 PM ET — same slot as the local Task Scheduler entry.
-    # GHA gives us a redundant remote refresh; both writers push to the same
-    # R2 key (earnings_calendar.parquet). Last write wins.
-    - cron: '30 21 * * 1-5'
   workflow_dispatch:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   build:

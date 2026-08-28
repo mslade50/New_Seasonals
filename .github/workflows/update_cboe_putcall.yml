@@ -1,4 +1,5 @@
 name: Update CBOE Put/Call Cache
+run-name: "Update CBOE Put/Call Cache — ${{ inputs.automation_token || 'manual' }}"
 
 # Scrapes any missing trading days from cboe.com/us/options/market_statistics/daily
 # into data/cboe_putcall.parquet and commits the updated parquet back to main.
@@ -35,62 +36,16 @@ permissions:
   contents: write
 
 on:
-  schedule:
-    # 21:30 UTC = 5:30 PM ET — after close, alongside earnings + portfolio jobs.
-    - cron: '30 21 * * 1-5'
-    # AM fallback: 9:20 UTC (5:20 AM EDT / 4:20 AM EST). Only runs if the
-    # local workflow_dispatch at 4:10 AM ET didn't fire today; the `check`
-    # job below skips it otherwise. Deliberately NOT in the 8-9 UTC window,
-    # where GitHub's shared scheduler queues for 1-3h (the same reason the
-    # other AM jobs are dispatched locally).
-    - cron: '20 9 * * 1-5'
-
-  # Pre-market refresh (4:10 AM ET weekdays, ahead of the 4:17 master-prices
-  # dispatch, the 4:30 risk correction and the 4:47 scan) is fired via
-  # workflow_dispatch from C:\Scripts\trigger_cboe_putcall.ps1.
   workflow_dispatch:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.gate.outputs.should_run }}
-    steps:
-      - name: Decide whether to run
-        # Only the AM fallback cron is gated — dispatch and the PM cron
-        # always run.
-        id: gate
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHOULD_RUN=true
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "20 9 * * 1-5" ]; then
-            TODAY=$(date -u +%Y-%m-%d)
-            # Only count a dispatch inside the AM pre-market window (local
-            # trigger fires 4:10 AM ET = 08:10 UTC EDT / 09:10 UTC EST).
-            # Whole-UTC-day keying let a prior-EVENING manual dispatch —
-            # which can only ever capture D-1, CBOE hasn't published yet —
-            # suppress this fallback, leaving the 7 AM Daily Pitch on D-2
-            # put/call data. Same bug class fixed in daily_screener.yml.
-            COUNT=$(gh run list \
-              --workflow=update_cboe_putcall.yml \
-              --status=success \
-              --event=workflow_dispatch \
-              --created="${TODAY}T07:00Z..${TODAY}T09:20Z" \
-              --repo "${{ github.repository }}" \
-              --json databaseId --jq 'length')
-            if [ "$COUNT" -gt 0 ]; then
-              echo "::notice::Local AM dispatch already succeeded today ($COUNT run). Skipping fallback."
-              SHOULD_RUN=false
-            else
-              echo "::notice::No successful AM dispatch found. Running fallback."
-            fi
-          fi
-          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
-
   update:
-    needs: check
-    if: needs.check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

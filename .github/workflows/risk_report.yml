@@ -1,20 +1,14 @@
 name: Daily Risk Report
+run-name: "Daily Risk Report (${{ inputs.mode || 'full' }}) — ${{ inputs.automation_token || 'manual' }}"
 
 on:
-  schedule:
-    # PM full run at 21:15 UTC (5:15 PM EDT), weekdays — email + data caches.
-    # The row it appends comes from a just-closed yfinance bar that can be
-    # provisional; the AM correction below refreshes it with settled prices
-    # BEFORE daily_scan sizes off it (~4:47 AM ET).
-    - cron: '15 21 * * 1-5'
-    # AM fallback cron (9:00 UTC = 5:00 AM EDT — late vs the scan; the
-    # PRIMARY AM trigger is the local Task Scheduler workflow_dispatch at
-    # 4:30 AM ET, same architecture as daily_screener/update_master_prices).
-    # Data-only + refresh-last; idempotent, so a duplicate after a successful
-    # dispatch is harmless.
-    - cron: '0 9 * * 1-5'
   workflow_dispatch:
     inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
       mode:
         description: "full (email) or data_only (AM price correction)"
         type: choice
@@ -47,10 +41,9 @@ jobs:
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          GHA_SCHEDULE: ${{ github.event.schedule }}
           RUN_MODE: ${{ inputs.mode }}
         run: |
-          if [ "$RUN_MODE" = "data_only" ] || [ "$GHA_SCHEDULE" = "0 9 * * 1-5" ]; then
+          if [ "$RUN_MODE" = "data_only" ]; then
             python daily_risk_report.py --data-only --refresh-last
           else
             python daily_risk_report.py

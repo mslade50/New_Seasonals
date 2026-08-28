@@ -1,0 +1,53 @@
+name: Local Automation Guarded Fallback
+run-name: "Local Automation Guarded Fallback — ${{ inputs.pipeline || 'all' }}"
+
+# This is the only remaining GitHub cron for the migrated production jobs.
+# It never performs production work directly. It asks the same supervisor used
+# by Task Scheduler to inspect R2 completion receipts and dispatch only due,
+# missing workflow_dispatch backups with unique child automation tokens.
+on:
+  schedule:
+    - cron: '47 * * * *'
+  workflow_dispatch:
+    inputs:
+      pipeline:
+        description: 'Limit a manual fallback check to one pipeline (default: all)'
+        required: false
+        default: all
+        type: string
+
+concurrency:
+  group: local-automation-guarded-fallback
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-missing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install supervisor dependencies
+        run: pip install boto3 requests python-dotenv
+
+      - name: Dispatch only due jobs missing verified R2 receipts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          PIPELINE: ${{ inputs.pipeline || 'all' }}
+          PYTHONUNBUFFERED: '1'
+        run: python scripts/automation_supervisor.py fallback-due --pipeline "$PIPELINE"

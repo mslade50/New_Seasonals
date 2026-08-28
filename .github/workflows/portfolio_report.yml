@@ -1,4 +1,5 @@
 name: Daily Portfolio Report
+run-name: "Daily Portfolio Report — ${{ inputs.automation_token || 'manual' }}"
 
 # Generates the daily portfolio health report (12-month backtest of the
 # full strategy book + open-positions snapshot). Sends an HTML email with
@@ -12,14 +13,13 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  schedule:
-    # 21:30 UTC = 5:30 PM ET — same slot as the legacy local task.
-    # Runs AFTER update_master_prices (20:30 UTC) so it sees a parquet that
-    # includes today's close, and BEFORE the post-close daily_screener
-    # bookend (22:00 UTC). The backtest only reads through the prior trading
-    # day so today's bar is informational only.
-    - cron: '30 21 * * 1-5'
   workflow_dispatch:
+    inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   report:

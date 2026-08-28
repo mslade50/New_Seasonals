@@ -1,4 +1,5 @@
 name: Trend Sleeve Rebalance
+run-name: "Trend Sleeve Rebalance — ${{ inputs.automation_token || 'manual' }}"
 
 # Monthly trend-following ballast sleeve (see trend_sleeve.py header).
 # Runs every weekday post-close; the script exits immediately unless today is
@@ -6,20 +7,13 @@ name: Trend Sleeve Rebalance
 # are staged to the 'Trend' Sheets tab as MOO (next-session open).
 
 on:
-  schedule:
-    # 21:35 UTC = 5:35 PM ET — AFTER update_master_prices' PM cron (21:10 UTC)
-    # has written today's close to R2. The signal is computed on the month-end
-    # close, so running before that update would silently use yesterday's bar.
-    - cron: '35 21 * * 1-5'
-    # Backup cron (2026-08-12): the whole month's rebalance used to ride ONE
-    # cron on ONE evening — GitHub sheds scheduled workflows under load and
-    # never backfills, and the 21:10-producer/21:35-consumer margin sits well
-    # inside documented cron lag (a hard-fail on a missing close had no
-    # retry; the next weekday is a new month, so the rebalance was silently
-    # skipped). The check job below skips this if 21:35 already succeeded.
-    - cron: '5 23 * * 1-5'
   workflow_dispatch:
     inputs:
+      automation_token:
+        description: 'Opaque token supplied by the guarded fallback controller'
+        required: false
+        default: ''
+        type: string
       force:
         description: 'Run even if not the last trading day of the month'
         required: false
@@ -30,40 +24,7 @@ on:
         default: 'false'
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.gate.outputs.should_run }}
-    steps:
-      - name: Decide whether to run
-        # Only the 23:05 backup cron is gated — the 21:35 primary and manual
-        # dispatches always run. (A same-evening double run is also delta-safe:
-        # the second computes deltas against the state the first wrote.)
-        id: gate
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHOULD_RUN=true
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "5 23 * * 1-5" ]; then
-            TODAY=$(date -u +%Y-%m-%d)
-            COUNT=$(gh run list \
-              --workflow=trend_sleeve.yml \
-              --status=success \
-              --created="${TODAY}T21:00Z..${TODAY}T23:00Z" \
-              --repo "${{ github.repository }}" \
-              --json databaseId --jq 'length')
-            if [ "$COUNT" -gt 0 ]; then
-              echo "::notice::Primary 21:35 run already succeeded today. Skipping backup."
-              SHOULD_RUN=false
-            else
-              echo "::notice::No successful primary run found. Running backup."
-            fi
-          fi
-          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
-
   rebalance:
-    needs: check
-    if: needs.check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
