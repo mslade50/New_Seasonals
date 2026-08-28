@@ -18,6 +18,7 @@ from research.intraday.gap_reversal_daily import (
     run_daily_gap_reversal_research,
     write_daily_gap_research_artifacts,
 )
+from trading_calendar import TRADING_DAY
 
 
 def _daily_rows(ticker: str, dates: pd.DatetimeIndex) -> pd.DataFrame:
@@ -35,7 +36,7 @@ def _daily_rows(ticker: str, dates: pd.DatetimeIndex) -> pd.DataFrame:
 
 
 def _two_arm_prices() -> pd.DataFrame:
-    dates = pd.bdate_range("2026-01-02", periods=23)
+    dates = pd.date_range("2026-01-02", periods=23, freq=TRADING_DAY)
     long = _daily_rows("AAA", dates)
     short = _daily_rows("BBB", dates)
     final = dates[-1]
@@ -127,7 +128,7 @@ def test_top_three_ranks_before_fill_and_unfilled_slots_stay_cash() -> None:
 
 
 def test_split_like_discontinuity_is_filtered() -> None:
-    raw = _daily_rows("AAA", pd.bdate_range("2026-01-02", periods=23))
+    raw = _daily_rows("AAA", pd.date_range("2026-01-02", periods=23, freq=TRADING_DAY))
     raw.loc[raw.index[-1], ["Open", "High", "Low", "Close"]] = [50.0, 51.0, 49.0, 50.0]
     normalized, _ = normalize_daily_prices(raw, as_of=raw["date"].max())
     candidates, eligibility = prepare_daily_candidates(normalized)
@@ -206,3 +207,131 @@ def test_normalizer_rejects_impossible_ohlc_and_nonfinite_values() -> None:
     raw.loc[0, "Volume"] = np.inf
     with pytest.raises(ValueError, match="non-finite volume"):
         normalize_daily_prices(raw, as_of="2026-01-02")
+
+
+def test_broad_cache_mode_drops_and_audits_only_malformed_rows() -> None:
+    raw = _daily_rows("AAA", pd.DatetimeIndex(["2026-01-02", "2026-01-05"]))
+    raw.loc[1, "Open"] = 0.0
+    normalized, original = normalize_daily_prices(
+        raw,
+        as_of="2026-01-05",
+        drop_invalid_rows=True,
+    )
+    assert original == 2
+    assert normalized[["ticker", "date"]].to_dict("records") == [
+        {"ticker": "AAA", "date": pd.Timestamp("2026-01-02")}
+    ]
+    assert normalized.attrs["normalization_rejections"][0]["rejection_reason"] == (
+        "nonpositive_ohlc"
+    )
+
+
+def test_as_of_precedes_duplicate_and_invalid_row_audits() -> None:
+    base = _daily_rows("AAA", pd.DatetimeIndex(["2026-08-27"]))
+    future = _daily_rows("AAA", pd.DatetimeIndex(["2026-08-28"]))
+    future.loc[0, "Open"] = 0.0
+    raw = pd.concat([base, future, future], ignore_index=True)
+    normalized, original = normalize_daily_prices(
+        raw,
+        as_of="2026-08-27",
+        drop_invalid_rows=True,
+    )
+    assert original == 3
+    assert len(normalized) == 1
+    assert normalized.attrs["normalization_rejections"] == []
+
+    admitted_duplicate = pd.concat([base, base.assign(Open=0.0)], ignore_index=True)
+    with pytest.raises(ValueError, match="duplicate ticker/date"):
+        normalize_daily_prices(
+            admitted_duplicate,
+            as_of="2026-08-27",
+            drop_invalid_rows=True,
+        )
+
+
+def test_missing_canonical_predecessor_excludes_the_next_row() -> None:
+    dates = pd.date_range("2026-01-02", periods=40, freq=TRADING_DAY)
+    raw = _daily_rows("AAA", dates)
+    raw.loc[raw.index[-1], ["Open", "High", "Low", "Close"]] = [99.0, 101.0, 98.0, 100.0]
+    raw = raw.loc[~raw["date"].eq(dates[-2])].copy()
+    normalized, _ = normalize_daily_prices(raw, as_of=dates[-1])
+    candidates, eligibility = prepare_daily_candidates(normalized)
+    assert not candidates["date"].eq(dates[-1]).any()
+    assert eligibility.loc[0, "n_predecessor_adjacency_fail"] >= 2
+
+
+def test_malformed_predecessor_is_audited_and_taints_successor() -> None:
+    dates = pd.date_range("2026-01-02", periods=40, freq=TRADING_DAY)
+    raw = _daily_rows("AAA", dates)
+    raw.loc[raw.index[-2], "Open"] = 0.0
+    raw.loc[raw.index[-1], ["Open", "High", "Low", "Close"]] = [99.0, 101.0, 98.0, 100.0]
+    normalized, _ = normalize_daily_prices(
+        raw,
+        as_of=dates[-1],
+        drop_invalid_rows=True,
+    )
+    assert normalized.attrs["normalization_rejections"][0]["date"] == dates[-2]
+    candidates, eligibility = prepare_daily_candidates(normalized)
+    assert not candidates["date"].eq(dates[-1]).any()
+    assert eligibility.loc[0, "n_predecessor_adjacency_fail"] >= 2
+
+
+def test_hac_primary_inference_is_present_and_deterministic() -> None:
+    days = pd.date_range("2025-01-02", periods=80, freq=TRADING_DAY)
+    rows = []
+    for index, day in enumerate(days):
+        rows.append(
+            {
+                "arm_id": LONG_ARM_ID,
+                "ticker": f"L{index % 4}",
+                "date": day,
+                "gap_atr": 1.0,
+                "filled": True,
+                "gross_return": 0.002 + 0.001 * np.sin(index / 5.0),
+            }
+        )
+        rows.append(
+            {
+                "arm_id": SHORT_ARM_ID,
+                "ticker": f"S{index % 4}",
+                "date": day,
+                "gap_atr": 1.0,
+                "filled": True,
+                "gross_return": 0.001 + 0.001 * np.cos(index / 5.0),
+            }
+        )
+    candidates = pd.DataFrame(rows)
+    first = build_material_gap_views(candidates, days, bootstrap_reps=100)[2]
+    second = build_material_gap_views(candidates, days, bootstrap_reps=100)[2]
+    assert first["hac_lag"].ge(1).all()
+    assert first["hac_standard_error"].gt(0).all()
+    assert first["holm_hac_p_value_primary"].notna().all()
+    pd.testing.assert_series_equal(
+        first["holm_hac_p_value_primary"], second["holm_hac_p_value_primary"]
+    )
+
+
+def test_evaluation_start_keeps_pre_start_warmup_and_report_limitations() -> None:
+    raw = _two_arm_prices()
+    normalized, original = normalize_daily_prices(raw, as_of=raw["date"].max())
+    frozen = freeze_universe(["AAA", "BBB"], normalized["ticker"].unique())
+    start = raw["date"].max()
+    result = run_daily_gap_reversal_research(
+        normalized,
+        frozen,
+        as_of=start,
+        evaluation_start=start,
+        original_row_count=original,
+        bootstrap_reps=100,
+    )
+    assert result.evaluation_start == start
+    assert len(result.study_sessions) == 1
+    assert set(result.selected_orders["date"]) == {start}
+    assert result.eligibility_summary["n_rows"].eq(23).all()
+    report = daily_gap.build_daily_gap_html(result)
+    assert "Mean @20bps" in report
+    assert "Calendar-year diagnostics" in report
+    assert "Leave-one-year-out diagnostics" in report
+    assert "Largest ticker concentrations" in report
+    assert "Current-universe and price-vintage limitations" in report
+    assert "Optimistic range-touch screen" in report

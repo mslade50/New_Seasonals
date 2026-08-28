@@ -19,6 +19,10 @@ it cannot override or substitute for one.
   `ticker,date,Open,High,Low,Close,Volume` (case-insensitive).
 - `--as-of` is required and means the last completed session admitted to the
   study. Rows after it are excluded before feature construction.
+- `--evaluation-start` is optional. Earlier valid rows remain available for
+  lagged-feature warmup, while candidates and returns begin only on that
+  canonical NYSE session. This permits a recent same-adjustment-vintage
+  diagnostic without rebuilding indicators on truncated history.
 - The runner accepts either an explicit frozen universe file or an explicit
   `--all-tickers` choice. Universe files are deduped by normalized ticker.
 - The current `CSV_UNIVERSE` eligibility exclusions are copied and frozen here
@@ -44,6 +48,17 @@ For ticker/session T:
 - require prior close at least $5, prior median dollar volume at least $25m,
   at least 14 prior sessions, and a finite positive lagged ATR14;
 - current-session volume never affects current-session eligibility.
+- session dates and predecessor adjacency use the repository's deterministic
+  `trading_calendar.TRADING_DAY` NYSE sequence, including its frozen ad-hoc
+  closure list. A row is ineligible unless its previous ticker row is exactly
+  the previous canonical session. A malformed or missing predecessor taints
+  that row, and ATR must rebuild a clean 14-session window rather than bridge
+  the hole.
+
+The completed-session cutoff is applied before duplicate auditing. Duplicate
+ticker/date observations inside the admitted window fail the run before any
+invalid row can be dropped; there is no discretionary duplicate winner.
+Malformed rows are preserved in a rejection audit and excluded.
 
 A conservative raw/adjusted discontinuity heuristic excludes an
 open/prior-close ratio below 0.20 or above 5.0, or a ratio at least 20% from
@@ -84,9 +99,10 @@ The two arms are tested separately and are co-primary.
 - The per-arm daily endpoint includes every study session from the first
   eligible candidate date through the completed-session cutoff; no-order days
   are zero.
-- Report two-sided session-level t tests and deterministic session-block
-  bootstrap 95% confidence intervals. Apply Holm adjustment across the two
-  co-primary 10-bps arm tests.
+- Report two-sided session-level t tests, deterministic session bootstrap 95%
+  confidence intervals, and Newey-West/Bartlett HAC mean tests and confidence
+  intervals. HAC p-values are the robust primary inference. Apply Holm
+  adjustment across the two co-primary 10-bps arm tests.
 
 The fixed 50/50 combination of the two arm endpoints is diagnostic only and
 cannot rescue either primary arm.

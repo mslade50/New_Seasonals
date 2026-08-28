@@ -218,6 +218,7 @@ python scripts/run_daily_gap_reversal_research.py `
   --prices data/master_prices.parquet `
   --universe-file data/sznl_ranks.csv `
   --as-of 2026-08-27 `
+  --evaluation-start 2023-01-03 `
   --output-dir artifacts/daily_gap_reversal_research/2026-08-27-v1
 ```
 
@@ -225,3 +226,7 @@ The runner reads only explicit local inputs and writes only a fresh directory
 beneath `artifacts/`. The manifest is written last. Daily range touches cannot
 resolve whether the limit was reached before an order computed from the open
 could be submitted, so this screen cannot override a causal intraday test.
+The optional evaluation start is applied only after lagged features are built,
+so older input remains warmup. Exact predecessor adjacency follows the shared
+NYSE calendar, and malformed or missing predecessors reset the clean ATR
+window rather than being bridged.

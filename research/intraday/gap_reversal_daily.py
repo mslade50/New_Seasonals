@@ -21,6 +21,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from trading_calendar import TRADING_DAY
+
 LONG_ARM_ID: Final[str] = "gap_down_long_open_minus_0p25atr"
 SHORT_ARM_ID: Final[str] = "gap_up_short_open_plus_0p75atr"
 PRIMARY_ARM_IDS: Final[tuple[str, str]] = (LONG_ARM_ID, SHORT_ARM_ID)
@@ -28,6 +30,7 @@ PRIMARY_COST_BPS: Final[float] = 10.0
 DEFAULT_COST_GRID_BPS: Final[tuple[float, ...]] = (5.0, 10.0, 15.0, 20.0, 30.0)
 MATERIAL_GAP_THRESHOLDS_ATR: Final[tuple[float, ...]] = (0.0, 0.25, 0.5, 1.0)
 PRIMARY_SLOTS: Final[int] = 3
+NON_PRIMARY_BOOTSTRAP_REPS: Final[int] = 100
 ATR_LOOKBACK: Final[int] = 14
 DOLLAR_VOLUME_LOOKBACK: Final[int] = 20
 MIN_HISTORY_SESSIONS: Final[int] = 14
@@ -81,10 +84,12 @@ class DailyGapReversalResult:
     """All tables needed for an auditable research artifact."""
 
     as_of: pd.Timestamp
+    evaluation_start: pd.Timestamp
     study_sessions: pd.DatetimeIndex
     universe: FrozenUniverse
     normalized_row_count: int
     cutoff_row_count: int
+    normalization_rejections: pd.DataFrame
     candidates: pd.DataFrame
     selected_orders: pd.DataFrame
     eligibility_summary: pd.DataFrame
@@ -180,44 +185,114 @@ def normalize_daily_prices(
     frame: pd.DataFrame,
     *,
     as_of: str | pd.Timestamp,
+    drop_invalid_rows: bool = False,
 ) -> tuple[pd.DataFrame, int]:
-    """Validate the long daily-OHLC contract and apply a completed-day cutoff."""
+    """Validate the daily-OHLC contract and apply a completed-day cutoff.
+
+    ``drop_invalid_rows`` exists for broad cache audits where a handful of
+    malformed rows should be preserved as explicit provenance rather than
+    aborting the other thousand symbols.  Strict library callers still fail
+    loudly by default.  Duplicate ticker/date rows always fail because there
+    is no defensible rule for choosing one observation.
+    """
 
     if frame.empty:
         raise ValueError("daily price input is empty")
     columns = _canonical_columns(frame)
     work = frame[list(columns.values())].rename(columns={value: key for key, value in columns.items()}).copy()
     work["ticker"] = work["ticker"].astype(str).str.upper().str.strip()
-    if work["ticker"].eq("").any():
-        raise ValueError("daily price input contains blank tickers")
     parsed = pd.to_datetime(work["date"], errors="raise")
     if parsed.dt.tz is not None:
         raise ValueError("daily date values must be timezone-naive session dates")
     work["date"] = parsed.dt.normalize()
-    for column in ("open", "high", "low", "close", "volume"):
-        work[column] = pd.to_numeric(work[column], errors="raise").astype(float)
-        if not np.isfinite(work[column]).all():
-            raise ValueError(f"daily price input contains non-finite {column}")
-    if work[["open", "high", "low", "close"]].le(0).any().any():
-        raise ValueError("daily OHLC prices must be positive")
-    if work["volume"].lt(0).any():
-        raise ValueError("daily volume cannot be negative")
-    if (
-        work["high"].lt(work[["open", "close", "low"]].max(axis=1)).any()
-        or work["low"].gt(work[["open", "close", "high"]].min(axis=1)).any()
-    ):
-        raise ValueError("daily input contains impossible OHLC relationships")
-    if work.duplicated(["ticker", "date"]).any():
-        sample = work.loc[work.duplicated(["ticker", "date"], keep=False), ["ticker", "date"]].head()
-        raise ValueError(f"daily input contains duplicate ticker/date rows: {sample.to_dict('records')}")
+    original_count = len(work)
     cutoff = pd.Timestamp(as_of)
     if cutoff.tzinfo is not None:
         raise ValueError("as_of must be a timezone-naive completed session date")
     cutoff = cutoff.normalize()
-    original_count = len(work)
-    work = work.loc[work["date"].le(cutoff)].sort_values(["ticker", "date"], ignore_index=True)
+    # Cut off incomplete/future sessions before duplicate or row-quality audit.
+    # A duplicate beyond the completed-session boundary is outside this run.
+    work = work.loc[work["date"].le(cutoff)].copy()
     if work.empty:
         raise ValueError(f"no daily rows remain at or before as_of={cutoff.date()}")
+    if work.duplicated(["ticker", "date"]).any():
+        sample = work.loc[
+            work.duplicated(["ticker", "date"], keep=False), ["ticker", "date"]
+        ].head()
+        raise ValueError(
+            f"daily input contains duplicate ticker/date rows: {sample.to_dict('records')}"
+        )
+
+    for column in ("open", "high", "low", "close", "volume"):
+        work[column] = pd.to_numeric(work[column], errors="coerce").astype(float)
+    canonical_sessions = pd.date_range(
+        work["date"].min(), work["date"].max(), freq=TRADING_DAY
+    ).normalize()
+    canonical_session = work["date"].isin(canonical_sessions)
+    blank_ticker = work["ticker"].eq("")
+    nonfinite_price = ~np.isfinite(work[["open", "high", "low", "close"]]).all(axis=1)
+    nonfinite_volume = ~np.isfinite(work["volume"])
+    nonpositive_price = work[["open", "high", "low", "close"]].le(0).any(axis=1)
+    negative_volume = work["volume"].lt(0)
+    impossible_ohlc = (
+        work["high"].lt(work[["open", "close", "low"]].max(axis=1))
+        | work["low"].gt(work[["open", "close", "high"]].min(axis=1))
+    )
+    invalid = (
+        blank_ticker
+        | ~canonical_session
+        | nonfinite_price
+        | nonfinite_volume
+        | nonpositive_price
+        | negative_volume
+        | impossible_ohlc
+    )
+    normalization_rejections: list[dict[str, object]] = []
+    if invalid.any():
+        if not drop_invalid_rows:
+            if blank_ticker.any():
+                raise ValueError("daily price input contains blank tickers")
+            if (~canonical_session).any():
+                raise ValueError("daily price input contains noncanonical US-equity session dates")
+            if nonfinite_volume.any():
+                raise ValueError("daily price input contains non-finite volume")
+            if nonfinite_price.any():
+                raise ValueError("daily price input contains non-finite OHLC")
+            if nonpositive_price.any():
+                raise ValueError("daily OHLC prices must be positive")
+            if negative_volume.any():
+                raise ValueError("daily volume cannot be negative")
+            raise ValueError("daily input contains impossible OHLC relationships")
+        rejected = work.loc[
+            invalid, ["ticker", "date", "open", "high", "low", "close", "volume"]
+        ].copy()
+        rejected["rejection_reason"] = np.select(
+            [
+                blank_ticker.loc[invalid],
+                ~canonical_session.loc[invalid],
+                nonfinite_price.loc[invalid],
+                nonfinite_volume.loc[invalid],
+                nonpositive_price.loc[invalid],
+                negative_volume.loc[invalid],
+                impossible_ohlc.loc[invalid],
+            ],
+            [
+                "blank_ticker",
+                "noncanonical_us_equity_session",
+                "nonfinite_ohlc",
+                "nonfinite_volume",
+                "nonpositive_ohlc",
+                "negative_volume",
+                "impossible_ohlc",
+            ],
+            default="invalid_daily_row",
+        )
+        normalization_rejections = rejected.to_dict("records")
+        work = work.loc[~invalid].copy()
+    work = work.sort_values(["ticker", "date"], ignore_index=True)
+    if work.empty:
+        raise ValueError(f"no daily rows remain at or before as_of={cutoff.date()}")
+    work.attrs["normalization_rejections"] = normalization_rejections
     return work, original_count
 
 
@@ -238,7 +313,21 @@ def prepare_daily_candidates(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
     if prices.empty:
         raise ValueError("prices cannot be empty")
     work = prices.sort_values(["ticker", "date"], ignore_index=True).copy()
+    canonical_sessions = pd.date_range(
+        work["date"].min(), work["date"].max(), freq=TRADING_DAY
+    ).normalize()
+    if not work["date"].isin(canonical_sessions).all():
+        raise ValueError("prices contain dates outside the canonical US-equity calendar")
+    expected_predecessor = pd.Series(
+        canonical_sessions.to_series(index=canonical_sessions).shift(1).to_dict()
+    )
     grouped = work.groupby("ticker", sort=False, observed=True)
+    work["prior_row_date"] = grouped["date"].shift(1)
+    work["expected_predecessor_date"] = work["date"].map(expected_predecessor)
+    work["predecessor_adjacent"] = (
+        work["expected_predecessor_date"].notna()
+        & work["prior_row_date"].eq(work["expected_predecessor_date"])
+    )
     work["prior_close"] = grouped["close"].shift(1)
     work["history_sessions"] = grouped.cumcount()
     true_range = pd.concat(
@@ -249,6 +338,10 @@ def prepare_daily_candidates(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
         ],
         axis=1,
     ).max(axis=1, skipna=True)
+    # A stale prior close is not a valid true-range input. Leaving a NaN in
+    # the fixed 14-row window also forces a full clean-window rebuild after a
+    # missing or malformed predecessor instead of silently bridging the gap.
+    true_range = true_range.where(work["predecessor_adjacent"])
     work["true_range"] = true_range
     work["atr14_lagged"] = true_range.groupby(work["ticker"], sort=False).transform(
         lambda values: values.rolling(ATR_LOOKBACK, min_periods=ATR_LOOKBACK).mean().shift(1)
@@ -274,6 +367,7 @@ def prepare_daily_candidates(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
         & work["passes_price"]
         & work["passes_dollar_volume"]
         & work["passes_atr"]
+        & work["predecessor_adjacent"]
         & ~work["raw_discontinuity_flag"]
     )
     gap = work["open"] - work["prior_close"]
@@ -309,6 +403,9 @@ def prepare_daily_candidates(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
         "high",
         "low",
         "close",
+        "prior_row_date",
+        "expected_predecessor_date",
+        "predecessor_adjacent",
         "prior_close",
         "true_range",
         "atr14_lagged",
@@ -328,25 +425,35 @@ def prepare_daily_candidates(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
         ignore_index=True,
     )
 
-    eligibility_rows: list[dict[str, object]] = []
-    for ticker, group in work.groupby("ticker", sort=True, observed=True):
-        eligible_group = group.loc[group["eligible"]]
-        ticker_candidates = candidates.loc[candidates["ticker"].eq(ticker)]
-        eligibility_rows.append(
-            {
-                "ticker": ticker,
-                "first_date": group["date"].min(),
-                "last_date": group["date"].max(),
-                "n_rows": len(group),
-                "n_eligible_rows": len(eligible_group),
-                "n_candidate_orders": len(ticker_candidates),
-                "n_discontinuity_filtered": int(group["raw_discontinuity_flag"].sum()),
-                "n_price_gate_fail": int((~group["passes_price"]).sum()),
-                "n_dollar_volume_gate_fail": int((~group["passes_dollar_volume"]).sum()),
-                "n_atr_or_history_gate_fail": int((~(group["passes_atr"] & group["passes_history"])).sum()),
-            }
+    # Aggregate once across the panel. The prior implementation rescanned the
+    # full candidate frame once per ticker, which was quadratic at 1,000 names.
+    audit_work = work.assign(
+        discontinuity_filtered=work["raw_discontinuity_flag"].astype("int64"),
+        price_gate_fail=(~work["passes_price"]).astype("int64"),
+        dollar_volume_gate_fail=(~work["passes_dollar_volume"]).astype("int64"),
+        atr_or_history_gate_fail=(~(work["passes_atr"] & work["passes_history"])).astype("int64"),
+        predecessor_adjacency_fail=(~work["predecessor_adjacent"]).astype("int64"),
+    )
+    eligibility = (
+        audit_work.groupby("ticker", sort=True, observed=True)
+        .agg(
+            first_date=("date", "min"),
+            last_date=("date", "max"),
+            n_rows=("date", "size"),
+            n_eligible_rows=("eligible", "sum"),
+            n_discontinuity_filtered=("discontinuity_filtered", "sum"),
+            n_price_gate_fail=("price_gate_fail", "sum"),
+            n_dollar_volume_gate_fail=("dollar_volume_gate_fail", "sum"),
+            n_atr_or_history_gate_fail=("atr_or_history_gate_fail", "sum"),
+            n_predecessor_adjacency_fail=("predecessor_adjacency_fail", "sum"),
         )
-    return candidates, pd.DataFrame(eligibility_rows)
+        .reset_index()
+    )
+    candidate_counts = candidates.groupby("ticker", sort=False, observed=True).size()
+    eligibility["n_candidate_orders"] = (
+        eligibility["ticker"].map(candidate_counts).fillna(0).astype("int64")
+    )
+    return candidates, eligibility
 
 
 def _validated_costs(values: tuple[float, ...]) -> tuple[float, ...]:
@@ -381,6 +488,52 @@ def _bootstrap_ci(values: np.ndarray, *, key: str, reps: int) -> tuple[float, fl
     return float(low), float(high)
 
 
+def _hac_mean_test(values: np.ndarray) -> dict[str, float | int]:
+    """Newey-West/Bartlett robustness for a mean with serial dependence."""
+
+    clean = np.asarray(values, dtype=float)
+    clean = clean[np.isfinite(clean)]
+    n = len(clean)
+    if n < 3:
+        return {
+            "hac_lag": 0,
+            "hac_standard_error": np.nan,
+            "hac_t_stat": np.nan,
+            "hac_p_value_two_sided": np.nan,
+            "hac_mean_ci_2_5": np.nan,
+            "hac_mean_ci_97_5": np.nan,
+        }
+    lag_count = max(1, min(n - 1, int(np.floor(4.0 * (n / 100.0) ** (2.0 / 9.0)))))
+    mean = float(clean.mean())
+    centered = clean - mean
+    long_run_variance = float(np.dot(centered, centered) / n)
+    for lag in range(1, lag_count + 1):
+        covariance = float(np.dot(centered[lag:], centered[:-lag]) / n)
+        weight = 1.0 - lag / (lag_count + 1.0)
+        long_run_variance += 2.0 * weight * covariance
+    long_run_variance = max(0.0, long_run_variance)
+    standard_error = sqrt(long_run_variance / n)
+    if standard_error > 0:
+        t_stat = mean / standard_error
+        p_value = float(2.0 * stats.norm.sf(abs(t_stat)))
+        ci_low = mean - 1.959963984540054 * standard_error
+        ci_high = mean + 1.959963984540054 * standard_error
+    elif mean != 0:
+        t_stat = float(np.sign(mean) * np.inf)
+        p_value = 0.0
+        ci_low = ci_high = mean
+    else:
+        t_stat = p_value = ci_low = ci_high = np.nan
+    return {
+        "hac_lag": lag_count,
+        "hac_standard_error": standard_error,
+        "hac_t_stat": t_stat,
+        "hac_p_value_two_sided": p_value,
+        "hac_mean_ci_2_5": ci_low,
+        "hac_mean_ci_97_5": ci_high,
+    }
+
+
 def _return_stats(values: pd.Series, *, key: str, bootstrap_reps: int) -> dict[str, float | int]:
     clean = values.astype(float).dropna().to_numpy()
     n = len(clean)
@@ -407,12 +560,14 @@ def _return_stats(values: pd.Series, *, key: str, bootstrap_reps: int) -> dict[s
         "p_value_two_sided": p_value,
         "bootstrap_ci_2_5": ci_low,
         "bootstrap_ci_97_5": ci_high,
+        **_hac_mean_test(clean),
     }
 
 
 def _holm_two_arms(summary: pd.DataFrame) -> pd.DataFrame:
     output = summary.copy()
     output["holm_p_value_primary"] = np.nan
+    output["holm_hac_p_value_primary"] = np.nan
     mask = (
         output["material_gap_threshold_atr"].eq(0.0)
         & output["cost_bps"].eq(PRIMARY_COST_BPS)
@@ -425,6 +580,17 @@ def _holm_two_arms(summary: pd.DataFrame) -> pd.DataFrame:
         adjusted = min(1.0, (len(PRIMARY_ARM_IDS) - rank) * float(row["p_value_two_sided"]))
         running = max(running, adjusted)
         output.loc[index, "holm_p_value_primary"] = running
+    hac_primary = output.loc[
+        mask & output["hac_p_value_two_sided"].notna()
+    ].sort_values(["hac_p_value_two_sided", "arm_id"])
+    running = 0.0
+    for rank, (index, row) in enumerate(hac_primary.iterrows()):
+        adjusted = min(
+            1.0,
+            (len(PRIMARY_ARM_IDS) - rank) * float(row["hac_p_value_two_sided"]),
+        )
+        running = max(running, adjusted)
+        output.loc[index, "holm_hac_p_value_primary"] = running
     return output
 
 
@@ -489,7 +655,11 @@ def build_material_gap_views(
                 metrics = _return_stats(
                     daily["slot_portfolio_return"],
                     key=f"{arm_id}|{threshold:g}|{cost_bps:g}|top{slots}",
-                    bootstrap_reps=bootstrap_reps,
+                    bootstrap_reps=(
+                        bootstrap_reps
+                        if threshold == 0.0 and cost_bps == PRIMARY_COST_BPS
+                        else NON_PRIMARY_BOOTSTRAP_REPS
+                    ),
                 )
                 summary_rows.append(
                     {
@@ -676,23 +846,48 @@ def run_daily_gap_reversal_research(
     universe: FrozenUniverse,
     *,
     as_of: str | pd.Timestamp,
+    evaluation_start: str | pd.Timestamp | None = None,
     original_row_count: int | None = None,
     cost_grid_bps: tuple[float, ...] = DEFAULT_COST_GRID_BPS,
     bootstrap_reps: int = 2_000,
 ) -> DailyGapReversalResult:
     """Evaluate both preregistered arms from an explicit normalized frame."""
 
-    cutoff = pd.Timestamp(as_of).normalize()
+    cutoff = pd.Timestamp(as_of)
+    if cutoff.tzinfo is not None:
+        raise ValueError("as_of must be timezone-naive")
+    cutoff = cutoff.normalize()
+    if len(pd.date_range(cutoff, cutoff, freq=TRADING_DAY)) != 1:
+        raise ValueError("as_of must be a canonical US-equity session")
     selected = normalized_prices.loc[normalized_prices["ticker"].isin(universe.tickers)].copy()
     if selected.empty:
         raise ValueError("no rows remain after applying the frozen universe")
+    if not selected["date"].eq(cutoff).any():
+        raise ValueError("price input has no admitted observations on the as_of session")
     candidates, eligibility = prepare_daily_candidates(selected)
     if candidates.empty:
         raise ValueError("no eligible non-zero-gap candidate orders were generated")
-    first_candidate = pd.Timestamp(candidates["date"].min()).normalize()
-    sessions = pd.DatetimeIndex(
-        sorted(selected.loc[selected["date"].ge(first_candidate), "date"].unique())
-    )
+    if evaluation_start is None:
+        start = pd.Timestamp(candidates["date"].min()).normalize()
+    else:
+        start = pd.Timestamp(evaluation_start)
+        if start.tzinfo is not None:
+            raise ValueError("evaluation_start must be timezone-naive")
+        start = start.normalize()
+        if start > cutoff:
+            raise ValueError("evaluation_start cannot be after as_of")
+        if start < pd.Timestamp(selected["date"].min()).normalize():
+            raise ValueError("evaluation_start cannot precede the available warmup history")
+        if len(pd.date_range(start, start, freq=TRADING_DAY)) != 1:
+            raise ValueError("evaluation_start must be a canonical US-equity session")
+    # Feature construction above intentionally retains every warmup row. Only
+    # candidate evaluation is cut here, after all lagged features are frozen.
+    candidates = candidates.loc[candidates["date"].ge(start)].copy()
+    if candidates.empty:
+        raise ValueError("no candidate orders remain on or after evaluation_start")
+    sessions = pd.date_range(start, cutoff, freq=TRADING_DAY).normalize()
+    if sessions.empty:
+        raise ValueError("evaluation window contains no canonical US-equity sessions")
     coverage = (
         selected.groupby("date", sort=True, observed=True)["ticker"]
         .nunique()
@@ -713,10 +908,14 @@ def run_daily_gap_reversal_research(
     ].copy()
     return DailyGapReversalResult(
         as_of=cutoff,
+        evaluation_start=start,
         study_sessions=sessions,
         universe=universe,
         normalized_row_count=int(original_row_count if original_row_count is not None else len(normalized_prices)),
         cutoff_row_count=len(normalized_prices),
+        normalization_rejections=pd.DataFrame(
+            normalized_prices.attrs.get("normalization_rejections", [])
+        ),
         candidates=candidates,
         selected_orders=selected_orders,
         eligibility_summary=eligibility,
@@ -753,6 +952,13 @@ def build_daily_gap_html(result: DailyGapReversalResult) -> str:
 
     primary_rows = []
     for row in result.primary_stats.itertuples(index=False):
+        cost_20 = result.material_gap_summary.loc[
+            result.material_gap_summary["arm_id"].eq(row.arm_id)
+            & result.material_gap_summary["material_gap_threshold_atr"].eq(0.0)
+            & result.material_gap_summary["cost_bps"].eq(20.0),
+            "mean_session_return",
+        ]
+        mean_20 = float(cost_20.iloc[0]) if len(cost_20) == 1 else np.nan
         primary_rows.append(
             "<tr>"
             f"<td>{html.escape(str(row.arm_id))}</td>"
@@ -760,8 +966,10 @@ def build_daily_gap_html(result: DailyGapReversalResult) -> str:
             f"<td>{int(row.n_selected_fills):,} / {int(row.n_selected_orders):,}</td>"
             f"<td>{float(row.selected_fill_rate) * 100:.1f}%</td>"
             f"<td>{_format_bps(row.mean_session_return)}</td>"
+            f"<td>{_format_bps(mean_20)}</td>"
             f"<td>[{_format_bps(row.bootstrap_ci_2_5)}, {_format_bps(row.bootstrap_ci_97_5)}]</td>"
-            f"<td>{float(row.holm_p_value_primary):.4g}</td>"
+            f"<td>[{_format_bps(row.hac_mean_ci_2_5)}, {_format_bps(row.hac_mean_ci_97_5)}]</td>"
+            f"<td>{float(row.holm_hac_p_value_primary):.4g}</td>"
             "</tr>"
         )
     sensitivity_rows = []
@@ -773,23 +981,58 @@ def build_daily_gap_html(result: DailyGapReversalResult) -> str:
             f"<td>{int(row.n_candidate_orders):,}</td><td>{float(row.selected_fill_rate) * 100:.1f}%</td>"
             f"<td>{_format_bps(row.mean_session_return)}</td></tr>"
         )
+    annual_rows = []
+    for row in result.annual_diagnostics.itertuples(index=False):
+        annual_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.arm_id))}</td><td>{int(row.year)}</td>"
+            f"<td>{int(row.n_sessions):,}</td><td>{int(row.n_fills):,}</td>"
+            f"<td>{_format_bps(row.mean_session_return)}</td>"
+            f"<td>{float(row.compound_return) * 100:+.1f}%</td></tr>"
+        )
+    loyo_rows = []
+    for row in result.leave_one_year_out.itertuples(index=False):
+        loyo_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.arm_id))}</td><td>{int(row.omitted_year)}</td>"
+            f"<td>{_format_bps(row.remaining_mean_return)}</td>"
+            f"<td>{'yes' if bool(row.mean_sign_preserved) else 'no'}</td></tr>"
+        )
+    concentration_rows = []
+    concentration = result.ticker_concentration.sort_values(
+        ["arm_id", "absolute_contribution_share"], ascending=[True, False]
+    ).groupby("arm_id", observed=True).head(10)
+    for row in concentration.itertuples(index=False):
+        concentration_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.arm_id))}</td><td>{html.escape(str(row.ticker))}</td>"
+            f"<td>{int(row.n_fills):,}</td><td>{_format_bps(row.endpoint_contribution)}</td>"
+            f"<td>{float(row.absolute_contribution_share) * 100:.1f}%</td></tr>"
+        )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Daily OHLC Gap-Reversal Screen</title>
-<style>body{{font:15px/1.5 system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 20px;color:#16202a}}h1,h2{{line-height:1.2}}.warning{{background:#fff0db;border:2px solid #c65b00;padding:16px;border-radius:8px}}.meta{{color:#53606d}}table{{border-collapse:collapse;width:100%;margin:12px 0 26px}}th,td{{padding:8px;border-bottom:1px solid #d8dee4;text-align:right}}th:first-child,td:first-child{{text-align:left}}code{{background:#eef2f5;padding:2px 4px}}</style></head>
+<style>body{{font:15px/1.5 system-ui,sans-serif;max-width:1200px;margin:32px auto;padding:0 20px;color:#16202a}}h1,h2{{line-height:1.2}}.warning{{background:#fff0db;border:2px solid #c65b00;padding:16px;border-radius:8px;margin:14px 0}}.limitation{{background:#ffe8e8;border:2px solid #a52828;padding:16px;border-radius:8px;margin:14px 0}}.meta{{color:#53606d}}.table-wrap{{overflow:auto}}table{{border-collapse:collapse;width:100%;margin:12px 0 26px}}th,td{{padding:8px;border-bottom:1px solid #d8dee4;text-align:right;white-space:nowrap}}th:first-child,td:first-child{{text-align:left}}code{{background:#eef2f5;padding:2px 4px}}</style></head>
 <body><h1>Daily OHLC gap-reversal screen</h1>
-<p class="meta">Research only · completed-session cutoff {result.as_of.date()} · {len(result.universe.tickers):,} available tickers · {len(result.study_sessions):,} study sessions</p>
+<p class="meta">Research only · evaluation {result.evaluation_start.date()} through {result.as_of.date()} · {len(result.universe.tickers):,} available tickers · {len(result.study_sessions):,} canonical NYSE sessions</p>
 <div class="warning"><strong>Optimistic range-touch screen, not causal execution evidence.</strong> Daily OHLC does not reveal whether the low/high occurred before an order could be placed after observing the official open. Any apparent edge must survive a 15-minute (preferably finer) causal rerun; this report cannot override that test.</div>
+<div class="limitation"><strong>Current-universe and price-vintage limitations.</strong> The ticker list is today's universe, not point-in-time membership, so survivorship bias is material. Adjusted daily OHLC may also reflect today's adjustment vintage; rolling-window re-adjustment can leave older and newer history on different vintages. Treat recent same-vintage windows as diagnostics, not a cure, and do not describe this as a historical point-in-time universe test.</div>
 <h2>Co-primary top-three endpoints at 10 bps</h2>
 <p>Each arm ranks candidate orders at the open by absolute gap/lagged ATR, uses three equal slots, leaves unused and unfilled slots in cash, and charges cost only to fills.</p>
-<table><thead><tr><th>Arm</th><th>All candidates</th><th>Selected fills / orders</th><th>Fill rate</th><th>Mean/session (bps)</th><th>95% bootstrap CI (bps)</th><th>Holm p</th></tr></thead><tbody>{''.join(primary_rows)}</tbody></table>
+<div class="table-wrap"><table><thead><tr><th>Arm</th><th>All candidates</th><th>Selected fills / orders</th><th>Fill rate</th><th>Mean @10bps</th><th>Mean @20bps</th><th>IID bootstrap 95% CI</th><th>HAC 95% CI</th><th>Holm-HAC p</th></tr></thead><tbody>{''.join(primary_rows)}</tbody></table></div>
 <h2>Prespecified material-gap views at 10 bps</h2>
-<table><thead><tr><th>Arm</th><th>Minimum |gap| / ATR</th><th>Candidates</th><th>Selected fill rate</th><th>Mean/session (bps)</th></tr></thead><tbody>{''.join(sensitivity_rows)}</tbody></table>
+<div class="table-wrap"><table><thead><tr><th>Arm</th><th>Minimum |gap| / ATR</th><th>Candidates</th><th>Selected fill rate</th><th>Mean/session (bps)</th></tr></thead><tbody>{''.join(sensitivity_rows)}</tbody></table></div>
+<h2>Calendar-year diagnostics at 10 bps</h2>
+<div class="table-wrap"><table><thead><tr><th>Arm</th><th>Year</th><th>Sessions</th><th>Fills</th><th>Mean/session (bps)</th><th>Compound</th></tr></thead><tbody>{''.join(annual_rows)}</tbody></table></div>
+<h2>Leave-one-year-out diagnostics at 10 bps</h2>
+<div class="table-wrap"><table><thead><tr><th>Arm</th><th>Omitted year</th><th>Remaining mean (bps)</th><th>Sign preserved</th></tr></thead><tbody>{''.join(loyo_rows)}</tbody></table></div>
+<h2>Largest ticker concentrations at 10 bps</h2>
+<div class="table-wrap"><table><thead><tr><th>Arm</th><th>Ticker</th><th>Fills</th><th>Endpoint contribution (bps)</th><th>Share of absolute contribution</th></tr></thead><tbody>{''.join(concentration_rows)}</tbody></table></div>
 <h2>Definition and boundaries</h2><ul>
 <li>Long: open below prior close; buy limit = open − 0.25 × lagged ATR14.</li>
 <li>Short: open above prior close; sell limit = open + 0.75 × lagged ATR14.</li>
 <li>ATR14 is the simple mean of 14 completed daily true ranges, shifted through T−1. Exit is the same-day close.</li>
-<li>PIT gates: prior close ≥ $5; prior 20-session median daily dollar volume ≥ $25m; at least 14 prior sessions; conservative raw-price discontinuity filter.</li>
+<li>PIT gates: prior close ≥ $5; prior 20-session median daily dollar volume ≥ $25m; at least 14 prior sessions; exact canonical-session predecessor adjacency; conservative raw-price discontinuity filter.</li>
 <li>No spread, queue, partial fill, opening latency, borrow, halt, news, earnings, integer-share, or market-impact model.</li>
 </ul></body></html>"""
 
@@ -821,6 +1064,7 @@ def write_daily_gap_research_artifacts(
         "top3_daily_returns.parquet": result.material_gap_daily,
     }
     csv_outputs = {
+        "normalization_rejections.csv": result.normalization_rejections,
         "universe_audit.csv": result.universe.audit,
         "eligibility_summary.csv": result.eligibility_summary,
         "coverage_by_date.csv": result.coverage_by_date,
@@ -846,15 +1090,21 @@ def write_daily_gap_research_artifacts(
         if path.is_file() and path.name != "run_manifest.json"
     }
     manifest = {
-        "schema_version": "daily_gap_reversal_research.v1",
+        "schema_version": "daily_gap_reversal_research.v2",
         "research_only": True,
         "no_order": True,
         "production_writes": False,
         "automatic_promotion": False,
         "manifest_written_last": True,
         "as_of_completed_session": str(result.as_of.date()),
+        "evaluation_start": str(result.evaluation_start.date()),
+        "warmup_retained_before_evaluation_start": True,
+        "canonical_session_source": "repository trading_calendar.TRADING_DAY (NYSE closures and ad-hoc closures)",
+        "exact_predecessor_adjacency_required": True,
         "daily_ohlc_range_touch_is_optimistic": True,
         "cannot_override_15m_causal_test": True,
+        "current_universe_survivorship_limitation": True,
+        "rolling_adjustment_vintage_limitation": True,
         "input_provenance": dict(input_provenance),
         "universe": {
             "filter_spec": UNIVERSE_EXCLUSION_SPEC,
@@ -868,8 +1118,9 @@ def write_daily_gap_research_artifacts(
             "available_sha256": result.universe.available_sha256,
         },
         "row_counts": {
-            "price_rows_before_as_of_cutoff": result.normalized_row_count,
-            "price_rows_at_or_before_as_of": result.cutoff_row_count,
+            "price_rows_in_source_before_cutoff_filter": result.normalized_row_count,
+            "valid_price_rows_at_or_before_as_of": result.cutoff_row_count,
+            "invalid_price_rows_rejected_at_or_before_as_of": len(result.normalization_rejections),
             "candidate_orders": len(result.candidates),
             "selected_primary_orders": len(result.selected_orders),
             "study_sessions": len(result.study_sessions),
@@ -877,14 +1128,15 @@ def write_daily_gap_research_artifacts(
         "locked_design": {
             "long_arm": "Open < prior Close; buy limit Open - 0.25 * lagged ATR14; exit Close",
             "short_arm": "Open > prior Close; short limit Open + 0.75 * lagged ATR14; exit Close",
-            "atr": "simple mean of 14 daily true ranges, shifted one session",
+            "atr": "simple mean of 14 adjacent canonical-session daily true ranges, shifted one session; missing/malformed predecessor resets the clean window",
             "primary_endpoint": "per-arm top 3 by |gap|/ATR at open; 1/3 per slot; unfilled and unused slots zero; costs only fills",
             "primary_cost_bps": PRIMARY_COST_BPS,
             "cost_grid_bps": list(result.cost_grid_bps),
             "material_gap_thresholds_atr": list(MATERIAL_GAP_THRESHOLDS_ATR),
-            "multiple_testing": "Holm across the two co-primary arms only",
+            "multiple_testing": "Holm across the two co-primary arms; HAC p-values are the robust primary inference",
         },
         "bootstrap_reps": result.bootstrap_reps,
+        "non_primary_bootstrap_reps": NON_PRIMARY_BOOTSTRAP_REPS,
         "outputs_sha256": output_hashes,
     }
     (target / "run_manifest.json").write_text(

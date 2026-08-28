@@ -86,6 +86,13 @@ def parse_args() -> argparse.Namespace:
         help="Last completed session to admit (YYYY-MM-DD); required to exclude partial current days.",
     )
     parser.add_argument(
+        "--evaluation-start",
+        help=(
+            "Optional first evaluated session (YYYY-MM-DD). Earlier input rows remain "
+            "available only as lagged-feature warmup."
+        ),
+    )
+    parser.add_argument(
         "--cost-grid-bps",
         nargs="+",
         type=float,
@@ -104,7 +111,13 @@ def main() -> int:
         raise FileNotFoundError(f"--prices must be an existing parquet: {price_path}")
     price_hash = _sha256_file(price_path)
     raw = pd.read_parquet(price_path)
-    normalized, original_row_count = normalize_daily_prices(raw, as_of=args.as_of)
+    normalized, original_row_count = normalize_daily_prices(
+        raw,
+        as_of=args.as_of,
+        drop_invalid_rows=True,
+    )
+    normalization_rejections = normalized.attrs.get("normalization_rejections", [])
+    del raw
     available = sorted(normalized["ticker"].unique())
 
     if args.universe_file is not None:
@@ -127,6 +140,7 @@ def main() -> int:
         normalized,
         frozen,
         as_of=args.as_of,
+        evaluation_start=args.evaluation_start,
         original_row_count=original_row_count,
         cost_grid_bps=tuple(args.cost_grid_bps),
         bootstrap_reps=args.bootstrap_reps,
@@ -138,6 +152,16 @@ def main() -> int:
         "universe_source": universe_source,
         "universe_file_path": str(universe_path) if universe_path is not None else None,
         "universe_file_sha256": universe_hash,
+        "normalization_rejection_count": len(normalization_rejections),
+        "normalization_rejection_reason_counts": (
+            pd.Series(
+                [row["rejection_reason"] for row in normalization_rejections],
+                dtype="object",
+            )
+            .value_counts()
+            .sort_index()
+            .to_dict()
+        ),
     }
     target = write_daily_gap_research_artifacts(
         result,
@@ -153,7 +177,7 @@ def main() -> int:
                 "n_selected_orders",
                 "n_selected_fills",
                 "mean_session_return",
-                "holm_p_value_primary",
+                "holm_hac_p_value_primary",
             ]
         ].to_string(index=False)
     )
