@@ -16,6 +16,7 @@ from hashlib import sha256
 from math import sqrt
 from pathlib import Path
 from typing import Final
+from uuid import uuid4
 
 import numpy as np
 import pandas as pd
@@ -942,6 +943,20 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _without_dataframe_attrs(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return a shallow serialization view without pandas JSON metadata.
+
+    Pandas forwards ``DataFrame.attrs`` to pyarrow as JSON schema metadata.
+    Research provenance can contain ``Timestamp`` objects, which are useful in
+    the explicit audits but are not JSON-serializable there. Provenance belongs
+    in the manifest/audit files, not opaque parquet metadata.
+    """
+
+    clean = frame.copy(deep=False)
+    clean.attrs = {}
+    return clean
+
+
 def _format_bps(value: object) -> str:
     numeric = float(value)
     return "—" if not np.isfinite(numeric) else f"{numeric * 10_000:+.2f}"
@@ -1057,7 +1072,14 @@ def write_daily_gap_research_artifacts(
         raise ValueError("output directory cannot contain or alias the price input")
     if target.exists():
         raise FileExistsError(f"fresh output directory already exists: {target}")
-    target.mkdir(parents=True, exist_ok=False)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.with_name(f".{target.name}.partial-{uuid4().hex}")
+    staging.mkdir(parents=False, exist_ok=False)
+    (staging / "ARTIFACT_VALIDITY.txt").write_text(
+        "This directory is INVALID unless run_manifest.json exists.\n"
+        "Directories named .*.partial-* are incomplete failed writes.\n",
+        encoding="utf-8",
+    )
 
     parquet_outputs = {
         "selected_orders_primary.parquet": result.selected_orders,
@@ -1078,15 +1100,15 @@ def write_daily_gap_research_artifacts(
         "combined_diagnostic.csv": result.combined_diagnostic,
     }
     for filename, frame in parquet_outputs.items():
-        frame.to_parquet(target / filename, index=False)
+        _without_dataframe_attrs(frame).to_parquet(staging / filename, index=False)
     for filename, frame in csv_outputs.items():
-        frame.to_csv(target / filename, index=False)
-    report_path = target / "report.html"
+        _without_dataframe_attrs(frame).to_csv(staging / filename, index=False)
+    report_path = staging / "report.html"
     report_path.write_text(build_daily_gap_html(result), encoding="utf-8")
 
     output_hashes = {
         path.name: _sha256_file(path)
-        for path in sorted(target.iterdir())
+        for path in sorted(staging.iterdir())
         if path.is_file() and path.name != "run_manifest.json"
     }
     manifest = {
@@ -1096,6 +1118,8 @@ def write_daily_gap_research_artifacts(
         "production_writes": False,
         "automatic_promotion": False,
         "manifest_written_last": True,
+        "artifact_validity_rule": "directory is valid only when run_manifest.json exists",
+        "partial_directory_pattern": f".{target.name}.partial-*",
         "as_of_completed_session": str(result.as_of.date()),
         "evaluation_start": str(result.evaluation_start.date()),
         "warmup_retained_before_evaluation_start": True,
@@ -1139,6 +1163,11 @@ def write_daily_gap_research_artifacts(
         "non_primary_bootstrap_reps": NON_PRIMARY_BOOTSTRAP_REPS,
         "outputs_sha256": output_hashes,
     }
+    # Publish the completed payload directory first. The manifest is then the
+    # final write and sole validity marker. Any earlier failure leaves only a
+    # clearly named `.partial-*` directory; a failure here leaves a target with
+    # no manifest, which is likewise invalid by construction.
+    staging.rename(target)
     (target / "run_manifest.json").write_text(
         json.dumps(manifest, indent=2, default=str) + "\n", encoding="utf-8"
     )

@@ -175,6 +175,11 @@ def test_writer_is_fresh_manifest_last_and_research_only(tmp_path: Path, monkeyp
     output = tmp_path / "artifacts" / "bundle"
     input_path = tmp_path / "prices.parquet"
     raw.to_parquet(input_path, index=False)
+    inherited_stamp = pd.Timestamp("2026-08-27")
+    result.selected_orders.attrs["normalization_rejections"] = [
+        {"date": inherited_stamp, "reason": "test provenance"}
+    ]
+    result.material_gap_daily.attrs["source_timestamp"] = inherited_stamp
     write_daily_gap_research_artifacts(
         result,
         output,
@@ -190,12 +195,51 @@ def test_writer_is_fresh_manifest_last_and_research_only(tmp_path: Path, monkeyp
     assert manifest["cannot_override_15m_causal_test"] is True
     assert manifest["as_of_completed_session"] == str(raw["date"].max().date())
     assert (output / "report.html").is_file()
+    assert pd.read_parquet(output / "selected_orders_primary.parquet").attrs == {}
+    assert result.selected_orders.attrs["normalization_rejections"][0]["date"] == inherited_stamp
     with pytest.raises(FileExistsError):
         write_daily_gap_research_artifacts(
             result,
             output,
             input_provenance={"price_input_path": str(input_path)},
         )
+
+
+def test_writer_failure_leaves_only_unmistakable_partial_without_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = _two_arm_prices()
+    normalized, original = normalize_daily_prices(raw, as_of=raw["date"].max())
+    frozen = freeze_universe(["AAA", "BBB"], normalized["ticker"].unique())
+    result = run_daily_gap_reversal_research(
+        normalized,
+        frozen,
+        as_of=raw["date"].max(),
+        original_row_count=original,
+        bootstrap_reps=100,
+    )
+    fake_module = tmp_path / "research" / "intraday" / "gap_reversal_daily.py"
+    monkeypatch.setattr(daily_gap, "__file__", str(fake_module))
+    output = tmp_path / "artifacts" / "failed-bundle"
+
+    def fail_parquet(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("synthetic serialization failure")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", fail_parquet)
+    with pytest.raises(RuntimeError, match="synthetic serialization failure"):
+        write_daily_gap_research_artifacts(
+            result,
+            output,
+            input_provenance={"price_input_path": str(tmp_path / "prices.parquet")},
+        )
+    assert not output.exists()
+    partials = list((tmp_path / "artifacts").glob(".failed-bundle.partial-*"))
+    assert len(partials) == 1
+    assert not (partials[0] / "run_manifest.json").exists()
+    assert "INVALID unless run_manifest.json exists" in (
+        partials[0] / "ARTIFACT_VALIDITY.txt"
+    ).read_text(encoding="utf-8")
 
 
 def test_normalizer_rejects_impossible_ohlc_and_nonfinite_values() -> None:
