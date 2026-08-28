@@ -148,6 +148,11 @@ def get_google_client():
         return None
 
 
+def _automation_strict():
+    """Whether the caller requires every production side effect to succeed."""
+    return os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1'
+
+
 def write_portfolio_to_sheet(open_positions_df, workbook_name='Trade_Signals_Log', tab_name='Portfolio'):
     """Write the current open-positions snapshot to a dedicated tab so other
     scripts (daily_scan, local_overflow_scan) can read it for ladder sizing.
@@ -159,7 +164,9 @@ def write_portfolio_to_sheet(open_positions_df, workbook_name='Trade_Signals_Log
     gc = get_google_client()
     if not gc:
         print("   ⚠️ No Google creds — skipping Portfolio tab write")
-        return
+        if _automation_strict():
+            raise RuntimeError("Portfolio tab write requires Google credentials")
+        return False
 
     df = open_positions_df.copy() if open_positions_df is not None else pd.DataFrame()
     df['Snapshot_Timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -181,12 +188,27 @@ def write_portfolio_to_sheet(open_positions_df, workbook_name='Trade_Signals_Log
             # Still write a headers-only row so readers can detect the snapshot ran.
             worksheet.update(range_name='A1', values=[['Snapshot_Timestamp'], [datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')]])
             print(f"   🧹 No open positions — '{tab_name}' cleared (timestamp-only)")
-            return
+            if _automation_strict():
+                rows = worksheet.get_all_values()
+                if len(rows) != 2 or rows[0] != ['Snapshot_Timestamp']:
+                    raise RuntimeError("Portfolio tab timestamp-only readback failed")
+            return True
         data = [df.columns.tolist()] + df.astype(str).values.tolist()
         worksheet.update(range_name='A1', values=data)
+        if _automation_strict():
+            rows = worksheet.get_all_values()
+            if not rows or rows[0] != data[0] or len(rows) != len(data):
+                raise RuntimeError(
+                    f"Portfolio tab readback mismatch: wrote {len(data) - 1} rows, "
+                    f"read {max(0, len(rows) - 1)}"
+                )
         print(f"   ✅ Wrote {len(df)} open positions to {workbook_name}!{tab_name}")
+        return True
     except Exception as e:
         print(f"   ⚠️ Portfolio tab write failed: {e}")
+        if _automation_strict():
+            raise
+        return False
 
 
 # -----------------------------------------------------------------------------
@@ -1127,7 +1149,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
     
     if not sender_email or not sender_password:
         print("⚠️ Email credentials not found - skipping email")
-        return
+        return False
     
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
@@ -1494,8 +1516,10 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, receiver_email, msg.as_string())
         print(f"📧 Email sent successfully to {receiver_email}")
+        return True
     except Exception as e:
         print(f"❌ Failed to send email: {e}")
+        return False
 
 
 # -----------------------------------------------------------------------------
@@ -1542,7 +1566,9 @@ def main():
         # 3a. Mirror open positions to Trade_Signals_Log!Portfolio so daily_scan
         # and local_overflow_scan can read them for ladder sizing.
         print("\n📤 Syncing open positions to Portfolio tab...")
-        write_portfolio_to_sheet(open_positions)
+        sheet_ok = write_portfolio_to_sheet(open_positions)
+        if _automation_strict() and not sheet_ok:
+            raise RuntimeError("Portfolio tab was not durably updated")
 
         # 3b. Get today's entered & exited positions
         print("\n📅 Checking today's activity...")
@@ -1569,7 +1595,7 @@ def main():
 
         # 5. Send email
         print("\n📧 Sending email report...")
-        send_portfolio_email(
+        email_ok = send_portfolio_email(
             chart_path=chart_path,
             open_positions_df=open_positions,
             sizing_analysis=sizing_analysis,
@@ -1579,6 +1605,8 @@ def main():
             trailing_stats=trailing_stats,
             recent_exits_df=recent_exits
         )
+        if _automation_strict() and not email_ok:
+            raise RuntimeError("Portfolio report email was not accepted by SMTP")
         
         print("\n✅ Portfolio health report completed successfully!")
         

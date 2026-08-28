@@ -23,6 +23,9 @@ on:
         required: false
         default: 'false'
 
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
+
 jobs:
   rebalance:
     runs-on: ubuntu-latest

@@ -2,7 +2,7 @@
 
 Run by the /repo-health-check skill (and fine to run by hand):
 
-    python scripts/repo_health_check.py [--skip-tests] [--skip-gha]
+    python scripts/repo_health_check.py [--skip-tests] [--skip-automation]
 
 Prints one OK / WARN / FAIL line per check and a summary. Exit 1 when any
 check FAILed, else 0. The skill layer investigates failures; this script only
@@ -10,8 +10,8 @@ detects them, so every check must be cheap, offline-safe and side-effect free
 (the single exception: it maintains its own tripwire state file).
 
 Checks:
-  1. GitHub Actions   - latest run conclusion + age for each weekday-critical
-                        workflow (needs gh CLI; degrades to WARN without it)
+  1. Automation       - latest verified R2 supervisor receipt + age for each
+                        weekday-critical local-primary / GitHub-backup job
   2. Local data       - master_prices / rd2_fragility / cboe_putcall recency,
                         stray partial-write temp files in data/
   3. Fragility PIT    - tripwire: frozen rows of rd2_fragility.parquet must
@@ -20,8 +20,7 @@ Checks:
   4. Journals         - pitch/context/posts JSONL parse cleanly
   5. Delivery         - check_pitch_delivered / check_context_delivered for
                         the most recent expected run date
-  6. Trigger logs     - C:\\Scripts\\logs\\trigger_*.log recency (the local AM
-                        dispatch chain)
+  6. Trigger logs     - pinned Task Scheduler runtime log recency
   7. Guard tests      - pytest --collect-only: collection errors FAIL, guard
                         files contributing zero tests WARN
 """
@@ -32,7 +31,6 @@ import datetime as dt
 import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -41,20 +39,56 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-STATE_PATH = ROOT / "data" / "health_check_state.json"
-TRIGGER_LOG_DIR = Path(r"C:\Scripts\logs")
+sys.path.insert(0, str(ROOT))
 
-# workflow file -> max business days the latest run may be old before FAIL
-CRITICAL_WORKFLOWS: dict[str, int] = {
-    "update_master_prices.yml": 1,
-    "daily_screener.yml": 1,
-    "risk_report.yml": 1,
-    "portfolio_report.yml": 1,
-    "build_earnings_calendar.yml": 2,
-    "verify_fills.yml": 2,
-    "update_cboe_putcall.yml": 1,
-    "update_intraday_prices.yml": 3,
-    "execution_report.yml": 2,
+import cache_io  # noqa: E402
+
+STATE_PATH = ROOT / "data" / "health_check_state.json"
+_DEFAULT_AUTOMATION_RUNTIME = (
+    ROOT if ROOT.name == "New_Seasonals-automation-runtime"
+    else ROOT.parent / "New_Seasonals-automation-runtime"
+)
+AUTOMATION_STATE_ROOT = Path(os.environ.get(
+    "NEW_SEASONALS_AUTOMATION_STATE_ROOT",
+    str(_DEFAULT_AUTOMATION_RUNTIME / "artifacts" / "automation"),
+))
+AUTOMATION_LOG_DIR = AUTOMATION_STATE_ROOT / "logs"
+AUTOMATION_RECEIPT_SCHEMA = "automation-receipt.v1"
+
+# Supervisor job id -> max business days the latest success may be old.
+CRITICAL_AUTOMATION_JOBS: dict[str, int] = {
+    "cboe_am": 1,
+    "master_prices_am": 1,
+    "risk_am": 1,
+    "event_sleeve_am": 1,
+    "scan_am": 1,
+    "private_site_am": 1,
+    "shared_site_am": 1,
+    "discretionary_focus": 1,
+    "execution_report": 2,
+    "master_prices_pm": 1,
+    "risk_pm": 1,
+    "verify_fills": 2,
+    "earnings_and_grades": 2,
+    "portfolio_report": 1,
+    "cboe_pm": 2,
+    "trend_sleeve": 2,
+    "intraday_prices": 3,
+    "scan_pm": 1,
+    "macro_releases": 2,
+    "private_site_pm": 1,
+    "shared_site_pm": 1,
+    "indicator_cache": 8,
+    "weekly_rundown": 8,
+}
+
+LOCAL_PIPELINE_MAX_BD: dict[str, int] = {
+    "premarket": 2,
+    "discretionary": 2,
+    "execution": 2,
+    "postclose": 2,
+    "indicator": 8,
+    "weekly-rundown": 8,
 }
 
 RESULTS: list[tuple[str, str, str]] = []  # (tier, check, detail)
@@ -75,67 +109,89 @@ def prev_weekday(d: dt.date) -> dt.date:
     return d
 
 
-# ---------------------------------------------------------------- 1. GHA
-def _github_repository() -> str | None:
-    """Return OWNER/REPO without relying on gh's implicit git discovery."""
-    from_env = os.environ.get("GITHUB_REPOSITORY", "").strip()
-    if from_env:
-        return from_env
-    try:
-        out = subprocess.run(
-            [
-                "git",
-                "-c",
-                f"safe.directory={ROOT.as_posix()}",
-                "remote",
-                "get-url",
-                "origin",
-            ],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+# ---------------------------------------------------------------- 1. automation receipts
+def _automation_receipt(job_id: str, run_date: dt.date) -> dict | None:
+    key = f"automation/receipts/v1/{run_date.isoformat()}/{job_id}/latest.json"
+    local = (AUTOMATION_STATE_ROOT / "health-receipts" /
+             run_date.isoformat() / f"{job_id}.json")
+    if not cache_io.download_to_local(key, str(local)):
         return None
-    match = re.search(r"github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?$", out.stdout.strip())
-    return f"{match.group(1)}/{match.group(2)}" if match else None
+    try:
+        receipt = json.loads(local.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (receipt.get("schema_version") != AUTOMATION_RECEIPT_SCHEMA
+            or receipt.get("job_id") != job_id
+            or receipt.get("run_date_et") != run_date.isoformat()):
+        return None
+    return receipt
 
 
-def check_gha() -> None:
-    repository = _github_repository()
-    if not repository:
-        report("WARN", "gha", "could not determine GitHub OWNER/REPO")
-        return
-    for wf, max_bd in CRITICAL_WORKFLOWS.items():
-        try:
-            out = subprocess.run(
-                ["gh", "run", "list", f"--workflow={wf}", "--limit", "1",
-                 "--json", "conclusion,status,updatedAt", "--repo", repository],
-                cwd=ROOT, capture_output=True, text=True, timeout=60)
-        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-            report("WARN", f"gha:{wf}", f"gh CLI unavailable ({exc})")
-            return
-        if out.returncode != 0:
-            report("WARN", f"gha:{wf}", out.stderr.strip()[:200] or "gh failed")
+def _latest_receipt(job_id: str, today: dt.date, fetch) -> dict | None:
+    # Ten calendar days covers the longest critical-job allowance plus a
+    # weekend while keeping R2 reads bounded when a job has never run.
+    for days_back in range(11):
+        candidate = today - dt.timedelta(days=days_back)
+        receipt = fetch(job_id, candidate)
+        if receipt is not None:
+            return receipt
+    return None
+
+
+def check_gha(fetch=None, today: dt.date | None = None) -> None:
+    """Check the cross-runtime receipt contract (legacy name kept for CLI/API)."""
+    today = today or dt.date.today()
+    fetch = fetch or _automation_receipt
+    for job_id, max_bd in CRITICAL_AUTOMATION_JOBS.items():
+        receipt = _latest_receipt(job_id, today, fetch)
+        check = f"automation:{job_id}"
+        if receipt is None:
+            report("FAIL", check, "no valid R2 receipt found in the last 10 days")
             continue
-        runs = json.loads(out.stdout or "[]")
-        if not runs:
-            report("WARN", f"gha:{wf}", "no runs found")
-            continue
-        run = runs[0]
-        updated = dt.datetime.fromisoformat(
-            run["updatedAt"].replace("Z", "+00:00"))
-        age_bd = bdays_behind(updated.date(), dt.date.today())
-        concl = run.get("conclusion") or run.get("status")
-        if concl == "failure":
-            report("FAIL", f"gha:{wf}", f"latest run FAILED ({run['updatedAt']})")
+        run_date = dt.date.fromisoformat(receipt["run_date_et"])
+        age_bd = bdays_behind(run_date, today)
+        status = receipt.get("status")
+        source = receipt.get("source", "unknown")
+        updated = receipt.get("updated_at_utc", "unknown time")
+        if status == "failure":
+            report("FAIL", check,
+                   f"latest receipt FAILED via {source} ({updated})")
+        elif status == "indeterminate":
+            detail = receipt.get("detail") or "external side effect could not be confirmed"
+            report(
+                "FAIL",
+                check,
+                f"latest receipt INDETERMINATE via {source}; manual resolution required: {detail}",
+            )
+        elif status == "running":
+            lease_raw = receipt.get("lease_expires_at_utc")
+            expired = False
+            if lease_raw:
+                try:
+                    lease = dt.datetime.fromisoformat(str(lease_raw).replace("Z", "+00:00"))
+                    if lease.tzinfo is None:
+                        lease = lease.replace(tzinfo=dt.timezone.utc)
+                    expired = dt.datetime.now(tz=dt.timezone.utc) >= lease
+                except ValueError:
+                    expired = True
+            if expired:
+                report(
+                    "FAIL",
+                    check,
+                    f"latest receipt has an EXPIRED running lease via {source} ({updated})",
+                )
+            else:
+                report("WARN", check,
+                       f"latest receipt still running via {source} ({updated})")
+        elif status != "success":
+            report("FAIL", check, f"invalid receipt status {status!r}")
         elif age_bd > max_bd:
-            report("FAIL", f"gha:{wf}",
-                   f"latest run is {age_bd} bd old (max {max_bd}) - cron "
-                   f"likely shed and never backfilled")
+            report("FAIL", check,
+                   f"latest success via {source} is {age_bd} bd old "
+                   f"(max {max_bd})")
         else:
-            report("OK", f"gha:{wf}", f"{concl}, {age_bd} bd old")
+            report("OK", check,
+                   f"success via {source}, {age_bd} bd old ({updated})")
 
 
 # ---------------------------------------------------------------- 2. data
@@ -177,7 +233,7 @@ def check_local_data() -> None:
             continue
         behind = bdays_behind(last, today)
         tier = "FAIL" if behind >= fail_bd else "WARN" if behind >= warn_bd else "OK"
-        note = "" if tier == "OK" else " (local copy may just need a git pull / R2 pull)"
+        note = "" if tier == "OK" else " (the pinned runtime may need a canonical R2 pull)"
         report(tier, f"data:{name}", f"last row {last}, {behind} bd behind{note}")
 
     strays = [p for p in (ROOT / "data").glob("*.parquet.*")
@@ -281,17 +337,23 @@ def check_delivery() -> None:
                f"delivery:{label}", f"{day}: {detail}")
 
 
-# ---------------------------------------------------------------- 6. triggers
+# ---------------------------------------------------------------- 6. local Task Scheduler logs
 def check_trigger_logs() -> None:
-    if not TRIGGER_LOG_DIR.exists():
-        report("WARN", "triggers", f"{TRIGGER_LOG_DIR} not found")
+    if not AUTOMATION_LOG_DIR.exists():
+        report("WARN", "triggers", f"{AUTOMATION_LOG_DIR} not found")
         return
     today = dt.date.today()
-    for log in sorted(TRIGGER_LOG_DIR.glob("trigger_*.log")):
-        mtime = dt.date.fromtimestamp(log.stat().st_mtime)
+    for pipeline, max_bd in LOCAL_PIPELINE_MAX_BD.items():
+        logs = list(AUTOMATION_LOG_DIR.glob(f"*/{pipeline}-*.log"))
+        if not logs:
+            report("WARN", f"triggers:{pipeline}", "no local runtime log found")
+            continue
+        log = max(logs, key=lambda path: path.stat().st_mtime)
+        mtime = dt.datetime.fromtimestamp(log.stat().st_mtime).date()
         behind = bdays_behind(mtime, today)
-        tier = "OK" if behind <= 1 else "WARN"
-        report(tier, f"triggers:{log.stem}", f"last wrote {mtime} ({behind} bd)")
+        tier = "OK" if behind <= max_bd else "WARN"
+        report(tier, f"triggers:{pipeline}",
+               f"last wrote {mtime} ({behind} bd; {log.name})")
 
 
 # ---------------------------------------------------------------- 7. tests
@@ -320,10 +382,11 @@ def check_test_collection() -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-tests", action="store_true")
-    ap.add_argument("--skip-gha", action="store_true")
+    ap.add_argument("--skip-gha", "--skip-automation",
+                    dest="skip_automation", action="store_true")
     args = ap.parse_args()
 
-    if not args.skip_gha:
+    if not args.skip_automation:
         check_gha()
     check_local_data()
     check_fragility_pit()

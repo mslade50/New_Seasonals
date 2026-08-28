@@ -987,7 +987,10 @@ def main():
 
     # 7. Send
     print("[7/7] Sending email...")
-    send_email(subject, html, dial_path, overlay_path, pdf_path)
+    email_ok = send_email(subject, html, dial_path, overlay_path, pdf_path)
+    if (os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1"
+            and not email_ok):
+        raise RuntimeError("Risk report email was not accepted by SMTP")
 
     print("\nDone.")
 

@@ -290,7 +290,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
 
     if not sender_email or not sender_password:
         print("⚠️ Email credentials (EMAIL_USER/EMAIL_PASS) not found. Skipping email.")
-        return
+        return False
 
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
@@ -700,8 +700,10 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, receiver_email, msg.as_string())
         print(f"📧 Email sent successfully to {receiver_email}")
+        return True
     except Exception as e:
         print(f"❌ Failed to send email: {e}")
+        return False
 
 
 def load_seasonal_map(csv_path="sznl_ranks.csv"):
@@ -926,7 +928,10 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
     Saves 'Signal Close' orders to the 'moc_orders' tab with Exit_Date.
     """
     gc = get_google_client()
-    if not gc: return
+    if not gc:
+        if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
+            raise RuntimeError(f"No Google Sheets client for '{sheet_name}'")
+        return
 
     try:
         sh = gc.open("Trade_Signals_Log")
@@ -981,6 +986,8 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
             
     except Exception as e:
         print(f"❌ MOC Staging Error: {e}")
+        if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
+            raise
 
 
 def _sheets_write_with_retry(what, fn, attempts=3, backoffs=(5, 20)):
@@ -1009,7 +1016,8 @@ def _staging_no_client(sheet_name):
     """No Sheets client: fatal in GHA (a green run with unwritten staging
     tabs leaves stale rows live), warn-and-continue locally."""
     msg = f"No Google Sheets client — cannot write staging tab '{sheet_name}'"
-    if os.environ.get('GITHUB_ACTIONS'):
+    if (os.environ.get('GITHUB_ACTIONS')
+            or os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1'):
         raise RuntimeError(msg + " (failing loud in GHA)")
     print(f"[WARN] {msg} (local run — continuing)")
 
@@ -1405,7 +1413,10 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     df_new = df_new[cols]
 
     gc = get_google_client()
-    if not gc: return
+    if not gc:
+        if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
+            raise RuntimeError("No Google Sheets client for Signals Log")
+        return
 
     try:
         sh = gc.open(sheet_name)
@@ -1430,10 +1441,19 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
         worksheet.clear()
         data_to_write = [combined.columns.tolist()] + combined.astype(str).values.tolist()
         worksheet.update(values=data_to_write)
+        if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
+            rows = worksheet.get_all_values()
+            if not rows or rows[0] != data_to_write[0] or len(rows) != len(data_to_write):
+                raise RuntimeError(
+                    f"Signals Log readback mismatch: wrote {len(data_to_write) - 1} "
+                    f"rows, read {max(0, len(rows) - 1)}"
+                )
         print(f"✅ Signals Log Synced! ({len(combined)} rows)")
         
     except Exception as e:
         print(f"❌ Google Sheet Error: {e}")
+        if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
+            raise
 
 
 # -----------------------------------------------------------------------------
@@ -2205,7 +2225,26 @@ def stage_olv_vol_confirm_exits(master_dict=None):
     return warnings
 
 
-def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
+def _bookend_timing(bookend, now_eastern, market_open_time, market_close_time):
+    """Return (pre-market data cutoff, intraday-partial) for an explicit bookend.
+
+    Backup runs can start after the wall-clock market open.  Their AM/PM data
+    contract must follow the controller's bookend, not the delayed start time.
+    ``auto`` preserves the historical behavior for ad-hoc manual invocations.
+    """
+    if bookend == 'am':
+        return True, False
+    if bookend == 'pm':
+        return False, False
+    if bookend != 'auto':
+        raise ValueError(f"Invalid bookend: {bookend!r} (expected auto|am|pm)")
+    return (
+        now_eastern < market_open_time,
+        market_open_time <= now_eastern < market_close_time,
+    )
+
+
+def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'):
     """Run the daily scan against `scope` (liquid|overflow|all).
 
     moc_only=True restricts to MOC strategies (entry_type='Signal Close')
@@ -2216,7 +2255,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     if scope not in ('liquid', 'overflow', 'all'):
         raise ValueError(f"Invalid scope: {scope!r} (expected liquid|overflow|all)")
 
-    print(f"--- Starting Daily Automated Scan (scope={scope}, moc_only={moc_only}) ---")
+    print(f"--- Starting Daily Automated Scan (scope={scope}, moc_only={moc_only}, "
+          f"bookend={bookend}) ---")
     sznl_map = load_seasonal_map()
 
     # Build the strategy list this run iterates over. For scope=liquid (the
@@ -2292,8 +2332,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     # During this window, today's bar volume is incomplete, so strategies that
     # filter on volume can have false negatives. LT Trend ST OS specifically
     # relaxes its 1.25× volume requirement to 1.0× during this window.
-    is_intraday_partial = (market_open_time <= now_eastern < market_close_time)
-    is_morning_run = now_eastern < market_open_time
+    is_morning_run, is_intraday_partial = _bookend_timing(
+        bookend, now_eastern, market_open_time, market_close_time)
 
     if is_morning_run:
         # Morning Run (e.g. 5:30 AM): Strict cutoff at YESTERDAY'S close.
@@ -3259,12 +3299,13 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     else:
         _scope_label = "scope=liquid"
 
-    # Exposure leg — only on the AM bookend run (scope=all + UTC hour < 12).
-    # The PM bookend at ~20:13 UTC and intraday MOC runs skip it.
+    # Exposure leg — only on the explicit AM bookend (or an auto-mode manual
+    # invocation before the open). A delayed GitHub fallback must still
+    # regenerate it from settled data rather than republish yesterday's file.
     # Email rendering removed 2026-07-16 (per McKinley): the state still
     # computes and persists here — the site's Sizing State hero and the
     # committed exposure_state.json snapshot depend on it.
-    is_am_run = (scope == 'all' and not moc_only and datetime.datetime.utcnow().hour < 12)
+    is_am_run = (scope == 'all' and not moc_only and is_morning_run)
     if is_am_run:
         try:
             today_snap = compute_exposure_targets(
@@ -3277,11 +3318,23 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
             else:
                 print("[exposure] Fragility dial unavailable (cache missing, "
                       "unreadable, or STALE > 3 td) — exposure leg skipped.")
+                if bookend == 'am' or os.environ.get(
+                        'LOCAL_AUTOMATION_STRICT', '').strip() == '1':
+                    raise RuntimeError(
+                        "AM exposure state was not regenerated from a fresh "
+                        "fragility dial"
+                    )
         except Exception as e:
             print(f"[exposure] Failed to compute exposure leg: {e}")
+            if bookend == 'am' or os.environ.get(
+                    'LOCAL_AUTOMATION_STRICT', '').strip() == '1':
+                raise
 
-    send_email_summary(all_signals, error_tickers=unique_errors,
-                       scope_label=_scope_label, pc_state=pc_state)
+    email_ok = send_email_summary(all_signals, error_tickers=unique_errors,
+                                  scope_label=_scope_label, pc_state=pc_state)
+    if (os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1'
+            and not email_ok):
+        raise RuntimeError("Scan summary email was not accepted by SMTP")
 
     print("--- Scan Complete ---")
 
@@ -3311,5 +3364,15 @@ if __name__ == "__main__":
              "new universe or config. Note: pair with OVERFLOW_UNIVERSE_ACTIVE=1 "
              "to preview the dynamic overflow universe before activating it live.",
     )
+    _ap.add_argument(
+        "--bookend",
+        choices=("auto", "am", "pm"),
+        default="auto",
+        help="Explicit production timing contract. AM always uses the prior "
+             "settled session and writes exposure even if a fallback starts "
+             "after market open; PM uses the completed current session. "
+             "Auto preserves wall-clock behavior for ad-hoc runs.",
+    )
     _args = _ap.parse_args()
-    run_daily_scan(scope=_args.scope, moc_only=_args.moc_only, dry_run=_args.dry_run)
+    run_daily_scan(scope=_args.scope, moc_only=_args.moc_only,
+                   dry_run=_args.dry_run, bookend=_args.bookend)

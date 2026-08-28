@@ -10,6 +10,9 @@ on:
         default: ''
         type: string
 
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
+
 jobs:
   weekly_rundown:
     runs-on: ubuntu-latest

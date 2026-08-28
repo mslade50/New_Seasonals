@@ -2,7 +2,7 @@ name: Update CBOE Put/Call Cache
 run-name: "Update CBOE Put/Call Cache — ${{ inputs.automation_token || 'manual' }}"
 
 # Scrapes any missing trading days from cboe.com/us/options/market_statistics/daily
-# into data/cboe_putcall.parquet and commits the updated parquet back to main.
+# into data/cboe_putcall.parquet and publishes the canonical object to R2.
 # Powers the bottom panel of the SPX Breadth page (pages/spx_breadth.py).
 #
 # The backfill in cboe_putcall.py is incremental — it only fetches dates not
@@ -33,7 +33,10 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
 
 on:
   workflow_dispatch:
@@ -60,6 +63,16 @@ jobs:
       - name: Install dependencies
         run: pip install pandas pyarrow boto3 python-dotenv
 
+      - name: Pull canonical CBOE state from R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: >-
+          python scripts/automation_supervisor.py _r2-download
+          cboe_putcall.parquet data/cboe_putcall.parquet --required
+
       - name: Backfill missing days
         run: python -m cboe_putcall --start 2024-01-01 --assert-fresh-bd 2
 
@@ -70,28 +83,3 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/site_r2_pipeline.py publish-group --group cboe
-
-      - name: Commit + push updated parquet
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/cboe_putcall.parquet
-          if git diff --cached --quiet; then
-            echo "No CBOE put/call change to commit."
-          else
-            git commit -m "data: CBOE put/call refresh $(date -u +'%Y-%m-%d')"
-            # Rebase, verify the push landed, and fail loudly if it did not so a
-            # lost push (racing the other 21:30 UTC bot commits) is visible rather
-            # than silently swallowed by `|| true`.
-            pushed=false
-            for attempt in 1 2 3; do
-              git pull --rebase origin main || true
-              if git push; then pushed=true; break; fi
-              echo "push attempt $attempt rejected; re-rebasing and retrying."
-              sleep 5
-            done
-            if [ "$pushed" != true ]; then
-              echo "::error::failed to push cboe_putcall.parquet after 3 attempts"
-              exit 1
-            fi
-          fi

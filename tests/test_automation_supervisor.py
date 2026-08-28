@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import io
 import json
 import sys
 
@@ -38,14 +39,28 @@ class FakeProcess:
 
 
 class FakeDispatcher:
-    def __init__(self, *, fail=False):
+    def __init__(self, *, fail=False, reconcile_fail=False):
         self.fail = fail
+        self.reconcile_fail = reconcile_fail
         self.calls = []
+        self.reconcile_calls = []
 
     def dispatch_and_wait(self, workflow, *, automation_token, logger):
         self.calls.append((workflow, automation_token))
         if self.fail:
             raise sup.DispatchError("synthetic dispatch failure")
+        return sup.GithubRun(
+            database_id=123,
+            status="completed",
+            conclusion="success",
+            title=f"automation {automation_token}",
+            url="https://example.test/run/123",
+        )
+
+    def reconcile_and_wait(self, workflow, *, automation_token, logger):
+        self.reconcile_calls.append((workflow, automation_token))
+        if self.reconcile_fail:
+            raise sup.DispatchAcceptedError("synthetic reconciliation failure")
         return sup.GithubRun(
             database_id=123,
             status="completed",
@@ -67,7 +82,52 @@ def _logger(tmp_path):
     return sup.RunLogger(tmp_path / "run.log", echo=False)
 
 
-def _receipt(job_id, status, *, token="prior", source="local", pipeline="test"):
+class FakeR2Client:
+    def __init__(self):
+        self.put_calls = []
+
+    def get_object(self, **kwargs):
+        return {
+            "Body": io.BytesIO(b'{"status":"running"}'),
+            "ETag": '"abc123"',
+        }
+
+    def put_object(self, **kwargs):
+        self.put_calls.append(kwargs)
+
+
+def test_r2_conditional_write_preserves_quoted_etag():
+    client = FakeR2Client()
+    backend = sup.R2Backend(
+        {
+            "R2_ACCOUNT_ID": "acct",
+            "R2_ACCESS_KEY_ID": "key",
+            "R2_SECRET_ACCESS_KEY": "secret",
+            "R2_BUCKET": "bucket",
+        },
+        client=client,
+    )
+    value, etag = backend.get_json("receipt.json")
+    assert value == {"status": "running"}
+    assert etag == '"abc123"'
+
+    assert backend.put_json("receipt.json", value, if_match=etag)
+    assert client.put_calls[-1]["IfMatch"] == '"abc123"'
+
+    assert backend.put_json("receipt.json", value, if_match="bare")
+    assert client.put_calls[-1]["IfMatch"] == '"bare"'
+
+
+def _receipt(
+    job_id,
+    status,
+    *,
+    token="prior",
+    source="local",
+    pipeline="test",
+    phase=None,
+    lease_expires_at_utc=None,
+):
     return sup.Receipt(
         schema_version="automation-receipt.v1",
         pipeline=pipeline,
@@ -78,6 +138,8 @@ def _receipt(job_id, status, *, token="prior", source="local", pipeline="test"):
         automation_token=token,
         started_at_utc="2026-08-27T10:00:00+00:00",
         updated_at_utc="2026-08-27T10:01:00+00:00",
+        phase=phase,
+        lease_expires_at_utc=lease_expires_at_utc,
     )
 
 
@@ -148,6 +210,35 @@ def test_catalog_keeps_event_and_trend_once_only_with_dedicated_fallbacks():
     }
     assert pm_scan["bookend"] == "pm"
     assert pm_scan["run_event_sleeve"] == "false"
+
+
+def test_every_non_rerun_safe_local_job_marks_a_side_effect_boundary():
+    unsafe = [
+        job
+        for pipeline in sup.CATALOG.values()
+        for job in pipeline.jobs
+        if not job.dispatch_only and not job.rerun_safe
+    ]
+    assert unsafe
+    assert all(any(command.side_effecting for command in job.commands) for job in unsafe)
+
+
+def test_declared_local_leases_cover_every_retryable_command_timeout():
+    for pipeline in sup.CATALOG.values():
+        for job in pipeline.jobs:
+            if job.dispatch_only:
+                continue
+            covered = list(job.commands)
+            if not job.rerun_safe:
+                covered = []
+                for command in job.commands:
+                    if command.side_effecting:
+                        break
+                    covered.append(command)
+            assert sup.AutomationSupervisor._local_lease_seconds(job) >= (
+                sum(command.timeout_seconds for command in covered)
+                + sup.LEASE_GRACE_SECONDS
+            )
 
 
 def test_catalog_local_commands_mirror_critical_workflow_modes():
@@ -238,6 +329,58 @@ def test_receipt_store_blocks_success_and_running_but_allows_failure_retry():
     assert store.latest("2026-08-27", "trend").automation_token == "retry"
 
 
+def test_receipt_store_reclaims_only_an_expired_retryable_running_lease():
+    now = dt.datetime(2026, 8, 27, 12, 0, tzinfo=dt.timezone.utc)
+    store = sup.InMemoryReceiptStore(now=lambda: now)
+    expired = _receipt(
+        "expired",
+        "running",
+        phase="local_pre_side_effect",
+        lease_expires_at_utc="2026-08-27T11:59:59+00:00",
+    )
+    fresh = _receipt(
+        "fresh",
+        "running",
+        phase="local_pre_side_effect",
+        lease_expires_at_utc="2026-08-27T12:00:01+00:00",
+    )
+    indeterminate = _receipt("unsafe", "indeterminate", phase="manual_review")
+    assert store.claim(expired)
+    assert store.claim(fresh)
+    assert store.claim(indeterminate)
+
+    assert store.claim(_receipt("expired", "running", token="reclaimed"))
+    assert not store.claim(_receipt("fresh", "running", token="blocked"))
+    assert not store.claim(_receipt("unsafe", "running", token="blocked"))
+
+
+def test_success_and_operator_resolution_are_monotonic_terminal_states():
+    store = sup.InMemoryReceiptStore()
+    running = _receipt("job", "running", phase="local_retryable")
+    assert store.claim(running)
+    success = _receipt("job", "success", phase="completed")
+    store.transition(success, update_latest=True)
+    with pytest.raises(sup.AutomationError, match="successful receipt is terminal"):
+        store.transition(_receipt("job", "failure", phase="retryable"), update_latest=True)
+    assert store.latest("2026-08-27", "job").status == "success"
+
+    attention = _receipt("manual", "indeterminate", phase="manual_review")
+    assert store.claim(attention)
+    resolved = sup.dataclasses.replace(
+        attention,
+        status="failure",
+        source="operator",
+        phase="manual_resolved",
+        detail="confirmed no external effect",
+    )
+    store.transition(resolved, update_latest=True)
+    with pytest.raises(sup.AutomationError, match="operator-resolved receipt is terminal"):
+        store.transition(
+            sup.dataclasses.replace(attention, status="success", phase="completed"),
+            update_latest=True,
+        )
+
+
 def test_local_success_sets_strict_child_env_and_success_receipt(tmp_path):
     job = sup.JobSpec(
         id="component",
@@ -303,6 +446,187 @@ def test_local_failure_immediately_dispatches_github_and_records_both_transition
     assert ("failure", "local") in transitions
     assert ("running", "github") in transitions
     assert receipts.latest("2026-08-27", "component").status == "success"
+
+
+def test_failure_after_unsafe_side_effect_never_dispatches_fallback(tmp_path):
+    job = sup.JobSpec(
+        id="unsafe",
+        description="unsafe",
+        commands=(
+            sup.CommandSpec(
+                "write external state", ("{python}", "unsafe.py"), side_effecting=True
+            ),
+        ),
+        workflow=sup.WorkflowSpec("unsafe.yml"),
+    )
+    pipeline = sup.PipelineSpec(
+        "test", "test", "weekdays", dt.time(1), dt.time(2), dt.time(3), (job,)
+    )
+    process = FakeProcess([9])
+    dispatcher = FakeDispatcher()
+    receipts = sup.InMemoryReceiptStore()
+    supervisor = _supervisor(tmp_path, pipeline, process, dispatcher, receipts=receipts)
+
+    with _logger(tmp_path) as logger:
+        outcome = supervisor.run_job(
+            pipeline,
+            job,
+            run_date="2026-08-27",
+            logger=logger,
+            allow_fallback=True,
+        )
+
+    assert outcome.status == "indeterminate"
+    assert receipts.latest("2026-08-27", "unsafe").status == "indeterminate"
+    assert not dispatcher.calls
+
+
+def test_failure_before_unsafe_side_effect_can_dispatch_fallback(tmp_path):
+    job = sup.JobSpec(
+        id="unsafe",
+        description="unsafe",
+        commands=(
+            sup.CommandSpec("prepare", ("{python}", "prepare.py")),
+            sup.CommandSpec(
+                "write external state", ("{python}", "unsafe.py"), side_effecting=True
+            ),
+        ),
+        workflow=sup.WorkflowSpec("unsafe.yml"),
+    )
+    pipeline = sup.PipelineSpec(
+        "test", "test", "weekdays", dt.time(1), dt.time(2), dt.time(3), (job,)
+    )
+    process = FakeProcess([9])
+    dispatcher = FakeDispatcher()
+    supervisor = _supervisor(tmp_path, pipeline, process, dispatcher)
+
+    with _logger(tmp_path) as logger:
+        outcome = supervisor.run_job(
+            pipeline,
+            job,
+            run_date="2026-08-27",
+            logger=logger,
+            allow_fallback=True,
+        )
+
+    assert outcome.status == "success"
+    assert len(process.stream_calls) == 1
+    assert len(dispatcher.calls) == 1
+
+
+def test_rerun_safe_side_effect_failure_can_dispatch_fallback(tmp_path):
+    job = sup.JobSpec(
+        id="safe",
+        description="safe",
+        commands=(
+            sup.CommandSpec(
+                "replace canonical cache", ("{python}", "safe.py"), side_effecting=True
+            ),
+        ),
+        workflow=sup.WorkflowSpec("safe.yml"),
+        rerun_safe=True,
+    )
+    pipeline = sup.PipelineSpec(
+        "test", "test", "weekdays", dt.time(1), dt.time(2), dt.time(3), (job,)
+    )
+    process = FakeProcess([9])
+    dispatcher = FakeDispatcher()
+    supervisor = _supervisor(tmp_path, pipeline, process, dispatcher)
+
+    with _logger(tmp_path) as logger:
+        outcome = supervisor.run_job(
+            pipeline,
+            job,
+            run_date="2026-08-27",
+            logger=logger,
+            allow_fallback=True,
+        )
+
+    assert outcome.status == "success"
+    assert len(dispatcher.calls) == 1
+
+
+def test_accepted_github_ambiguity_is_indeterminate_for_unsafe_job(tmp_path):
+    class AmbiguousDispatcher(FakeDispatcher):
+        def dispatch_and_wait(self, workflow, *, automation_token, logger):
+            self.calls.append((workflow, automation_token))
+            raise sup.DispatchAcceptedError("accepted but polling failed")
+
+    job = sup.JobSpec(
+        id="unsafe",
+        description="unsafe",
+        commands=(sup.CommandSpec("step", ("{python}", "step.py"), side_effecting=True),),
+        workflow=sup.WorkflowSpec("unsafe.yml"),
+    )
+    pipeline = sup.PipelineSpec(
+        "test", "test", "weekdays", dt.time(1), dt.time(2), dt.time(3), (job,)
+    )
+    dispatcher = AmbiguousDispatcher()
+    receipts = sup.InMemoryReceiptStore()
+    supervisor = _supervisor(tmp_path, pipeline, FakeProcess(), dispatcher, receipts=receipts)
+
+    with _logger(tmp_path) as logger:
+        outcome = supervisor.run_job(
+            pipeline,
+            job,
+            run_date="2026-08-27",
+            logger=logger,
+            allow_fallback=True,
+            github_only=True,
+        )
+
+    assert outcome.status == "indeterminate"
+    assert receipts.latest("2026-08-27", "unsafe").phase == "manual_review"
+
+
+def test_expired_github_lease_reconciles_same_token_without_dispatch(tmp_path):
+    now = dt.datetime(2026, 8, 27, 12, 0, tzinfo=dt.timezone.utc)
+    job = sup.JobSpec(
+        id="component",
+        description="component",
+        commands=(sup.CommandSpec("step", ("{python}", "step.py")),),
+        workflow=sup.WorkflowSpec("component.yml"),
+    )
+    pipeline = sup.PipelineSpec(
+        "test", "test", "weekdays", dt.time(1), dt.time(2), dt.time(3), (job,)
+    )
+    receipts = sup.InMemoryReceiptStore(now=lambda: now)
+    expired = _receipt(
+        "component",
+        "running",
+        source="github",
+        pipeline="test",
+        phase="github_reconcile",
+        lease_expires_at_utc="2026-08-27T11:59:59+00:00",
+    )
+    assert receipts.claim(expired)
+    dispatcher = FakeDispatcher()
+    supervisor = sup.AutomationSupervisor(
+        catalog={"test": pipeline},
+        repo_root=tmp_path,
+        state_root=tmp_path / "state",
+        python_executable=sys.executable,
+        env={},
+        receipts=receipts,
+        process=FakeProcess(),
+        dispatcher=dispatcher,
+        validator=None,
+        now=lambda: now,
+    )
+
+    with _logger(tmp_path) as logger:
+        outcome = supervisor.run_job(
+            pipeline,
+            job,
+            run_date="2026-08-27",
+            logger=logger,
+            allow_fallback=True,
+            github_only=True,
+        )
+
+    assert outcome.status == "success"
+    assert dispatcher.reconcile_calls[0][1] == "prior"
+    assert not dispatcher.calls
 
 
 def test_running_once_only_receipt_never_executes_or_dispatches(tmp_path):
@@ -372,6 +696,52 @@ def test_github_only_controller_dispatches_missing_and_honors_dependencies(tmp_p
     assert not process.stream_calls
 
 
+def test_github_only_discretionary_holiday_is_terminal_not_applicable(tmp_path):
+    job = sup.JobSpec(
+        id="focus",
+        description="focus",
+        commands=(sup.CommandSpec("focus", ("{python}", "focus.py"), side_effecting=True),),
+        workflow=sup.WorkflowSpec("focus.yml"),
+        local_gate="discretionary_delivery_window",
+    )
+    pipeline = sup.PipelineSpec(
+        "focus", "focus", "weekdays", dt.time(8, 35), dt.time(8, 50), dt.time(9, 20), (job,)
+    )
+    receipts = sup.InMemoryReceiptStore()
+    dispatcher = FakeDispatcher()
+    supervisor = sup.AutomationSupervisor(
+        catalog={pipeline.id: pipeline},
+        repo_root=tmp_path,
+        state_root=tmp_path / "state",
+        python_executable=sys.executable,
+        env={},
+        receipts=receipts,
+        process=FakeProcess(),
+        dispatcher=dispatcher,
+        validator=None,
+        # Labor Day: inside the clock window but not an NYSE delivery session.
+        now=lambda: dt.datetime(2026, 9, 7, 12, 50, tzinfo=dt.timezone.utc),
+    )
+
+    with _logger(tmp_path) as logger:
+        outcome = supervisor.run_job(
+            pipeline,
+            job,
+            run_date="2026-09-07",
+            logger=logger,
+            allow_fallback=True,
+            github_only=True,
+        )
+
+    assert outcome.status == "success"
+    assert outcome.detail == "not applicable"
+    assert not dispatcher.calls
+    receipt = receipts.latest("2026-09-07", "focus")
+    assert receipt.source == "github"
+    assert receipt.phase == "completed"
+    assert receipt.detail.startswith("not applicable:")
+
+
 def test_github_dispatcher_finds_unique_token_in_run_title_and_waits(tmp_path):
     token = "2026-08-27-job-unique"
     queued = json.dumps(
@@ -396,7 +766,7 @@ def test_github_dispatcher_finds_unique_token_in_run_title_and_waits(tmp_path):
             }
         ]
     )
-    process = FakeProcess(captures=["", queued, completed])
+    process = FakeProcess(captures=[json.dumps([]), "", queued, completed])
     ticks = iter([0, 0, 1, 1, 2, 2])
     dispatcher = sup.GithubDispatcher(
         process,
@@ -417,9 +787,40 @@ def test_github_dispatcher_finds_unique_token_in_run_title_and_waits(tmp_path):
         )
 
     assert run.database_id == 77
-    dispatch_argv = process.capture_calls[0]
+    dispatch_argv = process.capture_calls[1]
     assert f"automation_token={token}" in dispatch_argv
     assert "mode=am" in dispatch_argv
+
+
+def test_github_dispatcher_treats_nonzero_submit_as_ambiguous(tmp_path):
+    token = "2026-08-27-job-ambiguous"
+    process = FakeProcess(
+        captures=[
+            json.dumps([]),
+            sup.CaptureResult(1, "connection closed"),
+            json.dumps([]),
+        ]
+    )
+    dispatcher = sup.GithubDispatcher(
+        process,
+        repo_root=tmp_path,
+        env={},
+        repository="owner/repo",
+        ref="main",
+        sleep=lambda _: None,
+    )
+
+    with _logger(tmp_path) as logger, pytest.raises(
+        sup.DispatchAcceptedError, match="outcome is ambiguous"
+    ):
+        dispatcher.dispatch_and_wait(
+            sup.WorkflowSpec("job.yml", timeout_seconds=30),
+            automation_token=token,
+            logger=logger,
+        )
+
+    dispatches = [call for call in process.capture_calls if call[:3] == ["gh", "workflow", "run"]]
+    assert len(dispatches) == 1
 
 
 class HeadBackend:
@@ -557,3 +958,57 @@ def test_task_scheduler_entry_point_accepts_every_installed_pipeline_id(
         == 0
     )
     assert pipeline_id in capsys.readouterr().out
+
+
+def test_fallback_controller_accepts_workflow_pipeline_option_and_all():
+    parser = sup.build_parser()
+    assert parser.parse_args(
+        ["fallback-due", "--pipeline", "premarket"]
+    ).pipeline == "premarket"
+    assert parser.parse_args(
+        ["fallback-due", "--pipeline", "all"]
+    ).pipeline == "all"
+
+
+def test_indicator_plan_matches_installed_task_time():
+    assert sup.CATALOG["indicator"].run_at_et == dt.time(3, 0)
+
+
+def test_local_trigger_window_blocks_late_or_wrong_day_replays():
+    premarket = sup.CATALOG["premarket"]
+    assert premarket.local_is_due(
+        dt.datetime(2026, 8, 28, 4, 10, tzinfo=sup.ET)
+    )
+    assert premarket.local_is_due(
+        dt.datetime(2026, 8, 28, 5, 19, 59, tzinfo=sup.ET)
+    )
+    assert not premarket.local_is_due(
+        dt.datetime(2026, 8, 28, 5, 20, tzinfo=sup.ET)
+    )
+    assert not premarket.local_is_due(
+        dt.datetime(2026, 8, 29, 4, 10, tzinfo=sup.ET)
+    )
+
+
+def test_local_and_fallback_windows_do_not_overlap():
+    for pipeline in sup.CATALOG.values():
+        assert pipeline.run_at_et < pipeline.fallback_at_et
+        assert not pipeline.local_is_due(
+            dt.datetime.combine(
+                dt.date(2026, 8, 31 if pipeline.cadence != "sunday" else 30),
+                pipeline.fallback_at_et,
+                tzinfo=sup.ET,
+            )
+        )
+
+
+def test_backup_workflow_inputs_match_master_and_cboe_dispatch_contracts():
+    jobs = {
+        job.id: job
+        for pipeline in sup.CATALOG.values()
+        for job in pipeline.jobs
+    }
+    assert jobs["master_prices_am"].workflow.input_dict() == {"mode": "am"}
+    assert jobs["master_prices_pm"].workflow.input_dict() == {"mode": "pm"}
+    assert jobs["cboe_am"].workflow.input_dict() == {}
+    assert jobs["cboe_pm"].workflow.input_dict() == {}

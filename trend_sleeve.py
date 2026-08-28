@@ -45,7 +45,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
 from strategy_config import ACCOUNT_VALUE
-from cache_io import download_to_local, upload_from_local
+from cache_io import download_to_local, head, upload_from_local
 from trading_calendar import TRADING_DAY
 
 # 12-ETF universe (2026-07-02, McKinley's spec, confirmed by
@@ -312,7 +312,16 @@ def save_state(targets: pd.DataFrame, dry_run: bool):
         return
     with open(STATE_LOCAL, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2)
-    upload_from_local(STATE_LOCAL, STATE_R2_KEY)
+    upload_ok = bool(upload_from_local(STATE_LOCAL, STATE_R2_KEY))
+    if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+        meta = head(STATE_R2_KEY)
+        actual = int((meta or {}).get("ContentLength") or -1)
+        expected = os.path.getsize(STATE_LOCAL)
+        if not upload_ok or actual != expected:
+            raise RuntimeError(
+                f"Trend state R2 verification failed: uploaded={upload_ok}, "
+                f"size={actual}, expected={expected}"
+            )
     print(f"State saved ({len(positions)} positions) -> {STATE_LOCAL} + R2")
 
 
@@ -333,9 +342,18 @@ def write_sheet(orders: pd.DataFrame, dry_run: bool):
             ws = sh.add_worksheet(title=TAB_NAME, rows=50, cols=14)
         ws.clear()
         if orders.empty:
-            ws.update([["No rebalance orders", datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]])
+            expected = [["No rebalance orders", datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]]
+            ws.update(expected)
         else:
-            ws.update([orders.columns.tolist()] + orders.astype(str).values.tolist())
+            expected = [orders.columns.tolist()] + orders.astype(str).values.tolist()
+            ws.update(expected)
+        if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+            actual = ws.get_all_values()
+            if actual != expected:
+                raise RuntimeError(
+                    f"Trend tab readback mismatch: wrote {len(expected)} rows, "
+                    f"read {len(actual)}"
+                )
         print(f"Wrote {len(orders)} orders -> '{TAB_NAME}' tab")
     except Exception as e:
         print(f"ERROR: Sheets write failed: {e}")

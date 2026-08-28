@@ -19,7 +19,10 @@ concurrency:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
+
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
 
 on:
   workflow_dispatch:
@@ -40,12 +43,12 @@ on:
       run_event_sleeve:
         description: 'Also stage the once-only event sleeve (AM only)'
         required: false
-        default: false
+        default: true
         type: boolean
       deploy_after_scan:
         description: 'Run cloud-only private/shared site deploys after a successful scan'
         required: false
-        default: false
+        default: true
         type: boolean
 
 jobs:
@@ -76,6 +79,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          LOCAL_AUTOMATION_STRICT: '1'
         run: python scripts/pull_scan_caches.py
 
       - name: Stage event sleeve (AM bookend only)
@@ -106,12 +110,13 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          LOCAL_AUTOMATION_STRICT: '1'
           # Overflow universe gate. "1" = comprehensive (dynamic ∪ static, ~1,351);
           # "0" = legacy static tier (~870). Currently REVERTED to static — flip to
           # "1" to re-activate the comprehensive universe live (the cache pulls + R2
           # creds above stay wired, so re-enabling is a one-character change).
           OVERFLOW_UNIVERSE_ACTIVE: "0"
-        run: python daily_scan.py --scope=all
+        run: python daily_scan.py --scope=all --bookend="${{ inputs.bookend }}"
 
       - name: Publish private-site exposure input to R2 (AM bookend only)
         if: inputs.bookend == 'am'
@@ -121,36 +126,6 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/site_r2_pipeline.py publish-group --group exposure
-
-      - name: Commit exposure state (AM bookend only)
-        # Only the AM bookend writes data/exposure_state.json (PM bookend
-        # leaves it untouched). git diff exits 0 when no change, so this is
-        # a no-op on the PM run.
-        if: always() && inputs.bookend == 'am'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -f data/exposure_state.json ]; then
-            git add data/exposure_state.json
-            if git diff --cached --quiet; then
-              echo "No exposure_state.json change to commit."
-            else
-              git commit -m "exposure: state snapshot $(date -u +'%Y-%m-%d %H:%M UTC')"
-              # Race other bot commits: rebase then verify the push landed. A lost
-              # push here drops the morning exposure snapshot order_staging reads.
-              pushed=false
-              for attempt in 1 2 3; do
-                git pull --rebase origin main || true
-                if git push; then pushed=true; break; fi
-                echo "push attempt $attempt rejected; re-rebasing and retrying."
-                sleep 5
-              done
-              if [ "$pushed" != true ]; then
-                echo "::error::failed to push exposure_state.json after 3 attempts"
-                exit 1
-              fi
-            fi
-          fi
 
   deploy-site:
     # Tail of the pipeline: rebuild + deploy the private analytics site in the

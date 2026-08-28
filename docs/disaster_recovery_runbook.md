@@ -3,7 +3,7 @@
 
 **Print this page. Keep it at your desk. It should NOT live only in the GitHub repo.**
 
-Last updated: 2026-02-07
+Last updated: 2026-08-27
 
 ---
 
@@ -11,17 +11,19 @@ Last updated: 2026-02-07
 
 **Symptoms:** Can't push/pull, GitHub Actions don't run, can't access repo.
 
-**Impact:** `daily_scan.py` won't run via GitHub Actions. No automated signals.
+**Impact:** Local data/scan/report jobs continue. GitHub-hosted backup and
+private/shared site deploys are unavailable until GitHub recovers; the prior
+site deployment remains live.
 
 **Recovery:**
-1. You have a **local clone** of the repo on your machine. It's fully functional.
-2. Run the daily scan manually:
-   ```
-   cd ~/path/to/new-seasonals
-   python daily_scan.py
-   ```
-3. Signals will still be emailed and pushed to Google Sheets (these are independent of GitHub).
-4. If you don't have a local clone, your most recent strategy configs are in `strategy_config.py` which is also reflected in your Google Sheet "Active Strategies" tab.
+1. Check the `New Seasonals Local - *` Task Scheduler entries and pinned-runtime
+   logs under `New_Seasonals-automation-runtime\artifacts\automation\logs`.
+2. Do not repoint tasks to the development checkout. The pinned operational
+   worktree is fully functional without GitHub after installation.
+3. Signals still email and write Google Sheets as long as R2, Google, SMTP, and
+   market-data endpoints are reachable. Site builds queue only after GitHub returns.
+4. If the local machine also fails, skip new entries and follow the complete
+   system-failure protocol below; the GitHub backup cannot run during the outage.
 5. **Manual scanning fallback:** Open TradingView or your broker platform. Check the 5 core filters for each strategy by hand:
    - Performance rank (2d/5d/10d/21d return percentile)
    - ATR % range
@@ -29,7 +31,8 @@ Last updated: 2026-02-07
    - Volume vs 63-day average
    - Seasonal rank
 
-**Prevention:** Always `git pull` before leaving for the day. Your local copy is your backup.
+**Prevention:** Keep the pinned runtime/task set healthy and retain the immutable
+fallback tag. Scheduled production code never `git pull`s or self-upgrades.
 
 ---
 
@@ -45,8 +48,8 @@ Last updated: 2026-02-07
 3. To fix credentials:
    - Go to Google Cloud Console → APIs & Services → Credentials
    - Download a new service account JSON key
-   - Replace the key file at: `~/path/to/credentials.json` (or wherever your `GOOGLE_CREDENTIALS` env var points)
-   - For GitHub Actions: update the `GOOGLE_CREDENTIALS` secret in repo Settings → Secrets
+   - Replace the external key file referenced by `LOCAL_AUTOMATION_GCP_JSON_PATH`
+   - Update the GitHub backup `GCP_JSON` secret in repo Settings → Secrets
 4. Test with: `python -c "import gspread; gc = gspread.service_account(); print('OK')"`
 
 **Prevention:** Set a calendar reminder to check credential expiry every 6 months. Google service account keys don't expire by default, but org policies may rotate them.
@@ -68,7 +71,8 @@ Last updated: 2026-02-07
 3. Quick test: `python -c "import smtplib; s=smtplib.SMTP('smtp.gmail.com',587); s.starttls(); s.login('your@email.com','app_password'); print('OK')"`
 4. **Temporary workaround:** Run `daily_scan.py` locally and just read the console output.
 
-**Prevention:** The script should log email send failures to a file. Check `~/daily_scan.log` if it exists.
+**Prevention:** Strict automation treats a missing/failed email as non-success;
+check the component's R2 receipt and pinned-runtime log.
 
 ---
 
@@ -87,7 +91,9 @@ Last updated: 2026-02-07
 3. **Alternative data source (manual):**
    - Download CSV from Yahoo Finance website or your broker
    - Or use TradingView for quick manual checks of your top strategies
-4. If the data looks weird (e.g., unadjusted prices, missing recent days), clear the yfinance cache: `rm -rf ~/.cache/py-yfinance/`
+4. If the data looks weird (e.g., unadjusted prices, missing recent days), inspect
+   the yfinance cache and producer log before any cleanup; do not delete caches
+   as a first-line fix.
 
 **Prevention:** The scan should validate that SPY's last trading date matches yesterday (or today if run intraday). Add a sanity check if not already present.
 
@@ -134,5 +140,5 @@ Last updated: 2026-02-07
 ## WEEKLY CHECKLIST
 
 - [ ] Run `python trade_journal.py --report 7` — review slippage trends
-- [ ] `git pull` on local machine to keep backup current
+- [ ] Verify the pinned runtime SHA/tag and review the weekday health-task result
 - [ ] Spot-check one strategy's signals against TradingView

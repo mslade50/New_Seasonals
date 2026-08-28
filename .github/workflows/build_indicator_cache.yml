@@ -19,6 +19,9 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
+
 on:
   workflow_dispatch:
     inputs:

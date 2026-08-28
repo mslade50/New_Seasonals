@@ -10,6 +10,9 @@ on:
         default: ''
         type: string
 
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
+
 jobs:
   verify:
     runs-on: ubuntu-latest

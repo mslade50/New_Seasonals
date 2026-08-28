@@ -50,6 +50,7 @@ R2_REQUIRED = (
     "R2_SECRET_ACCESS_KEY",
     "R2_BUCKET",
 )
+LEASE_GRACE_SECONDS = 900
 
 
 class AutomationError(RuntimeError):
@@ -68,11 +69,20 @@ class DispatchError(AutomationError):
     """Raised when GitHub fallback cannot be dispatched or does not succeed."""
 
 
+class DispatchAcceptedError(DispatchError):
+    """The workflow was submitted, but its terminal result is not successful."""
+
+
+class DispatchRunNotFound(DispatchAcceptedError):
+    """A previously accepted automation token is not visible in GitHub runs."""
+
+
 @dataclass(frozen=True)
 class CommandSpec:
     label: str
     argv: tuple[str, ...]
     timeout_seconds: int = 3600
+    side_effecting: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,6 +129,7 @@ class JobSpec:
     outputs: tuple[OutputSpec, ...] = ()
     dispatch_only: bool = False
     duplicate_sensitive: bool = False
+    rerun_safe: bool = False
     depends_on: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -159,9 +170,37 @@ class PipelineSpec:
             and self.fallback_at_et <= clock <= self.fallback_until_et
         )
 
+    def local_is_due(self, now_et: dt.datetime) -> bool:
+        """Whether a Task Scheduler launch is still safe to begin locally.
 
-def _py(label: str, *args: str, timeout: int = 3600) -> CommandSpec:
-    return CommandSpec(label=label, argv=("{python}", *args), timeout_seconds=timeout)
+        ``StartWhenAvailable`` is useful for short sleep/reboot interruptions,
+        but Windows can otherwise replay a missed trigger many hours or days
+        late. The local primary owns only the interval before the guarded
+        GitHub fallback window; after that boundary the remote controller owns
+        recovery and duplicate prevention.
+        """
+        if now_et.tzinfo is None:
+            raise ValueError("local due checks require a timezone-aware datetime")
+        local = now_et.astimezone(ET)
+        clock = local.timetz().replace(tzinfo=None)
+        return (
+            self.active_on(local.date())
+            and self.run_at_et <= clock < self.fallback_at_et
+        )
+
+
+def _py(
+    label: str,
+    *args: str,
+    timeout: int = 3600,
+    side_effecting: bool = False,
+) -> CommandSpec:
+    return CommandSpec(
+        label=label,
+        argv=("{python}", *args),
+        timeout_seconds=timeout,
+        side_effecting=side_effecting,
+    )
 
 
 def _out(
@@ -201,6 +240,8 @@ def build_catalog() -> dict[str, PipelineSpec]:
         "--group",
         group,
         "--local-primary",
+        timeout=600,
+        side_effecting=True,
     )
     pull_master = _py(
         "pull canonical master prices",
@@ -209,8 +250,29 @@ def build_catalog() -> dict[str, PipelineSpec]:
         "master_prices.parquet",
         "data/master_prices.parquet",
         "--required",
+        timeout=600,
     )
-    pull_scan = _py("pull fail-closed scanner inputs", "scripts/pull_scan_caches.py")
+    pull_scan = _py(
+        "pull fail-closed scanner inputs",
+        "scripts/pull_scan_caches.py",
+        timeout=900,
+    )
+    pull_risk = _py(
+        "pull canonical append-only risk state",
+        "scripts/pull_scan_caches.py",
+        "--set",
+        "risk",
+        timeout=300,
+    )
+    pull_cboe = _py(
+        "pull canonical CBOE put/call state",
+        "scripts/automation_supervisor.py",
+        "_r2-download",
+        "cboe_putcall.parquet",
+        "data/cboe_putcall.parquet",
+        "--required",
+        timeout=300,
+    )
 
     premarket = PipelineSpec(
         id="premarket",
@@ -224,6 +286,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 id="cboe_am",
                 description="Refresh prior-session CBOE put/call cache",
                 commands=(
+                    pull_cboe,
                     _py(
                         "backfill CBOE put/call",
                         "-m",
@@ -232,13 +295,15 @@ def build_catalog() -> dict[str, PipelineSpec]:
                         "2024-01-01",
                         "--assert-fresh-bd",
                         "2",
+                        side_effecting=False,
                     ),
                     publish("cboe"),
                 ),
                 workflow=WorkflowSpec(
-                    "update_cboe_putcall.yml", (("bookend", "am"),), 1200
+                    "update_cboe_putcall.yml", (), 1200
                 ),
                 required_env=R2_ENV,
+                rerun_safe=True,
                 outputs=(_out("data/cboe_putcall.parquet", "cboe_putcall.parquet", minimum=512),),
             ),
             JobSpec(
@@ -251,18 +316,21 @@ def build_catalog() -> dict[str, PipelineSpec]:
                         "scripts/update_master_prices.py",
                         "--exclude-today",
                         timeout=2700,
+                        side_effecting=True,
                     ),
                 ),
                 workflow=WorkflowSpec(
-                    "update_master_prices.yml", (("bookend", "am"),), 3600
+                    "update_master_prices.yml", (("mode", "am"),), 3600
                 ),
                 required_env=R2_ENV,
+                rerun_safe=True,
                 outputs=(_out("data/master_prices.parquet", "master_prices.parquet", minimum=1_000_000),),
             ),
             JobSpec(
                 id="risk_am",
                 description="Correct the final risk row with settled prices (no email)",
                 commands=(
+                    pull_risk,
                     _py(
                         "risk data-only correction",
                         "daily_risk_report.py",
@@ -274,6 +342,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 ),
                 workflow=WorkflowSpec("risk_report.yml", (("mode", "data_only"),), 3600),
                 required_env=R2_ENV,
+                rerun_safe=True,
                 outputs=(
                     _out("data/rd2_fragility.parquet", "rd2_fragility.parquet", minimum=1_000),
                     _out("data/rd2_environment.json", "rd2_environment.json", minimum=50),
@@ -284,7 +353,15 @@ def build_catalog() -> dict[str, PipelineSpec]:
             JobSpec(
                 id="event_sleeve_am",
                 description="Once-only event-sleeve staging before the scanner",
-                commands=(pull_scan, _py("stage event sleeve", "event_sleeve.py", timeout=1800)),
+                commands=(
+                    pull_scan,
+                    _py(
+                        "stage event sleeve",
+                        "event_sleeve.py",
+                        timeout=1800,
+                        side_effecting=True,
+                    ),
+                ),
                 workflow=WorkflowSpec("event_sleeve.yml", (), 1800),
                 required_env=R2_ENV + SHEETS_ENV,
                 outputs=(
@@ -310,7 +387,14 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 description="Unified liquid + overflow premarket scan",
                 commands=(
                     pull_scan,
-                    _py("run unified scanner", "daily_scan.py", "--scope=all", timeout=5400),
+                    _py(
+                        "run unified scanner",
+                        "daily_scan.py",
+                        "--scope=all",
+                        "--bookend=am",
+                        timeout=5400,
+                        side_effecting=True,
+                    ),
                     publish("exposure"),
                 ),
                 workflow=WorkflowSpec(
@@ -332,6 +416,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 description="Cloud-only private-site build and deployment",
                 workflow=WorkflowSpec("deploy_site.yml", (), 7200),
                 dispatch_only=True,
+                rerun_safe=True,
                 depends_on=("scan_am",),
             ),
             JobSpec(
@@ -339,6 +424,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 description="Cloud-only teammate-safe seasonality deployment",
                 workflow=WorkflowSpec("deploy_shared_seasonals.yml", (), 3600),
                 dispatch_only=True,
+                rerun_safe=True,
                 depends_on=("scan_am",),
             ),
         ),
@@ -349,7 +435,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
         description="Research-only 0-2 name premarket attention list",
         cadence="weekdays",
         run_at_et=dt.time(8, 35),
-        fallback_at_et=dt.time(8, 55),
+        fallback_at_et=dt.time(8, 50),
         fallback_until_et=dt.time(9, 20),
         jobs=(
             JobSpec(
@@ -398,6 +484,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                         "scripts/publish_discretionary_focus.py",
                         "--input",
                         "data/discretionary_focus/current.json",
+                        side_effecting=True,
                     ),
                     _py(
                         "send at-most-once focus email",
@@ -407,6 +494,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                         "--receipt",
                         "data/discretionary_focus/email_receipt.json",
                         "--persist-receipt-r2",
+                        side_effecting=True,
                     ),
                 ),
                 workflow=WorkflowSpec(
@@ -442,7 +530,14 @@ def build_catalog() -> dict[str, PipelineSpec]:
             JobSpec(
                 id="execution_report",
                 description="Send the nightly execution report once at 16:30 ET",
-                commands=(_py("send execution report", "daily_execution_report.py", "--force"),),
+                commands=(
+                    _py(
+                        "send execution report",
+                        "daily_execution_report.py",
+                        "--force",
+                        side_effecting=True,
+                    ),
+                ),
                 workflow=WorkflowSpec("execution_report.yml", (), 1800),
                 required_env=R2_ENV + EMAIL_ENV + ("STATUS_TOKEN",),
             ),
@@ -466,19 +561,27 @@ def build_catalog() -> dict[str, PipelineSpec]:
                         "increment master prices (include close)",
                         "scripts/update_master_prices.py",
                         timeout=2700,
+                        side_effecting=True,
                     ),
                 ),
                 workflow=WorkflowSpec(
-                    "update_master_prices.yml", (("bookend", "pm"),), 3600
+                    "update_master_prices.yml", (("mode", "pm"),), 3600
                 ),
                 required_env=R2_ENV,
+                rerun_safe=True,
                 outputs=(_out("data/master_prices.parquet", "master_prices.parquet", minimum=1_000_000),),
             ),
             JobSpec(
                 id="risk_pm",
                 description="Full daily risk report, email, and private-site inputs",
                 commands=(
-                    _py("run full risk report", "daily_risk_report.py", timeout=2700),
+                    pull_risk,
+                    _py(
+                        "run full risk report",
+                        "daily_risk_report.py",
+                        timeout=2700,
+                        side_effecting=True,
+                    ),
                     publish("risk"),
                 ),
                 workflow=WorkflowSpec("risk_report.yml", (("mode", "full"),), 3600),
@@ -493,7 +596,14 @@ def build_catalog() -> dict[str, PipelineSpec]:
             JobSpec(
                 id="verify_fills",
                 description="Verify post-close staged-order fills in Sheets",
-                commands=(_py("verify fills", "verify_fills.py", timeout=1800),),
+                commands=(
+                    _py(
+                        "verify fills",
+                        "verify_fills.py",
+                        timeout=1800,
+                        side_effecting=True,
+                    ),
+                ),
                 workflow=WorkflowSpec("verify_fills.yml", (), 1800),
                 required_env=SHEETS_ENV,
             ),
@@ -505,15 +615,18 @@ def build_catalog() -> dict[str, PipelineSpec]:
                         "build earnings calendar",
                         "scripts/build_earnings_calendar.py",
                         timeout=3600,
+                        side_effecting=True,
                     ),
                     _py(
                         "build analyst grades",
                         "scripts/build_analyst_grades.py",
                         timeout=3600,
+                        side_effecting=True,
                     ),
                 ),
                 workflow=WorkflowSpec("build_earnings_calendar.yml", (), 7200),
                 required_env=R2_ENV + ("FMP_API_KEY",),
+                rerun_safe=True,
                 outputs=(
                     _out("data/earnings_calendar.parquet", "earnings_calendar.parquet", minimum=10_000),
                     _out("data/analyst_grades.parquet", "analyst_grades.parquet", minimum=1_000),
@@ -529,7 +642,12 @@ def build_catalog() -> dict[str, PipelineSpec]:
                         "--set",
                         "report",
                     ),
-                    _py("run portfolio report", "daily_portfolio_report.py", timeout=7200),
+                    _py(
+                        "run portfolio report",
+                        "daily_portfolio_report.py",
+                        timeout=7200,
+                        side_effecting=True,
+                    ),
                 ),
                 workflow=WorkflowSpec("portfolio_report.yml", (), 9000),
                 required_env=R2_ENV + SHEETS_ENV + EMAIL_ENV,
@@ -540,6 +658,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 id="cboe_pm",
                 description="Post-close CBOE backstop refresh",
                 commands=(
+                    pull_cboe,
                     _py(
                         "backfill CBOE put/call",
                         "-m",
@@ -552,15 +671,24 @@ def build_catalog() -> dict[str, PipelineSpec]:
                     publish("cboe"),
                 ),
                 workflow=WorkflowSpec(
-                    "update_cboe_putcall.yml", (("bookend", "pm"),), 1200
+                    "update_cboe_putcall.yml", (), 1200
                 ),
                 required_env=R2_ENV,
+                rerun_safe=True,
                 outputs=(_out("data/cboe_putcall.parquet", "cboe_putcall.parquet", minimum=512),),
             ),
             JobSpec(
                 id="trend_sleeve",
                 description="Once-only month-end trend-sleeve rebalance gate",
-                commands=(pull_master, _py("run trend sleeve", "trend_sleeve.py", timeout=1800)),
+                commands=(
+                    pull_master,
+                    _py(
+                        "run trend sleeve",
+                        "trend_sleeve.py",
+                        timeout=1800,
+                        side_effecting=True,
+                    ),
+                ),
                 workflow=WorkflowSpec(
                     "trend_sleeve.yml",
                     (("force", "false"), ("reset_state", "false")),
@@ -594,10 +722,12 @@ def build_catalog() -> dict[str, PipelineSpec]:
                         "scripts/update_intraday_yfinance.py",
                         "--upload",
                         timeout=5400,
+                        side_effecting=True,
                     ),
                 ),
                 workflow=WorkflowSpec("update_intraday_prices.yml", (), 7200),
                 required_env=R2_ENV,
+                rerun_safe=True,
                 outputs=(
                     OutputSpec(
                         "data/intraday/*_15min.parquet",
@@ -617,7 +747,14 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 description="Unified post-close liquid + overflow scan",
                 commands=(
                     pull_scan,
-                    _py("run unified scanner", "daily_scan.py", "--scope=all", timeout=5400),
+                    _py(
+                        "run unified scanner",
+                        "daily_scan.py",
+                        "--scope=all",
+                        "--bookend=pm",
+                        timeout=5400,
+                        side_effecting=True,
+                    ),
                 ),
                 workflow=WorkflowSpec(
                     "daily_screener.yml",
@@ -635,9 +772,16 @@ def build_catalog() -> dict[str, PipelineSpec]:
             JobSpec(
                 id="macro_releases",
                 description="Refresh normalized U.S. macro release history",
-                commands=(_py("build macro release history", "scripts/build_macro_releases.py"),),
+                commands=(
+                    _py(
+                        "build macro release history",
+                        "scripts/build_macro_releases.py",
+                        side_effecting=True,
+                    ),
+                ),
                 workflow=WorkflowSpec("build_macro_releases.yml", (("full", "false"),), 3600),
                 required_env=R2_ENV + ("FMP_API_KEY",),
+                rerun_safe=True,
                 outputs=(
                     _out(
                         "data/macro_release_history.parquet",
@@ -651,6 +795,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 description="Cloud-only private-site build and deployment",
                 workflow=WorkflowSpec("deploy_site.yml", (), 7200),
                 dispatch_only=True,
+                rerun_safe=True,
                 depends_on=("scan_pm",),
             ),
             JobSpec(
@@ -658,6 +803,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 description="Cloud-only teammate-safe seasonality deployment",
                 workflow=WorkflowSpec("deploy_shared_seasonals.yml", (), 3600),
                 dispatch_only=True,
+                rerun_safe=True,
                 depends_on=("scan_pm",),
             ),
         ),
@@ -667,7 +813,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
         id="indicator",
         description="Precompute and upload strategy indicator caches",
         cadence="monday",
-        run_at_et=dt.time(1, 30),
+        run_at_et=dt.time(3, 0),
         fallback_at_et=dt.time(3, 30),
         fallback_until_et=dt.time(23, 55),
         jobs=(
@@ -679,10 +825,12 @@ def build_catalog() -> dict[str, PipelineSpec]:
                         "build indicator cache",
                         "scripts/build_indicator_cache.py",
                         timeout=7200,
+                        side_effecting=True,
                     ),
                 ),
                 workflow=WorkflowSpec("build_indicator_cache.yml", (), 7200),
                 required_env=R2_ENV,
+                rerun_safe=True,
                 outputs=(
                     OutputSpec(
                         "data/bt_indicator_cache/*.parquet",
@@ -706,7 +854,14 @@ def build_catalog() -> dict[str, PipelineSpec]:
             JobSpec(
                 id="weekly_rundown",
                 description="Render and send the weekly market rundown",
-                commands=(_py("run weekly market rundown", "weekly_market_rundown.py", timeout=5400),),
+                commands=(
+                    _py(
+                        "run weekly market rundown",
+                        "weekly_market_rundown.py",
+                        timeout=5400,
+                        side_effecting=True,
+                    ),
+                ),
                 workflow=WorkflowSpec("weekly_rundown.yml", (), 7200),
                 required_env=EMAIL_ENV,
             ),
@@ -1119,7 +1274,9 @@ class R2Backend:
             raise AutomationError(f"R2 receipt is invalid JSON: {key}") from exc
         if not isinstance(value, dict):
             raise AutomationError(f"R2 receipt must be an object: {key}")
-        return value, str(response.get("ETag", "")).strip('"') or None
+        # Preserve the HTTP entity-tag quotes. boto3 forwards IfMatch verbatim,
+        # and R2/S3 conditional writes require the quoted ETag form.
+        return value, str(response.get("ETag", "")).strip() or None
 
     def put_json(
         self,
@@ -1138,7 +1295,10 @@ class R2Backend:
         if if_none_match:
             kwargs["IfNoneMatch"] = "*"
         if if_match:
-            kwargs["IfMatch"] = if_match
+            normalized = if_match.strip()
+            if not (normalized.startswith('"') and normalized.endswith('"')):
+                normalized = f'"{normalized.strip(chr(34))}"'
+            kwargs["IfMatch"] = normalized
         try:
             self.client.put_object(**kwargs)
             return True
@@ -1159,6 +1319,8 @@ class Receipt:
     automation_token: str
     started_at_utc: str
     updated_at_utc: str
+    phase: str | None = None
+    lease_expires_at_utc: str | None = None
     workflow: str | None = None
     github_run_id: int | None = None
     github_url: str | None = None
@@ -1167,6 +1329,19 @@ class Receipt:
 
     def as_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
+
+    def lease_expired(self, now_utc: dt.datetime) -> bool:
+        if not self.lease_expires_at_utc:
+            return False
+        try:
+            expires = dt.datetime.fromisoformat(
+                self.lease_expires_at_utc.replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError):
+            return False
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=UTC)
+        return now_utc.astimezone(UTC) >= expires.astimezone(UTC)
 
 
 class ReceiptStore(Protocol):
@@ -1178,8 +1353,14 @@ class ReceiptStore(Protocol):
 
 
 class R2ReceiptStore:
-    def __init__(self, backend: R2Backend):
+    def __init__(
+        self,
+        backend: R2Backend,
+        *,
+        now: Callable[[], dt.datetime] = lambda: dt.datetime.now(tz=UTC),
+    ):
         self.backend = backend
+        self.now = now
 
     @staticmethod
     def _job_prefix(run_date: str, job_id: str) -> str:
@@ -1209,8 +1390,18 @@ class R2ReceiptStore:
     def claim(self, receipt: Receipt) -> bool:
         key = self._latest_key(receipt.run_date_et, receipt.job_id)
         current, etag = self.backend.get_json(key)
-        if current and current.get("status") in {"success", "running"}:
-            return False
+        if current:
+            decoded = self._decode(current)
+            if decoded.status in {"success", "indeterminate"}:
+                return False
+            if decoded.status == "running":
+                # GitHub claims require token reconciliation, never a blind
+                # replacement. Local retryable/pre-side-effect claims may be
+                # CAS-recovered only after their full declared lease expires.
+                if decoded.phase == "github_reconcile":
+                    return False
+                if not decoded.lease_expired(self.now()):
+                    return False
         ok = self.backend.put_json(
             key,
             receipt.as_dict(),
@@ -1223,23 +1414,70 @@ class R2ReceiptStore:
         return True
 
     def transition(self, receipt: Receipt, *, update_latest: bool) -> None:
-        self.backend.put_json(self._event_key(receipt), receipt.as_dict())
         if not update_latest:
+            self.backend.put_json(self._event_key(receipt), receipt.as_dict())
             return
         key = self._latest_key(receipt.run_date_et, receipt.job_id)
-        current, etag = self.backend.get_json(key)
-        if not current or current.get("automation_token") != receipt.automation_token:
-            raise AutomationError(f"lost receipt claim for {receipt.job_id}")
-        if not self.backend.put_json(key, receipt.as_dict(), if_match=etag):
-            raise AutomationError(f"receipt transition raced for {receipt.job_id}")
+        # Retry a same-token CAS race once. This matters when the local and
+        # hosted controllers both wake on an expired GitHub reconciliation
+        # lease: they may adopt the same run, but neither may regress a success
+        # written by the other controller.
+        for _attempt in range(2):
+            current, etag = self.backend.get_json(key)
+            if not current or current.get("automation_token") != receipt.automation_token:
+                raise AutomationError(f"lost receipt claim for {receipt.job_id}")
+            current_receipt = self._decode(current)
+            if current_receipt.source == "operator" and current_receipt.phase == "manual_resolved":
+                if (
+                    current_receipt.status == receipt.status
+                    and current_receipt.source == receipt.source
+                    and current_receipt.phase == receipt.phase
+                ):
+                    return
+                raise AutomationError(
+                    f"operator-resolved receipt is terminal for {receipt.job_id}"
+                )
+            if current_receipt.status == "success":
+                if receipt.status == "success":
+                    return
+                raise AutomationError(
+                    f"successful receipt is terminal for {receipt.job_id}"
+                )
+            if current_receipt.status == "failure":
+                raise AutomationError(
+                    f"failed receipt must be reclaimed before transition: {receipt.job_id}"
+                )
+            operator_resolution = (
+                receipt.source == "operator" and receipt.phase == "manual_resolved"
+            )
+            if (
+                current_receipt.status == "indeterminate"
+                and receipt.status not in {"indeterminate", "success"}
+                and not operator_resolution
+            ):
+                raise AutomationError(
+                    f"indeterminate receipt requires operator resolution: {receipt.job_id}"
+                )
+            if self.backend.put_json(key, receipt.as_dict(), if_match=etag):
+                # Latest is the safety gate, so make it durable before the
+                # append-only audit event. If the event write fails, callers
+                # stop; the latest marker still prevents duplicate execution.
+                self.backend.put_json(self._event_key(receipt), receipt.as_dict())
+                return
+        raise AutomationError(f"receipt transition raced for {receipt.job_id}")
 
 
 class InMemoryReceiptStore:
     """Deterministic test seam; also useful for plan-only integrations."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        now: Callable[[], dt.datetime] = lambda: dt.datetime.now(tz=UTC),
+    ):
         self.latest_values: dict[tuple[str, str], Receipt] = {}
         self.events: list[Receipt] = []
+        self.now = now
 
     def latest(self, run_date: str, job_id: str) -> Receipt | None:
         return self.latest_values.get((run_date, job_id))
@@ -1247,20 +1485,57 @@ class InMemoryReceiptStore:
     def claim(self, receipt: Receipt) -> bool:
         key = (receipt.run_date_et, receipt.job_id)
         current = self.latest_values.get(key)
-        if current and current.status in {"success", "running"}:
-            return False
+        if current:
+            if current.status in {"success", "indeterminate"}:
+                return False
+            if current.status == "running":
+                if current.phase == "github_reconcile":
+                    return False
+                if not current.lease_expired(self.now()):
+                    return False
         self.latest_values[key] = receipt
         self.events.append(receipt)
         return True
 
     def transition(self, receipt: Receipt, *, update_latest: bool) -> None:
-        self.events.append(receipt)
         if update_latest:
             key = (receipt.run_date_et, receipt.job_id)
             current = self.latest_values.get(key)
             if not current or current.automation_token != receipt.automation_token:
                 raise AutomationError(f"lost receipt claim for {receipt.job_id}")
+            if current.source == "operator" and current.phase == "manual_resolved":
+                if (
+                    current.status == receipt.status
+                    and current.source == receipt.source
+                    and current.phase == receipt.phase
+                ):
+                    return
+                raise AutomationError(
+                    f"operator-resolved receipt is terminal for {receipt.job_id}"
+                )
+            if current.status == "success":
+                if receipt.status == "success":
+                    return
+                raise AutomationError(
+                    f"successful receipt is terminal for {receipt.job_id}"
+                )
+            if current.status == "failure":
+                raise AutomationError(
+                    f"failed receipt must be reclaimed before transition: {receipt.job_id}"
+                )
+            operator_resolution = (
+                receipt.source == "operator" and receipt.phase == "manual_resolved"
+            )
+            if (
+                current.status == "indeterminate"
+                and receipt.status not in {"indeterminate", "success"}
+                and not operator_resolution
+            ):
+                raise AutomationError(
+                    f"indeterminate receipt requires operator resolution: {receipt.job_id}"
+                )
             self.latest_values[key] = receipt
+        self.events.append(receipt)
 
 
 class OutputValidator:
@@ -1363,6 +1638,76 @@ class GithubDispatcher:
             raise DispatchError(f"GitHub CLI failed ({result.returncode}): {tail}")
         return result.stdout
 
+    def _find_by_token(
+        self, workflow: WorkflowSpec, automation_token: str
+    ) -> GithubRun | None:
+        payload = self._capture(
+            [
+                "gh",
+                "run",
+                "list",
+                "--workflow",
+                workflow.workflow,
+                "--event",
+                "workflow_dispatch",
+                "--repo",
+                self.repository,
+                "--limit",
+                "100",
+                "--json",
+                "databaseId,status,conclusion,displayTitle,url",
+            ]
+        )
+        try:
+            rows = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise DispatchError("GitHub run list returned invalid JSON") from exc
+        for row in rows:
+            title = str(row.get("displayTitle", ""))
+            if automation_token in title:
+                return GithubRun(
+                    database_id=int(row["databaseId"]),
+                    status=str(row.get("status", "")),
+                    conclusion=row.get("conclusion"),
+                    title=title,
+                    url=row.get("url"),
+                )
+        return None
+
+    def _wait_for_token(
+        self,
+        workflow: WorkflowSpec,
+        *,
+        automation_token: str,
+        logger: RunLogger,
+        require_visible_initially: bool,
+    ) -> GithubRun:
+        deadline = self.monotonic() + workflow.timeout_seconds
+        first = True
+        while self.monotonic() < deadline:
+            run = self._find_by_token(workflow, automation_token)
+            if first and require_visible_initially and run is None:
+                raise DispatchRunNotFound(
+                    f"accepted GitHub token is not visible: {automation_token}"
+                )
+            first = False
+            if run is None:
+                self.sleep(self.poll_seconds)
+                continue
+            if run.status == "completed":
+                if run.conclusion == "success":
+                    logger.line(f"GitHub fallback succeeded: {run.url or run.database_id}")
+                    return run
+                raise DispatchAcceptedError(
+                    f"GitHub fallback concluded {run.conclusion}: "
+                    f"{run.url or run.database_id}"
+                )
+            logger.line(f"GitHub run {run.database_id}: {run.status}")
+            self.sleep(self.poll_seconds)
+        raise DispatchAcceptedError(
+            f"timed out waiting for {workflow.workflow} token={automation_token}"
+        )
+
     def dispatch_and_wait(
         self,
         workflow: WorkflowSpec,
@@ -1370,6 +1715,19 @@ class GithubDispatcher:
         automation_token: str,
         logger: RunLogger,
     ) -> GithubRun:
+        # Re-adopt a token if a prior caller submitted it but failed before its
+        # receipt transition became visible. A token is never submitted twice.
+        existing = self._find_by_token(workflow, automation_token)
+        if existing is not None:
+            logger.line(
+                f"GitHub fallback: adopt {workflow.workflow} token={automation_token}"
+            )
+            return self._wait_for_token(
+                workflow,
+                automation_token=automation_token,
+                logger=logger,
+                require_visible_initially=True,
+            )
         argv = [
             "gh",
             "workflow",
@@ -1387,58 +1745,66 @@ class GithubDispatcher:
         logger.line(
             f"GitHub fallback: dispatch {workflow.workflow} token={automation_token}"
         )
-        self._capture(argv)
-        deadline = self.monotonic() + workflow.timeout_seconds
-        run: GithubRun | None = None
-        while self.monotonic() < deadline:
-            payload = self._capture(
-                [
-                    "gh",
-                    "run",
-                    "list",
-                    "--workflow",
-                    workflow.workflow,
-                    "--event",
-                    "workflow_dispatch",
-                    "--repo",
-                    self.repository,
-                    "--limit",
-                    "100",
-                    "--json",
-                    "databaseId,status,conclusion,displayTitle,url",
-                ]
-            )
+        # A nonzero CLI exit does not prove the server rejected the request: a
+        # connection can fail after GitHub accepted it. Treat that boundary as
+        # ambiguous so non-rerun-safe jobs stop for review and rerun-safe jobs
+        # alone may later receive a new token.
+        try:
+            self._capture(argv)
+        except Exception as exc:
             try:
-                rows = json.loads(payload)
-            except json.JSONDecodeError as exc:
-                raise DispatchError("GitHub run list returned invalid JSON") from exc
-            for row in rows:
-                title = str(row.get("displayTitle", ""))
-                if automation_token in title:
-                    run = GithubRun(
-                        database_id=int(row["databaseId"]),
-                        status=str(row.get("status", "")),
-                        conclusion=row.get("conclusion"),
-                        title=title,
-                        url=row.get("url"),
-                    )
-                    break
-            if run is None:
-                self.sleep(self.poll_seconds)
-                continue
-            if run.status == "completed":
-                if run.conclusion == "success":
-                    logger.line(f"GitHub fallback succeeded: {run.url or run.database_id}")
-                    return run
-                raise DispatchError(
-                    f"GitHub fallback concluded {run.conclusion}: {run.url or run.database_id}"
+                existing = self._find_by_token(workflow, automation_token)
+            except Exception as reconcile_exc:
+                raise DispatchAcceptedError(
+                    "GitHub submission outcome is ambiguous and token lookup "
+                    f"also failed: {reconcile_exc}"
+                ) from exc
+            if existing is not None:
+                return self._wait_for_token(
+                    workflow,
+                    automation_token=automation_token,
+                    logger=logger,
+                    require_visible_initially=True,
                 )
-            logger.line(f"GitHub run {run.database_id}: {run.status}")
-            self.sleep(self.poll_seconds)
-            run = None
-        raise DispatchError(
-            f"timed out waiting for {workflow.workflow} token={automation_token}"
-        )
+            raise DispatchAcceptedError(
+                "GitHub submission outcome is ambiguous; no matching token "
+                "was visible in the immediate reconciliation check"
+            ) from exc
+        try:
+            return self._wait_for_token(
+                workflow,
+                automation_token=automation_token,
+                logger=logger,
+                require_visible_initially=False,
+            )
+        except DispatchAcceptedError:
+            raise
+        except Exception as exc:
+            raise DispatchAcceptedError(
+                f"GitHub dispatch accepted but reconciliation failed: {exc}"
+            ) from exc
+
+    def reconcile_and_wait(
+        self,
+        workflow: WorkflowSpec,
+        *,
+        automation_token: str,
+        logger: RunLogger,
+    ) -> GithubRun:
+        """Adopt an already-submitted run; this method never dispatches."""
+        try:
+            return self._wait_for_token(
+                workflow,
+                automation_token=automation_token,
+                logger=logger,
+                require_visible_initially=True,
+            )
+        except DispatchAcceptedError:
+            raise
+        except Exception as exc:
+            raise DispatchAcceptedError(
+                f"GitHub token reconciliation failed: {exc}"
+            ) from exc
 
 
 @dataclass(frozen=True)
@@ -1495,8 +1861,16 @@ class AutomationSupervisor:
         workflow: str | None = None,
         github_run: GithubRun | None = None,
         detail: str | None = None,
+        phase: str | None = None,
+        lease_seconds: int | None = None,
     ) -> Receipt:
-        current = self.now().astimezone(UTC).isoformat()
+        current_dt = self.now().astimezone(UTC)
+        current = current_dt.isoformat()
+        lease_expires = (
+            (current_dt + dt.timedelta(seconds=lease_seconds)).isoformat()
+            if lease_seconds is not None
+            else None
+        )
         return Receipt(
             schema_version="automation-receipt.v1",
             pipeline=pipeline.id,
@@ -1507,12 +1881,32 @@ class AutomationSupervisor:
             automation_token=token,
             started_at_utc=started.astimezone(UTC).isoformat(),
             updated_at_utc=current,
+            phase=phase,
+            lease_expires_at_utc=lease_expires,
             workflow=workflow,
             github_run_id=github_run.database_id if github_run else None,
             github_url=github_run.url if github_run else None,
             detail=detail,
             duplicate_sensitive=job.duplicate_sensitive,
         )
+
+    @staticmethod
+    def _local_lease_seconds(job: JobSpec) -> int:
+        commands = list(job.commands)
+        if not job.rerun_safe:
+            before_effect: list[CommandSpec] = []
+            for command in commands:
+                if command.side_effecting:
+                    break
+                before_effect.append(command)
+            commands = before_effect
+        declared = sum(command.timeout_seconds for command in commands)
+        return max(300, declared + LEASE_GRACE_SECONDS)
+
+    @staticmethod
+    def _github_lease_seconds(job: JobSpec) -> int:
+        assert job.workflow is not None
+        return job.workflow.timeout_seconds + LEASE_GRACE_SECONDS
 
     def _resolve_command(self, command: CommandSpec) -> list[str]:
         return [
@@ -1557,8 +1951,10 @@ class AutomationSupervisor:
             source="github",
             started=started,
             workflow=job.workflow.workflow,
+            phase="github_reconcile",
+            lease_seconds=self._github_lease_seconds(job),
         )
-        self.receipts.transition(running, update_latest=False)
+        self.receipts.transition(running, update_latest=True)
         try:
             github_run = self.dispatcher.dispatch_and_wait(
                 job.workflow, automation_token=token, logger=logger
@@ -1573,24 +1969,79 @@ class AutomationSupervisor:
                 started=started,
                 workflow=job.workflow.workflow,
                 github_run=github_run,
+                phase="completed",
             )
             self.receipts.transition(success, update_latest=True)
             return JobOutcome(job.id, "success", "github")
         except Exception as exc:  # noqa: BLE001 - receipt every fallback outcome
+            status = (
+                "indeterminate"
+                if isinstance(exc, DispatchAcceptedError) and not job.rerun_safe
+                else "failure"
+            )
             failure = self._receipt(
                 pipeline=pipeline,
                 job=job,
                 run_date=run_date,
                 token=token,
-                status="failure",
+                status=status,
                 source="github",
                 started=started,
                 workflow=job.workflow.workflow,
                 detail=f"{type(exc).__name__}: {exc}",
+                phase=("manual_review" if status == "indeterminate" else "retryable"),
             )
             self.receipts.transition(failure, update_latest=True)
-            logger.line(f"ERROR: {job.id} GitHub fallback failed: {exc}")
-            return JobOutcome(job.id, "failure", "github", str(exc))
+            logger.line(f"ERROR: {job.id} GitHub fallback {status}: {exc}")
+            return JobOutcome(job.id, status, "github", str(exc))
+
+    def _resume_github(
+        self,
+        *,
+        pipeline: PipelineSpec,
+        job: JobSpec,
+        receipt: Receipt,
+        logger: RunLogger,
+    ) -> JobOutcome:
+        """Reconcile an expired GitHub lease without submitting a second run."""
+        assert job.workflow is not None
+        try:
+            github_run = self.dispatcher.reconcile_and_wait(
+                job.workflow,
+                automation_token=receipt.automation_token,
+                logger=logger,
+            )
+            success = self._receipt(
+                pipeline=pipeline,
+                job=job,
+                run_date=receipt.run_date_et,
+                token=receipt.automation_token,
+                status="success",
+                source="github",
+                started=dt.datetime.fromisoformat(receipt.started_at_utc),
+                workflow=job.workflow.workflow,
+                github_run=github_run,
+                phase="completed",
+            )
+            self.receipts.transition(success, update_latest=True)
+            return JobOutcome(job.id, "success", "github", "reconciled existing run")
+        except Exception as exc:  # noqa: BLE001 - ambiguity must be persisted
+            status = "failure" if job.rerun_safe else "indeterminate"
+            resolved = self._receipt(
+                pipeline=pipeline,
+                job=job,
+                run_date=receipt.run_date_et,
+                token=receipt.automation_token,
+                status=status,
+                source="github",
+                started=dt.datetime.fromisoformat(receipt.started_at_utc),
+                workflow=job.workflow.workflow,
+                detail=f"{type(exc).__name__}: {exc}",
+                phase=("retryable" if status == "failure" else "manual_review"),
+            )
+            self.receipts.transition(resolved, update_latest=True)
+            logger.line(f"ERROR: {job.id} GitHub reconciliation {status}: {exc}")
+            return JobOutcome(job.id, status, "github", str(exc))
 
     def run_job(
         self,
@@ -1603,17 +2054,34 @@ class AutomationSupervisor:
         github_only: bool = False,
     ) -> JobOutcome:
         existing = self.receipts.latest(run_date, job.id)
-        if existing and existing.status in {"success", "running"}:
+        if existing and existing.status in {"success", "indeterminate"}:
             logger.line(
                 f"skip {job.id}: {existing.status} receipt from {existing.source} "
                 f"token={existing.automation_token}"
             )
             return JobOutcome(
-                job.id,
-                "success" if existing.status == "success" else "running",
+                job.id, existing.status,
                 existing.source,
                 "existing receipt",
             )
+        if existing and existing.status == "running":
+            if not existing.lease_expired(self.now().astimezone(UTC)):
+                logger.line(
+                    f"skip {job.id}: live running lease from {existing.source} "
+                    f"token={existing.automation_token}"
+                )
+                return JobOutcome(job.id, "running", existing.source, "live lease")
+            if existing.phase == "github_reconcile":
+                logger.line(
+                    f"reconcile {job.id}: expired GitHub lease "
+                    f"token={existing.automation_token}"
+                )
+                return self._resume_github(
+                    pipeline=pipeline,
+                    job=job,
+                    receipt=existing,
+                    logger=logger,
+                )
 
         started = self.now().astimezone(UTC)
         token = self._token(run_date, job)
@@ -1627,12 +2095,44 @@ class AutomationSupervisor:
             source=source,
             started=started,
             workflow=job.workflow.workflow if source == "github" and job.workflow else None,
+            phase=(
+                "github_reconcile"
+                if source == "github"
+                else "local_retryable" if job.rerun_safe else "local_pre_side_effect"
+            ),
+            lease_seconds=(
+                self._github_lease_seconds(job)
+                if source == "github"
+                else self._local_lease_seconds(job)
+            ),
         )
         if not self.receipts.claim(claim):
             current = self.receipts.latest(run_date, job.id)
             state = current.status if current else "concurrent claim"
             logger.line(f"skip {job.id}: {state}")
             return JobOutcome(job.id, "running", current.source if current else None, state)
+
+        # Deterministic applicability gates govern both the local primary and
+        # GitHub backup. Evaluate them after the CAS claim (one terminal receipt
+        # per day) but before either execution branch so a holiday cannot turn
+        # a clean local no-op into a failing/ambiguous remote side effect.
+        allowed, gate_detail = self._local_gate(job)
+        if not allowed:
+            success = self._receipt(
+                pipeline=pipeline,
+                job=job,
+                run_date=run_date,
+                token=token,
+                status="success",
+                source=source,
+                started=started,
+                workflow=(job.workflow.workflow if source == "github" and job.workflow else None),
+                detail=f"not applicable: {gate_detail}",
+                phase="completed",
+            )
+            self.receipts.transition(success, update_latest=True)
+            logger.line(f"success {job.id}: not applicable ({gate_detail})")
+            return JobOutcome(job.id, "success", source, "not applicable")
 
         if github_only or job.dispatch_only:
             return self._run_github(
@@ -1650,24 +2150,28 @@ class AutomationSupervisor:
         child_env["LOCAL_AUTOMATION_STRICT"] = "1"
         child_env.update(job.env_overrides)
         logger.line(f"start {job.id}: {job.description}; token={token}")
-        allowed, gate_detail = self._local_gate(job)
-        if not allowed:
-            success = self._receipt(
-                pipeline=pipeline,
-                job=job,
-                run_date=run_date,
-                token=token,
-                status="success",
-                source="local",
-                started=started,
-                detail=f"not applicable: {gate_detail}",
-            )
-            self.receipts.transition(success, update_latest=True)
-            logger.line(f"success {job.id}: not applicable ({gate_detail})")
-            return JobOutcome(job.id, "success", "local", "not applicable")
+        indeterminate_marked = False
         try:
             self._preflight(job)
             for command in job.commands:
+                if command.side_effecting and not job.rerun_safe and not indeterminate_marked:
+                    # CAS the durable marker before the process can touch
+                    # Sheets, SMTP, orders, or other non-idempotent state.
+                    # A crash from this point onward requires human review;
+                    # neither immediate nor hourly fallback may run it twice.
+                    indeterminate_marked = True
+                    marker = self._receipt(
+                        pipeline=pipeline,
+                        job=job,
+                        run_date=run_date,
+                        token=token,
+                        status="indeterminate",
+                        source="local",
+                        started=started,
+                        detail=f"side-effecting step started: {command.label}",
+                        phase="local_side_effect",
+                    )
+                    self.receipts.transition(marker, update_latest=True)
                 logger.line(f"step: {command.label}")
                 rc = self.process.stream(
                     self._resolve_command(command),
@@ -1695,11 +2199,30 @@ class AutomationSupervisor:
                 status="success",
                 source="local",
                 started=started,
+                phase="completed",
             )
             self.receipts.transition(success, update_latest=True)
             logger.line(f"success {job.id} (local)")
             return JobOutcome(job.id, "success", "local")
         except Exception as exc:  # noqa: BLE001 - local failures share one fallback path
+            if indeterminate_marked:
+                attention = self._receipt(
+                    pipeline=pipeline,
+                    job=job,
+                    run_date=run_date,
+                    token=token,
+                    status="indeterminate",
+                    source="local",
+                    started=started,
+                    detail=f"{type(exc).__name__}: {exc}",
+                    phase="manual_review",
+                )
+                self.receipts.transition(attention, update_latest=True)
+                logger.line(
+                    f"ERROR: local {job.id} is indeterminate after side effects: {exc}; "
+                    "automatic fallback suppressed"
+                )
+                return JobOutcome(job.id, "indeterminate", "local", str(exc))
             local_failure = self._receipt(
                 pipeline=pipeline,
                 job=job,
@@ -1709,6 +2232,7 @@ class AutomationSupervisor:
                 source="local",
                 started=started,
                 detail=f"{type(exc).__name__}: {exc}",
+                phase="retryable",
             )
             self.receipts.transition(local_failure, update_latest=False)
             logger.line(f"ERROR: local {job.id} failed: {exc}")
@@ -1961,7 +2485,12 @@ def build_parser() -> argparse.ArgumentParser:
         "fallback-due", help="dispatch missing jobs during their bounded ET fallback window"
     )
     _add_runtime_arguments(fallback, config_required=False)
-    fallback.add_argument("pipeline", choices=sorted(CATALOG), nargs="?")
+    fallback.add_argument(
+        "--pipeline",
+        choices=[*sorted(CATALOG), "all"],
+        default="all",
+        help="limit the receipt check to one pipeline (default: all)",
+    )
     fallback.add_argument("--date", help="ET receipt date override (YYYY-MM-DD)")
 
     status = sub.add_parser("status", help="show latest R2 receipts")
@@ -1969,6 +2498,28 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("pipeline", choices=sorted(CATALOG), nargs="?")
     status.add_argument("--date", help="ET receipt date override (YYYY-MM-DD)")
     status.add_argument("--json", action="store_true")
+
+    health = sub.add_parser(
+        "health", help="run the receipt/data/delivery health battery from the pinned runtime"
+    )
+    _add_runtime_arguments(health)
+    health.add_argument("--skip-tests", action="store_true")
+    health.add_argument("--skip-automation", action="store_true")
+
+    resolve = sub.add_parser(
+        "resolve",
+        help="explicitly resolve an indeterminate receipt after operator review",
+    )
+    _add_runtime_arguments(resolve, config_required=False)
+    resolve.add_argument("--pipeline", choices=sorted(CATALOG), required=True)
+    resolve.add_argument("--job", required=True)
+    resolve.add_argument("--date", required=True, help="ET receipt date (YYYY-MM-DD)")
+    resolve.add_argument(
+        "--disposition",
+        choices=("success", "retryable_failure"),
+        required=True,
+    )
+    resolve.add_argument("--reason", required=True)
 
     download = sub.add_parser("_r2-download", help=argparse.SUPPRESS)
     download.add_argument("key")
@@ -1993,8 +2544,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     now = dt.datetime.now(tz=UTC)
-    run_date = args.date or _et_run_date(now)
-    if args.command in {"run", "run-pipeline", "fallback-due"}:
+    run_date = getattr(args, "date", None) or _et_run_date(now)
+    if args.command in {"run", "run-pipeline", "fallback-due", "resolve", "health"}:
         try:
             selected_day = dt.date.fromisoformat(run_date)
             cutover_day = dt.date.fromisoformat(args.cutover_date_et)
@@ -2006,10 +2557,44 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"cutover {cutover_day}."
             )
             return 0
+    if args.command == "run-pipeline":
+        pipeline = CATALOG[args.pipeline]
+        now_et = now.astimezone(ET)
+        if not pipeline.local_is_due(now_et):
+            print(
+                f"No action: Task Scheduler launch for {pipeline.id} is outside "
+                f"its local ET window {pipeline.run_at_et.strftime('%H:%M')}-"
+                f"{pipeline.fallback_at_et.strftime('%H:%M')} or active cadence."
+            )
+            return 0
     supervisor, receipts = _make_runtime(
-        args, controller_only=args.command in {"fallback-due", "status"}
+        args,
+        controller_only=args.command in {"fallback-due", "status", "resolve", "health"},
     )
     state_root = Path(args.state_root).resolve()
+
+    if args.command == "health":
+        log_path = state_root / "logs" / run_date / f"health-{uuid.uuid4().hex[:8]}.log"
+        health_argv = [
+            args.python,
+            "-u",
+            str(Path(args.repo_root).resolve() / "scripts" / "repo_health_check.py"),
+        ]
+        if args.skip_tests:
+            health_argv.append("--skip-tests")
+        if args.skip_automation:
+            health_argv.append("--skip-automation")
+        with GlobalFileLock(state_root / "automation_supervisor.lock"):
+            with RunLogger(log_path) as logger:
+                logger.line(f"health date_et={run_date} log={log_path}")
+                rc = supervisor.process.stream(
+                    health_argv,
+                    cwd=Path(args.repo_root).resolve(),
+                    env=supervisor.env,
+                    timeout_seconds=3600,
+                    logger=logger,
+                )
+        return 0 if rc == 0 else 1
 
     if args.command == "status":
         pipeline_ids = [args.pipeline] if args.pipeline else list(CATALOG)
@@ -2037,12 +2622,44 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
         return 0
 
+    if args.command == "resolve":
+        jobs = {job.id: job for job in CATALOG[args.pipeline].jobs}
+        if args.job not in jobs:
+            raise AutomationError(
+                f"job {args.job!r} is not in pipeline {args.pipeline!r}"
+            )
+        current = receipts.latest(run_date, args.job)
+        if current is None or current.status != "indeterminate":
+            state = current.status if current else "missing"
+            raise AutomationError(
+                f"only an indeterminate receipt can be resolved; current={state}"
+            )
+        resolved = dataclasses.replace(
+            current,
+            status=("success" if args.disposition == "success" else "failure"),
+            source="operator",
+            updated_at_utc=dt.datetime.now(tz=UTC).isoformat(),
+            phase="manual_resolved",
+            lease_expires_at_utc=None,
+            detail=args.reason,
+        )
+        receipts.transition(resolved, update_latest=True)
+        print(
+            f"Resolved {args.pipeline}/{args.job} {run_date} as "
+            f"{resolved.status}: {args.reason}"
+        )
+        return 0
+
     lock = GlobalFileLock(state_root / "automation_supervisor.lock")
     pipeline_ids: list[str]
     if args.command in {"run", "run-pipeline"}:
         pipeline_ids = [args.pipeline]
     else:
-        candidates = [args.pipeline] if args.pipeline else list(CATALOG)
+        candidates = (
+            [args.pipeline]
+            if args.pipeline and args.pipeline != "all"
+            else list(CATALOG)
+        )
         now_et = now.astimezone(ET)
         pipeline_ids = [pid for pid in candidates if CATALOG[pid].fallback_is_due(now_et)]
         if not pipeline_ids:
@@ -2063,7 +2680,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     github_only=args.command == "fallback-due",
                     logger=logger,
                 )
-                failures += sum(outcome.status in {"failure", "blocked"} for outcome in outcomes)
+                failures += sum(
+                    outcome.status in {"failure", "blocked", "indeterminate"}
+                    for outcome in outcomes
+                )
     return 1 if failures else 0
 
 

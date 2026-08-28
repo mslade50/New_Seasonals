@@ -215,21 +215,35 @@ def main():
 
     if args.upload:
         try:
-            from cache_io import is_configured, upload_from_local
+            from cache_io import head, is_configured, upload_from_local
         except ImportError:
             print("cache_io not importable; skipping upload.")
-            return 0
+            return 1 if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1" else 0
         if not is_configured():
             print("R2 not configured; skipping upload.")
-            return 0
+            return 1 if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1" else 0
         n_ok = 0
+        failed_uploads = []
         for ticker, path in _existing_files(args.interval, None):
             # Only upload tickers we touched this run, plus everyone if we rebuilt fresh
             if tickers_filter is None or ticker in tickers_filter:
                 if upload_from_local(path, f"intraday/{args.interval}/{ticker}.parquet"):
                     n_ok += 1
-        upload_from_local(META_LOCAL, f"intraday/{args.interval}/_meta.parquet")
+                else:
+                    failed_uploads.append(ticker)
+        meta_key = f"intraday/{args.interval}/_meta.parquet"
+        meta_ok = upload_from_local(META_LOCAL, meta_key)
         print(f"R2 upload: {n_ok} parquet(s) + meta")
+        if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+            meta_head = head(meta_key)
+            actual = int((meta_head or {}).get("ContentLength") or -1)
+            expected = os.path.getsize(META_LOCAL)
+            if failed_uploads or not meta_ok or actual != expected:
+                print(
+                    f"R2 upload verification failed: tickers={failed_uploads[:20]}, "
+                    f"meta_ok={meta_ok}, meta_size={actual}/{expected}"
+                )
+                return 1
 
     return 0
 

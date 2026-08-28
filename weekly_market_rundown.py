@@ -824,7 +824,10 @@ def main():
 
     # 5. Send email
     print("[5/5] Sending email...")
-    send_email(pdf_path, computed)
+    email_ok = send_email(pdf_path, computed)
+    if (os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1"
+            and not email_ok):
+        raise RuntimeError("Weekly rundown email was not accepted by SMTP")
 
     print("\nDone.")
 

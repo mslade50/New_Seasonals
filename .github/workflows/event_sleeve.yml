@@ -20,6 +20,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
+
 jobs:
   stage:
     runs-on: ubuntu-latest

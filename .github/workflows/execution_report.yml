@@ -15,6 +15,9 @@ on:
         default: ''
         type: string
 
+env:
+  LOCAL_AUTOMATION_STRICT: '1'
+
 jobs:
   execution_report:
     runs-on: ubuntu-latest

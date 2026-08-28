@@ -8,7 +8,9 @@ INSTALLER = (ROOT / "scripts" / "install_local_automation_tasks.ps1").read_text(
 
 def test_runner_calls_only_the_pinned_supervisor_contract():
     assert "automation_supervisor.py" in RUNNER
-    assert "run-pipeline --pipeline $Pipeline --config-root $ConfigRoot" in RUNNER
+    assert "run-pipeline --pipeline $Pipeline --config-root $ConfigRoot --ref" in RUNNER
+    assert "health --config-root $ConfigRoot --ref" in RUNNER
+    assert "fallback_ref" in RUNNER
     assert "LOCAL_AUTOMATION_PRIMARY" in RUNNER
     assert "LOCAL_AUTOMATION_RUN_TOKEN" in RUNNER
     assert "[Guid]::NewGuid()" in RUNNER
@@ -33,6 +35,7 @@ def test_installer_defines_the_required_local_clock_schedule():
         ("postclose", "17:10:00", "62"),
         ("indicator", "03:00:00", "2"),
         ("weekly-rundown", "08:00:00", "1"),
+        ("health", "07:30:00", "62"),
     ):
         assert f"Id = '{pipeline}'" in INSTALLER
         assert f"Time = '{at}'" in INSTALLER
@@ -56,9 +59,12 @@ def test_cutover_is_explicit_and_preserves_task_objects():
     assert "Trigger Update Master Prices (GHA workflow_dispatch)" in INSTALLER
     assert "Trigger Risk Report AM Correction (GHA workflow_dispatch)" in INSTALLER
     assert "Trigger Daily Screener (GHA workflow_dispatch)" in INSTALLER
+    assert "Repo Health Check" in INSTALLER
+    assert "FallbackRef" in INSTALLER
     assert "Unregister-ScheduledTask" not in INSTALLER
     assert "DeleteTask" not in INSTALLER
     assert "TASK_CREATE (not" in INSTALLER
+    assert "task enabled states were rolled back" in INSTALLER
 
 
 def test_automation_requirements_are_explicit():

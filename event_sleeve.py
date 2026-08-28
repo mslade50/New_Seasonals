@@ -47,7 +47,7 @@ import pandas as pd
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
-from cache_io import download_to_local, upload_from_local  # noqa: E402
+from cache_io import download_to_local, head, upload_from_local  # noqa: E402
 from macro_calendar import event_dates  # noqa: E402
 from strategy_config import ACCOUNT_VALUE  # noqa: E402
 from trading_calendar import TRADING_DAY  # noqa: E402
@@ -149,13 +149,27 @@ def load_state() -> dict:
     return {"positions": {}}
 
 
+def _verified_automation_upload(path: Path, key: str) -> bool:
+    ok = bool(upload_from_local(str(path), key))
+    if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+        meta = head(key)
+        actual = int((meta or {}).get("ContentLength") or -1)
+        expected = path.stat().st_size
+        if not ok or actual != expected:
+            raise RuntimeError(
+                f"Event sleeve R2 verification failed for {key}: "
+                f"uploaded={ok}, size={actual}, expected={expected}"
+            )
+    return ok
+
+
 def save_state(state: dict, dry_run: bool) -> None:
     if dry_run:
         print("[dry-run] state not saved")
         return
     state["generated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    upload_from_local(str(STATE_PATH), STATE_R2_KEY)
+    _verified_automation_upload(STATE_PATH, STATE_R2_KEY)
     print(f"State saved -> {STATE_PATH} + R2")
 
 
@@ -302,7 +316,7 @@ def write_actions_json(rows: list[dict], log: list[str], state: dict,
                "positions": state.get("positions", {}),
                "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     ACTIONS_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    upload_from_local(str(ACTIONS_PATH), ACTIONS_R2_KEY)
+    _verified_automation_upload(ACTIONS_PATH, ACTIONS_R2_KEY)
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +416,10 @@ def append_journal(records: list[dict], path: Path = JOURNAL_PATH,
             handle.write(json.dumps({**record, "written_at": stamp}) + "\n")
     if push and path == JOURNAL_PATH:
         try:
-            upload_from_local(str(path), JOURNAL_R2_KEY)
+            _verified_automation_upload(path, JOURNAL_R2_KEY)
         except Exception as exc:  # noqa: BLE001
+            if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+                raise
             print(f"NOTE: event journal R2 push skipped ({exc})")
     return len(records)
 
@@ -729,11 +745,20 @@ def write_sheet(rows: list[dict], dry_run: bool) -> None:
             ws = sh.add_worksheet(title=TAB_NAME, rows=20, cols=12)
         ws.clear()
         if not rows:
-            ws.update([["No event-sleeve action",
-                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]])
+            expected = [["No event-sleeve action",
+                         datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]]
+            ws.update(expected)
         else:
             df = pd.DataFrame(rows)
-            ws.update([df.columns.tolist()] + df.astype(str).values.tolist())
+            expected = [df.columns.tolist()] + df.astype(str).values.tolist()
+            ws.update(expected)
+        if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+            actual = ws.get_all_values()
+            if actual != expected:
+                raise RuntimeError(
+                    f"Event tab readback mismatch: wrote {len(expected)} rows, "
+                    f"read {len(actual)}"
+                )
         print(f"Wrote {len(rows)} rows -> '{TAB_NAME}' tab")
     except Exception as e:
         print(f"ERROR: Sheets write failed: {e}")

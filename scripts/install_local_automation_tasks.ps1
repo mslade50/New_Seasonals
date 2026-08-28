@@ -13,6 +13,9 @@ param(
     [ValidatePattern('^[0-9a-fA-F]{40}$')]
     [string]$PinnedSha,
 
+    [ValidatePattern('^[A-Za-z0-9._/-]+$')]
+    [string]$FallbackRef,
+
     [string]$RuntimeBranch = 'codex/local-primary-runtime',
 
     [string]$TaskNamePrefix = 'New Seasonals Local - ',
@@ -24,9 +27,10 @@ param(
 
 # Installs the local-primary scheduler in explicit, reversible phases:
 #   Prepare          creates a pinned branch worktree and its own venv;
-#   RegisterDisabled atomically registers all six tasks disabled;
-#   Cutover          validates/enables them, then disables four legacy GHA
-#                    dispatch triggers (never deletes any task);
+#   RegisterDisabled registers all seven tasks disabled and can safely resume
+#                    an exact partially completed disabled set;
+#   Cutover          validates/enables them, then disables the superseded
+#                    GHA dispatch and health-check tasks (never deletes any);
 #   Status           is read-only.
 # Nothing in this script runs automatically merely because it is checked out.
 Set-StrictMode -Version Latest
@@ -38,14 +42,35 @@ $PipelineSpecs = @(
     [pscustomobject]@{ Id = 'execution';       Time = '16:30:00'; DaysMask = 62; Description = 'Weekday execution reporting pipeline' },
     [pscustomobject]@{ Id = 'postclose';       Time = '17:10:00'; DaysMask = 62; Description = 'Weekday post-close data, reports, signals, and cloud-deploy handoff pipeline' },
     [pscustomobject]@{ Id = 'indicator';       Time = '03:00:00'; DaysMask = 2;  Description = 'Monday indicator-cache maintenance pipeline' },
-    [pscustomobject]@{ Id = 'weekly-rundown'; Time = '08:00:00'; DaysMask = 1;  Description = 'Sunday weekly market rundown pipeline' }
+    [pscustomobject]@{ Id = 'weekly-rundown'; Time = '08:00:00'; DaysMask = 1;  Description = 'Sunday weekly market rundown pipeline' },
+    [pscustomobject]@{ Id = 'health';          Time = '07:30:00'; DaysMask = 62; Description = 'Weekday receipt, data, delivery, and local-trigger health battery' }
 )
 
-$LegacyDispatchTasks = @(
+$SupersededTasks = @(
     'Trigger CBOE Put-Call (GHA workflow_dispatch)',
     'Trigger Update Master Prices (GHA workflow_dispatch)',
     'Trigger Risk Report AM Correction (GHA workflow_dispatch)',
-    'Trigger Daily Screener (GHA workflow_dispatch)'
+    'Trigger Daily Screener (GHA workflow_dispatch)',
+    'Repo Health Check'
+)
+
+# These are versioned snapshots in the source repository but runtime outputs
+# for the local-primary jobs. Mark them skip-worktree only inside the dedicated
+# operational worktree so data refreshes do not invalidate the pinned-code
+# guard. Reference/config files under data/ are deliberately excluded.
+$MutableTrackedState = @(
+    'data/analyst_grades.parquet',
+    'data/cboe_putcall.parquet',
+    'data/dial_sleeve_paper.json',
+    'data/exposure_state.json',
+    'data/fragility_63d_history.parquet',
+    'data/rd2_environment.json',
+    'data/rd2_fragility_simple.parquet',
+    'data/rd2_fragility_ts.parquet',
+    'data/rd2_fragility.parquet',
+    'data/rd2_spy_ohlc.parquet',
+    'data/risk_dashboard_signal_state.json',
+    'data/signal_fire_history.parquet'
 )
 
 function Resolve-AbsoluteDirectory {
@@ -97,9 +122,26 @@ function Assert-PinnedRuntime {
     if (-not $head.Equals([string]$marker.pinned_sha, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Runtime HEAD $head differs from pinned SHA $($marker.pinned_sha)"
     }
+    if ([string]::IsNullOrWhiteSpace([string]$marker.fallback_ref)) {
+        throw 'Runtime marker has no immutable GitHub fallback ref'
+    }
+    $fallbackCommit = (Invoke-GitCapture -Arguments @(
+        '-C', $script:RuntimeRoot, 'rev-parse', "$([string]$marker.fallback_ref)^{commit}"
+    )).Output
+    if (-not $fallbackCommit.Equals([string]$marker.pinned_sha, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Fallback ref $($marker.fallback_ref) resolves to $fallbackCommit, not pinned SHA $($marker.pinned_sha)"
+    }
     $dirty = (Invoke-GitCapture -Arguments @('-C', $script:RuntimeRoot, 'status', '--porcelain', '--untracked-files=no')).Output
     if ($dirty) {
         throw 'Runtime worktree has tracked changes'
+    }
+    foreach ($path in $MutableTrackedState) {
+        $entry = (Invoke-GitCapture -Arguments @(
+            '-C', $script:RuntimeRoot, 'ls-files', '-v', '--', $path
+        )).Output
+        if ($entry -and -not $entry.StartsWith('S ')) {
+            throw "Mutable runtime state is not protected with skip-worktree: $path"
+        }
     }
     if (-not ([IO.Path]::GetFullPath([string]$marker.config_root)).Equals($script:ConfigRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Runtime marker ConfigRoot differs from the requested ConfigRoot'
@@ -126,7 +168,13 @@ function Connect-TaskScheduler {
 function Get-TaskOrNull {
     param($RootFolder, [string]$Name)
     try { return $RootFolder.GetTask($Name) }
-    catch { return $null }
+    catch {
+        # ITaskFolder::GetTask reports a missing task as HRESULT 0x80070002.
+        # Access, RPC, and scheduler-service failures must abort cutover; treating
+        # them as "not present" could leave a legacy writer enabled.
+        if ($_.Exception.HResult -eq -2147024894) { return $null }
+        throw
+    }
 }
 
 function Quote-TaskArgument {
@@ -135,25 +183,104 @@ function Quote-TaskArgument {
     return '"' + $Value + '"'
 }
 
+function Get-ExpectedTaskArguments {
+    param([Parameter(Mandatory = $true)]$Spec)
+    $runner = Join-Path $script:RuntimeRoot 'scripts\run_local_automation.ps1'
+    return @(
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-File', (Quote-TaskArgument $runner),
+        '-Pipeline', (Quote-TaskArgument $Spec.Id),
+        '-RuntimeRoot', (Quote-TaskArgument $script:RuntimeRoot),
+        '-ConfigRoot', (Quote-TaskArgument $script:ConfigRoot)
+    ) -join ' '
+}
+
+function Resolve-AccountSid {
+    param([Parameter(Mandatory = $true)][string]$Account)
+    if ($Account -match '^S-1-') { return $Account }
+    try {
+        $ntAccount = New-Object Security.Principal.NTAccount($Account)
+        return ($ntAccount.Translate([Security.Principal.SecurityIdentifier])).Value
+    }
+    catch {
+        throw "Unable to resolve scheduled-task account '$Account' to a SID: $($_.Exception.Message)"
+    }
+}
+
+function Assert-RegisteredTaskDefinition {
+    param(
+        [Parameter(Mandatory = $true)]$Task,
+        [Parameter(Mandatory = $true)]$Spec,
+        [Parameter(Mandatory = $true)][string]$IdentitySid
+    )
+    $definition = $Task.Definition
+    $expectedPowerShell = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+    $registeredSid = Resolve-AccountSid -Account ([string]$definition.Principal.UserId)
+    if (-not $registeredSid.Equals($IdentitySid, [StringComparison]::OrdinalIgnoreCase) -or
+        [int]$definition.Principal.LogonType -ne 2 -or
+        [int]$definition.Principal.RunLevel -ne 1) {
+        throw "Task principal differs from the guarded S4U definition: $($Task.Name)"
+    }
+    if ([int]$definition.Actions.Count -ne 1) {
+        throw "Task must have exactly one action: $($Task.Name)"
+    }
+    $action = $definition.Actions.Item(1)
+    if (-not ([IO.Path]::GetFullPath([string]$action.Path)).Equals($expectedPowerShell, [StringComparison]::OrdinalIgnoreCase) -or
+        -not ([IO.Path]::GetFullPath([string]$action.WorkingDirectory)).Equals($script:RuntimeRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        [string]$action.Arguments -cne (Get-ExpectedTaskArguments -Spec $Spec)) {
+        throw "Task action differs from the pinned runtime definition: $($Task.Name)"
+    }
+    if ([int]$definition.Triggers.Count -ne 1) {
+        throw "Task must have exactly one trigger: $($Task.Name)"
+    }
+    $trigger = $definition.Triggers.Item(1)
+    $expectedAt = [DateTime]::ParseExact($Spec.Time, 'HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+    $actualAt = [DateTime]::Parse([string]$trigger.StartBoundary, [Globalization.CultureInfo]::InvariantCulture)
+    if ([int]$trigger.Type -ne 3 -or
+        [int]$trigger.DaysOfWeek -ne [int]$Spec.DaysMask -or
+        [int]$trigger.WeeksInterval -ne 1 -or
+        -not [bool]$trigger.Enabled -or
+        $actualAt.TimeOfDay -ne $expectedAt.TimeOfDay) {
+        throw "Task trigger differs from the expected Eastern schedule: $($Task.Name)"
+    }
+    $settings = $definition.Settings
+    if (-not [bool]$settings.WakeToRun -or
+        -not [bool]$settings.StartWhenAvailable -or
+        [int]$settings.RestartCount -ne 3 -or
+        [string]$settings.RestartInterval -ne 'PT5M' -or
+        [int]$settings.MultipleInstances -ne 2 -or
+        [string]$settings.ExecutionTimeLimit -ne 'PT6H' -or
+        [bool]$settings.DisallowStartIfOnBatteries -or
+        [bool]$settings.StopIfGoingOnBatteries) {
+        throw "Task settings differ from the guarded definition: $($Task.Name)"
+    }
+}
+
 function Register-DisabledTasks {
     Assert-Administrator
     Assert-EasternLocalClock
     $null = Assert-PinnedRuntime
     $scheduler = Connect-TaskScheduler
-    $identityName = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $identityName = $identity.Name
+    $identitySid = $identity.User.Value
     $windowsPowerShell = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
     $runner = Join-Path $script:RuntimeRoot 'scripts\run_local_automation.ps1'
 
-    # Preflight all names so a conflict cannot leave a partially registered set.
     foreach ($spec in $PipelineSpecs) {
         $taskName = $TaskNamePrefix + $spec.Id
-        if ($null -ne (Get-TaskOrNull -RootFolder $scheduler.Root -Name $taskName)) {
-            throw "Task already exists; refusing to overwrite it: $taskName"
+        $existing = Get-TaskOrNull -RootFolder $scheduler.Root -Name $taskName
+        if ($null -ne $existing) {
+            # A prior interrupted registration may have completed a prefix of
+            # the set. Resume only across exact, still-disabled definitions;
+            # never overwrite, repair, or silently adopt a conflicting task.
+            Assert-RegisteredTaskDefinition -Task $existing -Spec $spec -IdentitySid $identitySid
+            if ($existing.Enabled) {
+                throw "Existing guarded task is enabled; refusing registration resume: $taskName"
+            }
+            Write-Output "Already registered disabled (validated): $taskName"
+            continue
         }
-    }
-
-    foreach ($spec in $PipelineSpecs) {
-        $taskName = $TaskNamePrefix + $spec.Id
         $definition = $scheduler.Service.NewTask(0)
         $definition.RegistrationInfo.Author = $identityName
         $definition.RegistrationInfo.Description = $spec.Description + ' (local Eastern time; registered disabled)'
@@ -189,13 +316,7 @@ function Register-DisabledTasks {
         $action = $definition.Actions.Create(0)
         $action.Path = $windowsPowerShell
         $action.WorkingDirectory = $script:RuntimeRoot
-        $action.Arguments = @(
-            '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-            '-File', (Quote-TaskArgument $runner),
-            '-Pipeline', (Quote-TaskArgument $spec.Id),
-            '-RuntimeRoot', (Quote-TaskArgument $script:RuntimeRoot),
-            '-ConfigRoot', (Quote-TaskArgument $script:ConfigRoot)
-        ) -join ' '
+        $action.Arguments = Get-ExpectedTaskArguments -Spec $spec
 
         # TASK_CREATE + TASK_LOGON_S4U.  TASK_CREATE (not
         # CREATE_OR_UPDATE) is intentional: this installer never overwrites or
@@ -203,8 +324,9 @@ function Register-DisabledTasks {
         $null = $scheduler.Root.RegisterTaskDefinition($taskName, $definition, 2, $identityName, $null, 2, $null)
         $registered = $scheduler.Root.GetTask($taskName)
         if ($registered.Enabled) {
-            throw "Task was not atomically registered disabled: $taskName"
+            throw "Task was not registered disabled: $taskName"
         }
+        Assert-RegisteredTaskDefinition -Task $registered -Spec $spec -IdentitySid $identitySid
         Write-Output "Registered disabled: $taskName"
     }
 }
@@ -217,16 +339,24 @@ function Invoke-Cutover {
     Assert-EasternLocalClock
     $marker = Assert-PinnedRuntime
     $scheduler = Connect-TaskScheduler
-    $newTasks = @()
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $identityName = $identity.Name
+    $identitySid = $identity.User.Value
+    $newTaskState = @()
     foreach ($spec in $PipelineSpecs) {
         $taskName = $TaskNamePrefix + $spec.Id
         $task = Get-TaskOrNull -RootFolder $scheduler.Root -Name $taskName
         if ($null -eq $task) { throw "Required registered task is missing: $taskName" }
-        $newTasks += $task
+        Assert-RegisteredTaskDefinition -Task $task -Spec $spec -IdentitySid $identitySid
+        $newTaskState += [pscustomobject]@{
+            task = $task
+            name = $taskName
+            enabled = [bool]$task.Enabled
+        }
     }
 
     $legacyState = @()
-    foreach ($name in $LegacyDispatchTasks) {
+    foreach ($name in $SupersededTasks) {
         $task = Get-TaskOrNull -RootFolder $scheduler.Root -Name $name
         $legacyState += [pscustomobject]@{
             name = $name
@@ -239,26 +369,51 @@ function Invoke-Cutover {
     [pscustomobject]@{
         cutover_at = [DateTime]::UtcNow.ToString('o')
         pinned_sha = [string]$marker.pinned_sha
+        new_tasks = @($newTaskState | ForEach-Object {
+            [pscustomobject]@{ name = $_.name; enabled = $_.enabled }
+        })
         legacy_tasks = $legacyState
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stateDir 'cutover-state.json') -Encoding UTF8
 
     # Availability first: enable and verify every local primary task before
-    # disabling any legacy dispatcher.  A partial failure can cause a duplicate
-    # backup dispatch, but cannot silently remove the production schedule.
-    foreach ($task in $newTasks) { $task.Enabled = $true }
-    foreach ($task in $newTasks) {
-        if (-not $task.Enabled) { throw "Failed to enable new task: $($task.Name)" }
-    }
-
-    foreach ($entry in $legacyState) {
-        if (-not $entry.present) {
-            Write-Output "Legacy task not present (nothing changed): $($entry.name)"
-            continue
+    # disabling superseded tasks. Any exception rolls both sets back to their
+    # pre-cutover enabled states, avoiding a half-cutover with duplicate writers.
+    try {
+        foreach ($entry in $newTaskState) { $entry.task.Enabled = $true }
+        foreach ($entry in $newTaskState) {
+            if (-not $entry.task.Enabled) { throw "Failed to enable new task: $($entry.name)" }
         }
-        $legacy = $scheduler.Root.GetTask($entry.name)
-        $legacy.Enabled = $false
-        if ($legacy.Enabled) { throw "Failed to disable legacy dispatch task: $($entry.name)" }
-        Write-Output "Disabled legacy dispatch task: $($entry.name)"
+
+        foreach ($entry in $legacyState) {
+            if (-not $entry.present) {
+                Write-Output "Legacy task not present (nothing changed): $($entry.name)"
+                continue
+            }
+            $legacy = $scheduler.Root.GetTask($entry.name)
+            $legacy.Enabled = $false
+            if ($legacy.Enabled) { throw "Failed to disable superseded task: $($entry.name)" }
+            Write-Output "Disabled superseded task: $($entry.name)"
+        }
+    }
+    catch {
+        $cutoverError = $_.Exception.Message
+        $rollbackErrors = @()
+        foreach ($entry in $newTaskState) {
+            try { $entry.task.Enabled = [bool]$entry.enabled }
+            catch { $rollbackErrors += "new task $($entry.name): $($_.Exception.Message)" }
+        }
+        foreach ($entry in $legacyState) {
+            if (-not $entry.present) { continue }
+            try {
+                $legacy = $scheduler.Root.GetTask($entry.name)
+                $legacy.Enabled = [bool]$entry.enabled
+            }
+            catch { $rollbackErrors += "superseded task $($entry.name): $($_.Exception.Message)" }
+        }
+        if ($rollbackErrors.Count -gt 0) {
+            throw "Cutover failed ($cutoverError); rollback also had errors: $($rollbackErrors -join '; ')"
+        }
+        throw "Cutover failed and task enabled states were rolled back: $cutoverError"
     }
     Write-Output "Cutover complete at pinned commit $($marker.pinned_sha). No tasks were deleted."
 }
@@ -275,7 +430,7 @@ function Show-TaskStatus {
             Write-Output "$name : enabled=$($task.Enabled) next=$($task.NextRunTime) lastResult=$($task.LastTaskResult)"
         }
     }
-    foreach ($name in $LegacyDispatchTasks) {
+    foreach ($name in $SupersededTasks) {
         $task = Get-TaskOrNull -RootFolder $scheduler.Root -Name $name
         if ($null -eq $task) { Write-Output "$name : NOT PRESENT" }
         else { Write-Output "$name : enabled=$($task.Enabled)" }
@@ -298,6 +453,7 @@ $script:ConfigRoot = $ConfigRoot
 switch ($Phase) {
     'Prepare' {
         if (-not $PinnedSha) { throw 'Prepare requires -PinnedSha with the tested origin/main commit' }
+        if (-not $FallbackRef) { throw 'Prepare requires -FallbackRef with an immutable remote tag at PinnedSha' }
         if (-not (Test-Path -LiteralPath (Join-Path $SourceRepository '.git'))) {
             throw "SourceRepository is not a Git worktree: $SourceRepository"
         }
@@ -309,6 +465,33 @@ switch ($Phase) {
         $originMain = (Invoke-GitCapture -Arguments @('-C', $SourceRepository, 'rev-parse', 'origin/main')).Output
         if (-not $originMain.Equals($PinnedSha, [StringComparison]::OrdinalIgnoreCase)) {
             throw "PinnedSha must equal verified origin/main (origin/main=$originMain, requested=$PinnedSha)"
+        }
+        $remoteTag = (Invoke-GitCapture -Arguments @(
+            '-C', $SourceRepository, 'ls-remote', '--exit-code', '--refs', 'origin', "refs/tags/$FallbackRef"
+        )).Output
+        if (-not $remoteTag) {
+            throw "FallbackRef is not an existing remote tag: $FallbackRef"
+        }
+        # Require a lightweight immutable tag whose remote object is the exact
+        # tested commit. A stale local tag is not evidence for what GitHub will
+        # execute when `gh workflow run --ref` resolves the remote ref.
+        $remoteTagCommit = ($remoteTag -split '\s+')[0]
+        if (-not $remoteTagCommit.Equals($PinnedSha, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Remote FallbackRef $FallbackRef resolves to $remoteTagCommit, not PinnedSha $PinnedSha"
+        }
+        $localTag = Invoke-GitCapture -Arguments @(
+            '-C', $SourceRepository, 'show-ref', '--verify', '--quiet', "refs/tags/$FallbackRef"
+        ) -AllowExitOne
+        if ($localTag.ExitCode -ne 0) {
+            $null = Invoke-GitCapture -Arguments @(
+                '-C', $SourceRepository, 'fetch', '--quiet', 'origin', "refs/tags/$FallbackRef:refs/tags/$FallbackRef"
+            )
+        }
+        $fallbackCommit = (Invoke-GitCapture -Arguments @(
+            '-C', $SourceRepository, 'rev-parse', "$FallbackRef^{commit}"
+        )).Output
+        if (-not $fallbackCommit.Equals($PinnedSha, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Local FallbackRef $FallbackRef resolves to $fallbackCommit, not PinnedSha $PinnedSha"
         }
 
         if (Test-Path -LiteralPath $RuntimeRoot) {
@@ -347,6 +530,20 @@ switch ($Phase) {
         if (-not [IO.Path]::IsPathRooted($BootstrapPython) -or -not (Test-Path -LiteralPath $BootstrapPython -PathType Leaf)) {
             throw "BootstrapPython must be an absolute existing executable: $BootstrapPython"
         }
+
+        $existingMutable = @()
+        foreach ($path in $MutableTrackedState) {
+            $tracked = (Invoke-GitCapture -Arguments @(
+                '-C', $script:RuntimeRoot, 'ls-files', '--', $path
+            )).Output
+            if ($tracked) { $existingMutable += $path }
+        }
+        if ($existingMutable.Count -gt 0) {
+            $indexArguments = @(
+                '-C', $script:RuntimeRoot, 'update-index', '--skip-worktree', '--'
+            ) + $existingMutable
+            $null = Invoke-GitCapture -Arguments $indexArguments
+        }
         $venvPython = Join-Path $RuntimeRoot '.venv\Scripts\python.exe'
         if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
             & $BootstrapPython -m venv (Join-Path $RuntimeRoot '.venv')
@@ -362,10 +559,12 @@ switch ($Phase) {
         [pscustomobject]@{
             mode = 'pinned-local-automation-runtime'
             pinned_sha = $PinnedSha.ToLowerInvariant()
+            fallback_ref = $FallbackRef
             runtime_branch = $RuntimeBranch
             runtime_root = $RuntimeRoot
             config_root = $ConfigRoot
             git_executable = $script:GitExecutable
+            mutable_tracked_state = $MutableTrackedState
             prepared_at = [DateTime]::UtcNow.ToString('o')
         } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $markerDir 'automation-runtime.json') -Encoding UTF8
 

@@ -418,6 +418,8 @@ def run_fill_verification():
     # ── 1. Load signals ──
     gc = get_google_client()
     if not gc:
+        if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
+            raise RuntimeError("Fill verification requires Google credentials")
         return
 
     sh = gc.open(SHEET_NAME)
@@ -430,6 +432,7 @@ def run_fill_verification():
 
     headers = all_values[0]
     df = pd.DataFrame(all_values[1:], columns=headers)
+    original_df = df.copy()
     print(f"📋 Loaded {len(df)} signals from log.")
 
     # ── 2. Initialize new columns if missing ──
@@ -566,8 +569,41 @@ def run_fill_verification():
         print(f"\n📤 Writing {updates} updates back to Google Sheets...")
         df_clean = df.fillna('')
         data_to_write = [df_clean.columns.tolist()] + df_clean.astype(str).values.tolist()
-        worksheet.clear()
-        worksheet.update(values=data_to_write)
+        # Frozen rows are historical facts. Assert that this run did not
+        # mutate any fill field on a row already finalized before replacing
+        # the whole sheet.
+        if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
+            original_status = original_df.get('Fill_Status', pd.Series(dtype=str)).astype(str).str.strip()
+            original_frozen = original_status.isin(frozen_statuses)
+            for col in ('Fill_Status', 'Fill_Date', 'Fill_Price'):
+                if col in original_df.columns and col in df.columns:
+                    before = original_df.loc[original_frozen, col].fillna('').astype(str).tolist()
+                    after = df.loc[original_frozen, col].fillna('').astype(str).tolist()
+                    if before != after:
+                        raise RuntimeError(f"Frozen fill invariant violated for {col}")
+
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                worksheet.clear()
+                worksheet.update(values=data_to_write)
+                readback = worksheet.get_all_values()
+                if (not readback or readback[0] != data_to_write[0]
+                        or len(readback) != len(data_to_write)):
+                    raise RuntimeError(
+                        f"Signals log readback mismatch: wrote {len(data_to_write) - 1} "
+                        f"rows, read {max(0, len(readback) - 1)}"
+                    )
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt < 3:
+                    wait = 5 * attempt
+                    print(f"⚠️ Sheet replace attempt {attempt}/3 failed ({exc}); retrying in {wait}s")
+                    time.sleep(wait)
+        if last_error is not None:
+            raise RuntimeError("Signals log replace failed after 3 attempts") from last_error
         print("✅ Signals log updated.\n")
 
     # ── 8. Summary ──

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('premarket', 'discretionary', 'execution', 'postclose', 'indicator', 'weekly-rundown')]
+    [ValidateSet('premarket', 'discretionary', 'execution', 'postclose', 'indicator', 'weekly-rundown', 'health')]
     [string]$Pipeline,
 
     [Parameter(Mandatory = $true)]
@@ -64,6 +64,9 @@ if (-not $markedConfig.Equals($ConfigRoot, [StringComparison]::OrdinalIgnoreCase
 if ([string]$marker.pinned_sha -notmatch '^[0-9a-fA-F]{40}$') {
     throw 'Pinned runtime marker contains an invalid commit SHA'
 }
+if ([string]$marker.fallback_ref -notmatch '^[A-Za-z0-9._/-]+$') {
+    throw 'Pinned runtime marker contains an invalid GitHub fallback ref'
+}
 
 $gitExecutable = [string]$marker.git_executable
 if (-not [IO.Path]::IsPathRooted($gitExecutable) -or -not (Test-Path -LiteralPath $gitExecutable -PathType Leaf)) {
@@ -83,6 +86,16 @@ if ($LASTEXITCODE -ne 0) {
 }
 if ($trackedChanges) {
     throw 'Runtime worktree has tracked changes; refusing unattended execution'
+}
+$mutableState = @($marker.mutable_tracked_state)
+if ($mutableState.Count -eq 0) {
+    throw 'Pinned runtime marker does not declare mutable tracked state'
+}
+foreach ($path in $mutableState) {
+    $entry = (& $gitExecutable -C $RuntimeRoot ls-files -v -- ([string]$path) 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or ($entry -and -not $entry.StartsWith('S '))) {
+        throw "Mutable runtime state is not protected with skip-worktree: $path"
+    }
 }
 
 $pythonExecutable = Join-Path $RuntimeRoot '.venv\Scripts\python.exe'
@@ -117,7 +130,12 @@ try {
     }
 
     Write-Output "Starting local automation pipeline '$Pipeline' from pinned commit $($head.Substring(0, 12))."
-    & $pythonExecutable -u $supervisor run-pipeline --pipeline $Pipeline --config-root $ConfigRoot
+    if ($Pipeline -eq 'health') {
+        & $pythonExecutable -u $supervisor health --config-root $ConfigRoot --ref ([string]$marker.fallback_ref)
+    }
+    else {
+        & $pythonExecutable -u $supervisor run-pipeline --pipeline $Pipeline --config-root $ConfigRoot --ref ([string]$marker.fallback_ref)
+    }
     $exitCode = $LASTEXITCODE
 }
 finally {

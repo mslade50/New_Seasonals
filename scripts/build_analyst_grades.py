@@ -148,9 +148,21 @@ def build_grades(tickers, api_key, output_path):
     # smoke tests from clobbering the production R2 key.
     if os.path.abspath(output_path) == os.path.abspath(OUTPUT_PATH):
         try:
-            from cache_io import upload_from_local
-            upload_from_local(output_path, "analyst_grades.parquet")
+            from cache_io import head, upload_from_local
+            key = "analyst_grades.parquet"
+            ok = upload_from_local(output_path, key)
+            if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+                meta = head(key)
+                actual = int((meta or {}).get("ContentLength") or -1)
+                expected = os.path.getsize(output_path)
+                if not ok or actual != expected:
+                    raise RuntimeError(
+                        f"R2 analyst-grades verification failed: "
+                        f"uploaded={ok}, size={actual}, expected={expected}"
+                    )
         except Exception as e:
+            if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
+                raise
             print(f"[r2 upload] non-fatal error: {e}")
     else:
         print(f"[r2 upload] skipped (output path != {OUTPUT_PATH})")
