@@ -151,10 +151,14 @@ function Assert-PinnedRuntime {
     $powershell = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
     if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) { throw "Runner missing: $runner" }
     if (-not (Test-Path -LiteralPath $powershell -PathType Leaf)) { throw "Windows PowerShell missing: $powershell" }
-    & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $runner `
-        -Pipeline premarket -RuntimeRoot $script:RuntimeRoot -ConfigRoot $script:ConfigRoot -ValidateOnly
-    if ($LASTEXITCODE -ne 0) {
-        throw "Pinned runtime validation failed with exit code $LASTEXITCODE"
+    # Capture the validator's success-stream message instead of allowing it to
+    # become a second function return value alongside $marker. Cutover needs
+    # Assert-PinnedRuntime to return exactly one marker object.
+    $validationOutput = (& $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $runner `
+        -Pipeline premarket -RuntimeRoot $script:RuntimeRoot -ConfigRoot $script:ConfigRoot -ValidateOnly 2>&1 | Out-String).Trim()
+    $validationExitCode = $LASTEXITCODE
+    if ($validationExitCode -ne 0) {
+        throw "Pinned runtime validation failed with exit code $validationExitCode`n$validationOutput"
     }
     return $marker
 }
