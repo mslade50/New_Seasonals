@@ -99,6 +99,7 @@ class GapReversalResearchResult:
     loaded_candidate_tickers: tuple[str, ...]
     expected_sessions: pd.DatetimeIndex
     full_sessions: pd.DatetimeIndex
+    primary_sessions: pd.DatetimeIndex
     signals: pd.DataFrame
     signal_rejections: pd.DataFrame
     input_rejections: pd.DataFrame
@@ -126,6 +127,7 @@ class GapReversalResearchResult:
     combined_diagnostic: pd.DataFrame
     primary_selected_candidates: pd.DataFrame
     primary_selected_fills: pd.DataFrame
+    selected_outcome_summary: pd.DataFrame
     ticker_summary: pd.DataFrame
     sector_summary: pd.DataFrame
     coverage_audit: pd.DataFrame
@@ -153,6 +155,7 @@ def calculate_lagged_atr(
     expected_sessions: pd.DatetimeIndex,
     *,
     atr_sessions: int = ATR_SESSIONS,
+    discontinuity_config: RawPriceDiscontinuityConfig | None = None,
     frames_are_normalized: bool = False,
 ) -> pd.DataFrame:
     """Return exact daily gap inputs and a T-1-shifted raw ATR.
@@ -165,6 +168,7 @@ def calculate_lagged_atr(
 
     if atr_sessions < 1:
         raise ValueError("atr_sessions must be positive")
+    discontinuity_config = discontinuity_config or RawPriceDiscontinuityConfig()
     work = bars.copy() if frames_are_normalized else normalize_bars(bars)
     work["trade_date"] = work["ts"].dt.normalize()
     work["minute"] = _minute_number(work["ts"])
@@ -192,6 +196,16 @@ def calculate_lagged_atr(
         axis=1,
     ).max(axis=1, skipna=False)
     daily["daily_true_range"] = true_range.where(valid_tape & previous_valid_close.notna())
+    discontinuity, _ = _nearest_common_factor(
+        daily["open_0930"] / previous_valid_close,
+        discontinuity_config,
+    )
+    daily["raw_price_discontinuity"] = discontinuity
+    # A raw split day is not merely an untradeable current gap: letting its
+    # cross-basis range enter ATR contaminates limits for the following 14
+    # sessions. Mask the source TR so rolling min_periods keeps ATR unavailable
+    # until the complete lookback is again on one raw-price basis.
+    daily["daily_true_range"] = daily["daily_true_range"].where(~discontinuity)
     daily["atr_14_lagged"] = daily["daily_true_range"].shift(1).rolling(
         atr_sessions, min_periods=atr_sessions
     ).mean()
@@ -246,6 +260,23 @@ def _empty_signals() -> pd.DataFrame:
     return pd.DataFrame(columns=SIGNAL_COLUMNS)
 
 
+def _signal_time_quality_mask(
+    daily: pd.DataFrame, eligibility: pd.DataFrame
+) -> pd.Series:
+    """Return the universe-observable gate using only 09:30-known inputs."""
+
+    aligned_eligibility = eligibility.reindex(daily.index)
+    return (
+        aligned_eligibility["eligible"].fillna(False)
+        & daily["prior_close_1545"].notna()
+        & daily["prior_close_1545"].gt(0)
+        & daily["atr_14_lagged"].notna()
+        & daily["atr_14_lagged"].gt(0)
+        & daily["open_0930"].notna()
+        & daily["open_0930"].gt(0)
+    )
+
+
 def _build_ticker_signals(
     *,
     ticker: str,
@@ -263,7 +294,13 @@ def _build_ticker_signals(
     atr_ok = daily["atr_14_lagged"].notna() & daily["atr_14_lagged"].gt(0)
     tape_ok = daily["current_execution_tape_ok"].fillna(False)
     open_ok = daily["open_0930"].notna() & daily["open_0930"].gt(0)
-    base_quality = eligible & full_market & tape_ok & prior_ok & atr_ok & open_ok
+    # Candidate rank is frozen from information available when the official
+    # open is known. Current-session bar completeness and eventual volume are
+    # execution outcomes, never candidate gates: otherwise a lower-ranked name
+    # with a clean future tape can silently substitute for a selected name whose
+    # later tape is missing or invalid.
+    signal_time_quality = _signal_time_quality_mask(daily, eligibility)
+    canonical_signal_quality = signal_time_quality & full_market
     ratio = daily["open_0930"] / daily["prior_close_1545"]
     gap_return = ratio - 1.0
     gap_atr = (daily["open_0930"] - daily["prior_close_1545"]) / daily[
@@ -274,15 +311,10 @@ def _build_ticker_signals(
     )
 
     rejection_rows: list[dict[str, object]] = []
-    for day in index[eligible & ~base_quality]:
+    for day in index[eligible & ~canonical_signal_quality]:
         reasons: list[str] = []
         if not bool(full_market.loc[day]):
             reasons.append(str(market_status.reindex(index).loc[day]))
-        if not bool(tape_ok.loc[day]):
-            if not bool(daily.loc[day, "is_exact_full_session"]):
-                reasons.append("missing_required_current_bar")
-            if not bool(pd.notna(daily.loc[day, "required_min_volume"]) and daily.loc[day, "required_min_volume"] > 0):
-                reasons.append("zero_volume_required_current_bar")
         if not bool(prior_ok.loc[day]):
             reasons.append("missing_valid_prior_scheduled_1545_close")
         if not bool(atr_ok.loc[day]):
@@ -306,7 +338,7 @@ def _build_ticker_signals(
     )
     for template_id, gap_sign, side, limit_multiple in definitions:
         signed = gap_return.lt(0) if gap_sign < 0 else gap_return.gt(0)
-        candidates = base_quality & signed
+        candidates = canonical_signal_quality & signed
         filtered = candidates & discontinuity
         selected = candidates & ~discontinuity
         for day in index[filtered]:
@@ -368,8 +400,13 @@ def _build_ticker_signals(
                 "ticker": ticker,
                 "n_expected_sessions": len(index),
                 "n_eligible_sessions": int(eligible.sum()),
-                "n_quality_valid_sessions": int(base_quality.sum()),
+                "n_signal_time_quality_valid_sessions": int(
+                    signal_time_quality.sum()
+                ),
                 "n_strictly_signed_gaps": int(candidates.sum()),
+                "n_signed_gaps_with_later_execution_tape_failure": int(
+                    (candidates & ~tape_ok).sum()
+                ),
                 "n_raw_discontinuity_filtered": int(filtered.sum()),
                 "n_signals": sum(
                     record["template_id"] == template_id for record in signal_records
@@ -493,7 +530,9 @@ def simulate_gap_reversal_signals(
 
 
 def _merge_candidates_and_fills(
-    signals: pd.DataFrame, trades: pd.DataFrame
+    signals: pd.DataFrame,
+    trades: pd.DataFrame,
+    execution_rejections: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     fill_keys = ["template_id", "ticker", "trade_date"]
     execution_columns = [
@@ -511,6 +550,20 @@ def _merge_candidates_and_fills(
     )
     candidates = signals.merge(fills, on=fill_keys, how="left", validate="one_to_one")
     candidates["filled"] = candidates["gross_return"].notna()
+    if execution_rejections is not None:
+        rejection_columns = [
+            column
+            for column in ("execution_status", "execution_rejection_reason")
+            if column in execution_rejections.columns
+        ]
+        rejected = (
+            execution_rejections[fill_keys + rejection_columns].copy()
+            if not execution_rejections.empty
+            else pd.DataFrame(columns=fill_keys + rejection_columns)
+        )
+        candidates = candidates.merge(
+            rejected, on=fill_keys, how="left", validate="one_to_one"
+        )
     return candidates
 
 
@@ -521,6 +574,8 @@ def select_candidate_slots(
     capacity_slots: int = PRIMARY_CAPACITY_SLOTS,
     min_abs_gap_atr: float = 0.0,
     cost_bps: float = PRIMARY_COST_BPS,
+    eligible_sessions: pd.DatetimeIndex | None = None,
+    execution_rejections: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Return the actual candidates reserved before fills for one slot view.
 
@@ -550,7 +605,14 @@ def select_candidate_slots(
                 "slot_return_contribution",
             ]
         )
-    candidates = _merge_candidates_and_fills(signals, trades)
+    candidates = _merge_candidates_and_fills(
+        signals, trades, execution_rejections=execution_rejections
+    )
+    if eligible_sessions is not None:
+        allowed = pd.DatetimeIndex(eligible_sessions).normalize()
+        candidates = candidates.loc[
+            pd.to_datetime(candidates["trade_date"]).dt.normalize().isin(allowed)
+        ]
     eligible = candidates.loc[
         candidates["signal_strength"].ge(min_abs_gap_atr)
     ]
@@ -578,6 +640,21 @@ def select_candidate_slots(
     )
     selected["slot_return_contribution"] = np.where(
         selected["filled"], selected["net_return"] / capacity_slots, 0.0
+    )
+    if "execution_status" not in selected:
+        selected["execution_status"] = pd.NA
+    if "execution_rejection_reason" not in selected:
+        selected["execution_rejection_reason"] = pd.NA
+    selected["selected_outcome_status"] = np.where(
+        selected["filled"], "filled", selected["execution_status"]
+    )
+    selected["later_tape_quality_failure"] = selected[
+        "execution_status"
+    ].isin(
+        [
+            "missing_required_execution_bar",
+            "zero_volume_required_execution_bar",
+        ]
     )
     return selected.sort_values(
         ["trade_date", "template_id", "selected_rank"], ignore_index=True
@@ -683,6 +760,45 @@ def selected_slot_concentration_summaries(
     return summarize("ticker"), summarize("sector")
 
 
+def _selected_outcome_summary(selected_candidates: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "template_id",
+        "n_selected_candidates",
+        "n_fills",
+        "n_no_touch",
+        "n_later_tape_quality_failures",
+        "later_tape_quality_failure_rate",
+        "advance_blocked_by_selected_tape_quality",
+    ]
+    rows: list[dict[str, object]] = []
+    for template_id in GAP_REVERSAL_TEMPLATE_IDS:
+        group = selected_candidates.loc[
+            selected_candidates["template_id"].eq(template_id)
+        ]
+        tape_failures = int(group.get("later_tape_quality_failure", pd.Series(dtype=bool)).sum())
+        rows.append(
+            {
+                "template_id": template_id,
+                "n_selected_candidates": len(group),
+                "n_fills": int(group.get("filled", pd.Series(dtype=bool)).sum()),
+                "n_no_touch": int(
+                    group.get("execution_status", pd.Series(dtype=object))
+                    .eq("limit_not_touched_before_1545")
+                    .sum()
+                ),
+                "n_later_tape_quality_failures": tape_failures,
+                "later_tape_quality_failure_rate": (
+                    tape_failures / len(group) if len(group) else 0.0
+                ),
+                # Fail closed: any selected observation with unknowable outcome
+                # prevents an advance label. The table still exposes the rate so
+                # a later protocol can preregister a different materiality rule.
+                "advance_blocked_by_selected_tape_quality": tape_failures > 0,
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
 def candidate_slot_portfolios(
     signals: pd.DataFrame,
     trades: pd.DataFrame,
@@ -730,9 +846,18 @@ def candidate_slot_portfolios(
         "compound_return",
         "max_drawdown",
     ]
-    if signals.empty:
+    full_index = pd.DatetimeIndex(full_sessions).normalize().sort_values().unique()
+    if full_index.empty:
         return pd.DataFrame(columns=columns), pd.DataFrame(columns=summary_columns)
-    candidates = _merge_candidates_and_fills(signals, trades)
+    candidates = (
+        _merge_candidates_and_fills(signals, trades)
+        if not signals.empty
+        else pd.DataFrame(columns=[*SIGNAL_COLUMNS, "gross_return", "filled"])
+    )
+    if not candidates.empty:
+        candidates = candidates.loc[
+            pd.to_datetime(candidates["trade_date"]).dt.normalize().isin(full_index)
+        ]
     rows: list[dict[str, object]] = []
     for threshold in thresholds:
         eligible = candidates.loc[candidates["signal_strength"].ge(threshold)]
@@ -764,8 +889,54 @@ def candidate_slot_portfolios(
                             "slot_portfolio_return": slot_return,
                         }
                     )
-    daily = pd.DataFrame(rows, columns=columns)
-    full_index = pd.DatetimeIndex(full_sessions).normalize().sort_values().unique()
+    observed_daily = pd.DataFrame(rows, columns=columns)
+    grid = pd.MultiIndex.from_product(
+        [
+            GAP_REVERSAL_TEMPLATE_IDS,
+            costs,
+            full_index,
+            thresholds,
+            slots,
+        ],
+        names=[
+            "template_id",
+            "cost_bps",
+            "trade_date",
+            "min_abs_gap_atr",
+            "capacity_slots",
+        ],
+    ).to_frame(index=False)
+    daily = grid.merge(
+        observed_daily,
+        on=[
+            "template_id",
+            "cost_bps",
+            "trade_date",
+            "min_abs_gap_atr",
+            "capacity_slots",
+        ],
+        how="left",
+        validate="one_to_one",
+    )
+    for column in ("candidate_count", "slots_reserved", "fills"):
+        daily[column] = pd.to_numeric(daily[column], errors="coerce").fillna(0).astype(int)
+    unused_slots = pd.to_numeric(daily["unused_slots"], errors="coerce")
+    daily["unused_slots"] = unused_slots.where(
+        unused_slots.notna(), daily["capacity_slots"]
+    ).astype(int)
+    daily["slot_portfolio_return"] = pd.to_numeric(
+        daily["slot_portfolio_return"], errors="coerce"
+    ).fillna(0.0)
+    daily = daily[columns].sort_values(
+        [
+            "cost_bps",
+            "min_abs_gap_atr",
+            "capacity_slots",
+            "trade_date",
+            "template_id",
+        ],
+        ignore_index=True,
+    )
     summaries: list[dict[str, object]] = []
     for keys, group in daily.groupby(
         ["template_id", "cost_bps", "min_abs_gap_atr", "capacity_slots"],
@@ -773,8 +944,10 @@ def candidate_slot_portfolios(
         observed=True,
     ):
         template_id, cost_bps, threshold, slot_count = keys
-        active = group.set_index("trade_date")["slot_portfolio_return"]
-        all_sessions = active.reindex(full_index, fill_value=0.0)
+        all_sessions = group.set_index("trade_date")["slot_portfolio_return"].reindex(
+            full_index, fill_value=0.0
+        )
+        candidate_days = group.loc[group["candidate_count"].gt(0)]
         mean_full = float(all_sessions.mean())
         volatility = float(all_sessions.std(ddof=1)) if len(all_sessions) > 1 else np.nan
         wealth = (1.0 + all_sessions).cumprod()
@@ -788,11 +961,15 @@ def candidate_slot_portfolios(
                 "min_abs_gap_atr": float(threshold),
                 "capacity_slots": int(slot_count),
                 "n_full_sessions": len(full_index),
-                "n_candidate_days": int(group["trade_date"].nunique()),
+                "n_candidate_days": int(candidate_days["trade_date"].nunique()),
                 "n_candidates_selected": selected_count,
                 "n_fills": fill_count,
                 "fill_rate_selected": fill_count / selected_count if selected_count else np.nan,
-                "mean_candidate_day_return": float(active.mean()),
+                "mean_candidate_day_return": (
+                    float(candidate_days["slot_portfolio_return"].mean())
+                    if not candidate_days.empty
+                    else np.nan
+                ),
                 "mean_full_session_return": mean_full,
                 "annualized_return_arithmetic": mean_full * 252.0,
                 "annualized_volatility": volatility * sqrt(252.0),
@@ -893,6 +1070,7 @@ def run_gap_reversal_research(
     observed_counts: Counter[pd.Timestamp] = Counter(
         pd.DatetimeIndex(market_daily.index).normalize().intersection(expected_sessions)
     )
+    observable_universe_counts: Counter[pd.Timestamp] = Counter()
     coverage_rows = [
         _frame_coverage_row(
             ticker="SPY",
@@ -930,7 +1108,10 @@ def run_gap_reversal_research(
         bars = normalize_bars(pd.read_parquet(path), ticker=ticker)
         observed_daily = reduce_bars_to_daily(bars)
         daily = calculate_lagged_atr(
-            bars, expected_sessions, frames_are_normalized=True
+            bars,
+            expected_sessions,
+            discontinuity_config=discontinuity_config,
+            frames_are_normalized=True,
         )
         input_hash = _sha256_file(path)
         coverage_rows.append(
@@ -952,6 +1133,9 @@ def run_gap_reversal_research(
             daily, expected_sessions, eligibility_config
         )
         eligibility_rows.append(_eligibility_summary(ticker, eligibility, eligibility_config))
+        signal_time_quality = _signal_time_quality_mask(daily, eligibility)
+        for day in pd.DatetimeIndex(daily.index[signal_time_quality]):
+            observable_universe_counts[pd.Timestamp(day)] += 1
         signals, signal_rejections, input_rejections, candidate_audit = _build_ticker_signals(
             ticker=ticker,
             sector=str(metadata_by_ticker[ticker]),
@@ -1011,6 +1195,39 @@ def run_gap_reversal_research(
     sensitivity_trades = concat_or_empty(sensitivity_trade_frames, trade_columns)
     sensitivity_rejections = concat_or_empty(sensitivity_rejection_frames, reject_columns)
 
+    primary_sessions = pd.DatetimeIndex(
+        [
+            day
+            for day in full_sessions
+            if observable_universe_counts[pd.Timestamp(day)] > 0
+        ]
+    )
+    if primary_sessions.empty:
+        raise ValueError(
+            "no canonical SPY full session has an observable signal-time universe"
+        )
+
+    # Make the canonical primary cohort explicit on every return-producing
+    # surface, including the secondary conditional-on-fill diagnostics. This is
+    # redundant with the common full-market signal gate by design and prevents
+    # later refactors from leaking incomplete/noncanonical dates into outputs.
+    def in_primary_cohort(frame: pd.DataFrame) -> pd.Series:
+        return pd.to_datetime(frame["trade_date"]).dt.normalize().isin(
+            primary_sessions
+        )
+
+    signals = signals.loc[in_primary_cohort(signals)].reset_index(drop=True)
+    trades = trades.loc[in_primary_cohort(trades)].reset_index(drop=True)
+    execution_rejections = execution_rejections.loc[
+        in_primary_cohort(execution_rejections)
+    ].reset_index(drop=True)
+    sensitivity_trades = sensitivity_trades.loc[
+        in_primary_cohort(sensitivity_trades)
+    ].reset_index(drop=True)
+    sensitivity_rejections = sensitivity_rejections.loc[
+        in_primary_cohort(sensitivity_rejections)
+    ].reset_index(drop=True)
+
     cost_grid_trades = materialize_cost_grid(trades, costs)
     conditional_daily = make_daily_returns(cost_grid_trades)
     conditional_stats = day_cluster_statistics(
@@ -1020,7 +1237,7 @@ def run_gap_reversal_research(
         primary_template_ids=GAP_REVERSAL_TEMPLATE_IDS,
     )
     slot_daily, slot_summary = candidate_slot_portfolios(
-        signals, trades, full_sessions, cost_grid_bps=costs
+        signals, trades, primary_sessions, cost_grid_bps=costs
     )
     primary_daily = _primary_daily(slot_daily)
     primary_stats = day_cluster_statistics(
@@ -1030,7 +1247,7 @@ def run_gap_reversal_research(
         primary_template_ids=GAP_REVERSAL_TEMPLATE_IDS,
     )
     sensitivity_slot_daily, sensitivity_summary = candidate_slot_portfolios(
-        signals, sensitivity_trades, full_sessions, cost_grid_bps=costs
+        signals, sensitivity_trades, primary_sessions, cost_grid_bps=costs
     )
     sensitivity_primary = _primary_daily(sensitivity_slot_daily)
     sensitivity_stats = day_cluster_statistics(
@@ -1045,11 +1262,16 @@ def run_gap_reversal_research(
         capacity_slots=PRIMARY_CAPACITY_SLOTS,
         min_abs_gap_atr=0.0,
         cost_bps=PRIMARY_COST_BPS,
+        eligible_sessions=primary_sessions,
+        execution_rejections=execution_rejections,
     )
     primary_selected_fills = primary_selected_candidates.loc[
         primary_selected_candidates["filled"]
     ].copy()
     ticker_summary, sector_summary = selected_slot_concentration_summaries(
+        primary_selected_candidates
+    )
+    selected_outcome_summary = _selected_outcome_summary(
         primary_selected_candidates
     )
 
@@ -1062,6 +1284,8 @@ def run_gap_reversal_research(
             "market_bars_in_session": market_aligned.loc[day, "bars_in_session"],
             "n_loaded_inputs_observed": observed_counts[day],
             "missing_from_all_loaded_inputs": observed_counts[day] == 0,
+            "n_signal_time_observable_candidates": observable_universe_counts[day],
+            "primary_inference_session": day in primary_sessions,
         }
         for day in expected_sessions
     ]
@@ -1080,6 +1304,7 @@ def run_gap_reversal_research(
         loaded_candidate_tickers=tuple(loaded_candidates),
         expected_sessions=expected_sessions,
         full_sessions=full_sessions,
+        primary_sessions=primary_sessions,
         signals=signals,
         signal_rejections=signal_rejections,
         input_rejections=input_rejections,
@@ -1097,7 +1322,7 @@ def run_gap_reversal_research(
         slot_summary=slot_summary,
         primary_daily_returns=primary_daily,
         primary_day_cluster_stats=primary_stats,
-        annual_stats=annual_diagnostics(primary_daily, full_sessions),
+        annual_stats=annual_diagnostics(primary_daily, primary_sessions),
         leave_one_year_out=leave_one_year_out_diagnostics(primary_daily),
         rolling_diagnostics=rolling_five_year_train_one_year_test(
             primary_daily, expected_sessions
@@ -1109,6 +1334,7 @@ def run_gap_reversal_research(
         combined_diagnostic=_combined_diagnostic(primary_daily),
         primary_selected_candidates=primary_selected_candidates,
         primary_selected_fills=primary_selected_fills,
+        selected_outcome_summary=selected_outcome_summary,
         ticker_summary=ticker_summary,
         sector_summary=sector_summary,
         coverage_audit=pd.DataFrame(coverage_rows).sort_values(
@@ -1125,10 +1351,10 @@ def run_gap_reversal_research(
     )
 
 
-def _html_table(frame: pd.DataFrame, *, max_rows: int = 40) -> str:
+def _html_table(frame: pd.DataFrame, *, max_rows: int | None = 40) -> str:
     if frame.empty:
         return "<p class='muted'>No rows.</p>"
-    display = frame.head(max_rows).copy()
+    display = frame.copy() if max_rows is None else frame.head(max_rows).copy()
     for column in display.columns:
         if pd.api.types.is_float_dtype(display[column]):
             display[column] = display[column].map(
@@ -1149,6 +1375,37 @@ def render_gap_reversal_report(result: GapReversalResearchResult) -> str:
     material = result.material_gap_views.loc[
         result.material_gap_views["cost_bps"].eq(PRIMARY_COST_BPS)
     ]
+    primary_20bps = result.primary_day_cluster_stats.loc[
+        result.primary_day_cluster_stats["cost_bps"].eq(20.0)
+    ]
+    chronology_costs = (PRIMARY_COST_BPS, 20.0)
+    annual = result.annual_stats.loc[
+        result.annual_stats["cost_bps"].isin(chronology_costs)
+    ]
+    leave_one_year_out = result.leave_one_year_out.loc[
+        result.leave_one_year_out["cost_bps"].isin(chronology_costs)
+    ]
+    rolling = result.rolling_diagnostics.loc[
+        result.rolling_diagnostics["cost_bps"].isin(chronology_costs)
+    ]
+    ticker_concentration = result.ticker_summary.sort_values(
+        ["template_id", "share_of_template_absolute_endpoint_contribution", "group"],
+        ascending=[True, False, True],
+    )
+    sector_concentration = result.sector_summary.sort_values(
+        ["template_id", "share_of_template_absolute_endpoint_contribution", "group"],
+        ascending=[True, False, True],
+    )
+    selected_tape_blocker = bool(
+        result.selected_outcome_summary[
+            "advance_blocked_by_selected_tape_quality"
+        ].any()
+    )
+    interpretation_status = (
+        "INCONCLUSIVE / NON-ADVANCE — selected outcomes have missing or invalid later tape"
+        if selected_tape_blocker
+        else "PENDING STATISTICAL INTERPRETATION — no selected tape-quality blocker"
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Gap-Reversal v1 Research</title><style>
@@ -1158,16 +1415,22 @@ h1,h2{{color:#fff}}.warning{{padding:14px;border:1px solid #ba7b14;background:#2
 .table-wrap{{overflow:auto;background:#11182a;border-radius:8px}}table{{border-collapse:collapse;width:100%;font-size:12px}}th,td{{padding:7px 9px;border-bottom:1px solid #26314a;text-align:right;white-space:nowrap}}th:first-child,td:first-child{{text-align:left}}th{{position:sticky;top:0;background:#19233a}}
 </style></head><body><main><h1>Gap-Reversal v1</h1>
 <p class="warning"><strong>Research only.</strong> No order, broker action, production write, schedule, deployment, or automatic promotion. The two arms are co-primary; the combined view cannot rescue either arm.</p>
-<div class="cards"><div class="card"><strong>{len(result.requested_tickers)}</strong><br>requested tickers</div><div class="card"><strong>{len(result.loaded_candidate_tickers)}</strong><br>evaluated tickers</div><div class="card"><strong>{len(result.signals):,}</strong><br>valid gap candidates</div><div class="card"><strong>{len(result.trades):,}</strong><br>all eligible fills</div><div class="card"><strong>{len(result.primary_selected_fills):,}</strong><br>selected top-3 fills</div></div>
+<p class="warning"><strong>Interpretation status:</strong> {html.escape(interpretation_status)}</p>
+<div class="cards"><div class="card"><strong>{len(result.requested_tickers)}</strong><br>requested tickers</div><div class="card"><strong>{len(result.loaded_candidate_tickers)}</strong><br>evaluated tickers</div><div class="card"><strong>{len(result.signals):,}</strong><br>primary-cohort gap candidates</div><div class="card"><strong>{len(result.trades):,}</strong><br>primary-cohort eligible fills</div><div class="card"><strong>{len(result.primary_selected_fills):,}</strong><br>selected top-3 fills</div></div>
 <h2>Primary: fixed three slots, 10 bps, literal signed gaps</h2><p class="muted">Candidates rank at 09:30 by |gap/ATR|. Unfilled retained slots earn zero; lower-ranked candidates do not substitute. Holm covers the two arms.</p>{_html_table(primary)}
-<h2>Cost and slot robustness</h2>{_html_table(result.slot_summary)}
+<h2>Required 20-bps robustness — both arms</h2>{_html_table(primary_20bps, max_rows=None)}
+<h2>Selected-slot outcome completeness</h2><p class="muted">Any selected later-tape quality failure blocks an advance label; the slot stays cash and is never backfilled.</p>{_html_table(result.selected_outcome_summary, max_rows=None)}
+<h2>Cost and slot robustness — complete grid for both arms</h2>{_html_table(result.slot_summary, max_rows=None)}
 <h2>Prespecified material-gap views</h2><p class="muted">The 0.50-ATR row is the economically cleaner prespecified view, not a replacement primary or winner selection.</p>{_html_table(material)}
 <h2>Conditional-on-fill secondary view</h2>{_html_table(result.conditional_day_cluster_stats)}
 <h2>Optimistic opening-bar sensitivity</h2><p class="muted">Allows an exact-limit touch inside the 09:30 bar. It is non-primary because 15-minute data cannot establish the causal sequence.</p>{_html_table(result.opening_bar_sensitivity_stats.loc[result.opening_bar_sensitivity_stats["primary_cost_case"]])}
 <h2>Combined diagnostic only</h2>{_html_table(result.combined_diagnostic)}
+<h2>Chronology / annual results at 10 and 20 bps</h2>{_html_table(annual, max_rows=None)}
+<h2>Leave-one-year-out at 10 and 20 bps</h2>{_html_table(leave_one_year_out, max_rows=None)}
+<h2>Rolling five-year history → one-year test at 10 and 20 bps</h2>{_html_table(rolling, max_rows=None)}
 <h2>Primary selected-slot concentration</h2><p class="muted">Ticker and sector concentration use only actual fills among each arm/day's pre-fill-ranked top three candidates at 10 bps. Each fill contributes return divided by the fixed three-slot denominator; lower-ranked fills are excluded.</p>
-<h3>Ticker concentration</h3>{_html_table(result.ticker_summary)}
-<h3>Sector concentration</h3>{_html_table(result.sector_summary)}
+<h3>Ticker concentration — complete, sorted by absolute contribution</h3>{_html_table(ticker_concentration, max_rows=None)}
+<h3>Sector concentration — complete, sorted by absolute contribution</h3>{_html_table(sector_concentration, max_rows=None)}
 <h2>Coverage</h2>{_html_table(result.coverage_audit, max_rows=250)}
 </main></body></html>"""
 
@@ -1193,7 +1456,7 @@ def write_gap_reversal_artifacts(
         "signals.parquet": result.signals,
         "signal_rejections.parquet": result.signal_rejections,
         "signal_input_rejections.parquet": result.input_rejections,
-        "all_eligible_fills_10bps.parquet": result.trades,
+        "primary_cohort_eligible_fills_10bps.parquet": result.trades,
         "execution_rejections.parquet": result.execution_rejections,
         "opening_bar_sensitivity_trades.parquet": result.opening_bar_sensitivity_trades,
         "opening_bar_sensitivity_rejections.parquet": result.opening_bar_sensitivity_rejections,
@@ -1219,6 +1482,7 @@ def write_gap_reversal_artifacts(
         "opening_bar_sensitivity_summary.csv": result.opening_bar_sensitivity_summary,
         "opening_bar_sensitivity_stats.csv": result.opening_bar_sensitivity_stats,
         "combined_diagnostic.csv": result.combined_diagnostic,
+        "selected_outcome_summary.csv": result.selected_outcome_summary,
         "ticker_summary.csv": result.ticker_summary,
         "sector_summary.csv": result.sector_summary,
         "coverage_audit.csv": result.coverage_audit,
@@ -1231,6 +1495,11 @@ def write_gap_reversal_artifacts(
     report_path = target / "report.html"
     report_path.write_text(render_gap_reversal_report(result), encoding="utf-8")
     report_sha256 = _sha256_file(report_path)
+    selected_tape_blocker = bool(
+        result.selected_outcome_summary[
+            "advance_blocked_by_selected_tape_quality"
+        ].any()
+    )
     manifest = {
         "schema_version": "gap_reversal_research.v1",
         "research_only": True,
@@ -1260,6 +1529,12 @@ def write_gap_reversal_artifacts(
         "material_gap_views_atr": [0.25, 0.50, 1.00],
         "economically_cleaner_view_atr": 0.50,
         "primary_capacity_slots": PRIMARY_CAPACITY_SLOTS,
+        "primary_session_denominator": (
+            "exact_canonical_SPY_full_sessions_with_at_least_one_loaded_ticker_"
+            "T_minus_1_eligible_and_valid_prior_1545_ATR14_and_0930_open"
+        ),
+        "n_primary_inference_sessions": len(result.primary_sessions),
+        "no_candidate_arm_days_included_as_zero_return": True,
         "candidate_ranking": "09:30 descending abs(gap/ATR), ticker tie-break",
         "unused_slots_are_cash": True,
         "costs_charged_only_on_fills": True,
@@ -1272,11 +1547,19 @@ def write_gap_reversal_artifacts(
         "eligibility_config": asdict(result.eligibility_config),
         "raw_price_discontinuity_config": asdict(result.discontinuity_config),
         "n_signals": len(result.signals),
-        "n_all_eligible_fills": len(result.trades),
+        "n_primary_cohort_eligible_fills": len(result.trades),
         "n_primary_selected_fills": len(result.primary_selected_fills),
         "concentration_population": "actual_fills_among_prefill_ranked_top3_per_arm_day_at_10bps",
         "concentration_return_weight": "net_return_divided_by_fixed_3_slot_denominator",
         "lower_ranked_fills_excluded_from_concentration": True,
+        "selected_outcome_quality": result.selected_outcome_summary.to_dict("records"),
+        "any_selected_tape_quality_failure_blocks_advance": True,
+        "selected_tape_quality_blocker_active": selected_tape_blocker,
+        "research_interpretation_status": (
+            "INCONCLUSIVE_NON_ADVANCE_SELECTED_OUTCOME_MISSINGNESS"
+            if selected_tape_blocker
+            else "PENDING_STATISTICAL_INTERPRETATION"
+        ),
         "n_execution_rejections": len(result.execution_rejections),
         "opening_bar_sensitivity_is_optimistic_non_primary": True,
         "report": {"filename": report_path.name, "sha256": report_sha256},

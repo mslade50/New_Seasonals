@@ -39,7 +39,11 @@ qualifies; there is deliberately no minimum gap in the literal primary rule.
 `ATR(14)` is the simple mean of the last 14 valid raw daily true ranges. Daily
 true range is the maximum of high-low, absolute high-prior-close, and absolute
 low-prior-close. The series is shifted one completed session; session T can use
-information only through T-1. No current-session range enters its own limit.
+information only through T-1. No current-session range enters its own limit. A
+raw split/discontinuity day is detected against the previous valid session
+close and its true range is masked, leaving ATR unavailable for the following
+14 sessions and restoring it on session +15. The current split-gap signal is
+still filtered against the exact prior scheduled 15:45 close.
 
 ## Execution clock
 
@@ -54,7 +58,11 @@ information only through T-1. No current-session range enters its own limit.
   scheduled 15:45 bar close.
 - The current 09:30 source bar, every scheduled bar from activation through
   exit, the immediately prior 15:45 close, and the lagged ATR must be present
-  and valid. Current required bars must have positive volume.
+  and valid. Current required bars must have positive volume. Ranking is frozen
+  before any later current-session tape outcome is used. If a selected name's
+  later tape is missing or invalid, its slot is cash/rejected and a lower-ranked
+  name cannot substitute. Any such selected tape failure blocks an advance
+  label and is reported explicitly.
 - An explicitly optimistic, non-primary sensitivity may count a threshold touch
   in the 09:30 bar and fills that touch at the exact limit.
 
@@ -83,6 +91,13 @@ bps round-trip cost using a fixed three-slot candidate-order portfolio:
    cannot replace it after the fact.
 4. Each fill contributes one third of its return. Round-trip cost is charged
    only to filled slots. Unused slots remain cash at zero return.
+
+The inference denominator includes every exact canonical SPY full session on
+which at least one loaded ticker is observable at signal time: T-1 eligibility,
+an exact immediate prior 15:45 close, a valid lagged ATR(14), and a valid 09:30
+open. Warmup and no-observable-universe sessions are excluded. Every included
+session appears for both arms; an arm with no strictly signed candidate that
+day contributes zero, as do unused and selected-but-unfilled slots.
 
 The null is zero mean daily three-slot return. Report a two-sided day-cluster
 t-test and deterministic day-block bootstrap confidence interval. Holm-adjust

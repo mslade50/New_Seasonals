@@ -8,10 +8,12 @@ import pandas as pd
 import pytest
 
 from research.intraday import EligibilityConfig
+from research.intraday.diagnostics import day_cluster_statistics
 from research.intraday.gap_reversal import (
     GAP_DOWN_LONG_TEMPLATE_ID,
     GAP_UP_SHORT_TEMPLATE_ID,
     SIGNAL_COLUMNS,
+    _primary_daily,
     calculate_lagged_atr,
     candidate_slot_portfolios,
     run_gap_reversal_research,
@@ -117,6 +119,37 @@ def test_atr_is_simple_14_session_mean_lagged_through_t_minus_one():
     prior_changed.loc[prior, "low"] = 86.0
     changed = calculate_lagged_atr(prior_changed, dates)
     assert changed.loc[signal_day, "atr_14_lagged"] > 2.0
+
+
+def test_split_day_true_range_is_masked_and_atr_restores_on_session_plus_15():
+    dates = _dates(36)
+    split_index = 16
+    overrides: dict[pd.Timestamp, dict[str, dict[str, float]]] = {}
+    for day in dates[split_index:]:
+        overrides[day] = {
+            bar_time.strftime("%H:%M"): {
+                "open": 50.0,
+                "high": 51.0,
+                "low": 49.0,
+                "close": 50.0,
+            }
+            for bar_time in BAR_TIMES
+        }
+    frame = _frame(dates, overrides=overrides)
+    prior_day = dates[split_index - 1]
+    after_early_close = (
+        frame["ts"].dt.normalize().eq(prior_day)
+        & (frame["ts"].dt.time > pd.Timestamp("12:45").time())
+    )
+    frame = frame.loc[~after_early_close].reset_index(drop=True)
+    daily = calculate_lagged_atr(frame, dates)
+    split_day = dates[split_index]
+    assert pd.isna(daily.loc[split_day, "prior_close_1545"])
+    assert bool(daily.loc[split_day, "raw_price_discontinuity"])
+    assert pd.isna(daily.loc[split_day, "daily_true_range"])
+    assert daily.loc[split_day, "atr_14_lagged"] == pytest.approx(2.0)
+    assert daily.loc[dates[split_index + 1 : split_index + 15], "atr_14_lagged"].isna().all()
+    assert daily.loc[dates[split_index + 15], "atr_14_lagged"] == pytest.approx(2.0)
 
 
 def test_coverage_handles_reindexed_nullable_session_flags_fail_closed(
@@ -306,6 +339,141 @@ def test_costs_apply_only_to_prefill_ranked_fills_and_lower_rank_cannot_substitu
     )
 
 
+def test_primary_inference_includes_zero_no_candidate_days_for_both_arms():
+    sessions = _dates(3)
+    signal = _signal(day=sessions[1], strength=1.0)
+    trade = signal.copy()
+    trade["gross_return"] = 0.03
+    slot_daily, _ = candidate_slot_portfolios(
+        signal,
+        trade,
+        sessions,
+        cost_grid_bps=(10.0,),
+        slots=(3,),
+        gap_thresholds_atr=(0.0,),
+    )
+    primary = _primary_daily(slot_daily)
+    long_days = primary.loc[
+        primary["template_id"].eq(GAP_DOWN_LONG_TEMPLATE_ID)
+    ].sort_values("trade_date")
+    short_days = primary.loc[
+        primary["template_id"].eq(GAP_UP_SHORT_TEMPLATE_ID)
+    ].sort_values("trade_date")
+    assert long_days["trade_date"].tolist() == list(sessions)
+    assert long_days["daily_equal_notional_return"].tolist() == pytest.approx(
+        [0.0, (0.03 - 0.001) / 3.0, 0.0]
+    )
+    assert short_days["trade_date"].tolist() == list(sessions)
+    assert short_days["daily_equal_notional_return"].eq(0.0).all()
+
+    stats = day_cluster_statistics(
+        primary,
+        cost_grid_bps=(10.0,),
+        bootstrap_reps=100,
+        primary_template_ids=(
+            GAP_DOWN_LONG_TEMPLATE_ID,
+            GAP_UP_SHORT_TEMPLATE_ID,
+        ),
+    ).set_index("template_id")
+    assert stats.loc[GAP_DOWN_LONG_TEMPLATE_ID, "n_days"] == 3
+    assert stats.loc[GAP_UP_SHORT_TEMPLATE_ID, "n_days"] == 3
+    assert stats.loc[GAP_DOWN_LONG_TEMPLATE_ID, "mean_daily_return"] == pytest.approx(
+        (0.03 - 0.001) / 9.0
+    )
+
+
+def test_rank_one_later_bad_tape_stays_selected_and_rank_four_cannot_substitute(
+    tmp_path: Path,
+):
+    dates = _dates()
+    signal_day = dates[-1]
+    opening_prices = {"A": 96.0, "B": 97.0, "C": 98.0, "D": 99.0}
+    metadata_rows: list[dict[str, str]] = []
+    for ticker, opening_price in opening_prices.items():
+        overrides = {
+            signal_day: {
+                "09:30": {
+                    "open": opening_price,
+                    "high": opening_price + 0.2,
+                    "low": opening_price - 0.2,
+                    "close": opening_price,
+                },
+                "10:00": {"open": 100.0, "high": 101.0, "low": 95.0, "close": 100.0},
+            }
+        }
+        frame = _frame(dates, overrides=overrides)
+        if ticker == "A":
+            missing_later_bar = frame["ts"].eq(
+                signal_day + pd.Timedelta(hours=11)
+            )
+            frame = frame.loc[~missing_later_bar].reset_index(drop=True)
+        frame.to_parquet(tmp_path / f"{ticker}_15min.parquet", index=False)
+        metadata_rows.append({"ticker": ticker, "sector": "Technology"})
+    _frame(dates).to_parquet(tmp_path / "SPY_15min.parquet", index=False)
+
+    result = run_gap_reversal_research(
+        tmp_path,
+        pd.DataFrame(metadata_rows),
+        opening_prices,
+        eligibility_config=_eligibility(),
+        bootstrap_reps=100,
+    )
+    selected = result.primary_selected_candidates.loc[
+        result.primary_selected_candidates["trade_date"].eq(signal_day)
+        & result.primary_selected_candidates["template_id"].eq(
+            GAP_DOWN_LONG_TEMPLATE_ID
+        )
+    ].sort_values("selected_rank")
+    assert selected["ticker"].tolist() == ["A", "B", "C"]
+    assert "D" not in selected["ticker"].tolist()
+    rank_one = selected.iloc[0]
+    assert rank_one["ticker"] == "A"
+    assert not bool(rank_one["filled"])
+    assert rank_one["execution_status"] == "missing_required_execution_bar"
+    assert bool(rank_one["later_tape_quality_failure"])
+    assert bool(
+        result.selected_outcome_summary.loc[
+            result.selected_outcome_summary["template_id"].eq(
+                GAP_DOWN_LONG_TEMPLATE_ID
+            ),
+            "advance_blocked_by_selected_tape_quality",
+        ].iloc[0]
+    )
+
+
+def test_non_full_spy_session_is_excluded_from_every_return_surface(tmp_path: Path):
+    dates = _dates()
+    signal_day = dates[-1]
+    candidate = _frame(
+        dates,
+        overrides={
+            signal_day: {
+                "09:30": {"open": 99.0, "high": 99.2, "low": 98.8, "close": 99.0},
+                "10:00": {"open": 99.0, "high": 99.2, "low": 98.4, "close": 99.0},
+            }
+        },
+    )
+    market = _frame(dates)
+    missing_market_close = market["ts"].eq(
+        signal_day + pd.Timedelta(hours=15, minutes=45)
+    )
+    market = market.loc[~missing_market_close].reset_index(drop=True)
+    candidate.to_parquet(tmp_path / "AAA_15min.parquet", index=False)
+    market.to_parquet(tmp_path / "SPY_15min.parquet", index=False)
+    result = run_gap_reversal_research(
+        tmp_path,
+        pd.DataFrame([{"ticker": "AAA", "sector": "Technology"}]),
+        ["AAA"],
+        eligibility_config=_eligibility(),
+        bootstrap_reps=100,
+    )
+    assert signal_day not in result.primary_sessions
+    assert not result.signals["trade_date"].eq(signal_day).any()
+    assert not result.trades["trade_date"].eq(signal_day).any()
+    assert not result.cost_grid_trades["trade_date"].eq(signal_day).any()
+    assert not result.conditional_daily_returns["trade_date"].eq(signal_day).any()
+
+
 def test_writer_stays_under_artifacts_and_manifest_freezes_research_only(tmp_path: Path):
     dates = _dates()
     day = dates[-1]
@@ -332,13 +500,30 @@ def test_writer_stays_under_artifacts_and_manifest_freezes_research_only(tmp_pat
     output = repo_root / "artifacts" / "gap-reversal-test-output" / uuid4().hex
     written = write_gap_reversal_artifacts(result, output)
     manifest = json.loads((written / "run_manifest.json").read_text(encoding="utf-8"))
-    assert (written / "report.html").is_file()
+    report = (written / "report.html").read_text(encoding="utf-8")
+    assert "Required 20-bps robustness — both arms" in report
+    assert GAP_DOWN_LONG_TEMPLATE_ID in report
+    assert GAP_UP_SHORT_TEMPLATE_ID in report
+    assert "Chronology / annual results at 10 and 20 bps" in report
+    assert "Leave-one-year-out at 10 and 20 bps" in report
+    assert "Primary selected-slot concentration" in report
+    assert report.count(GAP_UP_SHORT_TEMPLATE_ID) >= 80
+    assert (written / "primary_cohort_eligible_fills_10bps.parquet").is_file()
     assert (written / "primary_selected_candidates_10bps.parquet").is_file()
     assert (written / "primary_selected_fills_10bps.parquet").is_file()
     assert manifest["research_only"] is True
     assert manifest["production_writes"] is False
     assert manifest["primary_capacity_slots"] == 3
     assert manifest["holm_family_size"] == 2
+    assert manifest["no_candidate_arm_days_included_as_zero_return"] is True
+    assert manifest["n_primary_inference_sessions"] == len(result.primary_sessions)
+    assert manifest["n_primary_cohort_eligible_fills"] == len(result.trades)
+    assert set(pd.to_datetime(result.trades["trade_date"]).dt.normalize()).issubset(
+        set(result.primary_sessions)
+    )
+    assert set(
+        pd.to_datetime(result.conditional_daily_returns["trade_date"]).dt.normalize()
+    ).issubset(set(result.primary_sessions))
     assert manifest["concentration_population"] == (
         "actual_fills_among_prefill_ranked_top3_per_arm_day_at_10bps"
     )
