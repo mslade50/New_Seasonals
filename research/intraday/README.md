@@ -204,3 +204,24 @@ broker capacity.
 The first frozen real-data run is documented in
 `REAL_DATA_RESULT_2026-08-27.md`. Both locked templates were rejected; any v1
 must be separately preregistered against a new holdout.
+
+## Daily-OHLC asymmetric gap-reversal screen
+
+`scripts/run_daily_gap_reversal_research.py` is a separate, optimistic
+broad-universe prioritization screen. It evaluates buy limits 0.25 lagged
+ATR14 below gap-down opens and short limits 0.75 lagged ATR14 above gap-up
+opens, both exited at the same-day close. Its design is frozen in
+`DAILY_GAP_REVERSAL_PREREGISTRATION.md`.
+
+```powershell
+python scripts/run_daily_gap_reversal_research.py `
+  --prices data/master_prices.parquet `
+  --universe-file data/sznl_ranks.csv `
+  --as-of 2026-08-27 `
+  --output-dir artifacts/daily_gap_reversal_research/2026-08-27-v1
+```
+
+The runner reads only explicit local inputs and writes only a fresh directory
+beneath `artifacts/`. The manifest is written last. Daily range touches cannot
+resolve whether the limit was reached before an order computed from the open
+could be submitted, so this screen cannot override a causal intraday test.
