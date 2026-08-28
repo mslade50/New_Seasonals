@@ -113,16 +113,24 @@ strategy scanner, or production writer.
 
 ```powershell
 python scripts/run_intraday_streaming_research.py `
-  --data-dir artifacts/intraday_input/frozen_2026-08-26 `
-  --sector-map artifacts/intraday_input/sector_map.parquet `
-  --universe-file artifacts/intraday_input/liquid_single_stocks.csv `
-  --output-dir artifacts/intraday_streaming_research/pilot_2026-08-26
+  --data-dir artifacts/intraday-r2-snapshots/2026-08-27-r2/bars `
+  --sector-map data/sector_map.parquet `
+  --universe-file research/intraday/liquid_single_stock_pilot_2026-08-27.csv `
+  --snapshot-manifest artifacts/intraday-r2-snapshots/2026-08-27-r2/snapshot_manifest.json `
+  --expected-snapshot-index-sha256 <sha256> `
+  --expected-universe-sha256 <sha256> `
+  --expected-sector-map-sha256 <sha256> `
+  --output-dir artifacts/intraday-streaming-research/<fresh-run-id>
+
+python scripts/build_intraday_research_report.py `
+  --bundle-dir artifacts/intraday-streaming-research/<fresh-run-id>
 ```
 
 The output path must be a fresh directory under this worktree's ignored
 `artifacts/` root. The manifest is written last and declares the run
 research-only, order-free, production-write-free, and ineligible for automatic
-promotion. There is intentionally no investor-facing HTML output.
+promotion. The separate report command writes a self-contained `report.html`
+inside the completed bundle and rewrites the manifest last with its SHA-256.
 
 The event clocks, thresholds, directions, SPY/sector residual arithmetic, and
 prior-session eligibility rules remain the locked v0 definitions. The
@@ -140,8 +148,8 @@ real-data path layers on stricter validity gates:
 - sector metadata and the mapped sector-proxy parquet are mandatory per
   candidate. Affected candidates are explicitly excluded; there is no silent
   SPY fallback;
-- raw overnight ratios near common split factors (1:2, 1:3, 1:4, 1:5, 1:10
-  and their reverse-split counterparts, within 12%) are flagged and filtered
+- raw overnight ratios at least 20% from one and within 3% of the preregistered
+  common split-factor list, or below 0.20/above 5.0, are flagged and filtered
   from the gap template. This is a conservative discontinuity heuristic, not
   proof of a corporate action.
 
@@ -151,8 +159,9 @@ signal-generation and execution rejection audits, event-level trades, raw
 day-cluster returns, two-sided day-cluster t/p values, deterministic
 day-cluster bootstrap confidence intervals, and Holm adjustment across the two
 10-bps primary template tests. Annual and rolling five-calendar-year
-train/one-year test tables diagnose stability without refitting or selecting a
-rule. Ticker and sector summaries expose concentration.
+train/one-year test and leave-one-year-out tables diagnose stability without
+refitting or selecting a rule. Long/short and ticker/sector summaries expose
+side economics and daily-endpoint-weighted concentration.
 
 Top-strength K=1/3/5/10 overlays are explicitly **slot-based**: each day takes
 the K strongest pre-existing signals, splits notional equally across K slots,
@@ -185,15 +194,13 @@ broker capacity.
   There is no backward fallback. The streaming path labels exact observed SPY
   early-close tapes, but it still lacks an authoritative ex-ante early-close
   schedule.
-- Canonical sessions are the union of dates observed across the supplied
-  frames. This exposes a wholly missing proxy session when another supplied
-  ticker has that date, but it cannot detect a date missing from every input;
-  an exchange calendar is still required for that case.
+- Canonical expected sessions come from the repository exchange calendar. Dates
+  missing from every loaded input remain visible in `market_calendar_audit.csv`.
 - Current-universe and current-sector-map tests have survivorship and
   classification lookahead. Results cannot be described as point-in-time
   universe evidence without historical membership and classification inputs.
 - Results are not recommendations and have no path to production execution.
 
-The next validity step is to run unchanged v0 definitions over a frozen local
-sample, inspect coverage and data failures first, then evaluate day-clustered
-and ticker/sector-held-out performance under materially stressed costs.
+The first frozen real-data run is documented in
+`REAL_DATA_RESULT_2026-08-27.md`. Both locked templates were rejected; any v1
+must be separately preregistered against a new holdout.
