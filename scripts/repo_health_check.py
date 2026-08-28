@@ -362,10 +362,12 @@ def check_test_collection() -> None:
         [sys.executable, "-m", "pytest", "--collect-only", "-q",
          "-p", "no:cacheprovider", "tests"],
         cwd=ROOT, capture_output=True, text=True, timeout=600)
-    if "error" in out.stdout.lower() and out.returncode not in (0, 5):
+    if out.returncode not in (0, 5):
+        diagnostic = (out.stderr or out.stdout).strip().splitlines()
+        tail = diagnostic[-1] if diagnostic else "no diagnostic output"
         report("FAIL", "tests:collect",
-               f"collection errors (exit {out.returncode}); run pytest "
-               f"--collect-only tests for detail")
+               f"collection process failed (exit {out.returncode}: {tail}); "
+               f"run pytest --collect-only tests for detail")
         return
     collected = {line.split("::")[0].replace("\\", "/")
                  for line in out.stdout.splitlines() if "::" in line}
