@@ -137,6 +137,8 @@ data/pitch_state.json
 data/pitch_tape.json
 data/pitch_research_index.json
 data/pitch_ideas.json
+data/pitch_delivery_receipts/
+data/pitch_journal.jsonl.lock
 scripts/logs/
 
 # Market Context generated inputs (rebuilt every evening by

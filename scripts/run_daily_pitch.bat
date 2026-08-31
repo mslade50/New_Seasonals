@@ -2,8 +2,9 @@
 setlocal
 set PYTHONIOENCODING=utf-8
 set PYTHONUTF8=1
+set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0
 
-REM Daily Pitch morning run. Three steps:
+REM Daily Pitch morning run. Four steps:
 REM   1. grade yesterday's ideas so today's email footer carries a scoreboard
 REM   2. assemble today's state (calendar, tape, dials, book, research index)
 REM   3. hand the state to the /daily-pitch skill, which invents, falsifies,
@@ -33,6 +34,7 @@ REM verifier fan-out runs at the same tier as the composer.
 
 set "PITCH_MODEL=opus"
 set "PITCH_EFFORT=xhigh"
+set "AGENT_TIMEOUT_SECONDS=6300"
 
 REM Absolute path: a Task Scheduler session does not necessarily
 REM inherit the interactive PATH. Falls back to PATH if absent.
@@ -70,11 +72,14 @@ if errorlevel 1 (
 )
 
 echo [agent: model %PITCH_MODEL%, effort %PITCH_EFFORT%] >> "%LOG%"
-call "%CLAUDE_EXE%" -p "/daily-pitch" --model %PITCH_MODEL% --effort %PITCH_EFFORT% --permission-mode bypassPermissions >> "%LOG%" 2>&1
-echo [claude exit code: %ERRORLEVEL%] >> "%LOG%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%REPO%\scripts\invoke_daily_pitch_agent.ps1" -ClaudeExe "%CLAUDE_EXE%" -Model "%PITCH_MODEL%" -Effort "%PITCH_EFFORT%" -TimeoutSeconds %AGENT_TIMEOUT_SECONDS% >> "%LOG%" 2>&1
+set CLAUDE_RC=%ERRORLEVEL%
+echo [claude exit code: %CLAUDE_RC%] >> "%LOG%"
 
-python "%REPO%\scripts\check_pitch_delivered.py" >> "%LOG%" 2>&1
-set RC=%ERRORLEVEL%
-echo [delivery check exit code: %RC%] >> "%LOG%"
+python "%REPO%\scripts\check_pitch_delivered.py" --require-r2 >> "%LOG%" 2>&1
+set DELIVERY_RC=%ERRORLEVEL%
+echo [delivery check exit code: %DELIVERY_RC%] >> "%LOG%"
+set RC=%DELIVERY_RC%
+if not "%CLAUDE_RC%"=="0" set RC=%CLAUDE_RC%
 echo ===== RUN END %DATE% %TIME% ===== >> "%LOG%"
 endlocal & exit /b %RC%

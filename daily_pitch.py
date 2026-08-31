@@ -20,13 +20,14 @@ What one run does, in order:
   3. derive per-leg order specs (sizes, limits, exit dates);
   4. capture yesterday's Approve cells off the Pitch tab BEFORE it is
      overwritten, and journal them;
-  5. render and send the Daily Pitch email;
+  5. persist an R2-backed ``sending`` receipt, send the Daily Pitch email,
+     and promote the receipt to ``sent`` only after SMTP confirms;
   6. clear and rewrite the Pitch tab with today's rows;
   7. append the idea and kill records to data/pitch_journal.jsonl.
 
-Order matters: approvals are captured before the tab is rewritten, and the
-journal is written last so a failed send never records a delivery that did
-not happen.
+Order matters: approvals are captured before the tab is rewritten.  The sent
+receipt makes an email retry-safe, while the tab and journal are reconciled
+afterwards so a crash there can be repaired without sending a duplicate.
 
 Env: EMAIL_USER / EMAIL_PASS (same Gmail creds as the other reports),
 PITCH_RECIPIENTS (defaults to mckinleyslade@gmail.com), GCP_JSON or
@@ -46,6 +47,7 @@ from pathlib import Path
 
 import pandas as pd
 
+import pitch_delivery
 import pitch_journal
 from pitch_grammar import (
     IDEA_COUNT,
@@ -120,7 +122,12 @@ def prepare(payload: dict, asof: pd.Timestamp, prices: pd.DataFrame,
     every error at once, because a half-valid pitch is not publishable and
     fixing one error at a time wastes a morning."""
     since = str((asof - REPEAT_BLOCK_TD * TRADING_DAY).normalize().date())
-    recent = pitch_journal.recent_fingerprints(journal_records, since)
+    # A crash-safe rerun may already have appended some or all of today's
+    # verdict before the final postflight completed.  The repetition gate is
+    # about prior pitches, not recovery of the same dated delivery.
+    prior_records = [record for record in journal_records
+                     if str(record.get("date")) != str(asof.date())]
+    recent = pitch_journal.recent_fingerprints(prior_records, since)
     errors = validate_payload(payload, recent, checks_root)
 
     contexts: dict[str, dict] = {}
@@ -732,10 +739,15 @@ def smtp_credentials() -> tuple[str | None, str | None]:
             password or fallback.get("EMAIL_PASS"))
 
 
+def email_recipients() -> list[str]:
+    return [address.strip() for address in os.environ.get(
+        "PITCH_RECIPIENTS", DEFAULT_RECIPIENTS).split(",")
+            if address.strip()]
+
+
 def send_email(subject: str, html: str) -> bool:
     sender, password = smtp_credentials()
-    recipients = [a.strip() for a in os.environ.get(
-        "PITCH_RECIPIENTS", DEFAULT_RECIPIENTS).split(",") if a.strip()]
+    recipients = email_recipients()
     if not sender or not password:
         print("EMAIL_USER/EMAIL_PASS not set in the environment or .env - "
               "skipping email send. THE PITCH WAS NOT DELIVERED.")
@@ -749,7 +761,11 @@ def send_email(subject: str, html: str) -> bool:
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(sender, password)
-            server.sendmail(sender, recipients, msg.as_string())
+            refused = server.sendmail(sender, recipients, msg.as_string())
+            if refused:
+                print(f"EMAIL SEND PARTIAL FAILURE ({sorted(refused)}) - "
+                      "THE PITCH DELIVERY IS AMBIGUOUS.")
+                return False
     except (smtplib.SMTPException, OSError) as exc:
         # OSError too: smtplib.SMTP(...) raises socket-level errors
         # (gaierror / ConnectionRefusedError / TimeoutError) on a no-network
@@ -763,6 +779,75 @@ def send_email(subject: str, html: str) -> bool:
         return False
     print(f"Email sent to {', '.join(recipients)}")
     return True
+
+
+def delivery_receipt_settings(args, journal_path: Path,
+                              asof: pd.Timestamp) -> tuple[Path, bool]:
+    """Receipt target and whether it must be mirrored to R2.
+
+    The production journal and default receipt are a coupled durable trail.
+    An explicit receipt or custom journal is a test/development run and stays
+    local so it cannot touch the shared R2 object.
+    """
+    override = getattr(args, "delivery_receipt", None)
+    if override:
+        return Path(override), False
+    if journal_path != pitch_journal.JOURNAL_PATH:
+        name = f"{journal_path.stem}.delivery.{asof.date()}.json"
+        return journal_path.with_name(name), False
+    return pitch_delivery.default_receipt_path(str(asof.date())), True
+
+
+def deliver_email_once(subject: str, html: str, planned_records: list[dict],
+                       asof: pd.Timestamp, journal_path: Path, args
+                       ) -> bool | None:
+    """Send once, skip a matching prior send, or block an unsafe rerun.
+
+    ``None`` means no SMTP call was safe.  ``False`` means SMTP did not
+    confirm delivery and the receipt is now ambiguous.  Both are failures,
+    but only the latter continues through Sheets/journal so the attempted
+    morning still has a complete audit trail.
+    """
+    receipt_path, use_r2 = delivery_receipt_settings(
+        args, journal_path, asof)
+    try:
+        receipt, should_send = pitch_delivery.reserve_delivery(
+            asof=str(asof.date()), records=planned_records, subject=subject,
+            html=html, recipients=email_recipients(), path=receipt_path,
+            use_r2=use_r2,
+            prior_records=pitch_journal.load(journal_path, pull=False))
+    except pitch_delivery.DeliveryReceiptError as exc:
+        print(f"DELIVERY BLOCKED: {exc}")
+        return None
+
+    if not should_send:
+        print(f"Email already confirmed sent for {asof.date()} with matching "
+              "verdict digest; skipping duplicate and reconciling state")
+        return True
+
+    email_ok = send_email(subject, html)
+    try:
+        pitch_delivery.complete_delivery(
+            receipt, receipt_path, use_r2=use_r2, sent=email_ok,
+            reason=None if email_ok else "SMTP did not confirm delivery")
+    except pitch_delivery.DeliveryReceiptError as exc:
+        print(f"DELIVERY RECEIPT FAILED: {exc}. The SMTP outcome is now "
+              "ambiguous and automatic resend is blocked.")
+        return False
+    return email_ok
+
+
+def append_approvals_once(approvals: list[dict], journal_path: Path) -> int:
+    """Preserve the one-readable-window approval without rerun duplicates."""
+    if not approvals:
+        return 0
+    existing = pitch_journal.load(journal_path, pull=False)
+    seen = {(record.get("kind"), record.get("date"), record.get("idea_id"),
+             record.get("approve")) for record in existing}
+    missing = [record for record in approvals
+               if (record.get("kind"), record.get("date"),
+                   record.get("idea_id"), record.get("approve")) not in seen]
+    return pitch_journal.append(missing, journal_path)
 
 
 # ---------------------------------------------------------------------------
@@ -946,15 +1031,20 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
               f"and the Pitch tab will not be cleared")
 
     # Journal approvals immediately — same one-readable-window rationale as
-    # the ideas path above.
-    if approvals:
-        pitch_journal.append(approvals, journal_path)
+    # the ideas path above.  A recovery rerun must not duplicate them.
+    approvals_written = append_approvals_once(approvals, journal_path)
 
     email_ok = True
+    planned_records = stand_down_records(
+        payload, asof, args.model, args.effort)
     if not args.no_send:
-        email_ok = send_email(f"Daily Pitch - {asof.date()} - NO TRADES "
-                              f"({len(payload.get('killed') or [])} killed)",
-                              html)
+        subject = (f"Daily Pitch - {asof.date()} - NO TRADES "
+                   f"({len(payload.get('killed') or [])} killed)")
+        delivery = deliver_email_once(subject, html, planned_records, asof,
+                                      journal_path, args)
+        if delivery is None:
+            return 1
+        email_ok = delivery
 
     if sheet is not None:
         try:
@@ -965,10 +1055,13 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
                   f"may still be approvable")
             return 1
 
-    written = pitch_journal.append(
-        stand_down_records(payload, asof, args.model, args.effort),
-        journal_path)
-    print(f"Journaled {len(approvals) + written} record(s) "
+    try:
+        written = pitch_delivery.reconcile_journal(
+            planned_records, journal_path)
+    except pitch_delivery.DeliveryReceiptError as exc:
+        print(f"ERROR: journal reconciliation failed ({exc})")
+        return 1
+    print(f"Journaled {approvals_written + written} new record(s) "
           f"-> {journal_path.name}")
     return 0 if email_ok else 1  # failed email = failed delivery, show red
 
@@ -989,6 +1082,9 @@ def main() -> int:
                     help="effort stamp; defaults to $PITCH_EFFORT")
     ap.add_argument("--journal", default=str(pitch_journal.JOURNAL_PATH),
                     help="journal path; a non-default path never touches R2")
+    ap.add_argument("--delivery-receipt", default=None,
+                    help="explicit local-only receipt path (tests/dev only); "
+                         "production defaults to a dated data receipt + R2")
     ap.add_argument("--checks-root", default=None,
                     help="where the day's check scripts live; defaults to "
                          "scratch/pitch_checks (dev and fixture runs only)")
@@ -1058,13 +1154,19 @@ def main() -> int:
     # are readable in, and write_tab's clear() destroys the tab copy — a
     # failure between capture and the end-of-run append used to drop them
     # permanently (empty tab AND no journal record).
-    if approvals:
-        pitch_journal.append(approvals, journal_path)
+    approvals_written = append_approvals_once(approvals, journal_path)
 
     email_ok = True
+    planned_records = journal_records(
+        payload, ideas, asof, args.model, args.effort)
     if not args.no_send:
-        email_ok = send_email(f"Daily Pitch - {asof.date()} - {len(ideas)} "
-                              f"idea{'' if len(ideas) == 1 else 's'}", html)
+        subject = (f"Daily Pitch - {asof.date()} - {len(ideas)} "
+                   f"idea{'' if len(ideas) == 1 else 's'}")
+        delivery = deliver_email_once(subject, html, planned_records, asof,
+                                      journal_path, args)
+        if delivery is None:
+            return 1
+        email_ok = delivery
 
     if sheet is not None:
         try:
@@ -1074,10 +1176,13 @@ def main() -> int:
                   f"but there is nothing to approve against")
             return 1
 
-    written = pitch_journal.append(
-        journal_records(payload, ideas, asof, args.model, args.effort),
-        journal_path)
-    print(f"Journaled {len(approvals) + written} record(s) "
+    try:
+        written = pitch_delivery.reconcile_journal(
+            planned_records, journal_path)
+    except pitch_delivery.DeliveryReceiptError as exc:
+        print(f"ERROR: journal reconciliation failed ({exc})")
+        return 1
+    print(f"Journaled {approvals_written + written} new record(s) "
           f"-> {journal_path.name}")
     # A failed email is a failed DELIVERY even though the tab and journal
     # reflect the run — exit nonzero so Task Scheduler / the .bat log show

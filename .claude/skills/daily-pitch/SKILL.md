@@ -612,6 +612,22 @@ consequence:
 - `LIMIT` anchored to `OPEN` is placed in the runner's post-open pass.
 - Any futures leg is manual in v1 and the card prints the contract.
 
+## Background-agent completion gate
+
+Every verifier, checker, researcher, red-team agent, and other background task
+started during this run must be explicitly joined before publishing. Keep a
+complete list of their task IDs, wait for every one to reach a terminal state,
+read every result, and incorporate its evidence or failure into the verdict.
+Do not treat a time-limited background wait as completion, do not abandon an
+unfinished checker, and do not return while any task is still running.
+
+The scheduled launcher disables Claude Code's internal background-wait ceiling
+so this join can finish. It also has a separate 105-minute outer watchdog. If
+that outer deadline is approaching, finish with a fully evidenced stand-down
+that satisfies the grammar; never publish unchecked ideas. The skill itself
+does not return until the publish command has finished and its deterministic
+validation result has been read.
+
 ## Publish
 
 ```bash

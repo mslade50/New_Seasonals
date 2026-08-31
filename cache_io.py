@@ -246,6 +246,55 @@ def upload_from_local(local_path: str, key: str) -> bool:
         return False
 
 
+def conditional_upload_from_local(
+        local_path: str, key: str, *, create_only: bool = False,
+        expected_etag: str | None = None) -> tuple[str, str | None]:
+    """Conditionally upload a small object.
+
+    Returns ``("uploaded", etag)`` on success,
+    ``("precondition_failed", None)`` when another writer won, and
+    ``("error", None)`` for configuration, I/O, or service failures.
+
+    This is intentionally separate from ``upload_from_local``: cache refreshes
+    are ordinary last-writer-wins objects, while delivery receipts need S3's
+    If-None-Match / If-Match compare-and-swap semantics to prevent two
+    schedulers from both claiming the same email send.
+    """
+    if create_only and expected_etag is not None:
+        raise ValueError("create_only and expected_etag are mutually exclusive")
+    if not os.path.exists(local_path):
+        print(f"[cache_io] conditional upload skipped: {local_path} missing")
+        return "error", None
+    client = _client()
+    if client is None:
+        print(f"[cache_io] R2 not configured - skipping conditional upload of {key}")
+        return "error", None
+    bucket = _r2_creds()["R2_BUCKET"]
+    kwargs = {"Bucket": bucket, "Key": key}
+    if create_only:
+        kwargs["IfNoneMatch"] = "*"
+    elif expected_etag is not None:
+        kwargs["IfMatch"] = expected_etag
+    try:
+        with open(local_path, "rb") as body:
+            response = client.put_object(Body=body, **kwargs)
+        etag = response.get("ETag")
+        print(f"[cache_io] conditionally uploaded {local_path} -> "
+              f"r2://{bucket}/{key}")
+        return "uploaded", etag
+    except Exception as exc:  # noqa: BLE001
+        response = getattr(exc, "response", {}) or {}
+        error = response.get("Error", {}) or {}
+        status = (response.get("ResponseMetadata", {}) or {}).get(
+            "HTTPStatusCode")
+        if status == 412 or error.get("Code") in {
+                "PreconditionFailed", "ConditionalRequestConflict"}:
+            return "precondition_failed", None
+        print(f"[cache_io] conditional upload failed for {key}: {exc}",
+              file=sys.stderr)
+        return "error", None
+
+
 def download_to_local(key: str, local_path: str) -> bool:
     """Download R2 object `key` to `local_path`. Returns True on success.
 
