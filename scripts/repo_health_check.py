@@ -19,7 +19,8 @@ Checks:
                         recompute vintage reaching live sizing)
   4. Journals         - pitch/context/posts JSONL parse cleanly
   5. Delivery         - check_pitch_delivered / check_context_delivered for
-                        the most recent expected run date
+                        the most recent expected run date; pitch requires the
+                        canonical local receipt and matching R2 evidence
   6. Trigger logs     - pinned Task Scheduler runtime log recency
   7. Guard tests      - pytest --collect-only: collection errors FAIL, guard
                         files contributing zero tests WARN
@@ -326,13 +327,22 @@ def check_delivery() -> None:
     while ctx_day.weekday() in (4, 5):  # no Fri/Sat run
         ctx_day -= dt.timedelta(days=1)
 
-    for label, script, flag, day, journal in [
+    for label, script, flag, day, journal, extra_args in [
         (
             "pitch",
             "check_pitch_delivered.py",
             "--asof",
             pitch_day,
             JOURNAL_DATA_ROOT / "pitch_journal.jsonl",
+            [
+                "--delivery-receipt",
+                str(
+                    JOURNAL_DATA_ROOT
+                    / "pitch_delivery_receipts"
+                    / f"{pitch_day}.json"
+                ),
+                "--require-r2",
+            ],
         ),
         (
             "context",
@@ -340,18 +350,22 @@ def check_delivery() -> None:
             "--run-date",
             ctx_day,
             JOURNAL_DATA_ROOT / "context_journal.jsonl",
+            [],
         ),
     ]:
+        command = [
+            sys.executable,
+            str(ROOT / "scripts" / script),
+            flag,
+            str(day),
+            "--journal",
+            str(journal),
+            *extra_args,
+        ]
         out = subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "scripts" / script),
-                flag,
-                str(day),
-                "--journal",
-                str(journal),
-            ],
-            cwd=ROOT, capture_output=True, text=True, timeout=120)
+            command,
+            cwd=ROOT, capture_output=True, text=True, timeout=120,
+            check=False)
         msg = (out.stdout + out.stderr).strip().splitlines()
         detail = msg[0] if msg else f"exit {out.returncode}"
         report("OK" if out.returncode == 0 else "FAIL",

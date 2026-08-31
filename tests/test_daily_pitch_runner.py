@@ -39,3 +39,11 @@ def test_launcher_timeout_fits_inside_task_scheduler_cap():
     assert "$process.WaitForExit(10000)" in text
     assert "$process.WaitForExit()" not in text
     assert "exit $exitCode" in text
+
+
+def test_launcher_replays_agent_logs_as_utf8():
+    text = (ROOT / "scripts" / "invoke_daily_pitch_agent.ps1").read_text(
+        encoding="utf-8")
+
+    assert "Get-Content -LiteralPath $stdoutPath -Encoding UTF8" in text
+    assert "Get-Content -LiteralPath $stderrPath -Encoding UTF8" in text

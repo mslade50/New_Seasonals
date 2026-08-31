@@ -22,7 +22,7 @@ def test_journal_health_reads_configured_production_data_root(tmp_path, monkeypa
     ]
 
 
-def test_delivery_health_passes_explicit_configured_journal_paths(
+def test_delivery_health_passes_canonical_production_evidence_paths(
     tmp_path, monkeypatch
 ):
     data_root = tmp_path / "production-config" / "data"
@@ -39,16 +39,37 @@ def test_delivery_health_passes_explicit_configured_journal_paths(
     health.check_delivery()
 
     assert len(calls) == 2
-    expected = {
+    expected_journals = {
         "check_pitch_delivered.py": data_root / "pitch_journal.jsonl",
         "check_context_delivered.py": data_root / "context_journal.jsonl",
     }
     for argv, kwargs in calls:
         script_name = Path(argv[1]).name
         journal_index = argv.index("--journal") + 1
-        assert Path(argv[journal_index]) == expected[script_name]
+        assert Path(argv[journal_index]) == expected_journals[script_name]
         assert kwargs["cwd"] == health.ROOT
         assert kwargs["timeout"] == 120
+
+    pitch_argv = next(
+        argv for argv, _kwargs in calls
+        if Path(argv[1]).name == "check_pitch_delivered.py"
+    )
+    pitch_day = pitch_argv[pitch_argv.index("--asof") + 1]
+    receipt_index = pitch_argv.index("--delivery-receipt") + 1
+    assert Path(pitch_argv[receipt_index]) == (
+        data_root / "pitch_delivery_receipts" / f"{pitch_day}.json"
+    )
+    assert "--require-r2" in pitch_argv
+    assert data_root / f"pitch_journal.delivery.{pitch_day}.json" not in map(
+        Path, pitch_argv
+    )
+
+    context_argv = next(
+        argv for argv, _kwargs in calls
+        if Path(argv[1]).name == "check_context_delivered.py"
+    )
+    assert "--delivery-receipt" not in context_argv
+    assert "--require-r2" not in context_argv
 
 
 def test_guard_collection_process_error_fails_loud(monkeypatch):

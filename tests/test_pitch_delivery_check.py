@@ -8,10 +8,12 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import pitch_delivery
+from scripts import check_pitch_delivered
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "check_pitch_delivered.py"
@@ -59,6 +61,19 @@ def write_journal(path: Path, records: list[dict]) -> Path:
     path.write_text("".join(json.dumps(r) + "\n" for r in records),
                     encoding="utf-8")
     return path
+
+
+def test_custom_journal_keeps_an_adjacent_isolated_receipt(tmp_path):
+    journal = tmp_path / "custom_pitch_journal.jsonl"
+    args = SimpleNamespace(
+        asof=ASOF,
+        journal=str(journal),
+        delivery_receipt=None,
+    )
+
+    assert check_pitch_delivered._receipt_path(args) == (
+        tmp_path / f"custom_pitch_journal.delivery.{ASOF}.json"
+    )
 
 
 def idea(rank: int, date: str = ASOF) -> dict:

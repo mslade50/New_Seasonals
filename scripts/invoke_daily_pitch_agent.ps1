@@ -75,10 +75,10 @@ catch {
 }
 finally {
     if (Test-Path -LiteralPath $stdoutPath) {
-        Get-Content -LiteralPath $stdoutPath
+        Get-Content -LiteralPath $stdoutPath -Encoding UTF8
     }
     if (Test-Path -LiteralPath $stderrPath) {
-        Get-Content -LiteralPath $stderrPath
+        Get-Content -LiteralPath $stderrPath -Encoding UTF8
     }
     Write-Output "[agent stdout: $stdoutPath]"
     Write-Output "[agent stderr: $stderrPath]"
