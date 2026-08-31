@@ -2589,6 +2589,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log_path = state_root / "logs" / run_date / f"health-{uuid.uuid4().hex[:8]}.log"
         health_env = dict(supervisor.env)
         health_env["NEW_SEASONALS_AUTOMATION_STATE_ROOT"] = str(state_root)
+        health_env["NEW_SEASONALS_CONFIG_ROOT"] = str(Path(args.config_root).resolve())
         health_argv = [
             args.python,
             "-u",

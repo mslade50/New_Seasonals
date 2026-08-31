@@ -173,7 +173,9 @@ class _RecordingProcess:
         return 0
 
 
-def test_health_child_receives_the_selected_runtime_state_root(tmp_path, monkeypatch):
+def test_health_child_receives_selected_runtime_state_and_config_roots(
+    tmp_path, monkeypatch
+):
     runtime = tmp_path / "New_Seasonals-automation-runtime-v3"
     config = tmp_path / "config"
     state_root = runtime / "artifacts" / "automation"
@@ -209,7 +211,9 @@ def test_health_child_receives_the_selected_runtime_state_root(tmp_path, monkeyp
     child_env = process.calls[0]["env"]
     assert isinstance(child_env, dict)
     assert child_env["NEW_SEASONALS_AUTOMATION_STATE_ROOT"] == str(state_root.resolve())
+    assert child_env["NEW_SEASONALS_CONFIG_ROOT"] == str(config.resolve())
     assert "NEW_SEASONALS_AUTOMATION_STATE_ROOT" not in supervisor.env
+    assert "NEW_SEASONALS_CONFIG_ROOT" not in supervisor.env
 
 
 def test_version_suffixed_pinned_runtime_defaults_health_to_its_own_state_tree(

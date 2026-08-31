@@ -1,7 +1,54 @@
 import datetime as dt
+from pathlib import Path
 from types import SimpleNamespace
 
 from scripts import repo_health_check as health
+
+
+def test_journal_health_reads_configured_production_data_root(tmp_path, monkeypatch):
+    data_root = tmp_path / "production-config" / "data"
+    data_root.mkdir(parents=True)
+    for name in ("pitch_journal.jsonl", "context_journal.jsonl", "posts_journal.jsonl"):
+        (data_root / name).write_text('{"kind":"ok"}\n', encoding="utf-8")
+    monkeypatch.setattr(health, "JOURNAL_DATA_ROOT", data_root)
+    health.RESULTS.clear()
+
+    health.check_journals()
+
+    assert health.RESULTS == [
+        ("OK", "journal:pitch_journal.jsonl", "parses clean"),
+        ("OK", "journal:context_journal.jsonl", "parses clean"),
+        ("OK", "journal:posts_journal.jsonl", "parses clean"),
+    ]
+
+
+def test_delivery_health_passes_explicit_configured_journal_paths(
+    tmp_path, monkeypatch
+):
+    data_root = tmp_path / "production-config" / "data"
+    monkeypatch.setattr(health, "JOURNAL_DATA_ROOT", data_root)
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((list(argv), kwargs))
+        return SimpleNamespace(returncode=0, stdout="OK\n", stderr="")
+
+    monkeypatch.setattr(health.subprocess, "run", fake_run)
+    health.RESULTS.clear()
+
+    health.check_delivery()
+
+    assert len(calls) == 2
+    expected = {
+        "check_pitch_delivered.py": data_root / "pitch_journal.jsonl",
+        "check_context_delivered.py": data_root / "context_journal.jsonl",
+    }
+    for argv, kwargs in calls:
+        script_name = Path(argv[1]).name
+        journal_index = argv.index("--journal") + 1
+        assert Path(argv[journal_index]) == expected[script_name]
+        assert kwargs["cwd"] == health.ROOT
+        assert kwargs["timeout"] == 120
 
 
 def test_guard_collection_process_error_fails_loud(monkeypatch):

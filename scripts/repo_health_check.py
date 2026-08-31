@@ -44,6 +44,8 @@ sys.path.insert(0, str(ROOT))
 import cache_io  # noqa: E402
 
 STATE_PATH = ROOT / "data" / "health_check_state.json"
+CONFIG_ROOT = Path(os.environ.get("NEW_SEASONALS_CONFIG_ROOT", str(ROOT))).resolve()
+JOURNAL_DATA_ROOT = CONFIG_ROOT / "data"
 _DEFAULT_AUTOMATION_RUNTIME = (
     ROOT if (ROOT / ".local" / "automation-runtime.json").is_file()
     else ROOT.parent / "New_Seasonals-automation-runtime"
@@ -293,7 +295,7 @@ def check_fragility_pit() -> None:
 def check_journals() -> None:
     for name in ("pitch_journal.jsonl", "context_journal.jsonl",
                  "posts_journal.jsonl"):
-        path = ROOT / "data" / name
+        path = JOURNAL_DATA_ROOT / name
         if not path.exists():
             report("WARN", f"journal:{name}", "missing")
             continue
@@ -324,12 +326,31 @@ def check_delivery() -> None:
     while ctx_day.weekday() in (4, 5):  # no Fri/Sat run
         ctx_day -= dt.timedelta(days=1)
 
-    for label, script, flag, day in [
-        ("pitch", "check_pitch_delivered.py", "--asof", pitch_day),
-        ("context", "check_context_delivered.py", "--run-date", ctx_day),
+    for label, script, flag, day, journal in [
+        (
+            "pitch",
+            "check_pitch_delivered.py",
+            "--asof",
+            pitch_day,
+            JOURNAL_DATA_ROOT / "pitch_journal.jsonl",
+        ),
+        (
+            "context",
+            "check_context_delivered.py",
+            "--run-date",
+            ctx_day,
+            JOURNAL_DATA_ROOT / "context_journal.jsonl",
+        ),
     ]:
         out = subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / script), flag, str(day)],
+            [
+                sys.executable,
+                str(ROOT / "scripts" / script),
+                flag,
+                str(day),
+                "--journal",
+                str(journal),
+            ],
             cwd=ROOT, capture_output=True, text=True, timeout=120)
         msg = (out.stdout + out.stderr).strip().splitlines()
         detail = msg[0] if msg else f"exit {out.returncode}"
