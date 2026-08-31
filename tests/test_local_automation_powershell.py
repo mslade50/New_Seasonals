@@ -241,6 +241,40 @@ def test_pinned_runtime_returns_only_the_marker_when_validator_writes_stdout(tmp
     assert result.stdout.strip() == "ASSERT_PINNED_RUNTIME_SINGLE_MARKER_OK"
 
 
+@REQUIRES_WINDOWS_POWERSHELL
+def test_git_capture_accepts_informational_stderr_when_exit_code_is_zero(tmp_path):
+    fake_git = tmp_path / "fake_git.cmd"
+    fake_git.write_text(
+        "@echo off\r\n"
+        "echo normal-output\r\n"
+        "echo Preparing worktree 1^>^&2\r\n"
+        "exit /b 0\r\n",
+        encoding="ascii",
+    )
+    harness = tmp_path / "git_capture.ps1"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            Set-StrictMode -Version Latest
+            $ErrorActionPreference = 'Stop'
+            $script:GitExecutable = '{_ps_quote(fake_git)}'
+            {_extract_function('Invoke-GitCapture')}
+            $result = Invoke-GitCapture -Arguments @('worktree', 'add')
+            if ($result.ExitCode -ne 0) {{ throw 'wrong exit code' }}
+            if ($result.Output -notmatch 'normal-output') {{ throw 'stdout missing' }}
+            if ($result.Output -notmatch 'Preparing worktree') {{ throw 'stderr missing' }}
+            Write-Output 'GIT_CAPTURE_STDERR_OK'
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_powershell(harness)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == "GIT_CAPTURE_STDERR_OK"
+
+
 def _run_cutover_simulation(
     tmp_path: Path, fail_task: str = "", active_task: str = ""
 ) -> dict:
