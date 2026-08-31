@@ -1,10 +1,51 @@
+import json
 import re
+import subprocess
+import textwrap
 from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = (ROOT / "scripts" / "run_local_automation.ps1").read_text(encoding="utf-8")
 INSTALLER = (ROOT / "scripts" / "install_local_automation_tasks.ps1").read_text(encoding="utf-8")
+POWERSHELL = Path(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
+REQUIRES_WINDOWS_POWERSHELL = pytest.mark.skipif(
+    not POWERSHELL.is_file(), reason="requires Windows PowerShell"
+)
+
+
+def _extract_function(name: str) -> str:
+    match = re.search(
+        rf"^function {re.escape(name)} \{{.*?^\}}",
+        INSTALLER,
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    assert match is not None, f"PowerShell function not found: {name}"
+    return match.group(0)
+
+
+def _ps_quote(value: Path | str) -> str:
+    return str(value).replace("'", "''")
+
+
+def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+            *args,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_runner_calls_only_the_pinned_supervisor_contract():
@@ -68,6 +109,33 @@ def test_cutover_is_explicit_and_preserves_task_objects():
     assert "task enabled states were rolled back" in INSTALLER
 
 
+def test_cutover_accepts_a_distinct_prior_local_prefix_and_keeps_fixed_legacy_tasks():
+    assert "[string]$RetireTaskNamePrefix" in INSTALLER
+    assert "$RetireTaskNamePrefix + $spec.Id" in INSTALLER
+    assert "foreach ($name in (Get-SupersededTaskNames))" in INSTALLER
+    assert "Trigger Daily Screener (GHA workflow_dispatch)" in INSTALLER
+    assert "Repo Health Check" in INSTALLER
+
+
+@REQUIRES_WINDOWS_POWERSHELL
+def test_same_new_and_retired_prefix_is_rejected_before_scheduler_access():
+    result = _run_powershell(
+        ROOT / "scripts" / "install_local_automation_tasks.ps1",
+        "-Phase",
+        "Status",
+        "-SourceRepository",
+        str(ROOT),
+        "-TaskNamePrefix",
+        "New Prefix - ",
+        "-RetireTaskNamePrefix",
+        "new prefix - ",
+    )
+    assert result.returncode != 0
+    assert "TaskNamePrefix and RetireTaskNamePrefix must be different" in (
+        result.stdout + result.stderr
+    )
+
+
 def test_pinned_runtime_validator_output_cannot_pollute_marker_return_value():
     function = re.search(
         r"function Assert-PinnedRuntime \{(?P<body>.*?)\n\}",
@@ -77,12 +145,218 @@ def test_pinned_runtime_validator_output_cannot_pollute_marker_return_value():
     assert function is not None
     body = function.group("body")
     assert re.search(
-        r"\$validationOutput\s*=\s*\(& \$powershell.*?-ValidateOnly 2>&1 \| Out-String\)\.Trim\(\)",
+        r"\$validationLines\s*=\s*@\(& \$powershell.*?-ValidateOnly 2>&1\)",
         body,
         flags=re.DOTALL,
     )
     assert "$validationExitCode = $LASTEXITCODE" in body
+    assert "$validationOutput = ($validationLines | Out-String).Trim()" in body
     assert "return $marker" in body
+
+
+@REQUIRES_WINDOWS_POWERSHELL
+def test_pinned_runtime_returns_only_the_marker_when_validator_writes_stdout(tmp_path):
+    runtime = tmp_path / "runtime"
+    config = tmp_path / "config"
+    runner = runtime / "scripts" / "run_local_automation.ps1"
+    marker_path = runtime / ".local" / "automation-runtime.json"
+    runner.parent.mkdir(parents=True)
+    config.mkdir()
+    runner.write_text(
+        textwrap.dedent(
+            """
+            param(
+                [string]$Pipeline,
+                [string]$RuntimeRoot,
+                [string]$ConfigRoot,
+                [switch]$ValidateOnly
+            )
+            Write-Output 'VALIDATION-SUCCESS-MUST-NOT-ESCAPE'
+            exit 0
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init"], cwd=runtime, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "config", "user.email", "automation-test@example.invalid"],
+        cwd=runtime,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Automation Test"], cwd=runtime, check=True
+    )
+    subprocess.run(["git", "add", "scripts/run_local_automation.ps1"], cwd=runtime, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "test runtime"],
+        cwd=runtime,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=runtime,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(["git", "tag", "test-runtime"], cwd=runtime, check=True)
+    marker_path.parent.mkdir()
+    marker_path.write_text(
+        json.dumps(
+            {
+                "pinned_sha": sha,
+                "fallback_ref": "test-runtime",
+                "config_root": str(config),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    harness = tmp_path / "assert_pinned_runtime.ps1"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            Set-StrictMode -Version Latest
+            $ErrorActionPreference = 'Stop'
+            $MutableTrackedState = @()
+            {_extract_function('Invoke-GitCapture')}
+            {_extract_function('Assert-PinnedRuntime')}
+            $script:GitExecutable = (Get-Command 'git.exe' -ErrorAction Stop).Source
+            $script:RuntimeRoot = '{_ps_quote(runtime)}'
+            $script:ConfigRoot = '{_ps_quote(config)}'
+            $result = @(Assert-PinnedRuntime)
+            if ($result.Count -ne 1) {{ throw "Expected one result, found $($result.Count)" }}
+            if ([string]$result[0].pinned_sha -ne '{sha}') {{ throw 'Wrong marker returned' }}
+            Write-Output 'ASSERT_PINNED_RUNTIME_SINGLE_MARKER_OK'
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = _run_powershell(harness)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == "ASSERT_PINNED_RUNTIME_SINGLE_MARKER_OK"
+
+
+def _run_cutover_simulation(tmp_path: Path, fail_task: str = "") -> dict:
+    harness = tmp_path / "simulate_cutover.ps1"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            Set-StrictMode -Version Latest
+            $ErrorActionPreference = 'Stop'
+            $ConfirmCutover = $true
+            $PipelineSpecs = @(
+                [pscustomobject]@{{ Id = 'premarket' }},
+                [pscustomobject]@{{ Id = 'postclose' }}
+            )
+            $SupersededTasks = @('Fixed Legacy One', 'Fixed Legacy Two')
+            $TaskNamePrefix = 'New V3 - '
+            $RetireTaskNamePrefix = 'New V2 - '
+            $script:RuntimeRoot = '{_ps_quote(tmp_path / "runtime")}'
+            $script:ConfigRoot = '{_ps_quote(tmp_path / "config")}'
+
+            {_extract_function('Get-SupersededTaskNames')}
+            {_extract_function('Invoke-Cutover')}
+
+            function New-FakeTask {{
+                param([string]$Name, [bool]$Enabled, [bool]$FailOnDisable = $false)
+                $task = [pscustomobject]@{{
+                    Name = $Name
+                    State = [pscustomobject]@{{ Value = $Enabled }}
+                    FailOnDisable = $FailOnDisable
+                }}
+                $task | Add-Member -MemberType ScriptProperty -Name Enabled -Value {{
+                    return [bool]$this.State.Value
+                }} -SecondValue {{
+                    param($value)
+                    if ($this.FailOnDisable -and -not [bool]$value) {{
+                        throw "simulated disable failure: $($this.Name)"
+                    }}
+                    $this.State.Value = [bool]$value
+                }}
+                return $task
+            }}
+
+            $tasks = @{{}}
+            foreach ($spec in $PipelineSpecs) {{
+                $name = $TaskNamePrefix + $spec.Id
+                $tasks[$name] = New-FakeTask -Name $name -Enabled $false
+            }}
+            $tasks['Fixed Legacy One'] = New-FakeTask -Name 'Fixed Legacy One' -Enabled $true
+            $tasks['Fixed Legacy Two'] = New-FakeTask -Name 'Fixed Legacy Two' -Enabled $false
+            foreach ($spec in $PipelineSpecs) {{
+                $name = $RetireTaskNamePrefix + $spec.Id
+                $tasks[$name] = New-FakeTask -Name $name -Enabled $true `
+                    -FailOnDisable ($name -eq '{fail_task.replace("'", "''")}')
+            }}
+            $root = [pscustomobject]@{{ Tasks = $tasks }}
+            $root | Add-Member -MemberType ScriptMethod -Name GetTask -Value {{
+                param($name)
+                if (-not $this.Tasks.ContainsKey($name)) {{ throw "missing task: $name" }}
+                return $this.Tasks[$name]
+            }}
+            $script:FakeScheduler = [pscustomobject]@{{ Root = $root }}
+
+            function Assert-Administrator {{}}
+            function Assert-EasternLocalClock {{}}
+            function Assert-PinnedRuntime {{ return [pscustomobject]@{{ pinned_sha = '0123456789abcdef' }} }}
+            function Connect-TaskScheduler {{ return $script:FakeScheduler }}
+            function Assert-RegisteredTaskDefinition {{ param($Task, $Spec, [string]$IdentitySid) }}
+            function Get-TaskOrNull {{
+                param($RootFolder, [string]$Name)
+                if ($RootFolder.Tasks.ContainsKey($Name)) {{ return $RootFolder.Tasks[$Name] }}
+                return $null
+            }}
+
+            $outcome = 'success'
+            $message = ''
+            try {{ $null = @(Invoke-Cutover) }}
+            catch {{ $outcome = 'failure'; $message = $_.Exception.Message }}
+            $states = @{{}}
+            foreach ($name in $tasks.Keys) {{ $states[$name] = [bool]$tasks[$name].Enabled }}
+            [pscustomobject]@{{ outcome = $outcome; message = $message; states = $states }} |
+                ConvertTo-Json -Depth 4 -Compress
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = _run_powershell(harness)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+@REQUIRES_WINDOWS_POWERSHELL
+def test_cutover_enables_new_prefix_and_disables_prior_prefix_and_fixed_tasks(tmp_path):
+    result = _run_cutover_simulation(tmp_path)
+    assert result["outcome"] == "success"
+    assert result["states"] == {
+        "New V3 - premarket": True,
+        "New V3 - postclose": True,
+        "New V2 - premarket": False,
+        "New V2 - postclose": False,
+        "Fixed Legacy One": False,
+        "Fixed Legacy Two": False,
+    }
+
+
+@REQUIRES_WINDOWS_POWERSHELL
+def test_cutover_failure_restores_both_new_and_superseded_enabled_states(tmp_path):
+    result = _run_cutover_simulation(tmp_path, fail_task="New V2 - postclose")
+    assert result["outcome"] == "failure"
+    assert "task enabled states were rolled back" in result["message"]
+    assert result["states"] == {
+        "New V3 - premarket": False,
+        "New V3 - postclose": False,
+        "New V2 - premarket": True,
+        "New V2 - postclose": True,
+        "Fixed Legacy One": True,
+        "Fixed Legacy Two": False,
+    }
 
 
 def test_automation_requirements_are_explicit():
