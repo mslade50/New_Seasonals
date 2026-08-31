@@ -33,7 +33,7 @@ permissions:
 # Checked-in operational pin. The local runtime marker, this controller's own
 # checkout, and every child workflow dispatch all resolve the same immutable tag.
 env:
-  AUTOMATION_RUNTIME_REF: automation-runtime-2026-08-31.1
+  AUTOMATION_RUNTIME_REF: automation-runtime-2026-08-31.2
 
 jobs:
   dispatch-missing:

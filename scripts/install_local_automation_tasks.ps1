@@ -130,8 +130,22 @@ function Assert-Administrator {
 
 function Invoke-GitCapture {
     param([Parameter(Mandatory = $true)][string[]]$Arguments, [switch]$AllowExitOne)
-    $output = (& $script:GitExecutable @Arguments 2>&1 | Out-String).Trim()
-    $code = $LASTEXITCODE
+    # Windows PowerShell 5.1 wraps native stderr in a non-terminating
+    # NativeCommandError. With the installer's global Stop preference, Git's
+    # normal progress messages (for example "Preparing worktree") otherwise
+    # abort a successful command before LASTEXITCODE can be inspected.
+    $priorErrorActionPreference = $ErrorActionPreference
+    $lines = @()
+    $code = 1
+    try {
+        $ErrorActionPreference = 'Continue'
+        $lines = @(& $script:GitExecutable @Arguments 2>&1)
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $priorErrorActionPreference
+    }
+    $output = ($lines | Out-String).Trim()
     if ($code -ne 0 -and -not ($AllowExitOne -and $code -eq 1)) {
         throw "Git command failed (exit $code): git $($Arguments -join ' ')`n$output"
     }
