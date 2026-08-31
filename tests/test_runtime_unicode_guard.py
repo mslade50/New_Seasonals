@@ -100,6 +100,29 @@ CONSOLE_METHODS = {
 
 NON_ASCII = re.compile(r"[^\x00-\x7f]")
 
+# Slack/Streamlit can render ASCII colon tokens as emoji. Underscored names
+# cover the prior ``chart_with_upwards_trend`` failure mode and most CLDR
+# aliases; the explicit set covers common one-word aliases in inline text.
+COMMON_EMOJI_SHORTCODES = {
+    "+1",
+    "-1",
+    "100",
+    "bell",
+    "bulb",
+    "checkmark",
+    "eyes",
+    "fire",
+    "heart",
+    "information",
+    "rocket",
+    "smile",
+    "star",
+    "tada",
+    "warning",
+    "x",
+    "zap",
+}
+
 UNATTENDED_TRANSITIVE_ENTRYPOINTS = {
     ROOT / "abs_return_dispersion.py",
     ROOT / "daily_pitch.py",
@@ -169,6 +192,26 @@ def _raw_emoji_hits(files: dict[Path, str]) -> list[str]:
     return hits
 
 
+def _decoded_codepoints(value: str) -> list[int]:
+    """Decode actual UTF-16 surrogate pairs left in parsed string values."""
+
+    codepoints: list[int] = []
+    index = 0
+    while index < len(value):
+        codepoint = ord(value[index])
+        if 0xD800 <= codepoint <= 0xDBFF and index + 1 < len(value):
+            low = ord(value[index + 1])
+            if 0xDC00 <= low <= 0xDFFF:
+                codepoints.append(
+                    0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00)
+                )
+                index += 2
+                continue
+        codepoints.append(codepoint)
+        index += 1
+    return codepoints
+
+
 def _python_decoded_literal_hits(files: dict[Path, str]) -> list[str]:
     hits: list[str] = []
     for path, text in files.items():
@@ -178,14 +221,13 @@ def _python_decoded_literal_hits(files: dict[Path, str]) -> list[str]:
         for node in ast.walk(tree):
             if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
                 continue
-            for match in NON_ASCII.finditer(node.value):
-                character = match.group()
-                if _is_emoji_component(character):
+            for codepoint in _decoded_codepoints(node.value):
+                if codepoint > 0x7F and _is_emoji_component(chr(codepoint)):
                     hits.append(
                         _format_hit(
                             path,
                             getattr(node, "lineno", 0),
-                            ord(character),
+                            codepoint,
                             "decoded Python literal",
                         )
                     )
@@ -227,7 +269,37 @@ def _escaped_codepoints(text: str) -> list[tuple[int, int]]:
     for match in re.finditer(r"&#(?:x([0-9A-Fa-f]+)|([0-9]+));", text):
         codepoint = int(match.group(1), 16) if match.group(1) else int(match.group(2))
         found.append((text.count("\n", 0, match.start()) + 1, codepoint))
+
+    # CSS escapes are a backslash plus one to six hex digits and optional
+    # terminating whitespace (for example ``content: \\1F4CA ``).
+    for match in re.finditer(r"\\([0-9A-Fa-f]{1,6})(?:[ \t\r\n\f])?", text):
+        found.append(
+            (text.count("\n", 0, match.start()) + 1, int(match.group(1), 16))
+        )
     return found
+
+
+def _emoji_shortcode_hits(files: dict[Path, str]) -> list[str]:
+    hits: list[str] = []
+    # Double-colon GitHub workflow annotations such as ``::warning::`` are
+    # control syntax, not rendered emoji shortcodes.
+    token = re.compile(
+        r"(?<![:A-Za-z0-9]):([A-Za-z0-9_+-]{1,64}):(?!:)"
+    )
+    exact_quoted = re.compile(r"(['\"]):([A-Za-z0-9_+-]{1,64}):\1")
+    for path, text in files.items():
+        exact_positions = {match.start(2) - 1 for match in exact_quoted.finditer(text)}
+        for match in token.finditer(text):
+            name = match.group(1).lower()
+            if (
+                match.start() not in exact_positions
+                and "_" not in name
+                and name not in COMMON_EMOJI_SHORTCODES
+            ):
+                continue
+            line = text.count("\n", 0, match.start()) + 1
+            hits.append(f"{path.relative_to(ROOT)}:{line}:shortcode :{name}:")
+    return hits
 
 
 def _web_decoded_escape_hits(files: dict[Path, str]) -> list[str]:
@@ -310,6 +382,7 @@ def test_tracked_runtime_text_has_no_literal_or_escaped_emoji_components():
         *_raw_emoji_hits(files),
         *_python_decoded_literal_hits(files),
         *_web_decoded_escape_hits(files),
+        *_emoji_shortcode_hits(files),
     ]
 
     assert not hits, "Emoji components remain in tracked runtime text:\n" + "\n".join(
@@ -327,6 +400,25 @@ def test_guard_decodes_python_and_web_unicode_escape_forms():
     web_path = ROOT / "synthetic_web_escape.js"
     web_source = r'const icon = "\uD83D\uDCCA";'
     assert "U+1F4CA" in "\n".join(_web_decoded_escape_hits({web_path: web_source}))
+
+    surrogate_source = 'PAGE_ICON = "' + "\\uD83D\\uDCCA" + '"'
+    assert "U+1F4CA" in "\n".join(
+        _python_decoded_literal_hits({python_path: surrogate_source})
+    )
+
+    css_path = ROOT / "synthetic_escape.css"
+    css_source = "content: " + "\\" + "1F4CA "
+    assert "U+1F4CA" in "\n".join(
+        _web_decoded_escape_hits({css_path: css_source})
+    )
+
+
+def test_guard_detects_rendered_ascii_emoji_shortcodes():
+    path = ROOT / "synthetic_shortcode.py"
+    source = 'page_icon=":' + "chart_with_upwards_trend" + ':"'
+    hits = _emoji_shortcode_hits({path: source})
+    assert len(hits) == 1
+    assert "chart_with_upwards_trend" in hits[0]
 
 
 def test_unattended_production_console_and_log_literals_are_ascii_only():

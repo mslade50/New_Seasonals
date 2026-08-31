@@ -241,7 +241,9 @@ def test_pinned_runtime_returns_only_the_marker_when_validator_writes_stdout(tmp
     assert result.stdout.strip() == "ASSERT_PINNED_RUNTIME_SINGLE_MARKER_OK"
 
 
-def _run_cutover_simulation(tmp_path: Path, fail_task: str = "") -> dict:
+def _run_cutover_simulation(
+    tmp_path: Path, fail_task: str = "", active_task: str = ""
+) -> dict:
     harness = tmp_path / "simulate_cutover.ps1"
     harness.write_text(
         textwrap.dedent(
@@ -260,23 +262,30 @@ def _run_cutover_simulation(tmp_path: Path, fail_task: str = "") -> dict:
             $script:ConfigRoot = '{_ps_quote(tmp_path / "config")}'
 
             {_extract_function('Get-SupersededTaskNames')}
+            {_extract_function('Assert-TaskIdle')}
             {_extract_function('Invoke-Cutover')}
 
             function New-FakeTask {{
-                param([string]$Name, [bool]$Enabled, [bool]$FailOnDisable = $false)
+                param(
+                    [string]$Name,
+                    [bool]$Enabled,
+                    [bool]$FailOnDisable = $false,
+                    [int]$RuntimeState = 3
+                )
                 $task = [pscustomobject]@{{
                     Name = $Name
-                    State = [pscustomobject]@{{ Value = $Enabled }}
+                    State = $RuntimeState
+                    EnabledState = [pscustomobject]@{{ Value = $Enabled }}
                     FailOnDisable = $FailOnDisable
                 }}
                 $task | Add-Member -MemberType ScriptProperty -Name Enabled -Value {{
-                    return [bool]$this.State.Value
+                    return [bool]$this.EnabledState.Value
                 }} -SecondValue {{
                     param($value)
                     if ($this.FailOnDisable -and -not [bool]$value) {{
                         throw "simulated disable failure: $($this.Name)"
                     }}
-                    $this.State.Value = [bool]$value
+                    $this.EnabledState.Value = [bool]$value
                 }}
                 return $task
             }}
@@ -284,14 +293,18 @@ def _run_cutover_simulation(tmp_path: Path, fail_task: str = "") -> dict:
             $tasks = @{{}}
             foreach ($spec in $PipelineSpecs) {{
                 $name = $TaskNamePrefix + $spec.Id
-                $tasks[$name] = New-FakeTask -Name $name -Enabled $false
+                $tasks[$name] = New-FakeTask -Name $name -Enabled $false `
+                    -RuntimeState $(if ($name -eq '{active_task.replace("'", "''")}') {{ 4 }} else {{ 3 }})
             }}
-            $tasks['Fixed Legacy One'] = New-FakeTask -Name 'Fixed Legacy One' -Enabled $true
-            $tasks['Fixed Legacy Two'] = New-FakeTask -Name 'Fixed Legacy Two' -Enabled $false
+            $tasks['Fixed Legacy One'] = New-FakeTask -Name 'Fixed Legacy One' -Enabled $true `
+                -RuntimeState $(if ('Fixed Legacy One' -eq '{active_task.replace("'", "''")}') {{ 4 }} else {{ 3 }})
+            $tasks['Fixed Legacy Two'] = New-FakeTask -Name 'Fixed Legacy Two' -Enabled $false `
+                -RuntimeState $(if ('Fixed Legacy Two' -eq '{active_task.replace("'", "''")}') {{ 4 }} else {{ 3 }})
             foreach ($spec in $PipelineSpecs) {{
                 $name = $RetireTaskNamePrefix + $spec.Id
                 $tasks[$name] = New-FakeTask -Name $name -Enabled $true `
-                    -FailOnDisable ($name -eq '{fail_task.replace("'", "''")}')
+                    -FailOnDisable ($name -eq '{fail_task.replace("'", "''")}') `
+                    -RuntimeState $(if ($name -eq '{active_task.replace("'", "''")}') {{ 4 }} else {{ 3 }})
             }}
             $root = [pscustomobject]@{{ Tasks = $tasks }}
             $root | Add-Member -MemberType ScriptMethod -Name GetTask -Value {{
@@ -349,6 +362,23 @@ def test_cutover_failure_restores_both_new_and_superseded_enabled_states(tmp_pat
     result = _run_cutover_simulation(tmp_path, fail_task="New V2 - postclose")
     assert result["outcome"] == "failure"
     assert "task enabled states were rolled back" in result["message"]
+    assert result["states"] == {
+        "New V3 - premarket": False,
+        "New V3 - postclose": False,
+        "New V2 - premarket": True,
+        "New V2 - postclose": True,
+        "Fixed Legacy One": True,
+        "Fixed Legacy Two": False,
+    }
+
+
+@REQUIRES_WINDOWS_POWERSHELL
+def test_cutover_refuses_to_mutate_when_a_superseded_task_is_running(tmp_path):
+    result = _run_cutover_simulation(
+        tmp_path, active_task="New V2 - premarket"
+    )
+    assert result["outcome"] == "failure"
+    assert "requires every task to be idle" in result["message"]
     assert result["states"] == {
         "New V3 - premarket": False,
         "New V3 - postclose": False,

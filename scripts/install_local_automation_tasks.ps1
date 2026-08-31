@@ -208,6 +208,20 @@ function Get-TaskOrNull {
     }
 }
 
+function Assert-TaskIdle {
+    param(
+        [Parameter(Mandatory = $true)]$Task,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    # TASK_STATE_QUEUED=2 and TASK_STATE_RUNNING=4. Disabling a task does not
+    # stop an existing instance, so crossing either state during cutover could
+    # leave old and new writers active at the same time.
+    $state = [int]$Task.State
+    if ($state -eq 2 -or $state -eq 4) {
+        throw "Cutover requires every task to be idle; $Label is queued or running (state=$state)"
+    }
+}
+
 function Quote-TaskArgument {
     param([string]$Value)
     if ($Value.Contains('"')) { throw 'Task arguments may not contain a double quote' }
@@ -394,6 +408,20 @@ function Invoke-Cutover {
             present = ($null -ne $task)
             enabled = if ($null -ne $task) { [bool]$task.Enabled } else { $false }
         }
+    }
+
+    # Re-read and gate every task immediately before the first enabled-state
+    # mutation. This deliberately narrows the race after the definition and
+    # state snapshots above; the receipt contract remains the second line of
+    # defense if Windows changes state after this check.
+    foreach ($entry in $newTaskState) {
+        $current = $scheduler.Root.GetTask($entry.name)
+        Assert-TaskIdle -Task $current -Label "new task $($entry.name)"
+    }
+    foreach ($entry in $supersededState) {
+        if (-not $entry.present) { continue }
+        $current = $scheduler.Root.GetTask($entry.name)
+        Assert-TaskIdle -Task $current -Label "superseded task $($entry.name)"
     }
     $stateDir = Join-Path $script:RuntimeRoot 'artifacts\automation'
     New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
