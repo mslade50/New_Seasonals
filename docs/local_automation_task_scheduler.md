@@ -12,14 +12,17 @@ scheduler change is merged and verified on `origin/main`:
 
 ```powershell
 $repo = 'C:\Users\McKinley Slade\dev\New_Seasonals'
-$runtime = 'C:\Users\McKinley Slade\dev\New_Seasonals-automation-runtime'
-$fallbackTag = 'automation-runtime-2026-08-28.2'
+$runtime = 'C:\Users\McKinley Slade\dev\New_Seasonals-automation-runtime-v3'
+$fallbackTag = 'automation-runtime-2026-08-31.1'
+$runtimeBranch = 'codex/local-primary-runtime-v3'
+$taskPrefix = 'New Seasonals Local v3 - '
+$retirePrefix = 'New Seasonals Local - '
 git -C $repo fetch origin main
 $sha = git -C $repo rev-parse origin/main
 
-& "$repo\scripts\install_local_automation_tasks.ps1" -Phase Prepare -SourceRepository $repo -PinnedSha $sha -FallbackRef $fallbackTag
-& "$repo\scripts\install_local_automation_tasks.ps1" -Phase RegisterDisabled -SourceRepository $repo
-& "$repo\scripts\install_local_automation_tasks.ps1" -Phase Status -SourceRepository $repo
+& "$repo\scripts\install_local_automation_tasks.ps1" -Phase Prepare -SourceRepository $repo -RuntimeRoot $runtime -ConfigRoot $repo -PinnedSha $sha -FallbackRef $fallbackTag -RuntimeBranch $runtimeBranch -TaskNamePrefix $taskPrefix -RetireTaskNamePrefix $retirePrefix
+& "$repo\scripts\install_local_automation_tasks.ps1" -Phase RegisterDisabled -SourceRepository $repo -RuntimeRoot $runtime -ConfigRoot $repo -TaskNamePrefix $taskPrefix -RetireTaskNamePrefix $retirePrefix
+& "$repo\scripts\install_local_automation_tasks.ps1" -Phase Status -SourceRepository $repo -RuntimeRoot $runtime -ConfigRoot $repo -TaskNamePrefix $taskPrefix -RetireTaskNamePrefix $retirePrefix
 ```
 
 The fallback tag must already exist on `origin` and resolve to exactly the
@@ -57,25 +60,25 @@ The operational worktree marks only the explicit generated-state allowlist
 Those files are runtime data published to R2; all code and reference inputs
 remain covered by the clean pinned-SHA guard.
 
-Only the explicit cutover phase enables the seven local tasks and disables the
-four legacy GitHub-dispatch tasks plus the superseded `Repo Health Check`
-entry. The new pinned `health` task replaces that malformed legacy action. The
-installer never deletes or overwrites a Task Scheduler entry:
+Only the explicit cutover phase enables the seven new local tasks and disables
+the prior local prefix, the legacy GitHub-dispatch tasks, and the superseded
+`Repo Health Check` entry. The new pinned `health` task replaces that malformed
+legacy action. The installer never deletes or overwrites a Task Scheduler
+entry:
 
 ```powershell
-& "$repo\scripts\install_local_automation_tasks.ps1" -Phase Cutover -SourceRepository $repo -ConfirmCutover
-& "$repo\scripts\install_local_automation_tasks.ps1" -Phase Status -SourceRepository $repo
+& "$repo\scripts\install_local_automation_tasks.ps1" -Phase Cutover -SourceRepository $repo -RuntimeRoot $runtime -ConfigRoot $repo -TaskNamePrefix $taskPrefix -RetireTaskNamePrefix $retirePrefix -ConfirmCutover
+& "$repo\scripts\install_local_automation_tasks.ps1" -Phase Status -SourceRepository $repo -RuntimeRoot $runtime -ConfigRoot $repo -TaskNamePrefix $taskPrefix -RetireTaskNamePrefix $retirePrefix
 ```
 
 Run cutover outside a scheduled window. Its pre-change legacy enabled states
 are recorded under `artifacts/automation/cutover-state.json` in the runtime
 worktree. If any enable/disable operation fails, the installer automatically
 restores both task sets to their pre-cutover enabled states and fails loud.
-Code upgrades are also explicit. Do not mutate the pinned runtime under an
-active task set. This installer intentionally does not implement an in-place
-upgrade or disable a previously installed local-primary prefix; a future
-upgrade must use a separately reviewed handoff that snapshots and rolls back
-both local task sets before either can become a writer.
+Code upgrades are also explicit. Do not mutate a pinned runtime under an active
+task set. Prepare and register a separate versioned runtime/prefix, then pass
+the prior prefix through `-RetireTaskNamePrefix`; cutover snapshots and rolls
+back both local task sets before either can be left in a partial writer state.
 
 ## Receipt and fallback contract
 

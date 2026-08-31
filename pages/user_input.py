@@ -520,12 +520,12 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
     st.divider()
     
     if enable_time_travel:
-        st.subheader(f"📜 Historical Returns (Pre-{reference_year})")
+        st.subheader(f"[HISTORY] Historical Returns (Pre-{reference_year})")
         st.caption(f"Stats exclude {reference_year} and later. Forward returns in ATR units. "
                    f"Recency weighting: {half_life}yr half-life.")
         cutoff_year = reference_year
     else:
-        st.subheader(f"📜 Historical Returns (Pre-{current_year})")
+        st.subheader(f"[HISTORY] Historical Returns (Pre-{current_year})")
         st.caption(f"Stats exclude {current_year}. Forward returns in ATR units. "
                    f"Recency weighting: {half_life}yr half-life.")
         cutoff_year = current_year
@@ -556,7 +556,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
                 highlight_years = []
 
             # --- STATS ---
-            st.markdown(f"##### 🎯 Fwd Return Statistics (ATR units)")
+            st.markdown(f"##### [TARGET] Fwd Return Statistics (ATR units)")
 
             def calculate_stats_row(sub_df):
                 if sub_df.empty:
@@ -651,7 +651,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
 
         if modern_cycle_years:
             st.divider()
-            st.subheader(f"📈 {cycle_label} Years Since 2000 (Cumulative ATR)")
+            st.subheader(f"[UP] {cycle_label} Years Since 2000 (Cumulative ATR)")
 
             fig2 = go.Figure()
             palette = ["#FF8C00", "#00FFFF", "#FCD12A", "#FF4DFF", "#87CEFA",
@@ -743,7 +743,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
 
                 if mae_rows:
                     mae_df = pd.DataFrame(mae_rows).sort_values("MAE (ATR)", ascending=True).reset_index(drop=True)
-                    st.markdown(f"##### 🎯 Path Similarity — MAE vs {current_year} YTD (lower = closer match)")
+                    st.markdown(f"##### [TARGET] Path Similarity — MAE vs {current_year} YTD (lower = closer match)")
                     mae_styler = mae_df.style.format({
                         "Year": "{:.0f}",
                         "MAE (ATR)": "{:.3f}",
@@ -759,7 +759,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
     # -------------------------------------------------------------------------
     if day_count_marker is not None:
         st.divider()
-        st.subheader("🗓️ Cycle-Year Analogs — Actual Dates & Forward ATR Performance")
+        st.subheader("[CALENDAR] Cycle-Year Analogs — Actual Dates & Forward ATR Performance")
 
         if cycle_label != "All Years":
             cstart = cycle_start_mapping[cycle_label]
@@ -846,7 +846,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
 # -----------------------------------------------------------------------------
 def main():
     st.set_page_config(layout="wide", page_title="Seasonality Analysis")
-    st.title("📊 Presidential Cycle Seasonality")
+    st.title("[STATS] Presidential Cycle Seasonality")
 
     col1, col2, col3, col4 = st.columns([1, 1, 1.5, 1])
     

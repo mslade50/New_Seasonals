@@ -472,7 +472,7 @@ st.subheader("Comparison Metrics")
 if use_mtm:
     st.caption("Equity curve uses daily mark-to-market (matches Strategy Backtester methodology).")
 else:
-    st.caption("⚠️ Stair-step equity (realized PnL on exit dates). Re-run the Strategy Backtester to generate `data/backtest_closes.parquet` for daily MTM.")
+    st.caption("[WARN] Stair-step equity (realized PnL on exit dates). Re-run the Strategy Backtester to generate `data/backtest_closes.parquet` for daily MTM.")
 
 baseline_total_return = (baseline_eq.iloc[-1] / starting_equity - 1) * 100
 test_total_return = (test_eq.iloc[-1] / starting_equity - 1) * 100

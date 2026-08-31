@@ -2756,7 +2756,7 @@ def main():
                     help="Randomly drawn from sznl_ranks.csv (overflow universe), excluding tickers already in the All CSV base. Sample persists across backtests in this session so the cache stays warm — click Reshuffle to regenerate.",
                 )
             with ex_c2:
-                reshuffle = st.button("🎲 Reshuffle", help="Generate a new random sample from the overflow pool")
+                reshuffle = st.button("[RESHUFFLE] Reshuffle", help="Generate a new random sample from the overflow pool")
 
             # Build / refresh the sample. Cached in session_state so repeated backtests
             # hit the same ticker list (and thus the same @st.cache_data key).
@@ -2792,7 +2792,7 @@ def main():
     st.write("")
     use_full_history = st.checkbox("Download Full History (1950+) for Accurate 'Age'", value=False)
     use_master_parquet = st.checkbox(
-        "📦 Use master parquet (opt-in) — read OHLCV from data/master_prices.parquet instead of yfinance",
+        "[CACHE] Use master parquet (opt-in) — read OHLCV from data/master_prices.parquet instead of yfinance",
         value=False,
         help=(
             "Off by default: legacy yfinance behavior is preserved exactly. "
@@ -2802,7 +2802,7 @@ def main():
         ),
     )
     include_dynamic_overflow = st.checkbox(
-        "🌊 Also run the comprehensive Overflow universe alongside the selected universe",
+        "[OVERFLOW] Also run the comprehensive Overflow universe alongside the selected universe",
         value=False,
         help=(
             "Unions the comprehensive overflow universe (dynamic screen ∪ legacy static tier, "
@@ -2945,7 +2945,7 @@ def main():
                 disabled=not use_take_profit,
             )
             if use_partial_exits and not use_take_profit:
-                st.caption("⚠ Requires a profit target (change Exit Mode).")
+                st.caption("[WARN] Requires a profit target (change Exit Mode).")
         with pe_c2:
             partial_target_fraction = st.slider(
                 "Fraction exiting at target",
@@ -3765,7 +3765,7 @@ def main():
             tickers_to_run = load_overflow_universe_full(
                 static_fallback=_OVERFLOW_STATIC_TIER, respect_active=False
             )
-            st.info(f"🌊 Overflow (comprehensive): **{len(tickers_to_run)}** names "
+            st.info(f"[OVERFLOW] Overflow (comprehensive): **{len(tickers_to_run)}** names "
                     "(dynamic screen ∪ legacy static tier). "
                     "Prices read from master_prices ∪ overflow_prices; earnings from "
                     "production ∪ overflow staging; ATR-seasonal ranks from atr_seasonal_ranks.parquet. "
@@ -3778,7 +3778,7 @@ def main():
             _comp = load_overflow_universe_full(static_fallback=_OVERFLOW_STATIC_TIER, respect_active=False)
             _static_norm = {str(t).upper().replace('.', '-') for t in _OVERFLOW_STATIC_TIER}
             tickers_to_run = [t for t in _comp if t not in _static_norm]
-            st.info(f"🧪 OOS: **{len(tickers_to_run)}** out-of-sample names "
+            st.info(f"[OOS] OOS: **{len(tickers_to_run)}** out-of-sample names "
                     "(dynamic overflow screen minus the legacy static tier — never in the old universe). "
                     "Prices from master_prices ∪ overflow_prices; earnings from production ∪ overflow staging. "
                     "Caveats: survivorship (today's screen across history); recent IPOs may lack ATR-seasonal "
@@ -3808,7 +3808,7 @@ def main():
             _seen = {str(t).upper() for t in tickers_to_run}
             _dyn_overflow_add = [t for t in _dyn if str(t).upper() not in _seen]
             tickers_to_run = list(tickers_to_run) + _dyn_overflow_add
-            st.info(f"🌊 Unioned Overflow (comprehensive): +{len(_dyn_overflow_add)} new names "
+            st.info(f"[OVERFLOW] Unioned Overflow (comprehensive): +{len(_dyn_overflow_add)} new names "
                     f"on top of {univ_choice} (**{len(tickers_to_run)}** total to run).")
         if not tickers_to_run: st.error("No tickers found."); return
         fetch_start = "1950-01-01" if use_full_history else start_date - datetime.timedelta(days=365)
@@ -3899,7 +3899,7 @@ def main():
                     col = f'rank_ret_{window}d'
                     if col in ref_df_calc.columns:
                         ref_ticker_ranks[window] = ref_df_calc[col]
-                st.success(f"✓ Reference ticker {ref_ticker_input} loaded with {len(ref_df_calc)} rows")
+                st.success(f"PASS Reference ticker {ref_ticker_input} loaded with {len(ref_df_calc)} rows")
             else:
                 st.warning(f"Could not load data for reference ticker {ref_ticker_input}. Filter will be skipped.")
         
@@ -4018,7 +4018,7 @@ def main():
                 else:
                     _cond_str = f"offset {earnings_logic} {earnings_value}"
                 st.info(
-                    f"📅 Earnings filter active ({_cond_str} trading days from "
+                    f"[DATE] Earnings filter active ({_cond_str} trading days from "
                     f"earnings): {_n_tkrs} tickers, {_n_rows:,} earnings dates loaded."
                 )
             params['earnings_map'] = earnings_map
@@ -4049,7 +4049,7 @@ def main():
                         ('use_rev_yoy_filter',  'Rev YoY'),
                     ] if params.get(k, False)
                 ]
-                st.info(f"📈 Earnings-quality filters active ({', '.join(_active)}): "
+                st.info(f"[UP] Earnings-quality filters active ({', '.join(_active)}): "
                         f"{len(metrics_map)} tickers loaded.")
             params['earnings_metrics_map'] = metrics_map
 
@@ -4064,7 +4064,7 @@ def main():
             else:
                 _n_evt = sum(len(v) for v in grades_map.values())
                 st.info(
-                    f"🏷️ Analyst grades filter active ({grades_logic} {grades_thresh} "
+                    f"[TAG] Analyst grades filter active ({grades_logic} {grades_thresh} "
                     f"net upgrades over {grades_window_days}d): "
                     f"{len(grades_map)} tickers, {_n_evt:,} events loaded."
                 )
@@ -4090,7 +4090,7 @@ def main():
             if _split_used:
                 _n_of = int(trades_df['IsOverflow'].sum())
                 st.info(
-                    f"📐 Variable sizing active: {len(trades_df) - _n_of} liquid trades @ {risk_bps_input} bps · "
+                    f"[ANALYSIS] Variable sizing active: {len(trades_df) - _n_of} liquid trades @ {risk_bps_input} bps · "
                     f"{_n_of} overflow trades @ {overflow_bps_input} bps."
                 )
 

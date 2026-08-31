@@ -278,27 +278,27 @@ The dashboard measures **susceptibility to regime change**, not prediction. Anal
 │  -1.2% from high    "Strong uptrend, moderately  │
 │                       extended"                   │
 ├──────────────────────────────────────────────────┤
-│  Since last session: 🔴 Vol Compression activated │
+|  Since last session: [ALERT] Vol Compression activated |
 ├───────────────────────────────────┬──────────────┤
 │  THREE QUESTIONS                  │  RISK DIAL   │
 │                                   │  [gauge 0-100]│
-│  💧 Is liquidity real?   CLEAR   │  "2 of 8     │
-│    🟢 Vol Suppression             │   signals    │
-│    🟢 VRP Compression             │   active"    │
+|  Is liquidity real?   CLEAR      |  "2 of 8     |
+|    [CLEAR] Vol Suppression        |   signals    |
+|    [CLEAR] VRP Compression        |   active"    |
 │                                   │              │
-│  👥 Is everyone on the same side? │              │
+|  Is everyone on the same side?    |              |
 │     WATCH                         │              │
-│    🟢 Breadth Divergence          │              │
-│    🔴 Extended Calm               │              │
+|    [CLEAR] Breadth Divergence     |              |
+|    [ALERT] Extended Calm          |              |
 │      Days since 5%: 187 (82nd)...│              │
-│    🔴 Vol Compression             │              │
+|    [ALERT] Vol Compression        |              |
 │      RV below median 73 days...  │              │
 │                                   │              │
-│  🔗 Are correlations stable?     │              │
+|  Are correlations stable?         |              |
 │     CLEAR                         │              │
-│    🟢 Credit-Equity Divergence    │              │
-│    🟢 Rates-Equity Vol Gap        │              │
-│    🟢 Vol Uncertainty             │              │
+|    [CLEAR] Credit-Equity Divergence |            |
+|    [CLEAR] Rates-Equity Vol Gap     |            |
+|    [CLEAR] Vol Uncertainty          |            |
 ├───────────────────────────────────┴──────────────┤
 │  IF CONDITIONS DETERIORATE: (only when 2+ active)│
 │  [Vol Compression] [Calm Streak]  [Potential     │

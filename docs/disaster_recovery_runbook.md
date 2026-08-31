@@ -1,9 +1,9 @@
-# 🚨 DISASTER RECOVERY RUNBOOK
+# DISASTER RECOVERY RUNBOOK
 ### "The System is Down — What Do I Do?"
 
 **Print this page. Keep it at your desk. It should NOT live only in the GitHub repo.**
 
-Last updated: 2026-08-27
+Last updated: 2026-08-31
 
 ---
 
@@ -16,8 +16,8 @@ private/shared site deploys are unavailable until GitHub recovers; the prior
 site deployment remains live.
 
 **Recovery:**
-1. Check the `New Seasonals Local - *` Task Scheduler entries and pinned-runtime
-   logs under `New_Seasonals-automation-runtime\artifacts\automation\logs`.
+1. Check the `New Seasonals Local v3 - *` Task Scheduler entries and pinned-runtime
+   logs under `New_Seasonals-automation-runtime-v3\artifacts\automation\logs`.
 2. Do not repoint tasks to the development checkout. The pinned operational
    worktree is fully functional without GitHub after installation.
 3. Signals still email and write Google Sheets as long as R2, Google, SMTP, and

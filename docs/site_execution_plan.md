@@ -28,16 +28,16 @@ broker + a UI, and turning the batch flow on-demand.
 ```
  trading machine (local)            Cloudflare                     browser (you)
  ────────────────────────           ───────────────────           ──────────────
- local agent  ──outbound wss──▶  Durable Object "ExecBroker"  ◀──  site (Access)
+ local agent  --outbound wss-->  Durable Object "ExecBroker"  <--  site (Access)
    • ib_insync to TWS/GW             • holds the agent WS (hibernation)
    • validates + executes            • command queue + order state
    • heartbeat                       • audit log
-   • read-only summaries     ──▶  R2 (morning_orders.json, audit)  ──▶ Pages Fn ─▶ site
+   * read-only summaries     -->  R2 (morning_orders.json, audit)  --> Pages Fn --> site
 ```
 
 - **Local → Cloudflare is outbound only** (a WebSocket the agent dials out, plus
   R2 uploads). No firewall holes, no inbound exposure.
-- **Site ↔ Cloudflare** through a Worker / Pages Functions, gated by Cloudflare
+- **Site <-> Cloudflare** through a Worker / Pages Functions, gated by Cloudflare
   Access (already configured: email OTP, allowlist).
 - **R2** holds durable read-only artifacts (the morning summary, the audit log).
 - A **Durable Object** holds the live agent connection + command queue + state

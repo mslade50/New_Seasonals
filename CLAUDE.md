@@ -951,7 +951,7 @@ a reject that leaves a live order is the worst failure mode. Guards:
 **Visibility + journal (2026-08-21, after the first live trade — V4 SVXY —
 surprised McKinley as "a random order")**: four surfaces now show the sleeve.
 (1) The AM scan email's per-trade cards (status + rule + prereg evidence,
-pre-existing) plus a NEW subject-line flag ("+ 📅 EVENT: V4 SVXY") whenever a
+pre-existing) plus a NEW subject-line flag ("+ [EVENT] V4 SVXY") whenever a
 card is staged today, so an auction order is never below the fold. (2) The
 nightly execution report attributes untagged positions to "Event Sleeve (V4)"
 via `event_sleeve_state.json` (event orders are parent-only — no exit legs, so
@@ -1608,7 +1608,7 @@ strategies are untouched. Aligned sites (change together):
   exploration surface, deliberately separate from the prod-locked rule).
 - Regression coverage: `tests/test_olv_fill_window.py` (backtest engine);
   the live date math is validated by the entry-expire chain (daily_scan exit-date
-  build ↔ order_staging back-computation, identical `CustomBusinessDay` calendar).
+  build <-> order_staging back-computation, identical `CustomBusinessDay` calendar).
 
 ## Local-primary Automation + Cloudflare R2 (effective 2026-08-28)
 

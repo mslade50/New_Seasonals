@@ -45,7 +45,7 @@ import cache_io  # noqa: E402
 
 STATE_PATH = ROOT / "data" / "health_check_state.json"
 _DEFAULT_AUTOMATION_RUNTIME = (
-    ROOT if ROOT.name == "New_Seasonals-automation-runtime"
+    ROOT if (ROOT / ".local" / "automation-runtime.json").is_file()
     else ROOT.parent / "New_Seasonals-automation-runtime"
 )
 AUTOMATION_STATE_ROOT = Path(os.environ.get(

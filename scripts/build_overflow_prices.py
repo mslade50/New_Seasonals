@@ -83,7 +83,7 @@ def load_candidates() -> list:
 
 def master_ticker_set() -> set:
     if not os.path.exists(MASTER_PRICES_PATH):
-        print("  note: master_prices.parquet not found locally — treating all "
+        print("  note: master_prices.parquet not found locally - treating all "
               "candidates as new (pull it from R2 first to avoid re-fetching).")
         return set()
     df = pd.read_parquet(MASTER_PRICES_PATH, columns=["ticker"])
@@ -176,7 +176,7 @@ def main() -> None:
         _fetch(to_backfill, args.backfill_start)
 
     if not frames:
-        print("Nothing fetched — aborting write.")
+        print("Nothing fetched - aborting write.")
         return
 
     combined = pd.concat(frames, ignore_index=True)

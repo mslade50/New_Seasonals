@@ -59,25 +59,25 @@ async function initOrders() {
 function verdict(o) {
   const st = o.entry_state;
   const miss = (o.missing || []).join(", ");
-  if (st === "missing")   return ["bad",  "&#9940; ENTRY NOT WORKING"];
-  if (st === "cancelled") return ["bad",  `&#9940; ENTRY ${esc(String(o.entry_status || "").toUpperCase())}`];
+  if (st === "missing")   return ["bad",  "[BLOCKED] ENTRY NOT WORKING"];
+  if (st === "cancelled") return ["bad",  `[BLOCKED] ENTRY ${esc(String(o.entry_status || "").toUpperCase())}`];
   if (st === "filled")    return (o.missing || []).length
-                                 ? ["bad",  `&#9888; FILLED &mdash; missing: ${esc(miss)}`]
-                                 : ["info", `&#9989; FILLED &middot; ${o.n_exp} exits live`];
-  if ((o.missing || []).length) return ["bad", `&#9888; missing: ${esc(miss)}`];
-  return ["ok", `&#9989; all ${o.n_exp} legs`];
+                                 ? ["bad",  `[WARN] FILLED &mdash; missing: ${esc(miss)}`]
+                                 : ["info", `[OK] FILLED &middot; ${o.n_exp} exits live`];
+  if ((o.missing || []).length) return ["bad", `[WARN] missing: ${esc(miss)}`];
+  return ["ok", `[OK] all ${o.n_exp} legs`];
 }
 
 function accountSection(acc) {
   if (acc.error && !(acc.orders || []).length) {
-    return `<h2>${esc(acc.label)}</h2>` + banner("warn", `&#9888; ${esc(acc.error)}`);
+    return `<h2>${esc(acc.label)}</h2>` + banner("warn", `[WARN] ${esc(acc.error)}`);
   }
   const orders = acc.orders || [];
   const tone = acc.problems === 0 ? "ok" : "bad";
   const filledNote = acc.filled ? ` (${acc.filled} already filled)` : "";
   const bnr = acc.problems === 0
-    ? `&#9989; All ${acc.n} order(s) placed with every expected exit leg${filledNote}.`
-    : `&#9888; ${acc.problems} of ${acc.n} order(s) need attention.`;
+    ? `[OK] All ${acc.n} order(s) placed with every expected exit leg${filledNote}.`
+    : `[WARN] ${acc.problems} of ${acc.n} order(s) need attention.`;
 
   const rows = orders.map(o => {
     const [vt, vtxt] = verdict(o);

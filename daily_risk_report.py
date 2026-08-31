@@ -692,7 +692,7 @@ def send_email(subject, html_content, dial_path, overlay_path, pdf_path=None):
     receiver_email = "mckinleyslade@gmail.com"
 
     if not sender_email or not sender_password:
-        print("  EMAIL_USER / EMAIL_PASS not set — skipping send")
+        print("  EMAIL_USER / EMAIL_PASS not set - skipping send")
         print(f"  Subject: {subject}")
         return False
 
@@ -757,7 +757,7 @@ def main():
 
     print("=" * 60)
     print("DAILY RISK REPORT"
-          + (" — DATA-ONLY" if args.data_only else "")
+          + (" - DATA-ONLY" if args.data_only else "")
           + (f" (refresh-last from {refresh_from.date()})" if refresh_from is not None else ""))
     print(f"  {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
@@ -895,7 +895,7 @@ def main():
                 print(f"  Cached simple-dial shadow ({len(simple_out)} rows; "
                       f"{frozen_note}; n_signals={simple_raw.attrs.get('n_signals')})")
         except Exception as e:
-            print(f"  WARNING: simple-dial shadow failed ({e}) — continuing")
+            print(f"  WARNING: simple-dial shadow failed ({e}) - continuing")
 
         # Dial-gated SPY sleeve paper track (prereg gate 2) — evaluates the
         # frozen entry/exit spec against the parquet just appended. Paper
@@ -915,7 +915,7 @@ def main():
                 sleeve_save(sleeve_state)
                 print(f"  {sleeve_summary(sleeve_state)}")
         except Exception as e:
-            print(f"  WARNING: sleeve paper track failed ({e}) — continuing")
+            print(f"  WARNING: sleeve paper track failed ({e}) - continuing")
 
     # Save environment snapshot (price context + h_scores + signal summaries)
     env_snapshot = {

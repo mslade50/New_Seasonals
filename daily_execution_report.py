@@ -78,7 +78,7 @@ def cron_should_send(cron: str, now: datetime) -> bool:
     # Unrecognized cron (workflow edited without updating the constants):
     # send rather than silently drop — a duplicate email is visible, a
     # missing one is not.
-    print(f"WARNING: unrecognized cron {cron!r} — sending anyway.")
+    print(f"WARNING: unrecognized cron {cron!r} - sending anyway.")
     return True
 
 
@@ -142,11 +142,11 @@ def reconcile_trend(state: dict, positions: list[dict]) -> list[str]:
             import pandas as pd
             execute_on = (pd.Timestamp(gen) + TRADING_DAY).normalize()
             if pd.Timestamp(et_now().date()) < execute_on:
-                print(f"NOTE: trend reconciliation skipped — state generated {gen}, "
+                print(f"NOTE: trend reconciliation skipped - state generated {gen}, "
                       f"Execute_On {execute_on.date()} not reached")
                 return []
         except Exception as e:  # noqa: BLE001
-            print(f"NOTE: trend reconciliation date gate failed ({e}) — checking anyway")
+            print(f"NOTE: trend reconciliation date gate failed ({e}) - checking anyway")
     live = {}
     for p in positions:
         if p.get("sec_type") == "STK":
@@ -475,7 +475,7 @@ def send_email(subject: str, html: str) -> bool:
         if a.strip()
     ]
     if not sender or not password:
-        print("EMAIL_USER/EMAIL_PASS not set — skipping email send.")
+        print("EMAIL_USER/EMAIL_PASS not set - skipping email send.")
         return False
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -506,10 +506,10 @@ def main() -> int:
         if cron:
             if not cron_should_send(cron, now):
                 print(f"Cron {cron!r} is the DST twin for this date "
-                      f"(dst={bool(now.dst())}) — exiting.")
+                      f"(dst={bool(now.dst())}) - exiting.")
                 return 0
         elif now.hour != 16:
-            print(f"ET hour is {now.hour}, not 16 — DST twin cron, exiting.")
+            print(f"ET hour is {now.hour}, not 16 - DST twin cron, exiting.")
             return 0
 
     base_url = os.environ.get("EXEC_BROKER_URL", DEFAULT_BROKER_URL)

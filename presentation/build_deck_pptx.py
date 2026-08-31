@@ -158,7 +158,7 @@ def content(prs, s, idx, total):
         for i, b in enumerate(bullets):
             p = para(tf, first=(i == 0))
             p.space_after = Pt(8); p.line_spacing = 1.04
-            rb = p.add_run(); rb.text = "▪  "; _font(rb, 12, TEAL, bold=True)
+            rb = p.add_run(); rb.text = "-  "; _font(rb, 12, TEAL, bold=True)
             rt = p.add_run(); rt.text = b; _font(rt, 13, SOFT)
 
     # Callout

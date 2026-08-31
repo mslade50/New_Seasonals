@@ -406,7 +406,7 @@ def render_cross_asset_heatmap():
             st.plotly_chart(fig, use_container_width=True)
             
             # 8. HISTORICAL EXPLORER (UPDATED: Includes recent dates)
-            st.markdown(f"### 🔎 {ticker1} vs {ticker2} Historical Explorer")
+            st.markdown(f"### [EXPLORE] {ticker1} vs {ticker2} Historical Explorer")
             f_col1, f_col2 = st.columns(2)
             with f_col1: x_range = st.slider(f"Filter: {ticker1} {x_axis_label}", 0.0, 100.0, (0.0, 100.0), step=1.0)
             with f_col2: y_range = st.slider(f"Filter: {ticker2} Return Rank", 0.0, 100.0, (0.0, 100.0), step=1.0)

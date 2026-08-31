@@ -1,16 +1,16 @@
 # Module: Strategy Backtester Logic
 
-## 📄 File Reference
+## File Reference
 * **Primary Script:** `pages/backtester.py`
 * **Key Dependencies:** `yfinance`, `plotly`, `pandas`
 * **External Data:** `seasonal_ranks.csv` (Required for `load_seasonal_map`)
 
-## 🎯 Core Purpose
+## Core Purpose
 The `backtester.py` script is a **Streamlit-based simulation engine**. It allows the user to define a trading strategy via UI widgets, tests it against historical data, and exports a JSON configuration (`strategy_config`) that mirrors the settings for the live screener.
 
 ---
 
-## ⚙️ Logic Architecture (For AI Refactoring)
+## Logic Architecture (For AI Refactoring)
 
 ### 1. Data Ingestion & Cleaning (`download_universe_data`)
 * **Source:** Uses `yf.download`.
@@ -44,7 +44,7 @@ The script simulates a portfolio by tracking `active_pos`.
 
 ---
 
-## ⚠️ Critical Refactoring Rules (The "Do Not Break" List)
+## Critical Refactoring Rules (The "Do Not Break" List)
 
 ### 1. The Strategy Dictionary (`build_strategy_dict`)
 * **Risk:** This function generates the JSON output used by the live `strategy_config.py`.
@@ -61,7 +61,7 @@ The script simulates a portfolio by tracking `active_pos`.
 
 ---
 
-## 🔮 Future Improvements (AI Tasks)
+## Future Improvements (AI Tasks)
 * [ ] **Remove Alphabetical Bias:** Refactor the portfolio loop to randomize trade selection when `max_daily_entries` is exceeded, rather than prioritizing "A" tickers.
 * [ ] **Vectorized Backtesting:** The current `run_engine` uses an iterative loop for trade management. Converting this to a fully vectorized approach (using `vectorbt` or similar) would significantly speed up processing.
 * [ ] **Slippage Modeling:** Currently uses fixed `bps`. Implementing variable slippage based on volatility would increase accuracy.

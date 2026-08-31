@@ -20,7 +20,7 @@ import os
 import sys
 
 if __name__ == "__main__":
-    print("⚠️ local_overflow_scan.py is deprecated. Forwarding to "
+    print("[WARN] local_overflow_scan.py is deprecated. Forwarding to "
           "`python daily_scan.py --scope=overflow`.")
     here = os.path.dirname(os.path.abspath(__file__))
     sys.exit(os.system(f'python "{os.path.join(here, "daily_scan.py")}" --scope=overflow'))

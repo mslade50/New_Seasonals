@@ -271,7 +271,7 @@ def build_calendar(
             if download_to_local(r2_key, output_path):
                 print(f"[coverage-check] pulled prior calendar from R2 ({r2_key}) for the gate")
             else:
-                print(f"[coverage-check] warn: no prior calendar locally or on R2 ({r2_key}) — gate has no baseline this run")
+                print(f"[coverage-check] warn: no prior calendar locally or on R2 ({r2_key}) - gate has no baseline this run")
         except Exception as _e:
             print(f"[coverage-check] warn: R2 pull of prior calendar failed: {_e}")
     if upload and os.path.exists(output_path):

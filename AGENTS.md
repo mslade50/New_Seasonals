@@ -652,7 +652,7 @@ strategies are untouched. Aligned sites (change together):
   exploration surface, deliberately separate from the prod-locked rule).
 - Regression coverage: `tests/test_olv_fill_window.py` (backtest engine);
   the live date math is validated by the entry-expire chain (daily_scan exit-date
-  build ↔ order_staging back-computation, identical `CustomBusinessDay` calendar).
+  build <-> order_staging back-computation, identical `CustomBusinessDay` calendar).
 
 ## Local-primary Automation + Cloudflare R2 (effective 2026-08-28)
 

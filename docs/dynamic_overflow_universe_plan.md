@@ -70,7 +70,7 @@ conservative and fully parameterized (config constants) — tune after backtest.
   higher floor for a *specific* strategy after a backtest shows it helps.
 - **R-T5 (MED — earnings on small-cap shorts):** OVS NaN-as-True trades small-caps *through*
   earnings on FMP-coverage gaps. → For the **overflow tier OVS only**, **SOFT drop**: still stage the
-  signal but flag the missing coverage in `Sizing_Notes` ("⚠️ No earnings data — verify before fill")
+  signal but flag the missing coverage in `Sizing_Notes` ("[WARN] No earnings data — verify before fill")
   and an `Earnings_Cov='MISSING'` column, so it's eyeballed before fill rather than silently traded or
   silently killed. Keep silent NaN-as-True for the liquid tier (commodity/index names legitimately
   have no earnings). (Updated 2026-06-05 per McKinley: soft flag, not hard drop.)

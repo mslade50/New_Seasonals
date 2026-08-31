@@ -198,7 +198,7 @@ function signalContextHtml(p) {
       shootout scenario P&amp;L, and sizing.</p>`;
   }
   const dupe = stagedStockRow(p.ticker);
-  const dupeWarn = dupe ? `<div class="oc-line" style="color:#ffc14d"><b>&#9888; Stock signal also staged for
+  const dupeWarn = dupe ? `<div class="oc-line" style="color:#ffc14d"><b>[WARN] Stock signal also staged for
       ${esc(p.ticker)}</b> — an options ticket runs ALONGSIDE it (combined delta). Size the fraction below accordingly.</div>` : "";
   return `<div class="card" style="margin-bottom:12px">
     <div style="font:700 14px inherit">${esc(p.ticker || "")} · ${esc(p.dir)} ·
@@ -1175,7 +1175,7 @@ function renderExpiries() {
   const cells = exps.map((e, i) => {
     const sel = wb.chain && wb.chain.expiry === e.date;
     const dteAtExit = texitBd != null ? Math.round(e.dte * (252 / 365)) - texitBd : null;
-    const earnFlag = earnDate && earnDate.replace(/-/g, "") <= e.date ? " &#9888;" : "";
+    const earnFlag = earnDate && earnDate.replace(/-/g, "") <= e.date ? " [WARN]" : "";
     // forward vol vs the prior expiry (variance additivity)
     let fwd = "";
     if (i > 0 && e.atm_iv && exps[i - 1].atm_iv && e.dte > exps[i - 1].dte) {
@@ -1196,7 +1196,7 @@ function renderExpiries() {
         state.params.texit && earnDate <= state.params.texit ? ' <b style="color:#ff6b6b">INSIDE THE HOLD</b>' : ""}</span>` : "";
   el.innerHTML = `<div class="card" style="margin-bottom:12px">
     <div style="font:700 14px inherit;margin-bottom:6px">Expiry
-      <span class="cap" style="display:inline;font-weight:400">· default = first listed &ge; time-exit + 5 td · &#9888; = earnings before expiry</span></div>
+      <span class="cap" style="display:inline;font-weight:400">· default = first listed &ge; time-exit + 5 td · [WARN] = earnings before expiry</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">${cells}</div>
     <div style="margin-top:6px">${earnNote}</div></div>`;
   el.querySelectorAll("[data-exp]").forEach((b) =>
@@ -1654,7 +1654,7 @@ function taxLight(t) {
   if (t == null) return "—";
   const pct = t * 100;
   const c = pct <= 3 ? "#3ddb8f" : pct <= 8 ? "#ffc14d" : "#ff6b6b";
-  return `<span style="color:${c};font-weight:700">&#9679;</span> ${pct.toFixed(1)}%`;
+  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c}"></span> ${pct.toFixed(1)}%`;
 }
 function breakevenPct(struct) {
   if (!struct.legs.length || ["straddle", "strangle", "iron_condor", "calendar"].includes(struct.category)) return null;
@@ -1943,7 +1943,7 @@ function execMode() {
 }
 function actionLead(verb) {
   const m = execMode();
-  return m === "dry-run" ? `Dry-run ${verb} (places nothing):` : `⚠️ LIVE — really ${verb}`;
+  return m === "dry-run" ? `Dry-run ${verb} (places nothing):` : `[WARN] LIVE — really ${verb}`;
 }
 
 const idemState = { id: null, key: null };
@@ -2057,13 +2057,13 @@ function renderModeBanner() {
   const mode = execMode();
   if (mode === "live") {
     el.innerHTML = `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
-      &#9888;&#65039; LIVE ARMED — an options order sent here transmits to IBKR if option_spread is in LIVE_TYPES.</div>`;
+      [WARN] LIVE ARMED — an options order sent here transmits to IBKR if option_spread is in LIVE_TYPES.</div>`;
   } else if (mode === "unknown") {
     el.innerHTML = `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
-      &#9888;&#65039; MODE UNKNOWN — assume LIVE. No fresh book confirms dry-run.</div>`;
+      [WARN] MODE UNKNOWN — assume LIVE. No fresh book confirms dry-run.</div>`;
   } else {
     el.innerHTML = `<div class="card" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
-      &#9679; DRY-RUN MODE — options orders are validated + previewed, nothing transmits.</div>`;
+      [DRY-RUN] Options orders are validated + previewed, nothing transmits.</div>`;
   }
 }
 function stateBadge(st) {

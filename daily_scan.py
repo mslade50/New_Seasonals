@@ -70,7 +70,7 @@ try:
         filter_by_addv, adv_share_cap, ADV_PARTICIPATION_CAP,
     )
 except ImportError:
-    print("[WARN] overflow_universe.py not importable — using static overflow tier.")
+    print("[WARN] overflow_universe.py not importable - using static overflow tier.")
 
     def load_overflow_universe(fallback=None, **_kw):
         return list(fallback) if fallback is not None else []
@@ -203,11 +203,11 @@ def load_master_prices_dict(tickers):
     except Exception as e:
         # Older pyarrow / engines may not support the filters kwarg — fall back
         # to a full read + in-memory filter (correct, just heavier).
-        print(f"⚠️ pushdown read failed ({e}); falling back to full read")
+        print(f"[WARN] pushdown read failed ({e}); falling back to full read")
         try:
             df = pd.read_parquet(MASTER_PRICES_PATH)
         except Exception as e2:
-            print(f"⚠️ Failed to load {MASTER_PRICES_PATH}: {e2}")
+            print(f"[WARN] Failed to load {MASTER_PRICES_PATH}: {e2}")
             return {}
     if df.empty:
         return {}
@@ -234,7 +234,7 @@ def load_atr_seasonal_map():
     try:
         df = pd.read_parquet(ATR_SZNL_PATH)
     except Exception as e:
-        print(f"⚠️ Failed to load {ATR_SZNL_PATH}: {e}")
+        print(f"[WARN] Failed to load {ATR_SZNL_PATH}: {e}")
         return {}
     if df.empty:
         return {}
@@ -264,10 +264,10 @@ def get_google_client():
             return gspread.service_account(filename='credentials.json')
             
         else:
-            print("❌ Error: No credentials found (GCP_JSON env var or credentials.json).")
+            print("[ERROR] Error: No credentials found (GCP_JSON env var or credentials.json).")
             return None
     except Exception as e:
-        print(f"❌ Auth Error: {e}")
+        print(f"[ERROR] Auth Error: {e}")
         return None
 
 
@@ -289,7 +289,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
     receiver_email = "mckinleyslade@gmail.com"
 
     if not sender_email or not sender_password:
-        print("⚠️ Email credentials (EMAIL_USER/EMAIL_PASS) not found. Skipping email.")
+        print("[WARN] Email credentials (EMAIL_USER/EMAIL_PASS) not found. Skipping email.")
         return False
 
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -312,7 +312,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
     # Build error tickers section (shared across both branches)
     error_html = ""
     if not error_tickers:
-        error_html = '<div style="margin-top: 20px; font-size: 12px; color: #888;">✅ All tickers successfully parsed</div>'
+        error_html = '<div style="margin-top: 20px; font-size: 12px; color: #888;">[OK] All tickers successfully parsed</div>'
     elif error_tickers:
         # Group by reason for compact display
         from collections import defaultdict
@@ -330,7 +330,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
 
         error_html = f"""
         <div style="margin-top: 20px; padding: 15px; background: #fafafa; border: 1px solid #eee; border-radius: 6px;">
-            <div style="font-size: 12px; color: #888; margin-bottom: 8px;">⚠️ <strong>{len(error_tickers)} ticker(s) skipped</strong></div>
+            <div style="font-size: 12px; color: #888; margin-bottom: 8px;">[WARN] <strong>{len(error_tickers)} ticker(s) skipped</strong></div>
             <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
                 {"".join(error_rows)}
             </table>
@@ -343,12 +343,12 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
     pc_html = ""
     if pc_state:
         if pc_state.get('state') == 'stale':
-            _pc_txt = (f"🚨 P/C data STALE (last {pc_state.get('data_date')}, "
+            _pc_txt = (f"[ALERT] P/C data STALE (last {pc_state.get('data_date')}, "
                        f"{pc_state.get('age_bd')} bd old) — family fragility "
                        f"bands failing closed to incumbent 0.25x tables")
             _pc_color = "#c62828"
         else:
-            _pc_txt = (f"🧭 P/C fear state: {pc_state['pct']:.0f}%ile 10d-MA "
+            _pc_txt = (f"[STATE] P/C fear state: {pc_state['pct']:.0f}%ile 10d-MA "
                        f"equity put/call (data through {pc_state['data_date']}, "
                        f"{pc_state['age_bd']} bd old) — fear "
                        f"{pc_state['state'].upper()}; family bands "
@@ -386,7 +386,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
         if _cards:
             event_html = (
                 '<div style="margin-top: 16px;">'
-                '<div style="font-size: 12px; color: #666;">📅 '
+                '<div style="font-size: 12px; color: #666;">[DATE] '
                 '<strong>Event sleeve</strong> (calendar trades — '
                 'event_moo.py places at 9:05 AM)</div>'
                 + "".join(_cards) + "</div>")
@@ -396,10 +396,10 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                       f'{_e}</div>')
 
     _scope_suffix = f" — {scope_label}" if scope_label else ""
-    _event_suffix = (f" + 📅 EVENT: {', '.join(_staged_event)}"
+    _event_suffix = (f" + [DATE] EVENT: {', '.join(_staged_event)}"
                      if _staged_event else "")
     if not email_signals:
-        subject = (f"📉 Scan Result: NO SIGNALS ({date_str})"
+        subject = (f"[DOWN] Scan Result: NO SIGNALS ({date_str})"
                    f"{_scope_suffix}{_event_suffix}")
         html_content = f"""
         <html>
@@ -416,7 +416,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
         </html>
         """
     else:
-        subject = (f"🚀 {signal_count} SIGNAL{'S' if signal_count > 1 else ''} "
+        subject = (f"[SIGNAL] {signal_count} SIGNAL{'S' if signal_count > 1 else ''} "
                    f"({date_str}){_scope_suffix}{_event_suffix}")
         
         # Build card-based HTML for each signal
@@ -428,7 +428,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
             
             # Header color based on action
             header_color = "#2e7d32" if sig['Action'] == "BUY" else "#c62828"
-            action_emoji = "📈" if sig['Action'] == "BUY" else "📉"
+            action_marker = "[UP]" if sig['Action'] == "BUY" else "[DOWN]"
             
             # Build the key filters bullet list WITH LIVE VALUES
             live_filters = sig.get('Live_Filters', [])
@@ -488,19 +488,19 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
             # Combine exit notes with sizing variable if present
             notes_parts = []
             if sizing_var:
-                notes_parts.append(f"📊 {sizing_var}")
+                notes_parts.append(f"[STATS] {sizing_var}")
             # Surface the multiplier chain (ATR sznl 1.5x, Frag, Ladder rung, etc.)
             # so we can see at-a-glance why the staged risk isn't just base 1.0x.
             if sizing_notes and sizing_notes != "Standard (1.0x)" and "Standard (1.0x) |" not in sizing_notes:
-                notes_parts.append(f"⚖️ Sizing: {sizing_notes}")
+                notes_parts.append(f"[SIZING] Sizing: {sizing_notes}")
             if exit_notes:
-                notes_parts.append(f"⚡ {exit_notes}")
+                notes_parts.append(f"[RUN] {exit_notes}")
             
             # Companion order info
             if _companion:
                 comp_price = _companion.get('Limit_Price', 0)
                 comp_shares = _companion.get('Shares', 0)
-                notes_parts.append(f"📋 Also staged: LOC {comp_shares:,} shares @ >${comp_price:.2f} (Close + 0.5 ATR)")
+                notes_parts.append(f"[DETAILS] Also staged: LOC {comp_shares:,} shares @ >${comp_price:.2f} (Close + 0.5 ATR)")
             
             if notes_parts:
                 notes_html = "<div style='font-size: 12px; color: #ff9800; margin-top: 8px;'>" + "<br>".join(notes_parts) + "</div>"
@@ -540,7 +540,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                 <!-- Header -->
                 <div style="background: {header_color}; color: white; padding: 15px;">
                     <div style="font-size: 18px; font-weight: bold;">
-                        {action_emoji} {sig.get('Strategy_Name', sig['Strategy_ID'])}
+                        {action_marker} {sig.get('Strategy_Name', sig['Strategy_ID'])}
                     </div>
                     <div style="font-size: 13px; opacity: 0.9; margin-top: 3px;">
                         {sig.get('Setup_Type', 'Custom')} | {sig.get('Setup_Timeframe', 'Swing')}
@@ -573,7 +573,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                 <!-- Why It Flagged -->
                 <div style="padding: 15px;">
                     <div style="font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">
-                        🎯 WHY IT FLAGGED:
+                        [TARGET] WHY IT FLAGGED:
                     </div>
                     <ul style="margin: 0; padding-left: 20px; font-size: 13px;">
                         {filters_html}
@@ -583,7 +583,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                 <!-- Exit Plan -->
                 <div style="padding: 15px; background: #f5f5f5; border-top: 1px solid #eee;">
                     <div style="font-weight: bold; color: #333; font-size: 13px;">
-                        🚪 EXIT: {sig.get('Exit_Primary', f'{days_to_exit}-day time stop')}
+                        [EXIT] EXIT: {sig.get('Exit_Primary', f'{days_to_exit}-day time stop')}
                     </div>
                     {exit_prices_html}
                     {notes_html}
@@ -591,7 +591,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                 
                 <!-- Footer Stats -->
                 <div style="padding: 10px 15px; background: #333; color: #aaa; font-size: 11px;">
-                    📊 {sig['Stats']}
+                    [STATS] {sig['Stats']}
                 </div>
             </div>
             """
@@ -653,7 +653,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                     <div style="background: linear-gradient(135deg, #1a237e, #283593); color: white; padding: 25px; border-radius: 8px 8px 0 0; text-align: center;">
                         <h1 style="margin: 0; font-size: 24px;">Daily Strategy Scan</h1>
                         <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
-                        <div style="font-size: 28px; margin-top: 10px;">🎯 {signal_count} Signal{'s' if signal_count > 1 else ''}</div>
+                        <div style="font-size: 28px; margin-top: 10px;">[TARGET] {signal_count} Signal{'s' if signal_count > 1 else ''}</div>
                         <div style="font-size: 14px; margin-top: 8px; opacity: 0.9;">
                             {long_count} Long | {short_count} Short | ${total_risk:,.0f} Risk | {net_notional_str} Net Exposure
                         </div>
@@ -661,13 +661,13 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
 
                     <!-- Quick Summary -->
                     <div style="background: white; padding: 20px; border-bottom: 1px solid #ddd;">
-                        <h3 style="margin-top: 0; color: #333;">⚡ Quick Summary</h3>
+                        <h3 style="margin-top: 0; color: #333;">[RUN] Quick Summary</h3>
                         {summary_table}
                     </div>
                     
                     <!-- Detailed Cards -->
                     <div style="background: white; padding: 20px; border-radius: 0 0 8px 8px;">
-                        <h3 style="color: #333;">📋 Signal Details</h3>
+                        <h3 style="color: #333;">[DETAILS] Signal Details</h3>
                         {all_cards_html}
                     </div>
                     
@@ -699,10 +699,10 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
             server.starttls()
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, receiver_email, msg.as_string())
-        print(f"📧 Email sent successfully to {receiver_email}")
+        print(f"[EMAIL] Email sent successfully to {receiver_email}")
         return True
     except Exception as e:
-        print(f"❌ Failed to send email: {e}")
+        print(f"[ERROR] Failed to send email: {e}")
         return False
 
 
@@ -710,7 +710,7 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
     try:
         df = pd.read_csv(csv_path)
     except Exception:
-        print(f"⚠️ Warning: Could not find {csv_path}")
+        print(f"[WARN] Warning: Could not find {csv_path}")
         return {}
 
     if df.empty: return {}
@@ -787,17 +787,17 @@ def _print_ledger_provenance(path, n_rows):
         built = (meta.get(b'ledger_build_utc') or b'').decode()
         source = (meta.get(b'ledger_source') or b'').decode()
         if not built:
-            print("⚠️ sector_loss_gate: ledger has no provenance metadata "
+            print("[WARN] sector_loss_gate: ledger has no provenance metadata "
                   "(pre-2026-07-06 vintage or non-standard writer)")
             return
         print(f"   sector_loss_gate ledger: {n_rows} trades, built {built} by {source or 'unknown'}")
         age = pd.Timestamp.now(tz='UTC') - pd.Timestamp(built)
         if age > pd.Timedelta(days=4):
-            print(f"⚠️ sector_loss_gate: ledger vintage is {age.days} days old — "
+            print(f"[WARN] sector_loss_gate: ledger vintage is {age.days} days old - "
                   "gate may act on outdated exits (fail-open by design, not disabling)")
         if not source.startswith('gha:'):
-            print(f"⚠️ sector_loss_gate: ledger was built OUTSIDE the deploy pipeline "
-                  f"({source or 'unknown'}) — verify this vintage is intentional")
+            print(f"[WARN] sector_loss_gate: ledger was built OUTSIDE the deploy pipeline "
+                  f"({source or 'unknown'}) - verify this vintage is intentional")
     except Exception:
         pass
 
@@ -823,9 +823,9 @@ def _sector_gate_state():
             ledger['Exit Date'] = pd.to_datetime(ledger['Exit Date'])
             _print_ledger_provenance(_lp, len(ledger))
         else:
-            print("⚠️ sector_loss_gate: data/backtest_trades_full.parquet missing — gate disabled")
+            print("[WARN] sector_loss_gate: data/backtest_trades_full.parquet missing - gate disabled")
     except Exception as e:
-        print(f"⚠️ sector_loss_gate: ledger unreadable ({e}) — gate disabled")
+        print(f"[WARN] sector_loss_gate: ledger unreadable ({e}) - gate disabled")
         ledger = None
     try:
         _sp = os.path.join(current_dir, 'data', 'sector_map.parquet')
@@ -833,7 +833,7 @@ def _sector_gate_state():
             _sd = pd.read_parquet(_sp)
             smap = dict(zip(_sd['ticker'].astype(str).str.upper(), _sd['sector']))
         else:
-            print("⚠️ sector_loss_gate: data/sector_map.parquet missing — gate disabled")
+            print("[WARN] sector_loss_gate: data/sector_map.parquet missing - gate disabled")
     except Exception:
         smap = {}
     _SLG_CACHE['state'] = (ledger, smap)
@@ -978,14 +978,14 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
             df_moc = pd.DataFrame(moc_data)
             data_to_write = [df_moc.columns.tolist()] + df_moc.astype(str).values.tolist()
             worksheet.update(values=data_to_write)
-            print(f"🚀 Staged {len(df_moc)} MOC Orders with Exit Dates!")
+            print(f"[SIGNAL] Staged {len(df_moc)} MOC Orders with Exit Dates!")
         else:
             headers = ["Scan_Date", "Symbol", "SecType", "Exchange", "Action", "Quantity", "Order_Type", "Strategy_Ref", "Exit_Date"]
             worksheet.update(values=[headers])
-            print(f"🧹 '{sheet_name}' cleared.")
+            print(f"[CLEAR] '{sheet_name}' cleared.")
             
     except Exception as e:
-        print(f"❌ MOC Staging Error: {e}")
+        print(f"[ERROR] MOC Staging Error: {e}")
         if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
             raise
 
@@ -1019,7 +1019,7 @@ def _staging_no_client(sheet_name):
     if (os.environ.get('GITHUB_ACTIONS')
             or os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1'):
         raise RuntimeError(msg + " (failing loud in GHA)")
-    print(f"[WARN] {msg} (local run — continuing)")
+    print(f"[WARN] {msg} (local run - continuing)")
 
 
 def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging', tier_filter=None):
@@ -1063,7 +1063,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             ws.clear()
 
         _sheets_write_with_retry(f"clear '{sheet_name}' (zero-signal day)", _clear_tab)
-        print(f"🧹 '{sheet_name}' cleared — no rows for tier_filter={tier_filter}")
+        print(f"[CLEAR] '{sheet_name}' cleared - no rows for tier_filter={tier_filter}")
         return
 
     df = pd.DataFrame(signals_list)
@@ -1329,7 +1329,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             ws.clear()
 
         _sheets_write_with_retry(f"clear '{sheet_name}' (only MOC orders)", _clear_tab_moc)
-        print(f"🧹 '{sheet_name}' cleared (only MOC orders found).")
+        print(f"[CLEAR] '{sheet_name}' cleared (only MOC orders found).")
         return
 
     df_stage = pd.DataFrame(staging_data)
@@ -1374,8 +1374,8 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
                     df_stage.at[_i, 'Manual_Limit'] = _pins[_k]
                     _applied += 1
             _lost = len(_pins) - _applied
-            print(f"📌 Manual_Limit pins preserved: {_applied}"
-                  + (f" ({_lost} pin(s) dropped — signal no longer present)" if _lost else ""))
+            print(f"[PINNED] Manual_Limit pins preserved: {_applied}"
+                  + (f" ({_lost} pin(s) dropped - signal no longer present)" if _lost else ""))
         worksheet.clear()
         data_to_write = [df_stage.columns.tolist()] + df_stage.astype(str).values.tolist()
         worksheet.update(values=data_to_write)
@@ -1386,7 +1386,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             raise RuntimeError(f"readback mismatch: {got} rows in tab, wrote {len(data_to_write)}")
 
     _sheets_write_with_retry(f"stage {len(df_stage)} rows to '{sheet_name}'", _write_tab)
-    print(f"🤖 Instructions Staged! ({len(df_stage)} rows)")
+    print(f"[AUTOMATION] Instructions Staged! ({len(df_stage)} rows)")
 
 
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
@@ -1448,10 +1448,10 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
                     f"Signals Log readback mismatch: wrote {len(data_to_write) - 1} "
                     f"rows, read {max(0, len(rows) - 1)}"
                 )
-        print(f"✅ Signals Log Synced! ({len(combined)} rows)")
+        print(f"[OK] Signals Log Synced! ({len(combined)} rows)")
         
     except Exception as e:
-        print(f"❌ Google Sheet Error: {e}")
+        print(f"[ERROR] Google Sheet Error: {e}")
         if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
             raise
 
@@ -1609,7 +1609,7 @@ def build_live_filters(strat, last_row, df):
         if consec > 1:
             desc += f" ({consec}d)"
         # Show as pass/fail since it's essentially binary
-        live_filters.append((desc, "✓", True))
+        live_filters.append((desc, "PASS", True))
     
     # --- Trend Filter ---
     trend = settings.get('trend_filter', 'None')
@@ -1621,7 +1621,7 @@ def build_live_filters(strat, last_row, df):
         # (Market_Above_SMA200) in check_signal.
         if "Market" in trend or "SPY" in trend:
             mkt_above = last_row.get('Market_Above_SMA200', False)
-            live_filters.append((trend, "✓" if mkt_above else "✗", True))
+            live_filters.append((trend, "PASS" if mkt_above else "FAIL", True))
         elif "200 SMA" in trend:
             sma200 = last_row.get('SMA200', 0)
             close = last_row['Close']
@@ -1669,20 +1669,20 @@ def build_live_filters(strat, last_row, df):
         if first_inst:
             lookback = settings.get('52w_lookback', 21)
             desc += f" (first in {lookback}d)"
-        live_filters.append((desc, "✓", True))
+        live_filters.append((desc, "PASS", True))
     
     if settings.get('exclude_52w_high', False):
-        live_filters.append(("NOT at 52-week high", "✓", True))
+        live_filters.append(("NOT at 52-week high", "PASS", True))
 
     if settings.get('use_recent_52w', False):
         prefix = "Has NOT made" if settings.get('recent_52w_invert') else "Made"
         lb = settings.get('recent_52w_lookback', 21)
-        live_filters.append((f"{prefix} 52w high in last {lb}d", "✓", True))
+        live_filters.append((f"{prefix} 52w high in last {lb}d", "PASS", True))
 
     if settings.get('use_recent_52w_low', False):
         prefix = "Has NOT made" if settings.get('recent_52w_low_invert') else "Made"
         lb = settings.get('recent_52w_low_lookback', 21)
-        live_filters.append((f"{prefix} 52w low in last {lb}d", "✓", True))
+        live_filters.append((f"{prefix} 52w low in last {lb}d", "PASS", True))
 
     # --- VIX Filter ---
     if settings.get('use_vix_filter', False):
@@ -1717,27 +1717,27 @@ def build_live_filters(strat, last_row, df):
     # --- Green Candle ---
     if settings.get('require_close_gt_open', False):
         is_green = last_row['Close'] > last_row['Open']
-        live_filters.append(("Close > Open", "✓" if is_green else "✗", True))
+        live_filters.append(("Close > Open", "PASS" if is_green else "FAIL", True))
 
     # --- Breakout Mode ---
     bk = settings.get('breakout_mode', 'None')
     if bk != 'None':
-        live_filters.append((bk, "✓", True))
+        live_filters.append((bk, "PASS", True))
 
     # --- Vol > Prev ---
     if settings.get('vol_gt_prev', False):
-        live_filters.append(("Volume > prev day", "✓", True))
+        live_filters.append(("Volume > prev day", "PASS", True))
 
     # --- ATH Filters ---
     if settings.get('use_ath', False):
-        live_filters.append((settings.get('ath_type', 'Today is ATH'), "✓" if last_row.get('is_ath', False) else "✗", True))
+        live_filters.append((settings.get('ath_type', 'Today is ATH'), "PASS" if last_row.get('is_ath', False) else "FAIL", True))
 
     if settings.get('use_recent_ath', False):
         lookback = settings.get('ath_lookback_days', 21)
         recent = bool(df['is_ath'].rolling(window=lookback, min_periods=1).max().iloc[-1])
         inverted = settings.get('recent_ath_invert', False)
         prefix = "No ATH" if inverted else "Made ATH"
-        live_filters.append((f"{prefix} in last {lookback}d", "✓" if (recent != inverted) else "✗", True))
+        live_filters.append((f"{prefix} in last {lookback}d", "PASS" if (recent != inverted) else "FAIL", True))
 
     # --- Reference Ticker ---
     if settings.get('use_ref_ticker_filter', False) and settings.get('ref_filters'):
@@ -1805,7 +1805,7 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     MAX_RETRIES = 3
     total = len(clean_tickers)
 
-    print(f"📥 Downloading data for {total} tickers...")
+    print(f"[LOAD] Downloading data for {total} tickers...")
 
     for i in range(0, total, CHUNK_SIZE):
         chunk = clean_tickers[i : i + CHUNK_SIZE]
@@ -1843,10 +1843,10 @@ def download_historical_data(tickers, start_date="2000-01-01"):
             except Exception as e:
                 if attempt < MAX_RETRIES - 1:
                     wait = 2 ** (attempt + 1)
-                    print(f"   ⏳ Rate limited — retrying batch {batch_num} in {wait}s...")
+                    print(f"   [PENDING] Rate limited - retrying batch {batch_num} in {wait}s...")
                     time.sleep(wait)
                 else:
-                    print(f"   ⚠️ Batch {batch_num} failed after {MAX_RETRIES} attempts: {e}")
+                    print(f"   [WARN] Batch {batch_num} failed after {MAX_RETRIES} attempts: {e}")
 
         time.sleep(1.5)
 
@@ -1880,7 +1880,7 @@ def load_open_position_counts(ladder_strategy_names):
         ws = sh.worksheet("Portfolio")
         rows = ws.get_all_values()
     except Exception as e:
-        print(f"⚠️ Ladder position lookup failed (reading Portfolio tab): {e}")
+        print(f"[WARN] Ladder position lookup failed (reading Portfolio tab): {e}")
         return {}
 
     if not rows or len(rows) < 2:
@@ -1891,7 +1891,7 @@ def load_open_position_counts(ladder_strategy_names):
         name_idx = headers.index("Strategy")
         ticker_idx = headers.index("Ticker")
     except ValueError:
-        print(f"⚠️ Portfolio tab missing Strategy/Ticker columns (got {headers[:5]}...)")
+        print(f"[WARN] Portfolio tab missing Strategy/Ticker columns (got {headers[:5]}...)")
         return {}
 
     target_names = set(ladder_strategy_names)
@@ -1938,7 +1938,7 @@ def load_open_position_notionals(cap_strategy_names):
         ws = sh.worksheet("Portfolio")
         rows = ws.get_all_values()
     except Exception as e:
-        print(f"⚠️ Notional-cap position lookup failed (reading Portfolio tab): {e}")
+        print(f"[WARN] Notional-cap position lookup failed (reading Portfolio tab): {e}")
         return {}
 
     if not rows or len(rows) < 2:
@@ -1951,7 +1951,7 @@ def load_open_position_notionals(cap_strategy_names):
         shares_idx = headers.index("Shares")
         price_idx = headers.index("Price")
     except ValueError:
-        print(f"⚠️ Portfolio tab missing Strategy/Ticker/Shares/Price columns (got {headers[:6]}...)")
+        print(f"[WARN] Portfolio tab missing Strategy/Ticker/Shares/Price columns (got {headers[:6]}...)")
         return {}
 
     target_names = set(cap_strategy_names)
@@ -2161,7 +2161,7 @@ def stage_olv_vol_confirm_exits(master_dict=None):
         stop_level = pos["entry"] - stop_atr * pos["atr"]
         if last["Close"] > stop_level:
             print(f"[OLV-EXIT] {leg}: close {last['Close']:.2f} > stop "
-                  f"{stop_level:.2f} — no breach, held")
+                  f"{stop_level:.2f} - no breach, held")
             continue
         med20 = df["Volume"].iloc[-21:-1].median()
         volx = (last["Volume"] / med20) if med20 and med20 > 0 else float("nan")
@@ -2175,7 +2175,7 @@ def stage_olv_vol_confirm_exits(master_dict=None):
             continue
         if volx < vol_mult:
             print(f"[OLV-EXIT] {leg}: closed {last['Close']:.2f} <= stop {stop_level:.2f} "
-                  f"but volume {volx:.2f}x med20 < {vol_mult}x — HELD (quiet breach)")
+                  f"but volume {volx:.2f}x med20 < {vol_mult}x - HELD (quiet breach)")
             continue
         confirm_date = df.index[-1]
         execute_on = (confirm_date + TRADING_DAY).date()
@@ -2193,7 +2193,7 @@ def stage_olv_vol_confirm_exits(master_dict=None):
             "Vol_X_Med20": round(float(volx), 2),
             "Staged_At": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         })
-        print(f"[OLV-EXIT] {leg}: CONFIRMED — closed {last['Close']:.2f} <= stop "
+        print(f"[OLV-EXIT] {leg}: CONFIRMED - closed {last['Close']:.2f} <= stop "
               f"{stop_level:.2f} on {volx:.1f}x volume -> MOO exit {execute_on}")
 
     cols = ["Symbol", "Action", "Quantity", "Strategy_Ref", "Confirm_Date",
@@ -2266,7 +2266,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     # applied. scope=all is liquid + overflow concatenated.
     effective_book = build_effective_strategy_book(scope, moc_only=moc_only)
     if not effective_book:
-        print(f"⚠️ scope={scope} (moc_only={moc_only}) produced an empty strategy book — nothing to scan.")
+        print(f"[WARN] scope={scope} (moc_only={moc_only}) produced an empty strategy book - nothing to scan.")
         return
 
     # 1. Gather Tickers
@@ -2303,13 +2303,13 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     # carets / freshly-added names not yet backfilled, so nothing disappears.
     master_dict = load_master_prices_dict(list(all_tickers))
     if master_dict:
-        print(f"📦 Loaded master_prices.parquet: {len(master_dict)} tickers from cache")
+        print(f"[CACHE] Loaded master_prices.parquet: {len(master_dict)} tickers from cache")
     else:
-        print("⚠️ master_prices.parquet unavailable — falling back to yfinance for all tickers")
+        print("[WARN] master_prices.parquet unavailable - falling back to yfinance for all tickers")
     _have = {k.replace('.', '-').upper() for k in master_dict}
     _yf_tickers = [t for t in all_tickers if t.replace('.', '-').upper() not in _have]
     if _yf_tickers:
-        print(f"🌐 {len(_yf_tickers)} ticker(s) not in cache — fetching live from yfinance: "
+        print(f"[NETWORK] {len(_yf_tickers)} ticker(s) not in cache - fetching live from yfinance: "
               f"{sorted(_yf_tickers)[:12]}{' ...' if len(_yf_tickers) > 12 else ''}")
         yf_dict = download_historical_data(_yf_tickers)
         master_dict.update(yf_dict)
@@ -2339,13 +2339,13 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         # Morning Run (e.g. 5:30 AM): Strict cutoff at YESTERDAY'S close.
         # We must remove any partial data stamped with today's date.
         expected_data_date = (pd.Timestamp(current_date) - TRADING_DAY).date()
-        print(f"🌅 Morning Run (Pre-Market): Enforcing data cutoff at {expected_data_date}")
+        print(f"[MORNING] Morning Run (Pre-Market): Enforcing data cutoff at {expected_data_date}")
     else:
         # Day Run (e.g. 10:00 AM): Allow today's partial bar.
         expected_data_date = current_date
-        print(f"☀️ Day Run (Post-Open): Allowing data through {expected_data_date}")
+        print(f"[DAY] Day Run (Post-Open): Allowing data through {expected_data_date}")
     if is_intraday_partial:
-        print(f"🕐 Intraday partial-bar window — LT Trend ST OS will use vol_thresh 1.0× (else 1.25×)")
+        print(f"[INTRADAY] Intraday partial-bar window - LT Trend ST OS will use vol_thresh 1.0x (else 1.25x)")
 
     # 3c. Morning-run-only: read pre-existing overflow OVS quantities from the
     # 'Overflow' tab. When the liquid scan fires Overbot Vol Spike signals in the
@@ -2379,11 +2379,11 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                             # Multiple rows for same ticker → keep max (conservative cap)
                             overflow_ovs_quantities[_tkr] = max(overflow_ovs_quantities.get(_tkr, 0), _qty)
                     if overflow_ovs_quantities:
-                        print(f"📋 Morning run: {len(overflow_ovs_quantities)} Overflow OVS tickers in Overflow tab — liquid OVS shares will cap to match")
+                        print(f"[DETAILS] Morning run: {len(overflow_ovs_quantities)} Overflow OVS tickers in Overflow tab - liquid OVS shares will cap to match")
                 except Exception as _e:
-                    print(f"ℹ️ No Overflow rows to read for OVS size match (or empty): {_e}")
+                    print(f"[INFO] No Overflow rows to read for OVS size match (or empty): {_e}")
         except Exception as e:
-            print(f"⚠️ Could not read Overflow tab for OVS size match: {e}")
+            print(f"[WARN] Could not read Overflow tab for OVS size match: {e}")
 
     _stale_floor = expected_data_date
     if is_intraday_partial:
@@ -2446,7 +2446,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                 f"half-failed. Aborting before any staging write rather than "
                 f"scanning a fraction of the book. {_msg}"
             )
-        print(f"🗑️ {_msg}")
+        print(f"[REMOVE] {_msg}")
 
     # Replace the master dictionary with the strictly validated version
     master_dict = validated_dict
@@ -2477,7 +2477,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
             f"before any staging write so already-traded signals are not "
             f"re-staged at stale levels."
         )
-    print(f"✅ Data dates validated. (Processing {len(master_dict)} tickers, freshest bar {_freshest})\n")
+    print(f"[OK] Data dates validated. (Processing {len(master_dict)} tickers, freshest bar {_freshest})\n")
     # -------------------------------------------------------------------------
 
     # 3b. Load fragility score for sizing adjustment
@@ -2512,21 +2512,21 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     except (ValueError, AttributeError):
                         _age_td = FRAG_STALE_TD + 1
                     if _age_td > FRAG_STALE_TD:
-                        print(f"🚨 STALE FRAGILITY: last score {_last_frag_dt.date()} is "
-                              f"{_age_td} trading days old (> {FRAG_STALE_TD}) — falling back "
+                        print(f"[ALERT] STALE FRAGILITY: last score {_last_frag_dt.date()} is "
+                              f"{_age_td} trading days old (> {FRAG_STALE_TD}) - falling back "
                               f"to 1.0x sizing (producer may be broken)")
                     else:
                         frag_score = float(frag_series.iloc[-1])
-                        print(f"🛡️ Fragility score: 63d 10d-MA = {frag_score:.1f} "
+                        print(f"[PROTECTED] Fragility score: 63d 10d-MA = {frag_score:.1f} "
                               f"(per-strategy frag_risk_bands apply at sizing)")
                 else:
-                    print("⚠️ Fragility series empty after processing — using 1.0x")
+                    print("[WARN] Fragility series empty after processing - using 1.0x")
             else:
-                print("⚠️ 63d column not found in fragility cache — using 1.0x")
+                print("[WARN] 63d column not found in fragility cache - using 1.0x")
         except Exception as e:
-            print(f"⚠️ Could not load fragility data: {e} — using 1.0x")
+            print(f"[WARN] Could not load fragility data: {e} - using 1.0x")
     else:
-        print("⚠️ No fragility cache found — using 1.0x sizing")
+        print("[WARN] No fragility cache found - using 1.0x sizing")
 
     # 3b2. P/C FEAR STATE (2026-08-05) — selects the family band TABLE in
     # sizing 2b (pc_fear_bands carriers). Lag-1 by construction: the state
@@ -2536,13 +2536,13 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     # frag_risk_bands table. Mirrored point-in-time in strat_backtester 3b3.
     pc_state = pc_fear.fear_state_asof(expected_data_date)
     if pc_state['state'] == 'stale':
-        print(f"🚨 P/C FEAR STATE STALE (data {pc_state['data_date']}, "
-              f"age {pc_state['age_bd']} bd) — family bands fail closed to "
+        print(f"[ALERT] P/C FEAR STATE STALE (data {pc_state['data_date']}, "
+              f"age {pc_state['age_bd']} bd) - family bands fail closed to "
               f"incumbent frag_risk_bands")
     else:
-        print(f"🧭 P/C fear state: {pc_state['pct']:.0f}%ile "
+        print(f"[STATE] P/C fear state: {pc_state['pct']:.0f}%ile "
               f"(10d-MA equity P/C, data through {pc_state['data_date']}, "
-              f"{pc_state['age_bd']} bd old) — fear "
+              f"{pc_state['age_bd']} bd old) - fear "
               f"{pc_state['state'].upper()}")
 
     # 4. Prepare VIX Series (for strategies with VIX filter)
@@ -2568,7 +2568,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                 if cond.get('type') == 'xsec':
                     xsec_windows_needed.add(cond['window'])
     if xsec_windows_needed:
-        print(f"📊 Computing cross-sectional ranks (windows: {sorted(xsec_windows_needed)})...")
+        print(f"[STATS] Computing cross-sectional ranks (windows: {sorted(xsec_windows_needed)})...")
         RANK_MIN_PERIODS = 252
         rank_dict = {}
         for ticker, df in master_dict.items():
@@ -2583,7 +2583,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
             if rank_dict.get(w):
                 mat = pd.DataFrame(rank_dict[w])
                 xsec_rank_matrices[w] = mat.rank(axis=1, pct=True) * 100.0
-        print(f"   Done — {len(next(iter(xsec_rank_matrices.values())).columns)} tickers ranked")
+        print(f"   Done - {len(next(iter(xsec_rank_matrices.values())).columns)} tickers ranked")
 
     all_signals = []
     error_tickers = []  # (ticker, reason) tuples for email reporting
@@ -2600,9 +2600,9 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     atr_sznl_map = load_atr_seasonal_map() if _uses_atr_sznl else {}
     if _uses_atr_sznl:
         if atr_sznl_map:
-            print(f"📊 Loaded ATR seasonal ranks: {len(atr_sznl_map)} tickers")
+            print(f"[STATS] Loaded ATR seasonal ranks: {len(atr_sznl_map)} tickers")
         else:
-            print(f"⚠️ atr_seasonal_ranks.parquet not found — atr_sznl_filters will match nothing")
+            print(f"[WARN] atr_seasonal_ranks.parquet not found - atr_sznl_filters will match nothing")
 
     # 4b. Earnings calendar — used by OVS earnings blackout (±10 trading days).
     # Tickers with no earnings data (commodity ETFs, indices, futures, FX) pass
@@ -2615,9 +2615,9 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     earnings_map = load_earnings_dates_map() if _uses_earnings_blackout else {}
     if _uses_earnings_blackout:
         if earnings_map:
-            print(f"📊 Loaded earnings calendar: {len(earnings_map)} tickers")
+            print(f"[STATS] Loaded earnings calendar: {len(earnings_map)} tickers")
         else:
-            print(f"⚠️ data/earnings_calendar.parquet not found — earnings blackout disabled")
+            print(f"[WARN] data/earnings_calendar.parquet not found - earnings blackout disabled")
 
     # 4c2. Per-ticker notional-cap open state (OLV, 2026-07-20): open entry
     # notional per (ticker, strategy) for strategies carrying
@@ -2632,7 +2632,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     ladder_strats = {s['name'] for s in effective_book if s['execution'].get('ladder_multipliers')}
     ladder_counts = load_open_position_counts(ladder_strats)
     if ladder_counts:
-        print(f"📈 Ladder: {len(ladder_counts)} open ({', '.join(f'{t}/{s[:12]}={c}' for (t, s), c in list(ladder_counts.items())[:5])}{'...' if len(ladder_counts) > 5 else ''})")
+        print(f"[UP] Ladder: {len(ladder_counts)} open ({', '.join(f'{t}/{s[:12]}={c}' for (t, s), c in list(ladder_counts.items())[:5])}{'...' if len(ladder_counts) > 5 else ''})")
 
     # Per-ticker indicator memo shared across the strategy loop — see
     # memoized_indicators. Keys: (ticker, market-series source, ref-config).
@@ -2734,7 +2734,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     _slg_block, _slg_note = sector_gate_blocked(
                         strat['name'], strat['execution'], t_clean, calc_df.index[-1])
                     if _slg_block:
-                        print(f"   ⛔ {t_clean}: sector loss gate — {_slg_note}")
+                        print(f"   [BLOCKED] {t_clean}: sector loss gate - {_slg_note}")
                         continue
 
                     # Spot-index alias: detection happens on ^GSPC/^NDX (purer price),
@@ -2753,7 +2753,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                             sub_df, sznl_map, tradeable_clean, market_series,
                             vix_series, ref_ticker_ranks, xsec_rank_matrices,
                             atr_sznl_map)
-                        print(f"   🔁 {t_clean} signal → staging as {tradeable}")
+                        print(f"   [REMAP] {t_clean} signal -> staging as {tradeable}")
                         ticker = tradeable
                         t_clean = tradeable_clean
 
@@ -2814,7 +2814,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                             pc_state, frag_score, _fbm)
                         if _fbm == 0.0:
                             sizing_note += " — ZEROED (hi-frag, no P/C washout)"
-                            print(f"   🚫 {t_clean} {strat['name']}: zeroed "
+                            print(f"   [SKIP] {t_clean} {strat['name']}: zeroed "
                                   f"(dial {frag_score:.0f} >= 50, P/C fear OFF)")
                     elif _fbm != 1.0:
                         risk = risk * _fbm
@@ -2925,7 +2925,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                             # Recompute risk $ to reflect capped shares
                             risk = shares * dist
                             sizing_note = f"{sizing_note} | OVS morning-match overflow: {_orig_shares} → {shares} shares"
-                            print(f"   🔄 {t_clean}: OVS shares {_orig_shares} → {shares} (capped to Overflow)")
+                            print(f"   [UPDATE] {t_clean}: OVS shares {_orig_shares} -> {shares} (capped to Overflow)")
 
                     # ADV participation cap (R-T3): never let a single overflow
                     # position exceed ADV_PARTICIPATION_CAP × 63d ADDV in notional.
@@ -2968,12 +2968,12 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                                 sizing_note = (
                                     f"{sizing_note} | Notional cap "
                                     f"{_tnc['pct_nav']:.0%} NAV "
-                                    f"(${_tnc_open:,.0f} open): {_orig_sh} → {shares} sh")
-                                print(f"   🧢 {t_clean}: notional cap "
-                                      f"{_tnc['pct_nav']:.0%} NAV — {_orig_sh} → {shares} shares "
+                                    f"(${_tnc_open:,.0f} open): {_orig_sh} -> {shares} sh")
+                                print(f"   [CAP] {t_clean}: notional cap "
+                                      f"{_tnc['pct_nav']:.0%} NAV - {_orig_sh} -> {shares} shares "
                                       f"(${_tnc_open:,.0f} already open)")
                                 if shares <= 0:
-                                    print(f"   ⛔ {t_clean}: notional cap full — signal skipped")
+                                    print(f"   [BLOCKED] {t_clean}: notional cap full - signal skipped")
                                     continue
 
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
@@ -2992,7 +2992,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     risk_bps = strat['execution'].get('risk_bps', 0)
                     sizing_with_risk = f"{sizing_note} | Risk: {risk_bps}bps (${risk:.0f})"
                     if _no_earn_cov:
-                        sizing_with_risk += " | ⚠️ No earnings data — verify before fill"
+                        sizing_with_risk += " | [WARN] No earnings data — verify before fill"
                     
                     # Pull stats from strategy config
                     stats_dict = strat.get('stats', {})
@@ -3197,7 +3197,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
             )
             _derated += 1
         if _derated:
-            print(f"[SAME-DAY DERATE] Scaled {_derated} signal(s) — multiple same-strategy signals today.")
+            print(f"[SAME-DAY DERATE] Scaled {_derated} signal(s) - multiple same-strategy signals today.")
 
     # 6. Save Results
     # Dry-run: print a summary and skip ALL side effects (no Google Sheets
@@ -3317,7 +3317,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                 print(f"[exposure] Mult={today_snap['mult']:.2f}x rule={today_snap['active_rule']} reason={today_snap['reason']}")
             else:
                 print("[exposure] Fragility dial unavailable (cache missing, "
-                      "unreadable, or STALE > 3 td) — exposure leg skipped.")
+                      "unreadable, or STALE > 3 td) - exposure leg skipped.")
                 if bookend == 'am' or os.environ.get(
                         'LOCAL_AUTOMATION_STRICT', '').strip() == '1':
                     raise RuntimeError(

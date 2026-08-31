@@ -378,15 +378,15 @@ function renderModeBanner() {
   const mode = execMode();
   if (mode === "live") {
     return `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
-      &#9888;&#65039; LIVE ARMED &mdash; orders ARE transmitted to IBKR.</div>`;
+      [WARN] LIVE ARMED &mdash; orders ARE transmitted to IBKR.</div>`;
   }
   if (mode === "unknown") {
     return `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
-      &#9888;&#65039; MODE UNKNOWN &mdash; assume LIVE. No fresh book confirms dry-run (book missing/stale or agent offline).
+      [WARN] MODE UNKNOWN &mdash; assume LIVE. No fresh book confirms dry-run (book missing/stale or agent offline).
       Mutating controls are disabled until the agent is online and publishes a fresh book confirming execution mode.</div>`;
   }
   return `<div class="card" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
-    &#9679; DRY-RUN MODE &mdash; actions are validated and previewed, but <u>nothing is transmitted</u> to IBKR.</div>`;
+    [DRY-RUN] Actions are validated and previewed, but <u>nothing is transmitted</u> to IBKR.</div>`;
 }
 
 /* ---------- connection bar ---------- */
@@ -1412,8 +1412,8 @@ function isLive() { return execMode() !== "dry-run"; }   // unknown fails DANGER
 function actionLead(verb) {
   const m = execMode();
   return m === "dry-run" ? `Dry-run: ${verb}`
-    : m === "live" ? `⚠️ LIVE — ${verb}`
-    : `⚠️ MODE UNKNOWN (may be LIVE) — ${verb}`;
+    : m === "live" ? `[WARN] LIVE — ${verb}`
+    : `[WARN] MODE UNKNOWN (may be LIVE) — ${verb}`;
 }
 
 function execFlatten(pos, fraction) {
@@ -2298,7 +2298,7 @@ function checkRiskAck() {
         ? `The agent estimates risk ${fmt.money(f.est_risk)} = ${f.est_bps} bps of NLV (${basis}).`
         : `The agent could not compare risk with NLV (${basis}; NLV unavailable).`;
       const approve = confirm(
-        `⚠️ SECONDARY RISK APPROVAL\n\n${detail}\n\n` +
+        `[WARN] SECONDARY RISK APPROVAL\n\n${detail}\n\n` +
         `Approve and resend ${p.action} ${p.quantity} ${p.symbol} @ ${p.entry}${p.stop == null ? " with NO STOP" : ` with stop ${p.stop}`} on ${state.account}?`);
       if (approve) sendCommand(intent.type, { ...p, risk_ack: true }, "cmdMsg");
       else { const m = document.getElementById("cmdMsg"); if (m) m.textContent = "secondary risk approval declined — nothing sent"; }
