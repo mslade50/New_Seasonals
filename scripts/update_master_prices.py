@@ -157,7 +157,7 @@ def main():
     args = ap.parse_args()
 
     if not os.path.exists(PATH):
-        print(f"ERROR: {PATH} missing — run scripts/build_master_prices.py first")
+        print(f"ERROR: {PATH} missing - run scripts/build_master_prices.py first")
         return 1
 
     print(f"Loading {PATH}...")
@@ -199,7 +199,7 @@ def main():
     if len(stale):
         sample = ", ".join(stale.sort_values().index[:5].astype(str))
         print(f"  stale > {args.max_lookback_days}d: {len(stale)} ticker(s) not "
-              f"deep-refreshed by daily job (e.g. {sample}) — backfill explicitly if live")
+              f"deep-refreshed by daily job (e.g. {sample}) - backfill explicitly if live")
     print(f"  backfill from:  {args.backfill_start} (new tickers)")
     print(f"  today:          {today.date()}\n")
 
@@ -236,7 +236,7 @@ def main():
     # re-detect already-traded signals. Exit nonzero so the supervisor receipt
     # and health battery surface the failure.
     if not all_frames:
-        print("ERROR: zero rows fetched for the entire universe — yfinance "
+        print("ERROR: zero rows fetched for the entire universe - yfinance "
               "outage or network failure. Refusing to exit green.")
         return 1
     # Coverage floor: stale (>lookback) names legitimately return nothing,
@@ -246,7 +246,7 @@ def main():
     coverage = len(fetched_tickers) / live_expected
     if coverage < 0.80:
         print(f"ERROR: only {len(fetched_tickers)}/{live_expected} live tickers "
-              f"returned data ({coverage:.0%} < 80%) — refusing to write a "
+              f"returned data ({coverage:.0%} < 80%) - refusing to write a "
               f"degraded cache over the master parquet.")
         return 1
 
@@ -271,7 +271,7 @@ def main():
     if basis_changed:
         if len(basis_changed) > MAX_BASIS_REPULLS:
             print(f"ERROR: {len(basis_changed)} tickers show >2% overlap divergence "
-                  f"(cap {MAX_BASIS_REPULLS}) — systemic bad vintage suspected; "
+                  f"(cap {MAX_BASIS_REPULLS}) - systemic bad vintage suspected; "
                   f"refusing to write. Sample: {basis_changed[:10]}")
             return 1
         print(f"  [BASIS] {len(basis_changed)} ticker(s) diverged >2% on overlap "
@@ -287,14 +287,14 @@ def main():
             for t, df in result.items():
                 if len(df) < 0.9 * old_counts.get(t, 0):
                     print(f"  [BASIS] {t}: re-pull returned {len(df)} rows vs "
-                          f"{old_counts.get(t, 0)} cached — keeping old rows (re-flags next run)")
+                          f"{old_counts.get(t, 0)} cached - keeping old rows (re-flags next run)")
                     continue
                 cached_close = (master[master["ticker"] == t]
                                 .set_index("date")["Close"])
                 novel = novel_cliff_dates(df["Close"], cached_close)
                 if novel:
                     print(f"  [BASIS] {t}: re-pulled series has internal >50% jump(s) at "
-                          f"{[d.date() for d in novel]} absent from cache — vendor "
+                          f"{[d.date() for d in novel]} absent from cache - vendor "
                           f"series looks broken; keeping old rows (re-flags next run)")
                     continue
                 df = df.copy()
@@ -333,7 +333,7 @@ def main():
     _allowed_shrink = int(0.10 * replaced_rows_dropped)
     if added < -_allowed_shrink:
         print(f"ERROR: merged cache SHRANK ({len(master):,} -> {len(combined):,} rows, "
-              f"allowed shrink {_allowed_shrink:,}) — bad vintage; refusing to "
+              f"allowed shrink {_allowed_shrink:,}) - bad vintage; refusing to "
               f"overwrite the master parquet.")
         return 1
     # Atomic replace: an in-place to_parquet interrupted mid-write leaves a
@@ -366,10 +366,10 @@ def main():
     if not upload_ok:
         if (os.environ.get("GITHUB_ACTIONS")
                 or os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1"):
-            print("ERROR: R2 upload failed in strict automation — downstream scans would pull "
+            print("ERROR: R2 upload failed in strict automation - downstream scans would pull "
                   "a stale cache while this run shows green. Failing loud.")
             return 1
-        print("[r2 upload] skipped/failed (local run — non-fatal)")
+        print("[r2 upload] skipped/failed (local run - non-fatal)")
 
     return 0
 

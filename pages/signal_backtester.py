@@ -1,6 +1,6 @@
 import streamlit as st
 
-st.set_page_config(page_title="Signal Backtester", page_icon="\U0001f52c", layout="wide")
+st.set_page_config(page_title="Signal Backtester", page_icon="S", layout="wide")
 
 import pandas as pd
 import numpy as np
@@ -1070,7 +1070,7 @@ def compute_days_since_signal(price: pd.Series,
 # ===========================================================================
 # MAIN PAGE
 # ===========================================================================
-st.title("\U0001f52c Signal Event Study Backtester")
+st.title("Signal Event Study Backtester")
 st.caption(
     "Evaluating candidate signals for the risk dashboard. "
     "Each signal is tested independently: does it identify environments "
@@ -1743,7 +1743,7 @@ with tab5:
     if cur_ratio is not None:
         pctile_str = f"{cur_pctile:.0f}th" if cur_pctile is not None else "N/A"
         gap_str = f"{cur_gap:.1%}" if cur_gap is not None else "N/A"
-        icon = "\U0001f534" if (cur_pctile or 0) > disp_pctile_thresh else "\U0001f7e2"
+        icon = "[ACTIVE]" if (cur_pctile or 0) > disp_pctile_thresh else "[CLEAR]"
         st.markdown(
             f"**Composite dispersion score:** {icon} **{pctile_str} percentile** "
             f"(avg of ratio pctile + gap pctile)  \n"
@@ -1955,9 +1955,9 @@ with tab6:
         if cur_ar is not None:
             pctile_str = f"{cur_ar_pctile:.0f}th" if cur_ar_pctile is not None else "N/A"
             if ar_direction == "Low AR (<threshold)":
-                icon = "\U0001f534" if (cur_ar_pctile or 100) < ar_pctile_thresh else "\U0001f7e2"
+                icon = "[ACTIVE]" if (cur_ar_pctile or 100) < ar_pctile_thresh else "[CLEAR]"
             else:
-                icon = "\U0001f534" if (cur_ar_pctile or 0) > ar_pctile_thresh else "\U0001f7e2"
+                icon = "[ACTIVE]" if (cur_ar_pctile or 0) > ar_pctile_thresh else "[CLEAR]"
             st.markdown(
                 f"**Current AR:** {icon} **{cur_ar:.3f}** ({pctile_str} percentile)  \n"
                 f"Red line reference: 0.40 (historical fragility threshold)"
@@ -2106,7 +2106,7 @@ with tab7:
 
     if cur_gap is not None:
         pctile_str = f"{cur_gap_pctile:.0f}th" if cur_gap_pctile is not None else "N/A"
-        icon = "\U0001f534" if (cur_gap_pctile or 0) > rvg_pctile_thresh else "\U0001f7e2"
+        icon = "[ACTIVE]" if (cur_gap_pctile or 0) > rvg_pctile_thresh else "[CLEAR]"
         gap_label = "ratio" if rvg_metric == "Ratio" else "spread"
         gap_fmt = f"{cur_gap:.2f}" if rvg_metric == "Ratio" else f"{cur_gap:.1%}"
         st.markdown(
@@ -2275,7 +2275,7 @@ with tab8:
     if cur_days is not None:
         pctile_str = f"{cur_days_pctile:.0f}th" if cur_days_pctile is not None else "N/A"
         currently_on = bool(dsc_signal.iloc[-1]) if len(dsc_signal) > 0 else False
-        icon = "\U0001f534" if currently_on else "\U0001f7e2"
+        icon = "[ACTIVE]" if currently_on else "[CLEAR]"
         st.markdown(
             f"**Current:** {icon} **{cur_days} trading days** since a "
             f"{dsc_corr_pct:.1f}% correction ({pctile_str} percentile)"

@@ -114,12 +114,18 @@ if ($ValidateOnly) {
 $previousPrimary = [Environment]::GetEnvironmentVariable('LOCAL_AUTOMATION_PRIMARY', 'Process')
 $previousToken = [Environment]::GetEnvironmentVariable('LOCAL_AUTOMATION_RUN_TOKEN', 'Process')
 $previousGhToken = [Environment]::GetEnvironmentVariable('GH_TOKEN', 'Process')
+$previousPythonIoEncoding = [Environment]::GetEnvironmentVariable('PYTHONIOENCODING', 'Process')
+$previousPythonUtf8 = [Environment]::GetEnvironmentVariable('PYTHONUTF8', 'Process')
+$previousAutomationStateRoot = [Environment]::GetEnvironmentVariable('NEW_SEASONALS_AUTOMATION_STATE_ROOT', 'Process')
 $exitCode = 1
 try {
     # Both values are scoped to this PowerShell process and inherited by the
     # supervisor's children.  The token is never copied to disk or printed.
     $env:LOCAL_AUTOMATION_PRIMARY = '1'
     $env:LOCAL_AUTOMATION_RUN_TOKEN = [Guid]::NewGuid().ToString('N')
+    $env:PYTHONIOENCODING = 'utf-8'
+    $env:PYTHONUTF8 = '1'
+    $env:NEW_SEASONALS_AUTOMATION_STATE_ROOT = (Join-Path $RuntimeRoot 'artifacts\automation')
     if ([string]::IsNullOrWhiteSpace($previousGhToken)) {
         $userPat = [Environment]::GetEnvironmentVariable('GH_PAT_NEW_SEASONALS', 'User')
         if (-not [string]::IsNullOrWhiteSpace($userPat)) {
@@ -142,6 +148,9 @@ finally {
     Restore-ProcessEnvironment -Name 'LOCAL_AUTOMATION_PRIMARY' -Value $previousPrimary
     Restore-ProcessEnvironment -Name 'LOCAL_AUTOMATION_RUN_TOKEN' -Value $previousToken
     Restore-ProcessEnvironment -Name 'GH_TOKEN' -Value $previousGhToken
+    Restore-ProcessEnvironment -Name 'PYTHONIOENCODING' -Value $previousPythonIoEncoding
+    Restore-ProcessEnvironment -Name 'PYTHONUTF8' -Value $previousPythonUtf8
+    Restore-ProcessEnvironment -Name 'NEW_SEASONALS_AUTOMATION_STATE_ROOT' -Value $previousAutomationStateRoot
 }
 
 if ($exitCode -ne 0) {

@@ -754,7 +754,7 @@ def send_email(pdf_path, computed):
     receiver_email = "mckinleyslade@gmail.com"
 
     if not sender_email or not sender_password:
-        print("  EMAIL_USER / EMAIL_PASS not set — skipping send")
+        print("  EMAIL_USER / EMAIL_PASS not set - skipping send")
         return False
 
     h_scores = computed.get('h_scores', {}) or {}

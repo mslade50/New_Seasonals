@@ -221,7 +221,7 @@ Stage Order        Account [Primary ▾]      ●Entry bracket  ○Exit attach
   └──────────────────────────────────────────────┘
   Fill by [Jun 26 · 15:00]   Exit on [Jul 9 · 16:00]   Time-stop [Jul 9 · 15:00] □ off
   ▸ Advanced  (per-leg RTH, stop TIF GTC/GTD, exchange / expiry)
-  ✓ valid                              [ Dry-run preview ]   [ Stage order ]
+  [VALID]                              [ Dry-run preview ]   [ Stage order ]
 ──────────────────────────────────────────────────────────────────────────────
   PENDING            USO  BUY 692 @104.80   ● working   (sent 09:31)
 ```
@@ -236,8 +236,8 @@ Positions / Orders     [Primary ▾] [PA]              ● execution online · a
  POSITIONS
   Sym   Side  Qty   Avg     Last    P&L $    P&L%   Exits          Actions
   USO   LONG  692  104.80  108.10  +2,284  +3.1%  ◎T123 ◎S103   [Flatten][Trim½][Exits▾]
-  AAPL  LONG  108  210.30  208.90    −151  −0.7%  ⚠ no stop      [Flatten][Trim½][Exits▾]
-  NG=F  SHORT   3    3.42    3.30    +360  +3.5%  ◎S3.55 ◎⏱7/22 [Flatten][Trim½][Exits▾]
+  AAPL  LONG  108  210.30  208.90    -151  -0.7%  [WARN] no stop [Flatten][Trim half][Exits]
+  NG=F  SHORT   3    3.42    3.30    +360  +3.5%  S3.55 TIME 7/22 [Flatten][Trim half][Exits]
 ──────────────────────────────────────────────────────────────────────────────
  OPEN ORDERS
   Sym   Leg          Side  Qty   Price    Status     Actions

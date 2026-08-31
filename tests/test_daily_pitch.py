@@ -369,6 +369,32 @@ def test_smtp_failure_is_loud_and_returns_false(monkeypatch, capsys):
     assert "EMAIL SEND FAILED" in capsys.readouterr().out
 
 
+def test_partial_recipient_refusal_is_ambiguous(monkeypatch, capsys):
+    import smtplib
+    monkeypatch.setattr(dp, "smtp_credentials", lambda: ("a@b.com", "pw"))
+    monkeypatch.setenv("PITCH_RECIPIENTS", "ok@example.com,bad@example.com")
+
+    class Partial:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def starttls(self):
+            pass
+
+        def login(self, *args):
+            pass
+
+        def sendmail(self, *args):
+            return {"bad@example.com": (550, b"rejected")}
+
+    monkeypatch.setattr(smtplib, "SMTP", lambda *args, **kwargs: Partial())
+    assert dp.send_email("s", "<p>x</p>") is False
+    assert "PARTIAL FAILURE" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------------------
 # model stamping (so the scoreboard can rank models on realized outcomes)
 # ---------------------------------------------------------------------------
@@ -527,6 +553,7 @@ class Args:
         self.dry_run = kw.get("dry_run", False)
         self.no_send = kw.get("no_send", True)
         self.html_out = kw.get("html_out")
+        self.delivery_receipt = kw.get("delivery_receipt")
 
 
 SD_ASOF = pd.Timestamp("2026-08-07")
@@ -625,6 +652,47 @@ def test_publish_stand_down_clears_the_tab_and_journals(stand_down, tmp_path,
     assert kinds.count("stand_down") == 1
     assert kinds.count("killed") == 6
     assert kinds.count("approval") == 1, "yesterday's approval still captured"
+
+
+def test_matching_sent_receipt_skips_duplicate_email_and_reconciles(
+        stand_down, tmp_path, monkeypatch):
+    sheet = FakeSheet()
+    monkeypatch.setattr(dp, "open_sheet", lambda *a, **k: sheet)
+    sends = []
+    monkeypatch.setattr(
+        dp, "send_email", lambda subject, html: sends.append(subject) or True)
+    journal = tmp_path / "j.jsonl"
+    receipt = tmp_path / "receipt.json"
+    args = Args(no_send=False, delivery_receipt=str(receipt))
+
+    assert dp.publish_stand_down(
+        stand_down, SD_ASOF, journal, args) == 0
+    assert dp.publish_stand_down(
+        stand_down, SD_ASOF, journal, args) == 0
+
+    assert len(sends) == 1
+    kinds = [record["kind"] for record in pj.load(journal, pull=False)]
+    assert kinds.count("stand_down") == 1
+    assert kinds.count("killed") == 6
+
+
+def test_ambiguous_email_attempt_blocks_automatic_resend(
+        stand_down, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(dp, "open_sheet", lambda *a, **k: FakeSheet())
+    sends = []
+    monkeypatch.setattr(
+        dp, "send_email", lambda subject, html: sends.append(subject) or False)
+    journal = tmp_path / "j.jsonl"
+    receipt = tmp_path / "receipt.json"
+    args = Args(no_send=False, delivery_receipt=str(receipt))
+
+    assert dp.publish_stand_down(
+        stand_down, SD_ASOF, journal, args) == 1
+    assert dp.publish_stand_down(
+        stand_down, SD_ASOF, journal, args) == 1
+
+    assert len(sends) == 1
+    assert "DELIVERY BLOCKED" in capsys.readouterr().out
 
 
 def test_publish_stand_down_refuses_a_thin_sweep(stand_down, tmp_path,

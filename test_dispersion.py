@@ -24,10 +24,10 @@ def check(name, condition, detail=""):
     global PASS, FAIL
     if condition:
         PASS += 1
-        print(f"  ✅ {name}")
+        print(f"  [OK] {name}")
     else:
         FAIL += 1
-        print(f"  ❌ {name} — {detail}")
+        print(f"  [ERROR] {name} - {detail}")
 
 
 def make_dates(n=500):

@@ -61,7 +61,7 @@ sys.path.append(current_dir)
 try:
     from strategy_config import STRATEGY_BOOK
 except ImportError:
-    print("⚠️  strategy_config.py not found. Historical signals without Entry_Type_Short → MANUAL_REVIEW.")
+    print("[WARN]  strategy_config.py not found. Historical signals without Entry_Type_Short -> MANUAL_REVIEW.")
     STRATEGY_BOOK = []
 
 
@@ -82,10 +82,10 @@ def get_google_client():
         for path in local_paths:
             if os.path.exists(path):
                 return gspread.service_account(filename=path)
-        print("❌ No credentials found (GCP_JSON env var or credentials.json).")
+        print("[ERROR] No credentials found (GCP_JSON env var or credentials.json).")
         return None
     except Exception as e:
-        print(f"❌ Auth Error: {e}")
+        print(f"[ERROR] Auth Error: {e}")
         return None
 
 
@@ -265,7 +265,7 @@ def fetch_price_data(tickers: list, start_date, end_date) -> dict:
                     price_data[batch[0]] = df.dropna(subset=['Close'])
 
         except Exception as e:
-            print(f"  ⚠️  yfinance error for batch {batch[:3]}...: {e}")
+            print(f"  [WARN]  yfinance error for batch {batch[:3]}...: {e}")
 
         time.sleep(YF_BATCH_PAUSE)
 
@@ -412,7 +412,7 @@ def run_fill_verification():
     5. Write Fill_Status, Fill_Date, Fill_Price back to sheet
     """
     print(f"\n{'='*60}")
-    print(f"  FILL VERIFICATION — {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  FILL VERIFICATION - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"{'='*60}\n")
 
     # ── 1. Load signals ──
@@ -427,13 +427,13 @@ def run_fill_verification():
     all_values = worksheet.get_all_values()
 
     if len(all_values) < 2:
-        print("ℹ️  No signals in log.")
+        print("[INFO]  No signals in log.")
         return
 
     headers = all_values[0]
     df = pd.DataFrame(all_values[1:], columns=headers)
     original_df = df.copy()
-    print(f"📋 Loaded {len(df)} signals from log.")
+    print(f"[DETAILS] Loaded {len(df)} signals from log.")
 
     # ── 2. Initialize new columns if missing ──
     for col in ['Fill_Status', 'Fill_Date', 'Fill_Price']:
@@ -454,11 +454,11 @@ def run_fill_verification():
     indices_to_check = df.index[check_mask].tolist()
 
     if not indices_to_check:
-        print("✅ All signals within lookback window already verified.")
+        print("[OK] All signals within lookback window already verified.")
         df.drop(columns=['_signal_date'], inplace=True)
         return
 
-    print(f"🔍 {len(indices_to_check)} signals need verification.\n")
+    print(f"[CHECK] {len(indices_to_check)} signals need verification.\n")
 
     # ── 4. Build strategy lookup for historical signals ──
     strategy_map = build_strategy_map()
@@ -474,10 +474,10 @@ def run_fill_verification():
         pd.Timestamp.today()
     )
 
-    print(f"📡 Fetching price data for {len(tickers_needed)} tickers "
-          f"({min_signal_date.date()} → {max_date.date()})...")
+    print(f"[FETCH] Fetching price data for {len(tickers_needed)} tickers "
+          f"({min_signal_date.date()} -> {max_date.date()})...")
     price_data = fetch_price_data(tickers_needed, min_signal_date, max_date)
-    print(f"   ✅ Got data for {len(price_data)} / {len(tickers_needed)} tickers.\n")
+    print(f"   [OK] Got data for {len(price_data)} / {len(tickers_needed)} tickers.\n")
 
     # ── 6. Verify each signal ──
     updates = 0
@@ -497,7 +497,7 @@ def run_fill_verification():
             df.at[idx, 'Fill_Status'] = 'MANUAL_REVIEW'
             status_summary['MANUAL_REVIEW'] += 1
             updates += 1
-            print(f"  ❓ {ticker:<6} | UNKNOWN order type | Strategy: {row.get('Strategy_ID', '?')} → MANUAL_REVIEW")
+            print(f"  [REVIEW] {ticker:<6} | UNKNOWN order type | Strategy: {row.get('Strategy_ID', '?')} -> MANUAL_REVIEW")
             continue
 
         # Parse signal values
@@ -558,7 +558,7 @@ def run_fill_verification():
         status_summary[status] = status_summary.get(status, 0) + 1
         updates += 1
 
-        icon = {'FILLED': '✅', 'EXPIRED': '⛔', 'PENDING': '⏳', 'MANUAL_REVIEW': '❓'}.get(status, '?')
+        icon = {'FILLED': '[OK]', 'EXPIRED': '[BLOCKED]', 'PENDING': '[PENDING]', 'MANUAL_REVIEW': '[REVIEW]'}.get(status, '?')
         extra = f"@ ${fill_price:.2f}" if fill_price else ""
         print(f"  {icon} {ticker:<6} | {order_class:<10} | {tif:<4} | {status:<15} {extra}")
 
@@ -566,7 +566,7 @@ def run_fill_verification():
     df.drop(columns=['_signal_date'], inplace=True)
 
     if updates > 0:
-        print(f"\n📤 Writing {updates} updates back to Google Sheets...")
+        print(f"\n[WRITE] Writing {updates} updates back to Google Sheets...")
         df_clean = df.fillna('')
         data_to_write = [df_clean.columns.tolist()] + df_clean.astype(str).values.tolist()
         # Frozen rows are historical facts. Assert that this run did not
@@ -600,11 +600,11 @@ def run_fill_verification():
                 last_error = exc
                 if attempt < 3:
                     wait = 5 * attempt
-                    print(f"⚠️ Sheet replace attempt {attempt}/3 failed ({exc}); retrying in {wait}s")
+                    print(f"[WARN] Sheet replace attempt {attempt}/3 failed ({exc}); retrying in {wait}s")
                     time.sleep(wait)
         if last_error is not None:
             raise RuntimeError("Signals log replace failed after 3 attempts") from last_error
-        print("✅ Signals log updated.\n")
+        print("[OK] Signals log updated.\n")
 
     # ── 8. Summary ──
     print(f"{'='*40}")

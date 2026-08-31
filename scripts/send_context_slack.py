@@ -285,7 +285,7 @@ def _context(text: str) -> dict:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text[:2900]}]}
 
 
-TAG_EMOJI = {"solid": "🟢", "suggestive": "🔵", "anecdote": "⚪"}
+TAG_MARKER = {"solid": "[GREEN]", "suggestive": "[BLUE]", "anecdote": "[NEUTRAL]"}
 
 
 def build_blocks(brief: dict, sidecar: dict) -> tuple[list[dict], str]:
@@ -296,17 +296,17 @@ def build_blocks(brief: dict, sidecar: dict) -> tuple[list[dict], str]:
     title = brief.get("title") or "Market Context"
     blocks.append({"type": "header",
                    "text": {"type": "plain_text", "text": title[:150],
-                            "emoji": True}})
+                            "emoji": False}})
 
     if stale:
         last = sidecar.get("last_bar") or "unknown"
         blocks.append(_section(
-            f":warning: *PRICES STALE (last bar {last})* — today-in-context "
+            f"[WARN] *PRICES STALE (last bar {last})* - today-in-context "
             f"suppressed; scheduled-tape items only."))
 
     headline = (brief.get("headline") or "").strip()
     if headline:
-        marker = ":large_blue_circle:" if not quiet else ":white_circle:"
+        marker = "[ACTIVE]" if not quiet else "[QUIET]"
         blocks.append(_section(f"{marker} *{to_mrkdwn(headline)}*"))
 
     for name in LANE_SECTIONS:
@@ -317,7 +317,7 @@ def build_blocks(brief: dict, sidecar: dict) -> tuple[list[dict], str]:
         blocks.append(_section(f"*{name}*"))
         for i, item in enumerate(items, start=1):
             tag = item["tag"]
-            dot = TAG_EMOJI.get(tag, "")
+            dot = TAG_MARKER.get(tag, "")
             head = f"*{i}. {to_mrkdwn(item['title'])}*"
             if tag:
                 head += f"  {dot} _{tag}_"

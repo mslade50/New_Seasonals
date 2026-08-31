@@ -1,6 +1,6 @@
 # New Seasonals: Quantitative Research & Trading Engine
 
-## 🤖 System Context for AI Assistants
+## System Context for AI Assistants
 **Repository Purpose:**
 This repository is a private, internal-only quantitative trading system used by a family office prop trader. It integrates historical analysis, seasonal trend tracking, and automated daily signal generation.
 
@@ -11,7 +11,7 @@ This repository is a private, internal-only quantitative trading system used by 
 
 ---
 
-## 🛡️ Safety & Execution Architecture
+## Safety & Execution Architecture
 **CRITICAL:** To ensure operational safety and prevent accidental algorithmic trading errors, **Order Execution logic is strictly excluded from this repository.**
 
 * **Repository Scope:** Ends at **Signal Staging**. The code here identifies a trade and pushes it to a private Google Sheet.
@@ -20,7 +20,7 @@ This repository is a private, internal-only quantitative trading system used by 
 
 ---
 
-## 🔄 Data Flow & Architecture
+## Data Flow & Architecture
 
 The system is designed as a unidirectional pipeline moving from **Research** $\to$ **Configuration** $\to$ **Live Scanning** $\to$ **Staging**.
 
@@ -51,7 +51,7 @@ The system is designed as a unidirectional pipeline moving from **Research** $\t
 
 ---
 
-## 🗃️ Static Data Files (Pre-Computed)
+## Static Data Files (Pre-Computed)
 *To optimize speed, specific heavy-lift calculations are done annually and stored as CSVs.*
 
 | File Name | Description | Update Cycle |
@@ -62,7 +62,7 @@ The system is designed as a unidirectional pipeline moving from **Research** $\t
 
 ---
 
-## 🛠️ Developer Notes (Maintenance)
+## Developer Notes (Maintenance)
 * **Google Sheets Connection:** The `daily_scan.py` script requires valid `gspread` credentials. If orders fail to appear, check the JSON key expiration.
 * **Streamlit Structure:** This is a multi-page app. The `pages/` directory must remain flat. Do not create sub-folders inside `pages/` as it breaks the sidebar navigation.
 * **Workspace Hygiene:** Use one Git worktree per task, put disposable output in `artifacts/`, and run the baseline checker described in [Workspace Hygiene](docs/workspace_hygiene.md).

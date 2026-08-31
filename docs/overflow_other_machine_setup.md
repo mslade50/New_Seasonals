@@ -74,7 +74,7 @@ Open the **Backtester** page → **Choose Universe** → **"Overflow (dynamic)"*
 Run Backtest. On first run it will pull the parquets from R2 (a one-time ~90 MB download across
 prices + ranks + earnings; subsequent runs use the local cache for ~18h).
 
-You should see an info banner: `🌊 Overflow (dynamic): N screened names...`.
+You should see an info banner: `[OVERFLOW] Overflow (dynamic): N screened names...`.
 
 ---
 

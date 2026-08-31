@@ -782,12 +782,12 @@ def main() -> None:
         today = now_et.normalize()
         if now_et.time() >= STAGING_CUTOFF_ET and not args.force:
             print(f"[CRITICAL] {now_et:%H:%M} ET is past the "
-                  f"{STAGING_CUTOFF_ET:%H:%M} staging cutoff — staging "
+                  f"{STAGING_CUTOFF_ET:%H:%M} staging cutoff - staging "
                   f"NOTHING (--force overrides). The Event tab was not "
                   f"touched; a missed exit self-heals tomorrow.")
             sys.exit(1)
     if not is_session(today):
-        print(f"{today.date()} is not a session — nothing to do")
+        print(f"{today.date()} is not a session - nothing to do")
         return
 
     tickers = sorted({c["ticker"] for c in EVENT_SLEEVE.values()})
@@ -795,7 +795,7 @@ def main() -> None:
     state = load_state()
     rows, log = compute_actions(today, px, state)
 
-    print(f"Event sleeve {today.date()} — {len(rows)} action(s)")
+    print(f"Event sleeve {today.date()} - {len(rows)} action(s)")
     for line in log:
         print(f"  {line}")
     if rows:

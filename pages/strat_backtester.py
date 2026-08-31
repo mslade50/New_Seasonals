@@ -340,7 +340,7 @@ def download_historical_data(tickers, start_date="2000-01-01"):
             chunk_result = fut.result()
             data_dict.update(chunk_result)
             completed += 1
-            status_text.text(f"📥 Downloaded batch {completed}/{total_batches} ({len(data_dict)}/{total} tickers)...")
+            status_text.text(f"[LOAD] Downloaded batch {completed}/{total_batches} ({len(data_dict)}/{total} tickers)...")
             progress_bar.progress(min(completed / total_batches, 1.0))
 
     progress_bar.empty()
@@ -510,7 +510,7 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
 
         if xsec_rank_matrices is None:
             _x_status = st.empty()
-            _x_status.text(f"⚙️ Computing xsec rank matrices for {len(_master_dict)} tickers...")
+            _x_status.text(f"[WORK] Computing xsec rank matrices for {len(_master_dict)} tickers...")
 
             # Parallelize per-ticker expanding rank (the O(n^2) hot path). These are
             # numpy/pandas ops that release the GIL, so threads genuinely help.
@@ -641,7 +641,7 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
             completed += 1
             if progress is not None and (completed % update_every == 0 or completed == total):
                 progress.progress(min(completed / total, 1.0))
-                status.text(f"⚙️ Indicators: {completed:,}/{total:,} tickers...")
+                status.text(f"[WORK] Indicators: {completed:,}/{total:,} tickers...")
             if result is None:
                 continue
             t_clean, t_df = result
@@ -1090,7 +1090,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     for _cand_i, cand in enumerate(candidates):
         if _progress_bar is not None and _cand_i % _update_every == 0:
             _progress_bar.progress(min(_cand_i / _total_cands, 1.0))
-            _status.text(f"⚙️ Processing signal {_cand_i:,}/{_total_cands:,}…")
+            _status.text(f"[WORK] Processing signal {_cand_i:,}/{_total_cands:,}…")
 
         signal_ts, ticker, t_clean, strat_idx, signal_idx = cand
         signal_date = pd.Timestamp(signal_ts)
@@ -2606,7 +2606,7 @@ def analyze_density_by_strategy(sig_df):
             'Isolated WR': iso_wr,
             'Clustered WR': clu_wr,
             'Isolation Edge': edge,
-            'Size Up Isolated?': 'Yes ✓' if (not np.isnan(edge) and edge > 0.15) else 'No'
+            'Size Up Isolated?': 'Yes PASS' if (not np.isnan(edge) and edge > 0.15) else 'No'
         })
     
     return pd.DataFrame(results).sort_values('Isolation Edge', ascending=False)
@@ -2618,9 +2618,9 @@ def analyze_density_by_strategy(sig_df):
 # -----------------------------------------------------------------------------
 def main():
     st.set_page_config(layout="wide", page_title="Strategy Backtest Lab v3")
-    st.sidebar.header("⚙️ Backtest Settings")
+    st.sidebar.header("[WORK] Backtest Settings")
 
-    if st.sidebar.button("🔴 Force Clear Cache & Data"):
+    if st.sidebar.button("[ALERT] Force Clear Cache & Data"):
         st.cache_data.clear()
         st.cache_resource.clear()
         if 'backtest_data' in st.session_state:
@@ -2645,7 +2645,7 @@ def main():
             help="Uncheck any strategy to exclude it from this run. Default = all strategies.",
         )
         st.markdown("---")
-        st.markdown("**🔼 Risk Multiplier (Size-Up Dial)**")
+        st.markdown("**[INCREASE] Risk Multiplier (Size-Up Dial)**")
         risk_multiplier_input = st.number_input(
             "Multiplier",
             min_value=0.1, max_value=5.0, value=1.0, step=0.1,
@@ -2668,11 +2668,11 @@ def main():
             ),
         )
         st.markdown("---")
-        st.markdown("**🔄 Dynamic Position Sizing**")
+        st.markdown("**[UPDATE] Dynamic Position Sizing**")
         st.caption("Sizes scale with MTM equity (bps of current value including unrealized P&L).")
         st.markdown("---")
         use_overflow_universe = st.checkbox(
-            "🌊 Include Overflow Universe (comprehensive: dynamic screen ∪ legacy static tier)",
+            "[OVERFLOW] Include Overflow Universe (comprehensive: dynamic screen ∪ legacy static tier)",
             value=False,
             help=(
                 "Expand eligible strategies to the single comprehensive overflow "
@@ -2721,7 +2721,7 @@ def main():
                 "Was 250 (order_staging 2.5%) from 2026-07-10 to 2026-07-16."
             ),
         )
-        st.markdown("**🪜 Portfolio Net-Exposure Caps**")
+        st.markdown("**[LADDER] Portfolio Net-Exposure Caps**")
         st.caption("Notional caps applied at entry time. New trades scale down (or skip) to fit. Existing positions are never forcibly closed.")
         max_net_long_input = st.number_input(
             "Max net long exposure (% of equity, 0 = off)",
@@ -2759,7 +2759,7 @@ def main():
             ),
         )
         use_master_parquet = st.checkbox(
-            "📦 Use master parquet (data_provider)",
+            "[CACHE] Use master parquet (data_provider)",
             value=True,
             help=(
                 "Read OHLCV from data/master_prices.parquet — the shared "
@@ -2794,11 +2794,11 @@ def main():
                 "pre-2016 the leg sits at 0% contribution."
             ),
         )
-        run_btn = st.form_submit_button("⚡ Run Backtest")
+        run_btn = st.form_submit_button("[RUN] Run Backtest")
 
-    st.title("⚡ Strategy Backtest Lab v3")
+    st.title("[RUN] Strategy Backtest Lab v3")
     st.markdown(f"**Start:** {user_start_date} | **Equity:** ${starting_equity:,.0f}")
-    st.info("💡 **v3:** Position sizes scale dynamically with real-time MTM equity (realized + unrealized P&L).")
+    st.info("[INFO] **v3:** Position sizes scale dynamically with real-time MTM equity (realized + unrealized P&L).")
     st.markdown("---")
 
     if run_btn:
@@ -2824,7 +2824,7 @@ def main():
         }
         if risk_multiplier_input != 1.0 and _mult_set:
             _skipped = [n for n in selected_strats if n not in _mult_set]
-            _msg = f"🔼 Risk multiplier {risk_multiplier_input:.2f}x applied to {len(_mult_set)} strategy(ies): {', '.join(sorted(_mult_set))}"
+            _msg = f"[INCREASE] Risk multiplier {risk_multiplier_input:.2f}x applied to {len(_mult_set)} strategy(ies): {', '.join(sorted(_mult_set))}"
             if _skipped:
                 _msg += f" — held at 1.0x: {', '.join(_skipped)}"
             st.info(_msg)
@@ -2846,7 +2846,7 @@ def main():
                     _swapped.append(s['name'])
             if _swapped:
                 st.info(
-                    f"🌊 Overflow universe active — swapped {len(_swapped)} strategies to "
+                    f"[OVERFLOW] Overflow universe active — swapped {len(_swapped)} strategies to "
                     f"comprehensive overflow ({len(_overflow_tickers):,} tickers): {', '.join(_swapped)}"
                 )
 
@@ -2886,7 +2886,7 @@ def main():
             st.session_state['backtest_data'] = master_dict
             n_missing = len(set(long_term_list) - set(master_dict.keys()))
             st.caption(
-                f"📦 Loaded {len(master_dict):,} tickers from master parquet "
+                f"[CACHE] Loaded {len(master_dict):,} tickers from master parquet "
                 f"in {time.time()-t0_load:.1f}s "
                 f"({n_missing} of {len(long_term_list)} requested missing — "
                 "see scripts/audit_master_prices.py)"
@@ -2913,7 +2913,7 @@ def main():
             missing = list(set(long_term_list) - existing)
 
             if missing:
-                st.write(f"📥 Downloading {len(missing)} new tickers (have {len(existing)} cached)...")
+                st.write(f"[LOAD] Downloading {len(missing)} new tickers (have {len(existing)} cached)...")
                 data = download_historical_data(missing, start_date="2000-01-01")
                 st.session_state['backtest_data'].update(data)
                 for t, t_df in data.items():
@@ -2921,11 +2921,11 @@ def main():
                         t_df.to_parquet(os.path.join(bt_cache_dir, f"{t}.parquet"))
                     except Exception:
                         pass
-                st.success(f"✅ Downloaded {len(data)} new tickers, saved to disk cache.")
+                st.success(f"[OK] Downloaded {len(data)} new tickers, saved to disk cache.")
 
             stale_count = update_stale_cache(bt_cache_dir, long_term_list, st.session_state['backtest_data'])
             if stale_count:
-                st.caption(f"🔄 Updated {stale_count} stale tickers with recent data")
+                st.caption(f"[UPDATE] Updated {stale_count} stale tickers with recent data")
 
             master_dict = st.session_state['backtest_data']
         
@@ -2937,21 +2937,21 @@ def main():
             vix_df.columns = [c.capitalize() for c in vix_df.columns]
             vix_series = vix_df['Close']
 
-        st.write("📊 **Phase 1:** Computing indicators...")
+        st.write("[STATS] **Phase 1:** Computing indicators...")
         t0 = time.time()
         processed_dict = precompute_all_indicators(master_dict, strategies, sznl_map, vix_series, atr_sznl_map)
         st.write(f"   Processed {len(processed_dict)} tickers in {time.time()-t0:.1f}s")
 
-        st.write("🔍 **Phase 2:** Finding signals...")
+        st.write("[CHECK] **Phase 2:** Finding signals...")
         t0 = time.time()
         candidates, signal_data = generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_date)
         st.write(f"   Found {len(candidates):,} candidates in {time.time()-t0:.1f}s")
 
-        st.write("📈 **Phase 3:** Processing with dynamic MTM-based sizing...")
+        st.write("[UP] **Phase 3:** Processing with dynamic MTM-based sizing...")
         if cap_bps_input == 0:
-            st.info("🚫 Aggregate risk backstop disabled — signals execute at raw per-strategy sizing.")
+            st.info("[SKIP] Aggregate risk backstop disabled — signals execute at raw per-strategy sizing.")
         elif cap_bps_input != 250:
-            st.info(f"⚖️ Aggregate risk backstop overridden: {cap_bps_input} bps (prod default: 250 bps).")
+            st.info(f"[SIZING] Aggregate risk backstop overridden: {cap_bps_input} bps (prod default: 250 bps).")
         t0 = time.time()
         _max_long = float(max_net_long_input) if max_net_long_input else None
         _max_short = float(max_net_short_input) if max_net_short_input else None
@@ -2961,7 +2961,7 @@ def main():
                 _msg_bits.append(f"long ≤ +{_max_long:.0f}%")
             if _max_short is not None:
                 _msg_bits.append(f"short ≥ -{_max_short:.0f}%")
-            st.info(f"🪜 Portfolio net-exposure caps active: {', '.join(_msg_bits)} (entry-time scaling).")
+            st.info(f"[LADDER] Portfolio net-exposure caps active: {', '.join(_msg_bits)} (entry-time scaling).")
 
         _max_long_risk = int(max_long_risk_bps_input) if max_long_risk_bps_input else None
         _max_short_risk = int(max_short_risk_bps_input) if max_short_risk_bps_input else None
@@ -2971,7 +2971,7 @@ def main():
                 _bits.append(f"long ≤ {_max_long_risk} bps")
             if _max_short_risk:
                 _bits.append(f"short ≤ {_max_short_risk} bps")
-            st.info(f"💼 Pooled daily risk caps active: {', '.join(_bits)} (staging-based — scaled by staged risk, so unfilled limits eat budget).")
+            st.info(f"[PORTFOLIO] Pooled daily risk caps active: {', '.join(_bits)} (staging-based — scaled by staged risk, so unfilled limits eat budget).")
 
         sig_df = process_signals_fast(
             candidates, signal_data, processed_dict, strategies, starting_equity,
@@ -2988,7 +2988,7 @@ def main():
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
 
         if not sig_df.empty:
-            st.success(f"✅ Backtest complete: {len(sig_df):,} trades")
+            st.success(f"[OK] Backtest complete: {len(sig_df):,} trades")
 
             # Cache sig_df for cross-page analysis (e.g., risk_dashboard.py regime analysis)
             try:
@@ -2996,9 +2996,9 @@ def main():
                 os.makedirs(cache_dir, exist_ok=True)
                 sig_df_cache_path = os.path.join(cache_dir, "backtest_sig_df.parquet")
                 sig_df.to_parquet(sig_df_cache_path, index=False)
-                st.caption(f"📦 Cached {len(sig_df):,} trades to data/backtest_sig_df.parquet")
+                st.caption(f"[CACHE] Cached {len(sig_df):,} trades to data/backtest_sig_df.parquet")
             except Exception as e:
-                st.caption(f"⚠️ Could not cache sig_df: {e}")
+                st.caption(f"[WARN] Could not cache sig_df: {e}")
 
             # Cache consolidated closes for MTM replay in fragility_sizing_lab
             try:
@@ -3020,11 +3020,11 @@ def main():
                     closes_df = pd.DataFrame(closes).sort_index()
                     closes_path = os.path.join(cache_dir, "backtest_closes.parquet")
                     closes_df.to_parquet(closes_path)
-                    st.caption(f"📦 Cached {closes_df.shape[1]} close series to data/backtest_closes.parquet")
+                    st.caption(f"[CACHE] Cached {closes_df.shape[1]} close series to data/backtest_closes.parquet")
                 else:
-                    st.caption("⚠️ No closes found in master_dict — MTM replay in Fragility Lab will fall back to stair-step.")
+                    st.caption("[WARN] No closes found in master_dict — MTM replay in Fragility Lab will fall back to stair-step.")
             except Exception as e:
-                st.caption(f"⚠️ Could not cache closes: {e}")
+                st.caption(f"[WARN] Could not cache closes: {e}")
 
             today = pd.Timestamp(datetime.date.today())
             # A position is genuinely active only if its actual Exit Date hasn't
@@ -3084,7 +3084,7 @@ def main():
                 total_open_pnl = open_df['Open PnL'].sum()
                 
                 st.divider()
-                st.subheader("💼 Current Exposure (Active Positions)")
+                st.subheader("[PORTFOLIO] Current Exposure (Active Positions)")
                 m1, m2, m3, m4, m5 = st.columns(5)
                 m1.metric("# Positions", len(open_df))
                 m2.metric("Total Long", f"${total_long:,.0f}")
@@ -3114,7 +3114,7 @@ def main():
 
             st.divider()
             
-            st.subheader("📐 Dynamic Sizing Analysis")
+            st.subheader("[ANALYSIS] Dynamic Sizing Analysis")
             cols = st.columns(4)
             cols[0].metric("Avg Risk/Trade", f"${sig_df['Risk $'].mean():,.0f}")
             cols[1].metric("Risk Range", f"${sig_df['Risk $'].min():,.0f} - ${sig_df['Risk $'].max():,.0f}")
@@ -3123,7 +3123,7 @@ def main():
             equity_growth = sig_df['Equity at Signal'].max() / sig_df['Equity at Signal'].min()
             cols[3].metric("Peak/Min Equity Ratio", f"{equity_growth:.2f}x", help="Shows how much your sizing scaled")
             
-            st.subheader("📅 Annual Performance")
+            st.subheader("[DATE] Annual Performance")
             port_daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date=user_start_date)
             annual_df = calculate_annual_stats(port_daily_pnl, starting_equity, trades_df=sig_df)
             if not annual_df.empty:
@@ -3133,7 +3133,7 @@ def main():
                     "Sharpe Ratio": "{:.2f}", "Sortino Ratio": "{:.2f}", "Std Dev": "{:.1%}"
                 }), use_container_width=True)
 
-            st.subheader("📊 Strategy Metrics")
+            st.subheader("[STATS] Strategy Metrics")
             st.caption("Sharpe / Sortino are time-in-market — computed only over days each strategy has open positions, normalized by starting equity. Continuous-holding overlays (e.g. Exposure Leg) are computed on their full daily-return series.")
             # Compute exposure overlay early so it can feed metrics + correlation matrix.
             # The equity-curve render below reuses this same dict.
@@ -3174,7 +3174,7 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
-                st.subheader("📈 Portfolio Equity (MTM) - Log Scale")
+                st.subheader("[UP] Portfolio Equity (MTM) - Log Scale")
                 df_eq = calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=user_start_date)
 
                 # Reuse the overlay computed during the metrics pass (cached
@@ -3263,7 +3263,7 @@ def main():
                     st.info("No trades to plot.")
             
             with col2:
-                st.subheader("📉 PnL by Strategy (Interactive)")
+                st.subheader("[DOWN] PnL by Strategy (Interactive)")
                 # Filter out low-sample strategies — they clutter the chart with noise
                 MIN_SAMPLE = 200
                 strat_counts = sig_df.groupby('Strategy').size()
@@ -3318,7 +3318,7 @@ def main():
                     st.info(f"No strategy has >= {MIN_SAMPLE} trades.")
 
             # ========== STRATEGY CORRELATION MATRIX ==========
-            st.subheader("🔗 Strategy Correlation Matrix (Daily P&L)")
+            st.subheader("[LINK] Strategy Correlation Matrix (Daily P&L)")
             corr_c1, corr_c2 = st.columns([1, 1])
             with corr_c1:
                 corr_mode = st.radio(
@@ -3395,7 +3395,7 @@ def main():
                     ">0.6 → largely redundant with another strategy in the book; either reduce sizing or retire one of the pair."
                 )
 
-            st.subheader("⚖️ Exposure Over Time (% of Equity)")
+            st.subheader("[SIZING] Exposure Over Time (% of Equity)")
             exposure_df = calculate_daily_exposure(sig_df, starting_equity=starting_equity)
             if not exposure_df.empty:
                 # Interactive Plotly chart for exposure
@@ -3537,7 +3537,7 @@ def main():
         else:
             st.warning(f"No signals found starting from {user_start_date}.")
     else:
-        st.info("👈 Configure settings and click 'Run Backtest' to begin.")
+        st.info("<- Configure settings and click 'Run Backtest' to begin.")
 
 if __name__ == "__main__":
     main()

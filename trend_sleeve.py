@@ -237,7 +237,7 @@ def load_state() -> dict:
             with open(STATE_LOCAL, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"WARNING: state unreadable ({e}) — assuming flat book")
+            print(f"WARNING: state unreadable ({e}) - assuming flat book")
     return {"positions": {}}
 
 
@@ -390,7 +390,7 @@ def reset_state():
                     datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]])
         print(f"Cleared '{TAB_NAME}' tab")
     except Exception as e:
-        print(f"WARNING: Trend tab clear failed ({e}) — stale rows are harmless "
+        print(f"WARNING: Trend tab clear failed ({e}) - stale rows are harmless "
               "(Execute_On gate ignores them) but untidy")
 
 
@@ -409,7 +409,7 @@ def main():
         return
 
     if not args.force and not is_last_trading_day():
-        print("Not the last trading day of the month — nothing to do.")
+        print("Not the last trading day of the month - nothing to do.")
         return
 
     closes = load_closes()
@@ -419,20 +419,20 @@ def main():
         sys.exit(1)
     stale_days = (_today_et() - closes.index.max()).days
     if stale_days > 5:
-        print(f"ERROR: master_prices stale ({closes.index.max().date()}) — refusing to rebalance")
+        print(f"ERROR: master_prices stale ({closes.index.max().date()}) - refusing to rebalance")
         sys.exit(1)
     if not args.force and stale_days > 0:
         # scheduled month-end run: the signal basis IS today's close; if the
         # PM price update hasn't landed yet, staging off yesterday's bar would
         # silently violate the backtested convention. Fail loudly instead.
-        print(f"ERROR: last bar is {closes.index.max().date()} — today's close not in "
+        print(f"ERROR: last bar is {closes.index.max().date()} - today's close not in "
               "master_prices yet (runs after update_master_prices PM). Aborting.")
         sys.exit(1)
 
     targets = compute_targets(closes)
     if "Fragility_Gate" in targets.columns:
         first = targets.iloc[0]
-        print(f"Trend fragility gate: {first['Fragility_Gate']} — "
+        print(f"Trend fragility gate: {first['Fragility_Gate']} - "
               f"{first['Fragility_Gate_Reason']} "
               f"(as of {first['Fragility_Gate_AsOf']})")
     print(f"Trend sleeve targets (asof {targets['Asof'].iloc[0]}, "

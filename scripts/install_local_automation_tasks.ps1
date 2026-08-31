@@ -20,6 +20,8 @@ param(
 
     [string]$TaskNamePrefix = 'New Seasonals Local - ',
 
+    [string]$RetireTaskNamePrefix,
+
     [string]$BootstrapPython,
 
     [switch]$ConfirmCutover
@@ -29,8 +31,8 @@ param(
 #   Prepare          creates a pinned branch worktree and its own venv;
 #   RegisterDisabled registers all seven tasks disabled and can safely resume
 #                    an exact partially completed disabled set;
-#   Cutover          validates/enables them, then disables the superseded
-#                    GHA dispatch and health-check tasks (never deletes any);
+#   Cutover          validates/enables them, then disables an optional prior
+#                    local prefix plus the fixed superseded tasks (deletes none);
 #   Status           is read-only.
 # Nothing in this script runs automatically merely because it is checked out.
 Set-StrictMode -Version Latest
@@ -53,6 +55,30 @@ $SupersededTasks = @(
     'Trigger Daily Screener (GHA workflow_dispatch)',
     'Repo Health Check'
 )
+
+if ($PSBoundParameters.ContainsKey('RetireTaskNamePrefix')) {
+    if ([string]::IsNullOrWhiteSpace($RetireTaskNamePrefix)) {
+        throw 'RetireTaskNamePrefix cannot be empty or whitespace when specified'
+    }
+    if ($TaskNamePrefix.Equals($RetireTaskNamePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'TaskNamePrefix and RetireTaskNamePrefix must be different'
+    }
+}
+
+function Get-SupersededTaskNames {
+    $names = New-Object 'System.Collections.Generic.List[string]'
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in $SupersededTasks) {
+        if ($seen.Add($name)) { $names.Add($name) }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RetireTaskNamePrefix)) {
+        foreach ($spec in $PipelineSpecs) {
+            $name = $RetireTaskNamePrefix + $spec.Id
+            if ($seen.Add($name)) { $names.Add($name) }
+        }
+    }
+    return $names.ToArray()
+}
 
 # These are versioned snapshots in the source repository but runtime outputs
 # for the local-primary jobs. Mark them skip-worktree only inside the dedicated
@@ -154,9 +180,10 @@ function Assert-PinnedRuntime {
     # Capture the validator's success-stream message instead of allowing it to
     # become a second function return value alongside $marker. Cutover needs
     # Assert-PinnedRuntime to return exactly one marker object.
-    $validationOutput = (& $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $runner `
-        -Pipeline premarket -RuntimeRoot $script:RuntimeRoot -ConfigRoot $script:ConfigRoot -ValidateOnly 2>&1 | Out-String).Trim()
+    $validationLines = @(& $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $runner `
+        -Pipeline premarket -RuntimeRoot $script:RuntimeRoot -ConfigRoot $script:ConfigRoot -ValidateOnly 2>&1)
     $validationExitCode = $LASTEXITCODE
+    $validationOutput = ($validationLines | Out-String).Trim()
     if ($validationExitCode -ne 0) {
         throw "Pinned runtime validation failed with exit code $validationExitCode`n$validationOutput"
     }
@@ -178,6 +205,20 @@ function Get-TaskOrNull {
         # them as "not present" could leave a legacy writer enabled.
         if ($_.Exception.HResult -eq -2147024894) { return $null }
         throw
+    }
+}
+
+function Assert-TaskIdle {
+    param(
+        [Parameter(Mandatory = $true)]$Task,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    # TASK_STATE_QUEUED=2 and TASK_STATE_RUNNING=4. Disabling a task does not
+    # stop an existing instance, so crossing either state during cutover could
+    # leave old and new writers active at the same time.
+    $state = [int]$Task.State
+    if ($state -eq 2 -or $state -eq 4) {
+        throw "Cutover requires every task to be idle; $Label is queued or running (state=$state)"
     }
 }
 
@@ -359,14 +400,28 @@ function Invoke-Cutover {
         }
     }
 
-    $legacyState = @()
-    foreach ($name in $SupersededTasks) {
+    $supersededState = @()
+    foreach ($name in (Get-SupersededTaskNames)) {
         $task = Get-TaskOrNull -RootFolder $scheduler.Root -Name $name
-        $legacyState += [pscustomobject]@{
+        $supersededState += [pscustomobject]@{
             name = $name
             present = ($null -ne $task)
             enabled = if ($null -ne $task) { [bool]$task.Enabled } else { $false }
         }
+    }
+
+    # Re-read and gate every task immediately before the first enabled-state
+    # mutation. This deliberately narrows the race after the definition and
+    # state snapshots above; the receipt contract remains the second line of
+    # defense if Windows changes state after this check.
+    foreach ($entry in $newTaskState) {
+        $current = $scheduler.Root.GetTask($entry.name)
+        Assert-TaskIdle -Task $current -Label "new task $($entry.name)"
+    }
+    foreach ($entry in $supersededState) {
+        if (-not $entry.present) { continue }
+        $current = $scheduler.Root.GetTask($entry.name)
+        Assert-TaskIdle -Task $current -Label "superseded task $($entry.name)"
     }
     $stateDir = Join-Path $script:RuntimeRoot 'artifacts\automation'
     New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
@@ -376,7 +431,7 @@ function Invoke-Cutover {
         new_tasks = @($newTaskState | ForEach-Object {
             [pscustomobject]@{ name = $_.name; enabled = $_.enabled }
         })
-        legacy_tasks = $legacyState
+        legacy_tasks = $supersededState
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stateDir 'cutover-state.json') -Encoding UTF8
 
     # Availability first: enable and verify every local primary task before
@@ -388,9 +443,9 @@ function Invoke-Cutover {
             if (-not $entry.task.Enabled) { throw "Failed to enable new task: $($entry.name)" }
         }
 
-        foreach ($entry in $legacyState) {
+        foreach ($entry in $supersededState) {
             if (-not $entry.present) {
-                Write-Output "Legacy task not present (nothing changed): $($entry.name)"
+                Write-Output "Superseded task not present (nothing changed): $($entry.name)"
                 continue
             }
             $legacy = $scheduler.Root.GetTask($entry.name)
@@ -406,7 +461,7 @@ function Invoke-Cutover {
             try { $entry.task.Enabled = [bool]$entry.enabled }
             catch { $rollbackErrors += "new task $($entry.name): $($_.Exception.Message)" }
         }
-        foreach ($entry in $legacyState) {
+        foreach ($entry in $supersededState) {
             if (-not $entry.present) { continue }
             try {
                 $legacy = $scheduler.Root.GetTask($entry.name)
@@ -434,7 +489,7 @@ function Show-TaskStatus {
             Write-Output "$name : enabled=$($task.Enabled) next=$($task.NextRunTime) lastResult=$($task.LastTaskResult)"
         }
     }
-    foreach ($name in $SupersededTasks) {
+    foreach ($name in (Get-SupersededTaskNames)) {
         $task = Get-TaskOrNull -RootFolder $scheduler.Root -Name $name
         if ($null -eq $task) { Write-Output "$name : NOT PRESENT" }
         else { Write-Output "$name : enabled=$($task.Enabled)" }

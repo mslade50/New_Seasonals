@@ -112,10 +112,10 @@ def main() -> int:
             failed.append(key)
     for key, dest in optional:
         if not download_to_local(key, dest):
-            print(f"[warn] optional cache not pulled: {key} — consumer "
+            print(f"[warn] optional cache not pulled: {key} - consumer "
                   f"degrades per its documented fail-open design")
     if failed:
-        print(f"ERROR: required cache pull(s) failed: {', '.join(failed)} — "
+        print(f"ERROR: required cache pull(s) failed: {', '.join(failed)} - "
               f"failing loud so the job never runs on missing load-bearing "
               f"inputs while the workflow shows green.")
         return 1

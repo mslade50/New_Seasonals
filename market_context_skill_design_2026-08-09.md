@@ -355,7 +355,7 @@ conversion, webhook-first with bot-token fallback, `--dry-run` writing
 - `tests/test_context_engine.py` (trigger masks on synthetic panels; stats coherence;
   tag/N validation)
 - CLAUDE.md: new dated section with an **Aligned sites — change together** list
-  (CONTEXT_UNIVERSE ↔ SKILL.md inventory ↔ trigger registry ↔ sender parser ↔ md
+  (CONTEXT_UNIVERSE <-> SKILL.md inventory <-> trigger registry <-> sender parser <-> md
   skeleton) and a Guards line.
 
 **New_Seasonals `.env` addition:** `SLACK_WEBHOOK_URL` (same value as denali-dashboard's).

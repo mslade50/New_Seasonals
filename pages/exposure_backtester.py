@@ -446,7 +446,7 @@ def compute_stats(equity, daily_ret, name="Strategy"):
 # -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
-st.title("📊 Exposure Backtester")
+st.title("[STATS] Exposure Backtester")
 st.caption(
     "Define a base portfolio, then layer rules that scale exposure up or down "
     "when ALL of a rule's conditions fire. Rules compose multiplicatively. "
@@ -474,7 +474,7 @@ st.subheader("1. Base Portfolio")
 # identical either way.
 ps1, ps2, _ = st.columns([2, 2, 4])
 with ps1:
-    if st.button("📥 Load preset: VOO/QQQ Fragility Gate"):
+    if st.button("[LOAD] Load preset: VOO/QQQ Fragility Gate"):
         st.session_state['exp_portfolio_text'] = "VOO:50, QQQ:50"
         st.session_state['exp_rules'] = [
             # Rule 1: ALL × 0.0 when Raw 21D fragility > 50
@@ -555,7 +555,7 @@ if base_weights:
     pw_df['Effective %'] = (pw_df['Weight'] / total_w * 100).round(1)
     st.dataframe(pw_df, hide_index=True, width='stretch')
     if abs(total_w - 100) > 0.01:
-        st.caption(f"⚠️ Weights sum to {total_w:.1f}% — will be renormalized to 100%.")
+        st.caption(f"[WARN] Weights sum to {total_w:.1f}% — will be renormalized to 100%.")
 else:
     st.warning("Add at least one ticker:weight pair.")
 
@@ -625,11 +625,11 @@ if 'exp_rules' not in st.session_state:
 
 cc1, cc2 = st.columns([1, 5])
 with cc1:
-    if st.button("➕ Add Rule"):
+    if st.button("[ADD] Add Rule"):
         st.session_state.exp_rules.append(_new_rule())
         st.rerun()
 with cc2:
-    if st.button("🧹 Clear All Rules"):
+    if st.button("[CLEAR] Clear All Rules"):
         st.session_state.exp_rules = []
         st.rerun()
 
@@ -660,7 +660,7 @@ for i, r in enumerate(st.session_state.exp_rules):
             )
         with h3:
             st.markdown("&nbsp;", unsafe_allow_html=True)
-            if st.button("🗑️ Remove rule", key=f'rule_remove_{i}'):
+            if st.button("[REMOVE] Remove rule", key=f'rule_remove_{i}'):
                 st.session_state.exp_rules.pop(i)
                 st.rerun()
 
@@ -756,7 +756,7 @@ for i, r in enumerate(st.session_state.exp_rules):
 
             rmc1, rmc2 = st.columns([1, 6])
             with rmc1:
-                if st.button("🗑️ Remove cond", key=f'cond_remove_{i}_{c_i}'):
+                if st.button("[REMOVE] Remove cond", key=f'cond_remove_{i}_{c_i}'):
                     st.session_state.exp_rules[i]['conditions'].pop(c_i)
                     st.rerun()
 
@@ -770,7 +770,7 @@ for i, r in enumerate(st.session_state.exp_rules):
                 'thresh_max': float(thresh_max),
             })
 
-        if st.button("➕ Add condition", key=f'add_cond_{i}'):
+        if st.button("[ADD] Add condition", key=f'add_cond_{i}'):
             st.session_state.exp_rules[i]['conditions'].append(_new_condition())
             st.rerun()
 
@@ -784,7 +784,7 @@ st.session_state.exp_rules = rules
 
 # --- Section 4: Run ---
 st.markdown("---")
-if st.button("⚡ Run Backtest", type="primary"):
+if st.button("[RUN] Run Backtest", type="primary"):
     if not base_weights:
         st.error("Define a base portfolio first.")
         st.stop()
@@ -818,7 +818,7 @@ if st.button("⚡ Run Backtest", type="primary"):
         st.info("Fragility parquet not found — `Fragility Dial` conditions will fail.")
     elif fragility_df.index.min() > pd.Timestamp(start_date):
         st.caption(
-            f"⚠️ Fragility dial coverage starts {fragility_df.index.min().date()}; "
+            f"[WARN] Fragility dial coverage starts {fragility_df.index.min().date()}; "
             "any fragility condition will evaluate False on dates before that."
         )
 
@@ -835,10 +835,10 @@ if st.button("⚡ Run Backtest", type="primary"):
         st.stop()
 
     n_days = len(result['cal'])
-    st.success(f"✅ Backtest complete: {n_days:,} trading days.")
+    st.success(f"[OK] Backtest complete: {n_days:,} trading days.")
 
     # --- PROMINENT rule diagnostics (top-of-results so you can't miss them) ---
-    st.subheader("🎯 Rule Activations")
+    st.subheader("[TARGET] Rule Activations")
     diag_rows = []
     any_fired = False
     for r_i, target, n_triggered, errs in result['rule_diagnostics']:
@@ -859,13 +859,13 @@ if st.button("⚡ Run Backtest", type="primary"):
     st.dataframe(pd.DataFrame(diag_rows), hide_index=True, width='stretch')
     if not any_fired and rules:
         st.error(
-            "⚠️ NONE of your rules fired during the backtest period. Strategy "
+            "[WARN] NONE of your rules fired during the backtest period. Strategy "
             "and benchmark will be identical. Check the 'Issues' column for "
             "missing indicators, or loosen the thresholds."
         )
 
     # --- Stats comparison ---
-    st.subheader("📊 Performance Summary")
+    st.subheader("[STATS] Performance Summary")
     strat_stats = compute_stats(result['equity'], result['port_ret'], "Strategy")
     bench_stats = compute_stats(result['benchmark'], result['bench_ret'], "Buy & Hold")
     stats_df = pd.DataFrame([strat_stats, bench_stats]).set_index('Name')
@@ -884,7 +884,7 @@ if st.button("⚡ Run Backtest", type="primary"):
     )
 
     # --- Equity curves ---
-    st.subheader("📈 Equity & Drawdown")
+    st.subheader("[UP] Equity & Drawdown")
     fig = make_subplots(
         rows=2, cols=1, row_heights=[0.7, 0.3],
         subplot_titles=("Equity", "Drawdown"),
@@ -915,7 +915,7 @@ if st.button("⚡ Run Backtest", type="primary"):
     st.plotly_chart(fig, width='stretch')
 
     # --- Exposure timeline ---
-    st.subheader("🎚 Exposure Over Time")
+    st.subheader("[EXPOSURE] Exposure Over Time")
     eff_w = result['eff_weights'].copy()
     cash_w = result['cash_weight'].copy()
     expo_fig = go.Figure()
@@ -944,7 +944,7 @@ if st.button("⚡ Run Backtest", type="primary"):
     )
 
     # --- Annual returns ---
-    st.subheader("📅 Annual Returns")
+    st.subheader("[DATE] Annual Returns")
     yrly_strat = result['equity'].resample('YE').last().pct_change()
     yrly_bench = result['benchmark'].resample('YE').last().pct_change()
     if not result['equity'].empty:

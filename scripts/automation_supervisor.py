@@ -40,6 +40,13 @@ from types import TracebackType
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
+# Direct script execution sets sys.path[0] to the scripts directory. Ensure
+# repository-root modules such as cache_io remain importable in Task Scheduler
+# and GitHub workflow subprocesses.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 ET = ZoneInfo("America/New_York")
 UTC = dt.timezone.utc
 RECEIPT_PREFIX = "automation/receipts/v1"
@@ -960,6 +967,11 @@ def hydrate_environment(
 
     if not env.get("GH_TOKEN") and env.get("GH_PAT_NEW_SEASONALS"):
         env["GH_TOKEN"] = env["GH_PAT_NEW_SEASONALS"]
+    # Windows creates redirected Python stdout with the active ANSI code page
+    # unless these are explicit. The supervisor decodes child output as UTF-8,
+    # so every child must emit UTF-8 as well.
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     env["LOCAL_AUTOMATION_STRICT"] = "1"
     return env
 
@@ -2575,6 +2587,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "health":
         log_path = state_root / "logs" / run_date / f"health-{uuid.uuid4().hex[:8]}.log"
+        health_env = dict(supervisor.env)
+        health_env["NEW_SEASONALS_AUTOMATION_STATE_ROOT"] = str(state_root)
+        health_env["NEW_SEASONALS_CONFIG_ROOT"] = str(Path(args.config_root).resolve())
         health_argv = [
             args.python,
             "-u",
@@ -2590,7 +2605,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 rc = supervisor.process.stream(
                     health_argv,
                     cwd=Path(args.repo_root).resolve(),
-                    env=supervisor.env,
+                    env=health_env,
                     timeout_seconds=3600,
                     logger=logger,
                 )

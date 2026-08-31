@@ -1,16 +1,16 @@
 # Module: Daily Scanner & Configuration Logic
 
-## 📄 File Reference
+## File Reference
 * **Configuration:** `strategy_config.py` (The "Brain")
 * **Automation Engine:** `daily_scan.py` (The "Hands")
 * **Output Destination:** Google Sheets (`Trade_Signals_Log`)
 
-## 🎯 Core Purpose
+## Core Purpose
 This module handles the transition from research to production. It runs daily, consumes the trading rules defined in `strategy_config.py`, checks them against live market data, and stages actionable orders to a private Google Sheet.
 
 ---
 
-## ⚙️ Architecture & Data Flow
+## Architecture & Data Flow
 
 ### 1. Configuration (`strategy_config.py`)
 * **Workflow:** Strategies are manually copy-pasted from the Backtester JSON export into the `_STRATEGY_BOOK_RAW` list.
@@ -35,12 +35,12 @@ The script separates orders into two different Google Sheet tabs based on their 
 
 ---
 
-## ⚠️ Critical Hidden Dependencies (The "Trap" List)
+## Critical Hidden Dependencies (The "Trap" List)
 
 An AI refactoring this code must be extremely careful with the following:
 
 ### 1. Hardcoded Strategy Names in `daily_scan.py`
-**🚨 HIGH RISK:** The scanner script contains **hardcoded logic** tied to specific strategy names.
+**HIGH RISK:** The scanner script contains **hardcoded logic** tied to specific strategy names.
 * **Location:** Inside the `run_daily_scan()` loop.
 * **The Trap:**
     ```python
@@ -62,7 +62,7 @@ An AI refactoring this code must be extremely careful with the following:
 
 ---
 
-## 🔮 Future Improvements (AI Tasks)
+## Future Improvements (AI Tasks)
 * **[ ] Decouple Name Logic:** Refactor `daily_scan.py` to look for a specific flag in the config (e.g., `"dynamic_sizing": "vol_momentum"`) rather than matching the raw string name `"Overbot Vol Spike"`.
 * **[ ] Description Standardization:** The current strategy descriptions are free-text. Refactor them into structured tags (e.g., `Type: MeanReversion | Timeframe: Swing | Setup: WeakClose`) so the email summary is easier to scan.
 * **[ ] Unified Indicator Library:** Move `calculate_indicators` to a shared `utils.py` file imported by both the Backtester and the Daily Scan to guarantee 1:1 logic parity.

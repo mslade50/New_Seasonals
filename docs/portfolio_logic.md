@@ -1,15 +1,15 @@
 # Module: Portfolio Simulation & Efficiency
 
-## 📄 File Reference
+## File Reference
 * **Primary Script:** `pages/strat_backtester.py`
 * **Dependency:** Imports `_STRATEGY_BOOK_RAW` from `strategy_config.py`.
 
-## 🎯 Core Purpose
+## Core Purpose
 While `backtester.py` tests a single idea, `strat_backtester.py` tests the **Ensemble**. It simulates how all active strategies interact over time, specifically focusing on capital contention, exposure overlap, and the compounding effects of dynamic position sizing.
 
 ---
 
-## ⚙️ Technical Architecture
+## Technical Architecture
 
 ### 1. Real-Time Mark-to-Market (MTM) Sizing
 Unlike basic backtesters that use fixed capital, this engine simulates a live compounding account.
@@ -28,7 +28,7 @@ The engine aggregates signals from all strategies into a single timeline.
 
 ---
 
-## 📊 Key Analytical Metrics
+## Key Analytical Metrics
 
 ### 1. Capital Efficiency Ratio
 Calculated as: `(% of Total PnL Contribution) / (% of Total Risk Contribution)`
@@ -44,7 +44,7 @@ Analyzes performance based on how many signals triggered on the same day.
 
 ---
 
-## ⚠️ Refactoring & Maintenance Notes
+## Refactoring & Maintenance Notes
 
 ### 1. Data Integrity
 * **Risk:** The script attempts to download *all* tickers in `strategy_config.py` at once.

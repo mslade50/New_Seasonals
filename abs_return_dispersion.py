@@ -393,7 +393,7 @@ def _download_close_prices(
         except Exception as e:
             print(f"ERROR: {e}")
             if "rate" in str(e).lower():
-                print("  Rate limited — waiting 5s...")
+                print("  Rate limited - waiting 5s...")
                 time.sleep(5)
 
         time.sleep(sleep_between)
@@ -410,7 +410,7 @@ def _download_close_prices(
 
     print(f"[dispersion] Total: {len(combined.columns)} tickers, "
           f"{len(combined)} days "
-          f"({combined.index[0].strftime('%Y-%m-%d')} → "
+          f"({combined.index[0].strftime('%Y-%m-%d')} -> "
           f"{combined.index[-1].strftime('%Y-%m-%d')})")
 
     return combined
@@ -471,7 +471,7 @@ def download_and_compute_cached(
         price_matrix = _download_close_prices(all_tickers, start_date)
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         price_matrix.to_parquet(cache_path)
-        print(f"[dispersion] Cached prices → {cache_path}")
+        print(f"[dispersion] Cached prices -> {cache_path}")
 
     index_ticker = kwargs.get("index_ticker", "SPY")
     rank_min_periods = kwargs.get("rank_min_periods", 252)
@@ -736,19 +736,19 @@ Examples:
 
     # --- Console output ---
     latest = df_clean.iloc[-1]
-    print(f"\n{'─'*40}")
+    print(f"\n{'-'*40}")
     print(f"LATEST READING ({df_clean.index[-1].strftime('%Y-%m-%d')})")
-    print(f"{'─'*40}")
+    print(f"{'-'*40}")
     print(f"  Constituents reporting:      {int(latest['n_constituents'])}")
     print(f"  Avg stock |{args.window}d return|:     {latest['avg_abs_ret']*100:.1f}%")
     print(f"  SPY |{args.window}d return|:           {latest['index_abs_ret']*100:.1f}%")
     print(f"  DISPERSION:                  {latest['dispersion']*100:.1f}%")
     print(f"  PERCENTILE RANK:             {latest['dispersion_rank']:.0f}th")
 
-    print(f"\n{'─'*40}")
+    print(f"\n{'-'*40}")
     print(f"HISTORICAL DISTRIBUTION")
-    print(f"{'─'*40}")
-    print(f"  Period: {df_clean.index[0].strftime('%Y-%m-%d')} → {df_clean.index[-1].strftime('%Y-%m-%d')}")
+    print(f"{'-'*40}")
+    print(f"  Period: {df_clean.index[0].strftime('%Y-%m-%d')} -> {df_clean.index[-1].strftime('%Y-%m-%d')}")
     print(f"  Mean:         {df_clean['dispersion'].mean()*100:.1f}%")
     print(f"  Median:       {df_clean['dispersion'].median()*100:.1f}%")
     print(f"  Std Dev:      {df_clean['dispersion'].std()*100:.1f}%")
@@ -760,15 +760,15 @@ Examples:
 
     # --- Save CSV ---
     df_clean.to_csv(args.csv_path)
-    print(f"\n✅ CSV saved → {args.csv_path}")
+    print(f"\n[OK] CSV saved -> {args.csv_path}")
     print(f"   ({len(df_clean)} rows, columns: {list(df_clean.columns)})")
 
     # --- Generate HTML chart ---
     _generate_html_chart(df_clean, args.html_path, window=args.window)
-    print(f"✅ Chart saved → {args.html_path}")
+    print(f"[OK] Chart saved -> {args.html_path}")
 
     # --- Open in browser ---
     if not args.no_browser:
         abs_path = os.path.abspath(args.html_path)
         webbrowser.open(f"file://{abs_path}")
-        print(f"🌐 Opened in browser")
+        print(f"[NETWORK] Opened in browser")

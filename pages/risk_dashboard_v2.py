@@ -25,7 +25,7 @@ from scipy import stats
 try:
     st.set_page_config(
         page_title="Risk Dashboard V2",
-        page_icon="\U0001f4ca",
+        page_icon="R",
         layout="wide",
     )
 except Exception:
@@ -1258,7 +1258,7 @@ def render_signal_board(signals: dict, price_ctx: dict):
                 f"<div style='padding: 6px 10px; margin-bottom: 6px; "
                 f"background: rgba(204,0,0,0.15); border-left: 4px solid #FF0000; "
                 f"border-radius: 0 4px 4px 0;'>"
-                f"<span style='font-size: 13px;'>\U0001f6a8 <strong>{name}</strong> "
+                f"<span style='font-size: 13px;'>[ALERT] <strong>{name}</strong> "
                 f"<span style='color: #FF4444; font-size: 11px; font-weight: 600;'>ELEVATED</span>"
                 f"</span><br>"
                 f"<span style='font-size: 12px; color: #bbb;'>{detail}</span><br>"
@@ -1270,7 +1270,7 @@ def render_signal_board(signals: dict, price_ctx: dict):
                 f"<div style='padding: 6px 10px; margin-bottom: 6px; "
                 f"background: rgba(204,0,0,0.08); border-left: 3px solid #CC0000; "
                 f"border-radius: 0 4px 4px 0;'>"
-                f"<span style='font-size: 13px;'>\U0001f534 <strong>{name}</strong></span><br>"
+                f"<span style='font-size: 13px;'>[ACTIVE] <strong>{name}</strong></span><br>"
                 f"<span style='font-size: 12px; color: #bbb;'>{detail}</span><br>"
                 f"<span style='font-size: 11px; color: #888;'>{summary}</span></div>",
                 unsafe_allow_html=True
@@ -1294,7 +1294,7 @@ def render_signal_board(signals: dict, price_ctx: dict):
                     f"<div style='padding: 6px 10px; margin-bottom: 6px; "
                     f"background: rgba(255,183,0,0.10); border-left: 3px solid #FFB700; "
                     f"border-radius: 0 4px 4px 0;'>"
-                    f"<span style='font-size: 13px;'>\U0001f7e1 <strong>{name}</strong> "
+                    f"<span style='font-size: 13px;'>[WATCH] <strong>{name}</strong> "
                     f"<span style='color: #FFB700; font-size: 11px; font-weight: 600;'>DECAYING</span> "
                     f"<span style='font-size: 11px; color: #999;'>fired {ds}d ago — expires in {mr}d</span>"
                     f"</span><br>"
@@ -1305,7 +1305,7 @@ def render_signal_board(signals: dict, price_ctx: dict):
             else:
                 st.markdown(
                     f"<div style='padding: 4px 10px; margin-bottom: 4px;'>"
-                    f"<span style='font-size: 13px; color: #aaa;'>\U0001f7e2 {name}</span><br>"
+                    f"<span style='font-size: 13px; color: #aaa;'>[CLEAR] {name}</span><br>"
                     f"<span style='font-size: 11px; color: #666; margin-left: 4px;'>{summary}</span></div>",
                     unsafe_allow_html=True
                 )
@@ -1379,9 +1379,9 @@ def compute_changes(current_states: dict, previous_states: dict) -> list:
     for name, cur_active in current_states.get('signals', {}).items():
         prev_active = prev_signals.get(name, False)
         if cur_active and not prev_active:
-            changes.append(f"\U0001f534 **{name}** activated")
+            changes.append(f"[ACTIVE] **{name}** activated")
         elif not cur_active and prev_active:
-            changes.append(f"\U0001f7e2 **{name}** deactivated")
+            changes.append(f"[CLEAR] **{name}** deactivated")
 
     return changes
 
@@ -3296,14 +3296,14 @@ def _cache_age_str() -> str:
 
 
 def main():
-    st.title("\U0001f4ca Risk Dashboard V2")
+    st.title("Risk Dashboard V2")
 
     # --- Sidebar ---
     with st.sidebar:
-        st.header("\u2699\ufe0f Dashboard Settings")
+        st.header("Dashboard Settings")
         lookback_years = st.slider("History (years)", 5, 15, 10)
         st.divider()
-        refresh = st.button("\U0001f504 Refresh Data", type="primary", use_container_width=True)
+        refresh = st.button("Refresh Data", type="primary", use_container_width=True)
         st.caption(f"Last refreshed: {_cache_age_str()}")
 
     start_date = (datetime.datetime.now() - datetime.timedelta(days=lookback_years * 365)).strftime("%Y-%m-%d")

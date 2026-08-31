@@ -215,7 +215,7 @@ if __name__ == "__main__":
         if age is None or age > args.assert_fresh_bd:
             print(f"[cboe_putcall] STALE: newest row is "
                   f"{'missing' if age is None else f'{age} bdays old'} "
-                  f"(threshold {args.assert_fresh_bd}) — scrape or parser "
+                  f"(threshold {args.assert_fresh_bd}) - scrape or parser "
                   f"is likely broken.")
             sys.exit(1)
         print(f"[cboe_putcall] freshness OK ({age} bdays)")

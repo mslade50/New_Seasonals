@@ -11,15 +11,47 @@ from pathlib import Path
 
 import pytest
 
+import pitch_delivery
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "check_pitch_delivered.py"
 ASOF = "2026-08-07"
 
 
-def run_check(journal_path: Path, asof: str = ASOF):
+def read_records(journal_path: Path) -> list[dict]:
+    return [json.loads(line) for line in journal_path.read_text(
+        encoding="utf-8").splitlines() if line.strip()]
+
+
+def write_receipt(journal_path: Path, asof: str = ASOF,
+                  status: str = "sent", digest: str | None = None) -> Path:
+    path = journal_path.with_name(f"{journal_path.stem}.receipt.json")
+    records = read_records(journal_path)
+    receipt, should_send = pitch_delivery.reserve_delivery(
+        asof=asof, records=records, subject="Daily Pitch", html="<p>x</p>",
+        recipients=["test@example.com"], path=path, use_r2=False)
+    assert should_send
+    if status == "sent":
+        pitch_delivery.complete_delivery(
+            receipt, path, use_r2=False, sent=True)
+    elif status == "ambiguous":
+        pitch_delivery.complete_delivery(
+            receipt, path, use_r2=False, sent=False)
+    if digest is not None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["verdict_digest"] = digest
+        path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def run_check(journal_path: Path, asof: str = ASOF, *, receipt: bool = True,
+              status: str = "sent", digest: str | None = None):
+    receipt_path = (write_receipt(journal_path, asof, status, digest)
+                    if receipt else journal_path.with_name("missing.json"))
     return subprocess.run(
         [sys.executable, str(SCRIPT), "--asof", asof,
-         "--journal", str(journal_path)],
+         "--journal", str(journal_path),
+         "--delivery-receipt", str(receipt_path)],
         capture_output=True, text=True)
 
 
@@ -56,6 +88,28 @@ def test_empty_journal_is_not_delivery(tmp_path):
     result = run_check(journal)
     assert result.returncode == 1
     assert "did not deliver" in result.stdout
+
+
+def test_journal_without_a_sent_receipt_is_not_delivery(tmp_path):
+    journal = write_journal(tmp_path / "j.jsonl", [idea(1)])
+    result = run_check(journal, receipt=False)
+    assert result.returncode == 1
+    assert "no delivery receipt" in result.stdout
+
+
+@pytest.mark.parametrize("status", ["sending", "ambiguous"])
+def test_uncertain_receipt_is_not_delivery(tmp_path, status):
+    journal = write_journal(tmp_path / "j.jsonl", [idea(1)])
+    result = run_check(journal, status=status)
+    assert result.returncode == 1
+    assert "not sent" in result.stdout
+
+
+def test_receipt_digest_must_match_the_journal(tmp_path):
+    journal = write_journal(tmp_path / "j.jsonl", [idea(1)])
+    result = run_check(journal, digest="0" * 64)
+    assert result.returncode == 1
+    assert "digests differ" in result.stdout
 
 
 @pytest.mark.parametrize("n", [1, 2])

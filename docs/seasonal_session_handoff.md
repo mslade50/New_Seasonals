@@ -5,7 +5,7 @@ Reference for picking this back up, on this machine or another. Read the
 
 ---
 
-## ⚠️ Cross-machine warning (read before switching machines)
+## Cross-machine warning (read before switching machines)
 
 Almost everything from this session is **uncommitted and/or local-only**. If you
 switch machines without acting, you lose it. Before moving:
