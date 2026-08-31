@@ -163,15 +163,22 @@ def classify_order(row, strategy_map: dict) -> tuple:
     Returns:
         (order_class, offset, tif) — e.g. ('REL_OPEN', 0.25, 'DAY')
     """
-    # Offset source of truth: the RAW entry_type stamped by daily_scan, parsed
+    # Offset source of truth: an explicit row-level Entry_Offset_ATR (dynamic
+    # OLV pivot policy), then the RAW entry_type stamped by daily_scan, parsed
     # the same ordered way ('0.75'→'0.25'→'0.5'→'1 ATR'). Falls back to the
-    # strategy-config offset. NEVER inferred from Entry_Type_Short, whose
+    # strategy-config offset. NEVER infer it from Entry_Type_Short, whose
     # persistent form ("LMT $102.31 GTC") carries a price, not the offset.
     strat_id = str(row.get('Strategy_ID', '')).strip()
     strat_info = strategy_map.get(strat_id)
     entry_type_raw = str(row.get('Entry_Type', '')).strip()
 
     def _offset() -> float:
+        try:
+            explicit = float(row.get('Entry_Offset_ATR', np.nan))
+            if np.isfinite(explicit) and explicit >= 0:
+                return explicit
+        except (TypeError, ValueError):
+            pass
         if entry_type_raw and 'ATR' in entry_type_raw:
             return parse_atr_offset(entry_type_raw)
         if strat_info:
@@ -199,7 +206,7 @@ def classify_order(row, strategy_map: dict) -> tuple:
 
     # --- Priority 2: Strategy config lookup ---
     if strat_info:
-        return strat_info['order_class'], strat_info['offset'], strat_info['tif']
+        return strat_info['order_class'], _offset(), strat_info['tif']
 
     return 'UNKNOWN', 0.0, 'DAY'
 

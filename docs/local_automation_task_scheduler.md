@@ -13,7 +13,7 @@ scheduler change is merged and verified on `origin/main`:
 ```powershell
 $repo = 'C:\Users\McKinley Slade\dev\New_Seasonals'
 $runtime = 'C:\Users\McKinley Slade\dev\New_Seasonals-automation-runtime-v3'
-$fallbackTag = 'automation-runtime-2026-08-31.2'
+$fallbackTag = 'automation-runtime-2026-08-31.4'
 $runtimeBranch = 'codex/local-primary-runtime-v3'
 $taskPrefix = 'New Seasonals Local v3 - '
 $retirePrefix = 'New Seasonals Local - '

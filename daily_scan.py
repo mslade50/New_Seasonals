@@ -14,6 +14,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from indicators import calculate_indicators, get_sznl_val_series
+from olv_pivot_entry import resolve_olv_pivot_entry_from_row
 from filters import (
     ETF_ATR_EXEMPT,
     FRAG_STALE_TD,
@@ -1158,6 +1159,17 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             elif "0.5" in entry_mode: offset_atr = 0.5
             elif "1 ATR" in entry_mode: offset_atr = 1.0
 
+            # A row-specific numeric offset is the source of truth for dynamic
+            # entry policies (OLV 40/40 pivot policy). Keep entry_mode solely as
+            # the routing instruction (REL_CLOSE/GTC); never encode a per-signal
+            # decision back into its human-readable strategy string.
+            try:
+                _row_offset = float(row.get('Entry_Offset_ATR', np.nan))
+                if np.isfinite(_row_offset) and _row_offset >= 0:
+                    offset_atr = _row_offset
+            except (TypeError, ValueError):
+                pass
+
         elif "LOC" in entry_mode:
             entry_instruction = "LOC"
             limit_price = row.get('Limit_Price', row['Entry'])
@@ -1200,6 +1212,16 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
         fill_window_days = execution.get('fill_window_days', hold_days)
         trade_direction = settings.get('trade_direction', 'Long')
 
+        # Dynamic offsets retain sufficient precision for final penny rounding
+        # in order_staging. Legacy rows preserve their long-standing 2-decimal
+        # frozen inputs.
+        _has_dynamic_offset = False
+        try:
+            _has_dynamic_offset = np.isfinite(float(row.get('Entry_Offset_ATR', np.nan)))
+        except (TypeError, ValueError):
+            pass
+        _frozen_precision = 6 if _has_dynamic_offset else 2
+
         staging_data.append({
             "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
             # Signal bar's date (NOT the run date). Scan_Date restamps to the
@@ -1220,9 +1242,10 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             # to it. Emitted empty so the column survives the clear+rewrite.
             "Manual_Limit": "",
             "Offset_ATR_Mult": offset_atr,
+            "Entry_Offset_ATR": row.get('Entry_Offset_ATR', ''),
             "TIF": tif_instruction,
-            "Frozen_ATR": round(row['ATR'], 2),
-            "Signal_Close": round(row['Entry'], 2),
+            "Frozen_ATR": round(row['ATR'], _frozen_precision),
+            "Signal_Close": round(row['Entry'], _frozen_precision),
             "Signal_High": round(float(row.get('Signal_High', 0) or 0), 2),
             "Time_Exit_Date": str(row['Time Exit']),
             "Strategy_Ref": strat['name'],
@@ -1234,6 +1257,15 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             "Hold_Days": hold_days,
             "Fill_Window_Days": fill_window_days,
             "Trade_Direction": trade_direction,
+            # OLV pivot-policy audit trail. These remain on the staging tab
+            # (order_staging ignores them) and make each live decision
+            # reproducible alongside the same fields in Trade_Signals_Log.
+            "Pivot_Rule_Version": row.get('Pivot_Rule_Version', ''),
+            "Pivot_Nearest_Type": row.get('Pivot_Nearest_Type', ''),
+            "Pivot_Level": row.get('Pivot_Level', ''),
+            "Pivot_Date": row.get('Pivot_Date', ''),
+            "Pivot_Distance_ATR": row.get('Pivot_Distance_ATR', ''),
+            "Pivot_Matched_Rule": row.get('Pivot_Matched_Rule', ''),
             # 252D rank stamped for OVS gap-tier sizing in order_staging.py
             "Rank_252D": row.get('Rank_252D', ''),
             # Per-trade risk $ (post all scanner multipliers). order_staging.py
@@ -1407,6 +1439,18 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     cols_to_round = ['Entry', 'Stop', 'Target', 'ATR']
     existing_cols = [c for c in cols_to_round if c in df_new.columns]
     df_new[existing_cols] = df_new[existing_cols].astype(float).round(2)
+    # Dynamic close-anchored limits are submitted from six-decimal frozen
+    # Entry/ATR inputs. Preserve those same inputs in Trade_Signals_Log so
+    # verify_fills recomputes the exact live penny instead of occasionally
+    # differing by a cent after legacy two-decimal rounding.
+    if 'Entry_Offset_ATR' in df_new.columns:
+        _dynamic_mask = pd.to_numeric(
+            df_new['Entry_Offset_ATR'], errors='coerce').notna()
+        for _col in ('Entry', 'ATR'):
+            if _col in df_new.columns and _col in new_dataframe.columns:
+                df_new.loc[_dynamic_mask, _col] = pd.to_numeric(
+                    new_dataframe.loc[_dynamic_mask, _col], errors='coerce'
+                ).round(6)
     df_new['Date'] = df_new['Date'].astype(str) 
     df_new["Scan_Timestamp"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cols = ['Scan_Timestamp'] + [c for c in df_new.columns if c != 'Scan_Timestamp']
@@ -2768,6 +2812,37 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                         if last_row['High'] < threshold: continue
 
                     atr = last_row['ATR']
+
+                    # OLV causal 40/40 closing-pivot entry policy. The indicator
+                    # columns are confirmation-shifted, so this decision uses
+                    # only information available at the signal close. Evaluate
+                    # before sizing/caps: a >5 ATR skip must consume no staged
+                    # risk, exactly like omitting the row from Order_Staging.
+                    _pivot_entry = None
+                    _entry_offset_atr = None
+                    _pivot_policy = strat['execution'].get('pivot_entry_policy')
+                    if _pivot_policy:
+                        _pivot_shape = (
+                            int(_pivot_policy.get('left_bars', 40)),
+                            int(_pivot_policy.get('right_bars', 40)),
+                        )
+                        if _pivot_shape != (40, 40):
+                            raise ValueError(
+                                "OLV pivot_entry_policy must remain 40/40 unless "
+                                "the shared indicator columns are changed with it"
+                            )
+                        _pivot_entry = resolve_olv_pivot_entry_from_row(
+                            last_row, atr, _pivot_policy)
+                        if _pivot_entry['policy_enabled']:
+                            _entry_offset_atr = float(_pivot_entry['offset_atr'])
+                            if _pivot_entry['skip']:
+                                print(
+                                    f"   [PIVOT SKIP] {t_clean}: nearest confirmed high, "
+                                    f"{_pivot_entry['distance_atr']:.2f} ATR above "
+                                    f"(${_pivot_entry['nearest_level']:.2f}); "
+                                    f"rule={_pivot_entry['matched_rule']}"
+                                )
+                                continue
                     
                     # ---------------------------------------------------------
                     # 2. DYNAMIC RISK SIZING LOGIC (Synced)
@@ -2776,6 +2851,14 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     risk = base_risk 
 
                     sizing_note = "Standard (1.0x)"
+                    if _pivot_entry is not None and _pivot_entry['policy_enabled']:
+                        _pdist = _pivot_entry['distance_atr']
+                        _pdist_txt = f"{_pdist:.2f}" if _pdist is not None else "N/A"
+                        _ptype = _pivot_entry['nearest_type'] or "None"
+                        sizing_note += (
+                            f" | Pivot40 {_ptype} {_pdist_txt}ATR: "
+                            f"entry -{_entry_offset_atr:g}ATR"
+                        )
 
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
@@ -3012,7 +3095,13 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # Calculate limit price for limit orders
                     limit_price = None
                     if "Limit" in entry_mode and "ATR" in entry_mode:
-                        if "0.75" in entry_mode:
+                        if _entry_offset_atr is not None:
+                            limit_price = (
+                                entry - (_entry_offset_atr * atr)
+                                if direction == 'Long'
+                                else entry + (_entry_offset_atr * atr)
+                            )
+                        elif "0.75" in entry_mode:
                             limit_price = entry - (0.75 * atr) if direction == 'Long' else entry + (0.75 * atr)
                         elif "0.25" in entry_mode:
                             limit_price = entry - (0.25 * atr) if direction == 'Long' else entry + (0.25 * atr)
@@ -3061,6 +3150,13 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                         "Entry_Type": entry_mode,
                         "Entry_Type_Short": entry_type_short,
                         "Limit_Price": limit_price,
+                        "Entry_Offset_ATR": _entry_offset_atr if _entry_offset_atr is not None else '',
+                        "Pivot_Rule_Version": _pivot_entry['rule_version'] if _pivot_entry else '',
+                        "Pivot_Nearest_Type": _pivot_entry['nearest_type'] if _pivot_entry else '',
+                        "Pivot_Level": _pivot_entry['nearest_level'] if _pivot_entry and _pivot_entry['nearest_level'] is not None else '',
+                        "Pivot_Date": str(pd.Timestamp(_pivot_entry['nearest_date']).date()) if _pivot_entry and pd.notna(_pivot_entry['nearest_date']) else '',
+                        "Pivot_Distance_ATR": _pivot_entry['distance_atr'] if _pivot_entry and _pivot_entry['distance_atr'] is not None else '',
+                        "Pivot_Matched_Rule": _pivot_entry['matched_rule'] if _pivot_entry else '',
                         "Notional": notional,
                         "Addv_63d": float(_addv_63d) if _addv_63d is not None and pd.notna(_addv_63d) else '',
                         "Earnings_Cov": 'MISSING' if _no_earn_cov else '',

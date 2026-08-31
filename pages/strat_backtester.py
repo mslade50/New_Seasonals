@@ -20,6 +20,13 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from indicators import calculate_indicators, get_sznl_val_series
+from olv_pivot_entry import (
+    OLV_PIVOT_HIGH_COL,
+    OLV_PIVOT_HIGH_DATE_COL,
+    OLV_PIVOT_LOW_COL,
+    OLV_PIVOT_LOW_DATE_COL,
+    resolve_olv_pivot_entry_from_row,
+)
 from filters import evaluate_filter_mask
 from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
 from exposure_leg import compute_exposure_leg_backtest, EXPOSURE_TICKERS, BASE_WEIGHTS
@@ -408,7 +415,26 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
 
 
 # Bump when indicators.py changes in a way that invalidates old cache files.
-INDICATOR_CACHE_VERSION = "v1"
+INDICATOR_CACHE_VERSION = "v2"
+_INDICATOR_CACHE_REQUIRED_COLUMNS = {
+    OLV_PIVOT_HIGH_COL,
+    OLV_PIVOT_HIGH_DATE_COL,
+    OLV_PIVOT_LOW_COL,
+    OLV_PIVOT_LOW_DATE_COL,
+}
+
+
+def _indicator_cache_has_required_schema(df):
+    """Reject stale/malformed cache frames instead of silently degrading.
+
+    The versioned filename normally prevents a v1 frame from loading after an
+    indicator change. This explicit contract also protects against a wrongly
+    uploaded R2 object or a partial local cache with the expected v2 filename.
+    """
+    return (
+        isinstance(df, pd.DataFrame)
+        and _INDICATOR_CACHE_REQUIRED_COLUMNS.issubset(df.columns)
+    )
 
 
 def _indicator_cache_path(t_clean, df, params_sig):
@@ -584,6 +610,8 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
         if os.path.exists(cache_path):
             try:
                 t_df = pd.read_parquet(cache_path)
+                if not _indicator_cache_has_required_schema(t_df):
+                    t_df = None
             except Exception:
                 t_df = None
 
@@ -599,6 +627,8 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
                     if download_to_local(r2_key, cache_path):
                         try:
                             t_df = pd.read_parquet(cache_path)
+                            if not _indicator_cache_has_required_schema(t_df):
+                                t_df = None
                         except Exception:
                             t_df = None
             except Exception:
@@ -1115,6 +1145,30 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if pd.isna(atr) or atr <= 0:
             continue
 
+        # OLV causal 40/40 closing-pivot entry policy. Run before every
+        # staging-time sizing/cap counter so a live "skip" consumes no modeled
+        # risk. The indicator row is point-in-time: pivot levels appear only
+        # after their 40 right-hand confirmation bars have closed.
+        _pivot_entry = None
+        _entry_offset_atr = None
+        _pivot_policy = execution.get('pivot_entry_policy')
+        if _pivot_policy:
+            _pivot_shape = (
+                int(_pivot_policy.get('left_bars', 40)),
+                int(_pivot_policy.get('right_bars', 40)),
+            )
+            if _pivot_shape != (40, 40):
+                raise ValueError(
+                    "OLV pivot_entry_policy must remain 40/40 unless the "
+                    "shared indicator columns are changed with it"
+                )
+            _pivot_entry = resolve_olv_pivot_entry_from_row(
+                df.iloc[signal_idx], atr, _pivot_policy)
+            if _pivot_entry['policy_enabled']:
+                _entry_offset_atr = float(_pivot_entry['offset_atr'])
+                if _pivot_entry['skip']:
+                    continue
+
         # --- Sector loss gate (OLV, 2026-07-02) ---
         # execution['sector_loss_gate'] = {'window_td': N, 'max_realized_r': X}:
         # drop the candidate when this strategy's realized R in the SAME SECTOR
@@ -1492,7 +1546,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         elif is_persistent or is_limit_close_anchored:
             # Parse offset multiplier from entry_type string. Defaults to 0.5
             # for backward-compat with configs that don't specify a multiplier.
-            if '0.25' in entry_type:
+            if _entry_offset_atr is not None:
+                _pers_mult = _entry_offset_atr
+            elif '0.25' in entry_type:
                 _pers_mult = 0.25
             elif '1 ATR' in entry_type or '1.0 ATR' in entry_type:
                 _pers_mult = 1.0
@@ -1949,6 +2005,12 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                             _gate_closed.setdefault(strat_name, []).append(
                                 (_t_exit_date.value, _gsec2, float(pnl) / float(_t_risk)))
 
+                    _result_entry_offset = np.nan
+                    if _entry_offset_atr is not None:
+                        _result_entry_offset = _entry_offset_atr
+                    elif is_persistent or is_limit_close_anchored:
+                        _result_entry_offset = _pers_mult
+
                     results.append({
                         "Date": signal_date, "Entry Date": entry_date,
                         "Exit Date": _t_exit_date, "Exit Type": _t_exit_ty,
@@ -1963,7 +2025,14 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         "Equity at Signal": current_equity,
                         "Risk $": _t_risk, "Risk bps": risk_bps,
                         "Size_Mult": round(_size_mult, 4),
-                        "Tranche": _trn
+                        "Tranche": _trn,
+                        "Entry Offset ATR": _result_entry_offset,
+                        "Pivot Rule Version": _pivot_entry['rule_version'] if _pivot_entry else '',
+                        "Pivot Nearest Type": _pivot_entry['nearest_type'] if _pivot_entry else '',
+                        "Pivot Level": _pivot_entry['nearest_level'] if _pivot_entry else np.nan,
+                        "Pivot Date": _pivot_entry['nearest_date'] if _pivot_entry else pd.NaT,
+                        "Pivot Distance ATR": _pivot_entry['distance_atr'] if _pivot_entry else np.nan,
+                        "Pivot Matched Rule": _pivot_entry['matched_rule'] if _pivot_entry else '',
                     })
 
     if _progress_bar is not None:

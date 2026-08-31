@@ -32,6 +32,8 @@ import numpy as np
 import pandas as pd
 from typing import Optional, List, Dict
 
+from olv_pivot_entry import causal_close_pivot_context
+
 
 # =============================================================================
 # HELPERS (also shared — import these instead of re-implementing)
@@ -383,6 +385,17 @@ def calculate_indicators(
     df['LastPivotHigh'] = df['LastPivotHigh'].shift(piv_len).ffill()
     df['LastPivotLow'] = np.where(df['is_pivot_low'], df['Low'], np.nan)
     df['LastPivotLow'] = df['LastPivotLow'].shift(piv_len).ffill()
+
+    # -------------------------------------------------------------------------
+    # 15b. OLV CAUSAL 40/40 CLOSING-PRICE PIVOTS (2026-08-31)
+    # -------------------------------------------------------------------------
+    # A pivot at p is exposed only at p+40, after all 40 right-hand closes are
+    # known.  This is the shared scanner/backtester context for OLV's dynamic
+    # persistent-limit policy.  Keep the older 20/20 High/Low columns above:
+    # other backtester entry modes depend on their distinct definition.
+    olv_pivots = causal_close_pivot_context(df['Close'], left_bars=40, right_bars=40)
+    for col in olv_pivots.columns:
+        df[col] = olv_pivots[col]
 
     # -------------------------------------------------------------------------
     # 16. WEEKLY MOVING AVERAGES (only when backtester requests them)
