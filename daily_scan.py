@@ -1264,6 +1264,12 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             "Pivot_Nearest_Type": row.get('Pivot_Nearest_Type', ''),
             "Pivot_Level": row.get('Pivot_Level', ''),
             "Pivot_Date": row.get('Pivot_Date', ''),
+            "Pivot_Source_Age_Bars": row.get('Pivot_Source_Age_Bars', ''),
+            "Pivot_High_Source_Age_Bars": row.get('Pivot_High_Source_Age_Bars', ''),
+            "Pivot_Low_Source_Age_Bars": row.get('Pivot_Low_Source_Age_Bars', ''),
+            "Pivot_High_Expired": row.get('Pivot_High_Expired', ''),
+            "Pivot_Low_Expired": row.get('Pivot_Low_Expired', ''),
+            "Pivot_Max_Source_Age_Bars": row.get('Pivot_Max_Source_Age_Bars', ''),
             "Pivot_Distance_ATR": row.get('Pivot_Distance_ATR', ''),
             "Pivot_Matched_Rule": row.get('Pivot_Matched_Rule', ''),
             # 252D rank stamped for OVS gap-tier sizing in order_staging.py
@@ -2859,6 +2865,18 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                             f" | Pivot40 {_ptype} {_pdist_txt}ATR: "
                             f"entry -{_entry_offset_atr:g}ATR"
                         )
+                        _expired_sides = [
+                            _side for _side, _expired in (
+                                ('H', _pivot_entry['pivot_high_expired']),
+                                ('L', _pivot_entry['pivot_low_expired']),
+                            ) if _expired
+                        ]
+                        if _expired_sides:
+                            sizing_note += (
+                                " | expired>"
+                                f"{int(_pivot_entry['max_source_age_bars'])}bar:"
+                                + "/".join(_expired_sides)
+                            )
 
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
@@ -3155,6 +3173,12 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                         "Pivot_Nearest_Type": _pivot_entry['nearest_type'] if _pivot_entry else '',
                         "Pivot_Level": _pivot_entry['nearest_level'] if _pivot_entry and _pivot_entry['nearest_level'] is not None else '',
                         "Pivot_Date": str(pd.Timestamp(_pivot_entry['nearest_date']).date()) if _pivot_entry and pd.notna(_pivot_entry['nearest_date']) else '',
+                        "Pivot_Source_Age_Bars": _pivot_entry['nearest_source_age_bars'] if _pivot_entry and _pivot_entry['nearest_source_age_bars'] is not None else '',
+                        "Pivot_High_Source_Age_Bars": _pivot_entry['pivot_high_source_age_bars'] if _pivot_entry and _pivot_entry['pivot_high_source_age_bars'] is not None else '',
+                        "Pivot_Low_Source_Age_Bars": _pivot_entry['pivot_low_source_age_bars'] if _pivot_entry and _pivot_entry['pivot_low_source_age_bars'] is not None else '',
+                        "Pivot_High_Expired": _pivot_entry['pivot_high_expired'] if _pivot_entry else '',
+                        "Pivot_Low_Expired": _pivot_entry['pivot_low_expired'] if _pivot_entry else '',
+                        "Pivot_Max_Source_Age_Bars": _pivot_entry['max_source_age_bars'] if _pivot_entry and _pivot_entry['max_source_age_bars'] is not None else '',
                         "Pivot_Distance_ATR": _pivot_entry['distance_atr'] if _pivot_entry and _pivot_entry['distance_atr'] is not None else '',
                         "Pivot_Matched_Rule": _pivot_entry['matched_rule'] if _pivot_entry else '',
                         "Notional": notional,

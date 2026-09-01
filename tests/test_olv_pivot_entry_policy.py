@@ -46,8 +46,10 @@ import verify_fills
 from olv_pivot_entry import (
     OLV_PIVOT_HIGH_COL,
     OLV_PIVOT_HIGH_DATE_COL,
+    OLV_PIVOT_HIGH_SOURCE_AGE_COL,
     OLV_PIVOT_LOW_COL,
     OLV_PIVOT_LOW_DATE_COL,
+    OLV_PIVOT_LOW_SOURCE_AGE_COL,
     causal_close_pivot_context,
     resolve_olv_pivot_entry,
 )
@@ -68,19 +70,23 @@ def test_production_policy_is_live_and_exact():
     policy = _policy()
     assert policy["enabled"] is True
     assert (policy["left_bars"], policy["right_bars"]) == (40, 40)
+    assert policy["max_source_age_bars"] == 252
+    assert policy["version"] == "olv_close_pivot_40_v2_20260901"
     assert policy["default_offset_atr"] == pytest.approx(0.25)
 
 
 def test_indicator_cache_contract_requires_pivot_columns():
-    assert INDICATOR_CACHE_VERSION == "v2"
+    assert INDICATOR_CACHE_VERSION == "v3"
     stale = pd.DataFrame({"Close": [100.0]})
     assert not _indicator_cache_has_required_schema(stale)
     fresh = stale.assign(
         **{
             OLV_PIVOT_HIGH_COL: [99.0],
             OLV_PIVOT_HIGH_DATE_COL: [pd.Timestamp("2025-01-01")],
+            OLV_PIVOT_HIGH_SOURCE_AGE_COL: [100.0],
             OLV_PIVOT_LOW_COL: [90.0],
             OLV_PIVOT_LOW_DATE_COL: [pd.Timestamp("2024-12-01")],
+            OLV_PIVOT_LOW_SOURCE_AGE_COL: [120.0],
         }
     )
     assert _indicator_cache_has_required_schema(fresh)
@@ -96,6 +102,8 @@ def test_causal_pivot_appears_only_after_right_40_closes():
     assert pd.isna(context.iloc[79][OLV_PIVOT_HIGH_COL])
     assert context.iloc[80][OLV_PIVOT_HIGH_COL] == pytest.approx(100.0)
     assert pd.Timestamp(context.iloc[80][OLV_PIVOT_HIGH_DATE_COL]) == dates[40]
+    assert context.iloc[80][OLV_PIVOT_HIGH_SOURCE_AGE_COL] == pytest.approx(40.0)
+    assert context.iloc[99][OLV_PIVOT_HIGH_SOURCE_AGE_COL] == pytest.approx(59.0)
 
     # Adding later bars cannot rewrite context already knowable at q=80.
     extended_dates = pd.bdate_range(dates[0], periods=130)
@@ -108,6 +116,18 @@ def test_causal_pivot_appears_only_after_right_40_closes():
         extended_context.loc[dates, OLV_PIVOT_HIGH_COL],
         check_names=False,
     )
+
+
+def test_causal_low_age_is_counted_from_source_bar():
+    dates = pd.bdate_range("2024-01-02", periods=100)
+    # Unique centered low at p=40, first exposed at q=80 with source age 40.
+    values = np.r_[np.arange(100.0, 59.0, -1.0), np.arange(61.0, 120.0)]
+    context = causal_close_pivot_context(pd.Series(values, index=dates))
+    assert pd.isna(context.iloc[79][OLV_PIVOT_LOW_COL])
+    assert context.iloc[80][OLV_PIVOT_LOW_COL] == pytest.approx(60.0)
+    assert pd.Timestamp(context.iloc[80][OLV_PIVOT_LOW_DATE_COL]) == dates[40]
+    assert context.iloc[80][OLV_PIVOT_LOW_SOURCE_AGE_COL] == pytest.approx(40.0)
+    assert context.iloc[99][OLV_PIVOT_LOW_SOURCE_AGE_COL] == pytest.approx(59.0)
 
 
 @pytest.mark.parametrize(
@@ -129,6 +149,8 @@ def test_policy_boundaries(distance, expected_action, expected_offset, expected_
         atr=2.0,
         pivot_high=100.0 - distance * 2.0,
         pivot_low=40.0,
+        pivot_high_source_age_bars=100,
+        pivot_low_source_age_bars=120,
         policy=_policy(),
     )
     assert decision["nearest_type"] == "High"
@@ -143,6 +165,8 @@ def test_nearest_low_and_disabled_policy_fall_back_cleanly():
         atr=2.0,
         pivot_high=80.0,
         pivot_low=99.0,
+        pivot_high_source_age_bars=100,
+        pivot_low_source_age_bars=120,
         policy=_policy(),
     )
     assert low_nearest["nearest_type"] == "Low"
@@ -156,6 +180,8 @@ def test_nearest_low_and_disabled_policy_fall_back_cleanly():
         atr=2.0,
         pivot_high=88.0,
         pivot_low=40.0,
+        pivot_high_source_age_bars=100,
+        pivot_low_source_age_bars=120,
         policy=disabled,
     )
     assert shadow["proposed_action"] == "skip"
@@ -163,7 +189,114 @@ def test_nearest_low_and_disabled_policy_fall_back_cleanly():
     assert shadow["offset_atr"] == pytest.approx(0.25)
 
 
-def _engine_case(distance_atr, policy_enabled=True):
+def test_source_age_252_is_valid_and_253_reselects_other_side():
+    valid = resolve_olv_pivot_entry(
+        signal_close=100.0,
+        atr=2.0,
+        pivot_high=88.0,
+        pivot_low=40.0,
+        pivot_high_source_age_bars=252,
+        pivot_low_source_age_bars=100,
+        policy=_policy(),
+    )
+    assert valid["nearest_type"] == "High"
+    assert valid["nearest_source_age_bars"] == pytest.approx(252)
+    assert valid["skip"]
+    assert not valid["pivot_high_expired"]
+
+    expired = resolve_olv_pivot_entry(
+        signal_close=100.0,
+        atr=2.0,
+        pivot_high=88.0,
+        pivot_low=40.0,
+        pivot_high_source_age_bars=253,
+        pivot_low_source_age_bars=100,
+        policy=_policy(),
+    )
+    assert expired["nearest_type"] == "Low"
+    assert expired["nearest_source_age_bars"] == pytest.approx(100)
+    assert expired["pivot_high_expired"]
+    assert not expired["pivot_low_expired"]
+    assert expired["offset_atr"] == pytest.approx(0.25)
+    assert not expired["skip"]
+
+
+def test_low_expires_independently_before_nearest_selection():
+    decision = resolve_olv_pivot_entry(
+        signal_close=100.0,
+        atr=2.0,
+        pivot_high=95.0,
+        pivot_low=99.0,
+        pivot_high_source_age_bars=100,
+        pivot_low_source_age_bars=253,
+        policy=_policy(),
+    )
+    # The stale low is closer in price, but the fresh high must be selected.
+    assert decision["nearest_type"] == "High"
+    assert decision["pivot_low_expired"]
+    assert decision["offset_atr"] == pytest.approx(0.50)
+    assert decision["matched_rule"] == "above_high_2_3"
+
+
+@pytest.mark.parametrize(
+    "high_age, low_age",
+    [(253, 253), (None, None)],
+)
+def test_both_unusable_levels_fail_safe_to_default_entry(high_age, low_age):
+    decision = resolve_olv_pivot_entry(
+        signal_close=100.0,
+        atr=2.0,
+        pivot_high=88.0,
+        pivot_low=99.0,
+        pivot_high_source_age_bars=high_age,
+        pivot_low_source_age_bars=low_age,
+        policy=_policy(),
+    )
+    assert decision["nearest_type"] == ""
+    assert decision["nearest_level"] is None
+    assert decision["nearest_source_age_bars"] is None
+    assert decision["offset_atr"] == pytest.approx(0.25)
+    assert decision["matched_rule"] == "default"
+    assert not decision["skip"]
+
+
+def test_policy_without_age_cap_retains_backward_compatibility():
+    policy = _policy()
+    policy.pop("max_source_age_bars")
+    decision = resolve_olv_pivot_entry(
+        signal_close=100.0,
+        atr=2.0,
+        pivot_high=88.0,
+        pivot_low=40.0,
+        policy=policy,
+    )
+    assert decision["nearest_type"] == "High"
+    assert decision["skip"]
+    assert decision["max_source_age_bars"] is None
+
+
+@pytest.mark.parametrize("bad_age", [-1, "not-a-number", np.inf])
+def test_invalid_age_cap_fails_loudly(bad_age):
+    policy = _policy()
+    policy["max_source_age_bars"] = bad_age
+    with pytest.raises(ValueError, match="max_source_age_bars"):
+        resolve_olv_pivot_entry(
+            signal_close=100.0,
+            atr=2.0,
+            pivot_high=88.0,
+            pivot_low=40.0,
+            pivot_high_source_age_bars=100,
+            pivot_low_source_age_bars=100,
+            policy=policy,
+        )
+
+
+def _engine_case(
+    distance_atr,
+    policy_enabled=True,
+    pivot_high_source_age_bars=100,
+    pivot_low_source_age_bars=120,
+):
     n = 12
     dates = pd.bdate_range("2024-01-02", periods=n)
     df = pd.DataFrame(
@@ -183,8 +316,10 @@ def _engine_case(distance_atr, policy_enabled=True):
             "rank_ret_252d": [50.0] * n,
             OLV_PIVOT_HIGH_COL: [100.0 - 2.0 * distance_atr] * n,
             OLV_PIVOT_HIGH_DATE_COL: [dates[0] - pd.Timedelta(days=100)] * n,
+            OLV_PIVOT_HIGH_SOURCE_AGE_COL: [pivot_high_source_age_bars] * n,
             OLV_PIVOT_LOW_COL: [40.0] * n,
             OLV_PIVOT_LOW_DATE_COL: [dates[0] - pd.Timedelta(days=120)] * n,
+            OLV_PIVOT_LOW_SOURCE_AGE_COL: [pivot_low_source_age_bars] * n,
         },
         index=dates,
     )
@@ -255,6 +390,22 @@ def test_backtester_kill_switch_restores_legacy_entry():
     assert len(result) == 1
     assert result.iloc[0]["Entry Offset ATR"] == pytest.approx(0.25)
     assert result.iloc[0]["Price"] == pytest.approx(99.5)
+
+
+def test_backtester_age_boundary_and_fresh_side_reselection():
+    assert _engine_case(6.0, pivot_high_source_age_bars=252).empty
+
+    result = _engine_case(
+        6.0,
+        pivot_high_source_age_bars=253,
+        pivot_low_source_age_bars=100,
+    )
+    assert len(result) == 1
+    assert result.iloc[0]["Entry Offset ATR"] == pytest.approx(0.25)
+    assert result.iloc[0]["Pivot Nearest Type"] == "Low"
+    assert result.iloc[0]["Pivot Source Age Bars"] == pytest.approx(100)
+    assert bool(result.iloc[0]["Pivot High Expired"])
+    assert not bool(result.iloc[0]["Pivot Low Expired"])
 
 
 class _FakeWorksheet:
@@ -328,10 +479,16 @@ def test_scanner_stages_numeric_offset_over_static_entry_string(monkeypatch):
         "Time Exit": pd.Timestamp("2026-09-15").date(),
         "Risk_Amt": 293.21,
         "Entry_Offset_ATR": 0.75,
-        "Pivot_Rule_Version": "olv_close_pivot_40_v1_20260831",
+        "Pivot_Rule_Version": "olv_close_pivot_40_v2_20260901",
         "Pivot_Nearest_Type": "High",
         "Pivot_Level": 89.0,
         "Pivot_Date": "2026-05-01",
+        "Pivot_Source_Age_Bars": 200,
+        "Pivot_High_Source_Age_Bars": 200,
+        "Pivot_Low_Source_Age_Bars": 110,
+        "Pivot_High_Expired": False,
+        "Pivot_Low_Expired": False,
+        "Pivot_Max_Source_Age_Bars": 252,
         "Pivot_Distance_ATR": 4.74,
         "Pivot_Matched_Rule": "above_high_4_5",
         "Live_Filters": [],
@@ -344,6 +501,8 @@ def test_scanner_stages_numeric_offset_over_static_entry_string(monkeypatch):
     assert float(row["Entry_Offset_ATR"]) == pytest.approx(0.75)
     assert float(row["Frozen_ATR"]) == pytest.approx(2.345678)
     assert float(row["Signal_Close"]) == pytest.approx(100.123456)
+    assert float(row["Pivot_Source_Age_Bars"]) == pytest.approx(200)
+    assert float(row["Pivot_Max_Source_Age_Bars"]) == pytest.approx(252)
     assert row["Pivot_Matched_Rule"] == "above_high_4_5"
 
 

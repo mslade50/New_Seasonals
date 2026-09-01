@@ -23,8 +23,10 @@ from indicators import calculate_indicators, get_sznl_val_series
 from olv_pivot_entry import (
     OLV_PIVOT_HIGH_COL,
     OLV_PIVOT_HIGH_DATE_COL,
+    OLV_PIVOT_HIGH_SOURCE_AGE_COL,
     OLV_PIVOT_LOW_COL,
     OLV_PIVOT_LOW_DATE_COL,
+    OLV_PIVOT_LOW_SOURCE_AGE_COL,
     resolve_olv_pivot_entry_from_row,
 )
 from filters import evaluate_filter_mask
@@ -415,21 +417,23 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
 
 
 # Bump when indicators.py changes in a way that invalidates old cache files.
-INDICATOR_CACHE_VERSION = "v2"
+INDICATOR_CACHE_VERSION = "v3"
 _INDICATOR_CACHE_REQUIRED_COLUMNS = {
     OLV_PIVOT_HIGH_COL,
     OLV_PIVOT_HIGH_DATE_COL,
+    OLV_PIVOT_HIGH_SOURCE_AGE_COL,
     OLV_PIVOT_LOW_COL,
     OLV_PIVOT_LOW_DATE_COL,
+    OLV_PIVOT_LOW_SOURCE_AGE_COL,
 }
 
 
 def _indicator_cache_has_required_schema(df):
     """Reject stale/malformed cache frames instead of silently degrading.
 
-    The versioned filename normally prevents a v1 frame from loading after an
-    indicator change. This explicit contract also protects against a wrongly
-    uploaded R2 object or a partial local cache with the expected v2 filename.
+    The versioned filename prevents an older-schema frame from loading after
+    an indicator change. This explicit contract also protects against a wrongly
+    uploaded R2 object or a partial local cache with the expected versioned filename.
     """
     return (
         isinstance(df, pd.DataFrame)
@@ -2031,6 +2035,12 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         "Pivot Nearest Type": _pivot_entry['nearest_type'] if _pivot_entry else '',
                         "Pivot Level": _pivot_entry['nearest_level'] if _pivot_entry else np.nan,
                         "Pivot Date": _pivot_entry['nearest_date'] if _pivot_entry else pd.NaT,
+                        "Pivot Source Age Bars": _pivot_entry['nearest_source_age_bars'] if _pivot_entry else np.nan,
+                        "Pivot High Source Age Bars": _pivot_entry['pivot_high_source_age_bars'] if _pivot_entry else np.nan,
+                        "Pivot Low Source Age Bars": _pivot_entry['pivot_low_source_age_bars'] if _pivot_entry else np.nan,
+                        "Pivot High Expired": _pivot_entry['pivot_high_expired'] if _pivot_entry else False,
+                        "Pivot Low Expired": _pivot_entry['pivot_low_expired'] if _pivot_entry else False,
+                        "Pivot Max Source Age Bars": _pivot_entry['max_source_age_bars'] if _pivot_entry else np.nan,
                         "Pivot Distance ATR": _pivot_entry['distance_atr'] if _pivot_entry else np.nan,
                         "Pivot Matched Rule": _pivot_entry['matched_rule'] if _pivot_entry else '',
                     })
