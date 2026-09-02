@@ -1,0 +1,701 @@
+{
+ "basis": "flat $750k, ledger data/backtest_trades_full.parquet as on disk 2026-09-02",
+ "live_nlv_assumed": 632000.0,
+ "exposure_pct_nav_2016plus": {
+  "gross": {
+   "p50": 0.3923819912625267,
+   "p90": 1.2390306380138851,
+   "p95": 1.5923375743269461,
+   "p99": 2.541244966314104,
+   "max": 4.17942464855671,
+   "max_date": "2016-06-14"
+  },
+  "long": {
+   "p50": 0.2939342057291667,
+   "p90": 1.0023195557912927,
+   "p95": 1.335849991438889,
+   "p99": 2.3070206390874044,
+   "max": 4.17942464855671,
+   "max_date": "2016-06-14"
+  },
+  "short": {
+   "p50": 0.0,
+   "p90": 0.32442317224211037,
+   "p95": 0.4694896334006678,
+   "p99": 1.0575179907742425,
+   "max": 1.926859941906384,
+   "max_date": "2022-03-08"
+  },
+  "net": {
+   "p50": 0.20494135289101373,
+   "p90": 0.9530076067683357,
+   "p95": 1.3144662971384689,
+   "p99": 2.240000167223757,
+   "max": 4.17942464855671,
+   "max_date": "2016-06-14"
+  },
+  "beta_notional": {
+   "p50": 0.2277914984942845,
+   "p90": 0.9919759679626646,
+   "p95": 1.3435554852049874,
+   "p99": 2.2883700543106666,
+   "max": 4.17942464855671,
+   "max_date": "2016-06-14"
+  }
+ },
+ "exposure_pct_nav_2003plus": {
+  "gross": {
+   "p50": 0.35832274512772333,
+   "p90": 1.2395669541446188,
+   "p95": 1.5731252395240098,
+   "p99": 2.6271768289702893,
+   "max": 4.41435504833176,
+   "max_date": "2013-11-04"
+  },
+  "net": {
+   "p50": 0.2407099500263759,
+   "p90": 1.1324288086334602,
+   "p95": 1.4822806383887928,
+   "p99": 2.540891850178479,
+   "max": 4.41435504833176,
+   "max_date": "2013-11-04"
+  },
+  "beta_notional": {
+   "p50": 0.25352176778157554,
+   "p90": 1.1519800501927921,
+   "p95": 1.5004562146243596,
+   "p99": 2.5703084338238975,
+   "max": 4.41435504833176,
+   "max_date": "2013-11-04"
+  }
+ },
+ "equity_shock_30pct_loss_pct_nav": {
+  "dist2016": {
+   "p50": 0.06833744954828534,
+   "p90": 0.2975927903887994,
+   "p95": 0.4030666455614962,
+   "p99": 0.6865110162931999,
+   "max": 1.2538273945670129,
+   "max_date": "2016-06-14"
+  },
+  "m_at_which_max_loss_equals_nav": 0.7975579448440209,
+  "days_per_year_loss_over_30pct_nav_at_m1": 24.7200862378728
+ },
+ "scenarios": {
+  "flat15_pm": {
+   "p50": 0.0624040976978847,
+   "p95": 0.2524809975679125,
+   "p99": 0.40657066108500967,
+   "max": 0.6269136972835064,
+   "max_date": "2016-06-14",
+   "m_max_750": 1.5951158896880417,
+   "m_p99_750": 2.459597053391195,
+   "m_p95_750": 3.960694110181577,
+   "m_max_live": 1.3441509897104564,
+   "m_p99_live": 2.0726204503243135,
+   "m_max_750_2003plus": 1.5102243914852485,
+   "max_date_2003plus": "2013-11-04",
+   "m_max_750_cushion15": 1.3558485062348353,
+   "m_p99_live_cushion15": 1.7617273827756668,
+   "grm_max_750": 2.3926738345320624,
+   "grm_p99_live": 3.1089306754864703,
+   "grm_max_live": 2.0162264845656845
+  },
+  "tims_pm": {
+   "p50": 0.05781567044210434,
+   "p95": 0.22830160702220018,
+   "p99": 0.3469766315522276,
+   "max": 0.5543149207155118,
+   "max_date": "2023-02-03",
+   "m_max_750": 1.8040286534398104,
+   "m_p99_750": 2.8820384690646756,
+   "m_p95_750": 4.380170656892307,
+   "m_max_live": 1.5201948119652802,
+   "m_p99_live": 2.4285977499318334,
+   "m_max_750_2003plus": 1.6268061413967831,
+   "max_date_2003plus": "2013-11-04",
+   "m_max_750_cushion15": 1.5334243554238387,
+   "m_p99_live_cushion15": 2.0643080874420585,
+   "grm_max_750": 2.7060429801597157,
+   "grm_p99_live": 3.64289662489775,
+   "grm_max_live": 2.2802922179479204
+  },
+  "tims_pm_cheapshort": {
+   "p50": 0.058805289697606226,
+   "p95": 0.23421474269443948,
+   "p99": 0.35221493922809205,
+   "max": 0.5583186543338327,
+   "max_date": "2023-02-03",
+   "m_max_750": 1.7910918652595746,
+   "m_p99_750": 2.8391754256408945,
+   "m_p95_750": 4.269586058058766,
+   "m_max_live": 1.5092934117920682,
+   "m_p99_live": 2.392478492006727,
+   "m_max_750_2003plus": 1.6268061413967831,
+   "max_date_2003plus": "2013-11-04",
+   "m_max_750_cushion15": 1.5224280854706385,
+   "m_p99_live_cushion15": 2.0336067182057183,
+   "grm_max_750": 2.686637797889362,
+   "grm_p99_live": 3.5887177380100903,
+   "grm_max_live": 2.263940117688102
+  },
+  "tims_lev_rules": {
+   "p50": 0.06076019230399904,
+   "p95": 0.24990412510978152,
+   "p99": 0.4204203779564695,
+   "max": 0.9945369793576169,
+   "max_date": "2023-02-03",
+   "m_max_750": 1.0054930291741506,
+   "m_p99_750": 2.3785716688155882,
+   "m_p95_750": 4.001534586756843,
+   "m_max_live": 0.847295459250751,
+   "m_p99_live": 2.004343059588602,
+   "m_max_750_2003plus": 1.0054930291741506,
+   "max_date_2003plus": "2023-02-03",
+   "m_max_750_cushion15": 0.8546690747980281,
+   "m_p99_live_cushion15": 1.703691600650312,
+   "grm_max_750": 1.508239543761226,
+   "grm_p99_live": 3.006514589382903,
+   "grm_max_live": 1.2709431888761265
+  },
+  "tims_pm_futures_broad": {
+   "p50": 0.057598404191845934,
+   "p95": 0.2214844366282531,
+   "p99": 0.3310680504291708,
+   "max": 0.5549309975341276,
+   "max_date": "2023-02-03",
+   "m_max_750": 1.8020258454538778,
+   "m_p99_750": 3.0205270448286323,
+   "m_p95_750": 4.5149899253573,
+   "m_max_live": 1.5185071124358012,
+   "m_p99_live": 2.545297456442261,
+   "m_max_750_2003plus": 1.6729281647245484,
+   "max_date_2003plus": "2013-11-04",
+   "m_max_750_cushion15": 1.5317219686357961,
+   "m_p99_live_cushion15": 2.163502837975922,
+   "grm_max_750": 2.7030387681808166,
+   "grm_p99_live": 3.8179461846633913,
+   "grm_max_live": 2.277760668653702
+  },
+  "tims_lev_rules_futures_broad": {
+   "p50": 0.05898723549989972,
+   "p95": 0.24018646848800929,
+   "p99": 0.41515010477814507,
+   "max": 0.9911493225579118,
+   "max_date": "2023-02-03",
+   "m_max_750": 1.008929711437674,
+   "m_p99_750": 2.4087673072716598,
+   "m_p95_750": 4.163431879801848,
+   "m_max_live": 0.8501914368381467,
+   "m_p99_live": 2.0297879175942524,
+   "m_max_750_2003plus": 1.008929711437674,
+   "max_date_2003plus": "2023-02-03",
+   "m_max_750_cushion15": 0.8575902547220229,
+   "m_p99_live_cushion15": 1.7253197299551144,
+   "grm_max_750": 1.513394567156511,
+   "grm_p99_live": 3.0446818763913788,
+   "grm_max_live": 1.27528715525722
+  },
+  "tims_pm_cheapshort_conc25": {
+   "p50": 0.06911839744208201,
+   "p95": 0.37434181427649316,
+   "p99": 0.6127350176599524,
+   "max": 1.0754363708134551,
+   "max_date": "2016-06-14",
+   "m_max_750": 0.9298551054616133,
+   "m_p99_750": 1.6320268487657528,
+   "m_p95_750": 2.6713553278378583,
+   "m_max_live": 0.7835579022023195,
+   "m_p99_live": 1.375254624559941,
+   "m_max_750_2003plus": 0.8947596952580973,
+   "max_date_2003plus": "2013-11-04",
+   "m_max_750_cushion15": 0.7903768396423713,
+   "m_p99_live_cushion15": 1.16896643087595,
+   "grm_max_750": 1.3947826581924199,
+   "grm_p99_live": 2.0628819368399114,
+   "grm_max_live": 1.1753368533034791
+  },
+  "tims_pm_cheapshort_conc50": {
+   "p50": 0.05928673255208333,
+   "p95": 0.29842803430535003,
+   "p99": 0.48897344244326046,
+   "max": 0.9724924679709842,
+   "max_date": "2024-05-24",
+   "m_max_750": 1.0282855990508675,
+   "m_p99_750": 2.0451008443388785,
+   "m_p95_750": 3.350891622255586,
+   "m_max_live": 0.8665019981335309,
+   "m_p99_live": 1.7233383114962284,
+   "m_max_750_2003plus": 0.9456142573647777,
+   "max_date_2003plus": "2013-11-04",
+   "m_max_750_cushion15": 0.8740427591932373,
+   "m_p99_live_cushion15": 1.4648375647717942,
+   "grm_max_750": 1.5424283985763012,
+   "grm_p99_live": 2.585007467244343,
+   "grm_max_live": 1.2997529972002964
+  },
+  "tims_lev_rules_conc25": {
+   "p50": 0.07338006993415015,
+   "p95": 0.39611603590915706,
+   "p99": 0.6534982128139445,
+   "max": 1.0754363708134551,
+   "max_date": "2016-06-14",
+   "m_max_750": 0.9298551054616133,
+   "m_p99_750": 1.530226067021712,
+   "m_p95_750": 2.5245127925831667,
+   "m_max_live": 0.7835579022023195,
+   "m_p99_live": 1.2894704991436292,
+   "m_max_750_2003plus": 0.8947596952580973,
+   "max_date_2003plus": "2013-11-04",
+   "m_max_750_cushion15": 0.7903768396423713,
+   "m_p99_live_cushion15": 1.096049924272085,
+   "grm_max_750": 1.3947826581924199,
+   "grm_p99_live": 1.9342057487154438,
+   "grm_max_live": 1.1753368533034791
+  }
+ },
+ "guard_days_per_year_over_70pct": {
+  "1": 0.0,
+  "1.25": 0.0,
+  "1.5": 0.543298598634567,
+  "1.75": 1.5393460294646066,
+  "2": 2.6259432267337406,
+  "2.5": 6.247933884297521,
+  "3": 12.676967301473232
+ },
+ "guard_days_per_year_over_100pct": {
+  "1": 0.0,
+  "1.25": 0.0,
+  "1.5": 0.0,
+  "1.75": 0.0,
+  "2": 0.0905497664390945,
+  "2.5": 1.5393460294646066,
+  "3": 3.3503413582464967
+ },
+ "top_requirement_days": [
+  {
+   "date": "2023-02-03",
+   "req_pct_nav": 0.5583186543338327,
+   "gross_pct_nav": 1.800955669611545,
+   "net_pct_nav": -1.6463794780657859,
+   "classes": {
+    "broad_idx": 0.04,
+    "lev3x": 0.54,
+    "sector_etf": 0.15,
+    "single": 0.25,
+    "smallcap_idx": 0.02
+   },
+   "top_strats": {
+    "3x ETF Overbot Fade": 0.54,
+    "Overbot Vol Spike": 0.42,
+    "52wh Breakout": 0.04
+   }
+  },
+  {
+   "date": "2016-06-14",
+   "req_pct_nav": 0.4792638764636008,
+   "gross_pct_nav": 4.17942464855671,
+   "net_pct_nav": 4.17942464855671,
+   "classes": {
+    "broad_idx": 0.44,
+    "sector_etf": 0.42,
+    "single": 0.05,
+    "smallcap_idx": 0.09
+   },
+   "top_strats": {
+    "Weak Close Decent Sznls": 0.33,
+    "Monday Dip": 0.32,
+    "SPY QQQ MonFri Reversion": 0.3
+   }
+  },
+  {
+   "date": "2016-06-15",
+   "req_pct_nav": 0.4792638764636008,
+   "gross_pct_nav": 4.17942464855671,
+   "net_pct_nav": 4.17942464855671,
+   "classes": {
+    "broad_idx": 0.44,
+    "sector_etf": 0.42,
+    "single": 0.05,
+    "smallcap_idx": 0.09
+   },
+   "top_strats": {
+    "Weak Close Decent Sznls": 0.33,
+    "Monday Dip": 0.32,
+    "SPY QQQ MonFri Reversion": 0.3
+   }
+  },
+  {
+   "date": "2023-02-06",
+   "req_pct_nav": 0.47865470027254575,
+   "gross_pct_nav": 1.4550509340911362,
+   "net_pct_nav": -1.300474742545377,
+   "classes": {
+    "broad_idx": 0.03,
+    "lev3x": 0.6,
+    "sector_etf": 0.11,
+    "single": 0.24,
+    "smallcap_idx": 0.03
+   },
+   "top_strats": {
+    "3x ETF Overbot Fade": 0.6,
+    "Overbot Vol Spike": 0.35,
+    "52wh Breakout": 0.05
+   }
+  },
+  {
+   "date": "2023-12-15",
+   "req_pct_nav": 0.4684321764523063,
+   "gross_pct_nav": 1.9005678104749415,
+   "net_pct_nav": -1.26596918377177,
+   "classes": {
+    "lev3x": 0.28,
+    "sector_etf": 0.04,
+    "single": 0.67,
+    "smallcap_idx": 0.01
+   },
+   "top_strats": {
+    "Overbot Vol Spike": 0.56,
+    "3x ETF Overbot Fade": 0.28,
+    "52wh Breakout": 0.17
+   }
+  },
+  {
+   "date": "2019-06-26",
+   "req_pct_nav": 0.46746890468693547,
+   "gross_pct_nav": 4.015168119232314,
+   "net_pct_nav": 2.0939799561827064,
+   "classes": {
+    "broad_idx": 0.48,
+    "sector_etf": 0.33,
+    "single": 0.19
+   },
+   "top_strats": {
+    "Weak Close Decent Sznls": 0.53,
+    "Overbot Vol Spike": 0.24,
+    "Monday Dip": 0.12
+   }
+  },
+  {
+   "date": "2024-05-24",
+   "req_pct_nav": 0.4588877657334055,
+   "gross_pct_nav": 3.5832155823368796,
+   "net_pct_nav": 3.548087008173352,
+   "classes": {
+    "broad_idx": 0.31,
+    "sector_etf": 0.64,
+    "single": 0.04
+   },
+   "top_strats": {
+    "Weak Close Decent Sznls": 0.96,
+    "52wh Breakout": 0.03,
+    "Oversold Low Volume": 0.01
+   }
+  },
+  {
+   "date": "2022-08-16",
+   "req_pct_nav": 0.4557080169649181,
+   "gross_pct_nav": 1.0724044845284055,
+   "net_pct_nav": -1.0724044845284055,
+   "classes": {
+    "lev3x": 0.91,
+    "sector_etf": 0.04,
+    "single": 0.05
+   },
+   "top_strats": {
+    "3x ETF Overbot Fade": 0.91,
+    "Overbot Vol Spike": 0.09
+   }
+  }
+ ],
+ "margin_per_risk_by_strategy": [
+  {
+   "Strategy": "52wh Breakout",
+   "N": 256,
+   "notional": 22503561.4944,
+   "risk": 1008000.0,
+   "req_tims": 3368403.353,
+   "req_flat15": 3375534.2242,
+   "req_rules": 3368403.353,
+   "pnl": 530751.0,
+   "hold": 63.0,
+   "notional_per_risk": 22.325,
+   "margin_per_risk_tims": 3.3417,
+   "margin_per_risk_rules": 3.3417,
+   "margin_per_risk_flat15": 3.3487,
+   "pnl_per_margin_day": 0.0025
+  },
+  {
+   "Strategy": "Oversold Low Volume",
+   "N": 315,
+   "notional": 15620557.9312,
+   "risk": 529214.0603,
+   "req_tims": 2343083.6897,
+   "req_flat15": 2343083.6897,
+   "req_rules": 2343083.6897,
+   "pnl": 418121.0,
+   "hold": 10.0,
+   "notional_per_risk": 29.5165,
+   "margin_per_risk_tims": 4.4275,
+   "margin_per_risk_rules": 4.4275,
+   "margin_per_risk_flat15": 4.4275,
+   "pnl_per_margin_day": 0.0178
+  },
+  {
+   "Strategy": "St OS Sznl",
+   "N": 58,
+   "notional": 7562396.1594,
+   "risk": 226575.0,
+   "req_tims": 1134359.4239,
+   "req_flat15": 1134359.4239,
+   "req_rules": 1134359.4239,
+   "pnl": 106564.0,
+   "hold": 5.0,
+   "notional_per_risk": 33.377,
+   "margin_per_risk_tims": 5.0066,
+   "margin_per_risk_rules": 5.0066,
+   "margin_per_risk_flat15": 5.0066,
+   "pnl_per_margin_day": 0.0188
+  },
+  {
+   "Strategy": "LT Trend ST OS",
+   "N": 246,
+   "notional": 27067476.7518,
+   "risk": 773397.3214,
+   "req_tims": 4060121.5128,
+   "req_flat15": 4060121.5128,
+   "req_rules": 4060121.5128,
+   "pnl": 232729.0,
+   "hold": 1.0,
+   "notional_per_risk": 34.9982,
+   "margin_per_risk_tims": 5.2497,
+   "margin_per_risk_rules": 5.2497,
+   "margin_per_risk_flat15": 5.2497,
+   "pnl_per_margin_day": 0.0573
+  },
+  {
+   "Strategy": "Indices Oversold Bounce",
+   "N": 290,
+   "notional": 66454653.3821,
+   "risk": 999703.125,
+   "req_tims": 5316372.2706,
+   "req_flat15": 9968198.0073,
+   "req_rules": 5316372.2706,
+   "pnl": 335957.0,
+   "hold": 2.0,
+   "notional_per_risk": 66.4744,
+   "margin_per_risk_tims": 5.318,
+   "margin_per_risk_rules": 5.318,
+   "margin_per_risk_flat15": 9.9712,
+   "pnl_per_margin_day": 0.0316
+  },
+  {
+   "Strategy": "SPY QQQ MonFri Reversion",
+   "N": 348,
+   "notional": 73020062.4937,
+   "risk": 1087242.1875,
+   "req_tims": 5841604.9995,
+   "req_flat15": 10953009.3741,
+   "req_rules": 5841604.9995,
+   "pnl": 515183.0,
+   "hold": 2.0,
+   "notional_per_risk": 67.1608,
+   "margin_per_risk_tims": 5.3729,
+   "margin_per_risk_rules": 5.3729,
+   "margin_per_risk_flat15": 10.0741,
+   "pnl_per_margin_day": 0.0441
+  },
+  {
+   "Strategy": "Monthly Weak Close",
+   "N": 14,
+   "notional": 3248396.701,
+   "risk": 48093.75,
+   "req_tims": 259871.7361,
+   "req_flat15": 487259.5052,
+   "req_rules": 259871.7361,
+   "pnl": 86768.0,
+   "hold": 5.0,
+   "notional_per_risk": 67.543,
+   "margin_per_risk_tims": 5.4034,
+   "margin_per_risk_rules": 5.4034,
+   "margin_per_risk_flat15": 10.1315,
+   "pnl_per_margin_day": 0.0668
+  },
+  {
+   "Strategy": "ATR Extended Gap Up",
+   "N": 71,
+   "notional": 10929306.5185,
+   "risk": 319500.0,
+   "req_tims": 1758582.0075,
+   "req_flat15": 1639395.9778,
+   "req_rules": 1758582.0075,
+   "pnl": 249854.0,
+   "hold": 2.0,
+   "notional_per_risk": 34.2075,
+   "margin_per_risk_tims": 5.5042,
+   "margin_per_risk_rules": 5.5042,
+   "margin_per_risk_flat15": 5.1311,
+   "pnl_per_margin_day": 0.071
+  },
+  {
+   "Strategy": "Overbot Vol Spike",
+   "N": 2483,
+   "notional": 70391337.9095,
+   "risk": 2035928.5401,
+   "req_tims": 12887051.3914,
+   "req_flat15": 10558700.6864,
+   "req_rules": 12887051.3914,
+   "pnl": 607403.0,
+   "hold": 2.0,
+   "notional_per_risk": 34.5746,
+   "margin_per_risk_tims": 6.3298,
+   "margin_per_risk_rules": 6.3298,
+   "margin_per_risk_flat15": 5.1862,
+   "pnl_per_margin_day": 0.0236
+  },
+  {
+   "Strategy": "Monday Dip",
+   "N": 108,
+   "notional": 22612348.6127,
+   "risk": 314718.75,
+   "req_tims": 2334554.4614,
+   "req_flat15": 3391852.2919,
+   "req_rules": 2334554.4614,
+   "pnl": 156180.0,
+   "hold": 2.0,
+   "notional_per_risk": 71.8494,
+   "margin_per_risk_tims": 7.4179,
+   "margin_per_risk_rules": 7.4179,
+   "margin_per_risk_flat15": 10.7774,
+   "pnl_per_margin_day": 0.0334
+  },
+  {
+   "Strategy": "3x Leader Gap Fade",
+   "N": 24,
+   "notional": 1331796.6388,
+   "risk": 67500.0,
+   "req_tims": 599308.4875,
+   "req_flat15": 599308.4875,
+   "req_rules": 1198616.9749,
+   "pnl": 77988.0,
+   "hold": 2.0,
+   "notional_per_risk": 19.7303,
+   "margin_per_risk_tims": 8.8786,
+   "margin_per_risk_rules": 17.7573,
+   "margin_per_risk_flat15": 8.8786,
+   "pnl_per_margin_day": 0.0651
+  },
+  {
+   "Strategy": "3x Bear ETF Overbot Fade",
+   "N": 55,
+   "notional": 3038971.8124,
+   "risk": 149765.625,
+   "req_tims": 1367537.3156,
+   "req_flat15": 1367537.3156,
+   "req_rules": 2735074.6312,
+   "pnl": 101403.0,
+   "hold": 2.0,
+   "notional_per_risk": 20.2915,
+   "margin_per_risk_tims": 9.1312,
+   "margin_per_risk_rules": 18.2624,
+   "margin_per_risk_flat15": 9.1312,
+   "pnl_per_margin_day": 0.0371
+  },
+  {
+   "Strategy": "3x ETF Overbot Fade",
+   "N": 87,
+   "notional": 6269698.0568,
+   "risk": 303065.3409,
+   "req_tims": 2821364.1256,
+   "req_flat15": 2821364.1256,
+   "req_rules": 5642728.2512,
+   "pnl": 209047.0,
+   "hold": 2.0,
+   "notional_per_risk": 20.6876,
+   "margin_per_risk_tims": 9.3094,
+   "margin_per_risk_rules": 18.6189,
+   "margin_per_risk_flat15": 9.3094,
+   "pnl_per_margin_day": 0.037
+  },
+  {
+   "Strategy": "Sector BO",
+   "N": 73,
+   "notional": 14269365.3767,
+   "risk": 205312.5,
+   "req_tims": 2057073.0691,
+   "req_flat15": 2140404.8065,
+   "req_rules": 2057073.0691,
+   "pnl": 171815.0,
+   "hold": 63.0,
+   "notional_per_risk": 69.5007,
+   "margin_per_risk_tims": 10.0192,
+   "margin_per_risk_rules": 10.0192,
+   "margin_per_risk_flat15": 10.4251,
+   "pnl_per_margin_day": 0.0013
+  },
+  {
+   "Strategy": "Weak Close Decent Sznls",
+   "N": 268,
+   "notional": 92761241.435,
+   "risk": 1199137.8961,
+   "req_tims": 12555799.344,
+   "req_flat15": 13914186.2152,
+   "req_rules": 12555799.344,
+   "pnl": 337368.0,
+   "hold": 2.0,
+   "notional_per_risk": 77.3566,
+   "margin_per_risk_tims": 10.4707,
+   "margin_per_risk_rules": 10.4707,
+   "margin_per_risk_flat15": 11.6035,
+   "pnl_per_margin_day": 0.0134
+  }
+ ],
+ "margin_per_risk_by_class": [
+  {
+   "klass": "broad_idx",
+   "N": 732,
+   "notional": 170937484.3363,
+   "risk": 2397748.6578,
+   "req_tims": 13674998.7469,
+   "margin_per_risk_tims": 5.7033,
+   "notional_per_risk": 71.2908
+  },
+  {
+   "klass": "lev3x",
+   "N": 166,
+   "notional": 10640466.5081,
+   "risk": 520330.9659,
+   "req_tims": 4788209.9286,
+   "margin_per_risk_tims": 9.2022,
+   "notional_per_risk": 20.4494
+  },
+  {
+   "klass": "sector_etf",
+   "N": 552,
+   "notional": 106914390.5319,
+   "risk": 1651407.0556,
+   "req_tims": 16037158.5798,
+   "margin_per_risk_tims": 9.7112,
+   "notional_per_risk": 64.7414
+  },
+  {
+   "klass": "single",
+   "N": 3186,
+   "notional": 136824634.9047,
+   "risk": 4522127.3256,
+   "req_tims": 23028300.4328,
+   "margin_per_risk_tims": 5.0924,
+   "notional_per_risk": 30.2567
+  },
+  {
+   "klass": "smallcap_idx",
+   "N": 60,
+   "notional": 11764194.9931,
+   "risk": 175540.0915,
+   "req_tims": 1176419.4993,
+   "margin_per_risk_tims": 6.7017,
+   "notional_per_risk": 67.0171
+  }
+ ],
+ "book_margin_per_risk_tims": 6.334748141388899
+}

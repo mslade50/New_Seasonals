@@ -1,0 +1,98 @@
+<title>Sizing Change List</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{color-scheme:light;--ground:#F6F7F5;--panel:#FFFFFF;--ink:#17202A;--ink2:#55626D;--ink3:#8A959D;--rule:#D8DEDC;--accent:#0F6E73;--accent-soft:#E3F0F0;--study:#8F6400;--study-soft:#F6EBD0;--reject:#9E3B2F;--reject-soft:#F5E1DC;--mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;--sans:"IBM Plex Sans",system-ui,"Segoe UI",Roboto,sans-serif;--serif:"Source Serif 4",Georgia,serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--ground:#141A1F;--panel:#1B232A;--ink:#E8ECEA;--ink2:#A9B3B8;--ink3:#78848B;--rule:#2E3940;--accent:#5CBDC1;--accent-soft:#1B3436;--study:#DDAA45;--study-soft:#3A2F14;--reject:#E3806F;--reject-soft:#3E211C}}
+:root[data-theme="dark"]{color-scheme:dark;--ground:#141A1F;--panel:#1B232A;--ink:#E8ECEA;--ink2:#A9B3B8;--ink3:#78848B;--rule:#2E3940;--accent:#5CBDC1;--accent-soft:#1B3436;--study:#DDAA45;--study-soft:#3A2F14;--reject:#E3806F;--reject-soft:#3E211C}
+body{background:var(--ground);color:var(--ink);font-family:var(--serif);font-size:16.5px;line-height:1.5;margin:0}
+main{max-width:78ch;margin:0 auto;padding:40px 24px 72px}
+h1{font-size:2rem;font-weight:600;line-height:1.15;margin:0;text-wrap:balance}
+h2{font-family:var(--sans);font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:2rem 0 .6rem;padding-top:1rem;border-top:1px solid var(--rule)}
+.eyebrow{font-family:var(--sans);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:.5rem}
+.lede{font-size:1.05rem;margin:1rem 0 0}
+p{margin:.6rem 0}
+.tbl{overflow-x:auto;margin:.8rem 0;border:1px solid var(--rule);border-radius:4px;background:var(--panel)}
+table{border-collapse:collapse;font-family:var(--sans);font-size:.85rem;width:100%;min-width:640px}
+th,td{padding:.45rem .6rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+th{font-weight:600;color:var(--ink2);font-size:.74rem;letter-spacing:.04em;text-transform:uppercase;background:var(--ground)}
+td.m{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.82rem;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.verdict{display:inline-block;font-family:var(--sans);font-size:.66rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.14rem .42rem;border-radius:3px;white-space:nowrap}
+.ship{background:var(--accent-soft);color:var(--accent)}.study{background:var(--study-soft);color:var(--study)}.reject{background:var(--reject-soft);color:var(--reject)}.build{background:var(--panel);color:var(--ink2);border:1px solid var(--rule)}
+.note{font-family:var(--sans);font-size:.85rem;color:var(--ink2);margin-top:1.4rem;border-top:1px dashed var(--rule);padding-top:.6rem}
+code{font-family:var(--mono);font-size:.86em;background:var(--panel);border:1px solid var(--rule);padding:.05em .3em;border-radius:3px}
+</style>
+<main>
+<div class="eyebrow">New_Seasonals · proposed sizing changes · 2026-09-02</div>
+<h1>Sizing Change List</h1>
+<p class="lede">Every proposed change from the revised plan, with what it replaces and what has to be true before it goes live. Nothing else in the sizing chain changes. Full reasoning: <em>Sizing Hierarchy Revised</em>; build instructions: <code>sizing_optimal_implementation_brief_2026-09-02.md</code>.</p>
+
+<h2>Phase 0 · boundary controls and measurement (days; no sizing change)</h2>
+<div class="tbl"><table>
+<tr><th>#</th><th>Change</th><th>Today</th><th>Proposed</th><th>Status</th></tr>
+<tr><td class="m">0.1</td><td>Margin-feasibility guard in order_staging</td><td>None; nothing tracks requirement vs NLV</td><td>Project the day's portfolio-margin requirement (open book + staged entries) on live NLV before 9:31. Above 60% of NLV: flow reliefs off for the day. Above 70%: scale new entries pro rata to 70%; never touch open positions. 15:30 ET re-check alarms above 90%.</td><td><span class="verdict ship">ship first</span></td></tr>
+<tr><td class="m">0.2</td><td>IBKR what-if on the four peak-requirement books</td><td>Stylised rates assumed (15% stock, 8% index, 45% 3x)</td><td>Run Risk Navigator what-if on the 2013-11-04, 2016-06-14, 2019-06-26, 2023-02-03 books at 1.0x, 1.25x, 1.5x; read the exposure-fee report. Resolves the 3x-short margin rate (45 vs 90) and the concentration trigger.</td><td><span class="verdict build">human, one afternoon</span></td></tr>
+<tr><td class="m">0.3</td><td>Headroom and factor display on the hedge panel</td><td>Beta panel only</td><td>Gross/NLV, blended margin rate, projected requirement with the 60/70/85/90 lines, −30% scenario loss, 126d book beta up/down split, effective N, momentum loading, OLV stack n<sub>eff</sub>, hedge state. Display only.</td><td><span class="verdict build">build</span></td></tr>
+<tr><td class="m">0.4</td><td>Broker-fill reconciliation</td><td>No live R series; Sheets Fill_Status is yfinance-modelled</td><td>Harvest the DO fills ring daily, match on orderRef, publish live R / ledger R on the Execution tab. Until 150 matched fills, live R = ledger R × 0.60.</td><td><span class="verdict build">build</span></td></tr>
+<tr><td class="m">0.5</td><td>Engine cost model</td><td>Limit entries, exits and commissions cost nothing</td><td>$0.005/share ($1 floor) both sides plus an ADV-bucketed half-spread on MKT/MOC/stop exits. Ledger avgR 0.453 → ~0.428.</td><td><span class="verdict build">build</span></td></tr>
+<tr><td class="m">0.6</td><td>Haircut on the backtest edge</td><td>50% placeholder</td><td>40% central (range 27 to 71%); per-strategy keeps 0.31 to 0.78 (OVS judged 0.48, 52wh judged 0.42); pilots capped at 0.50; overflow longs a further 0.85.</td><td><span class="verdict ship">adopt</span></td></tr>
+</table></div>
+
+<h2>Phase 1 · one release, behind a single engine confirmation</h2>
+<div class="tbl"><table>
+<tr><th>#</th><th>Change</th><th>Today</th><th>Proposed</th><th>Status</th></tr>
+<tr><td class="m">1.1</td><td>Global risk multiplier</td><td class="m">GRM 1.5</td><td class="m">GRM 1.875 (1.25x current size)</td><td><span class="verdict ship">ship after 0.1 and 0.2</span></td></tr>
+<tr><td class="m">1.2</td><td>Overflow-tier longs excluded from the step</td><td>Overflow OLV at 25 nominal; others at native bps</td><td>OVERFLOW_RISK_OVERRIDES × 0.8 so effective bps are unchanged: OLV 20, LT Trend 24, St OS Sznl 32, 52wh 28 nominal (three new carriers). Overflow shorts take the step. ADV participation rule: ≤1% of 21d median dollar ADV per order (0.4% for sub-0.4R strategies), refusal above 5%.</td><td><span class="verdict ship">ship</span></td></tr>
+<tr><td class="m">1.3</td><td>Strategy allocation tilt on base bps</td><td>Every strategy at 1.0x</td><td>Keep-adjusted inverse-covariance half-blend, clip [0.7, 1.3], refit each January: 52wh 0.70 · Weak Close 0.75 · Sector BO 0.87 · St OS Sznl 0.88 · IOB 0.89 · OVS 1.00 (held) · LT Trend 1.04 · Monday Dip 1.09 · ATR Ext Gap Up 1.10 · OLV 1.17 · 3x ETF Fade 1.27 · MonFri 1.30 · 3x Bear, 3x Leader, Monthly Weak Close 1.00.</td><td><span class="verdict ship">ship</span></td></tr>
+<tr><td class="m">1.4</td><td>OLV ladder re-keyed</td><td>0.5 / 0.7 / 1.0 by own-ticker signal days in 21 td</td><td>mult = max(recency rung, depth rung), depth rung by open OLV legs incl. working T+3 limits: 0 → 0.5, 1 to 2 → 0.7, 3+ → 1.0. Same-ticker adds full size; 50%-NAV ticker cap stays. New composite clip: product of all OLV overlays ≤ 1.5x pre-GRM.</td><td><span class="verdict ship">ship</span></td></tr>
+<tr><td class="m">1.5</td><td>Weak Close and LT Trend ST OS adds</td><td>1.0x every leg</td><td>0.8x with no leg of the strategy open or working, 1.2x otherwise. Same-sector clusters not cut.</td><td><span class="verdict ship">ship</span></td></tr>
+<tr><td class="m">1.6</td><td>OVS signal-quality tier</td><td>None</td><td>0.7x when mean(rank_2d, 5d, 10d, 21d) &lt; 94 at the signal close. No top-tier boost.</td><td><span class="verdict ship">ship</span></td></tr>
+<tr><td class="m">1.7</td><td>OVS path-2 aggregate cap</td><td class="m">0.75% nominal</td><td class="m">1.0% nominal (second step to 1.5% after one year if the capped cell keeps out-earning)</td><td><span class="verdict ship">ship</span></td></tr>
+<tr><td class="m">1.8</td><td>Index clone clamps</td><td>Only IOB + MonFri same-ticker pair clamped</td><td>IOB SPY+QQQ same day 0.5x each; cross-strategy same-ticker clamp extended to every dip-buy pair (20 bps nominal). MonFri's own SPY+QQQ days untouched.</td><td><span class="verdict ship">ship</span></td></tr>
+<tr><td class="m">1.9</td><td>Flow-aware per-strategy cap</td><td class="m">250 bps always</td><td class="m">375 bps on days the family's trailing-5d raw candidate count is top-tercile (dip_buy ≥6, oversold_hold ≥7, short_fade ≥104); breakouts excluded; reliefs take the max, never the product; off when 0.1 shows &gt;60%.</td><td><span class="verdict ship">ship</span></td></tr>
+<tr><td class="m">1.10</td><td>Family flow up-size</td><td>None</td><td>1.2x base bps on the same top-tercile days (dip_buy also requires dial &lt; 50); no down-size leg; no breakout carrier; off when 0.1 shows &gt;60%. Post-ship review: first 60 hi-flow trades ≥ 1.3x the concurrent rest, else retire.</td><td><span class="verdict ship">ship</span></td></tr>
+<tr><td class="m">1.11</td><td>Engine confirmation gate for all of Phase 1</td><td></td><td>Full-ledger replay with every cap re-applied must deliver ≥ half the package replay's gain (≥ +4 pts NAV/yr at 1.875), maxDD no worse than today by &gt;1 pt at GRM-1.5-equivalent, worst-21d no worse by &gt;10%, and the 2016+ worst episode must not be the June 2026 OLV stack.</td><td><span class="verdict study">gate</span></td></tr>
+</table></div>
+
+<h2>Phase 2 · paper, then live</h2>
+<div class="tbl"><table>
+<tr><th>#</th><th>Change</th><th>Today</th><th>Proposed</th><th>Status</th></tr>
+<tr><td class="m">2.1</td><td>Dial-armed whole-book beta hedge</td><td>Manual, one-off</td><td>Arm at 10d-MA 63d dial ≥ 50, release &lt; 45; short ES/MES sized to a 126d (or shrunk) beta × sizing base, ratio 1.0x never above; whole-book target; native MOC entry; quarterly roll. One paper-tracked armed episode, then live.</td><td><span class="verdict study">paper → ship</span></td></tr>
+<tr><td class="m">2.2</td><td>OLV market-pullback tilt</td><td>None</td><td>1.15x when SPY closes 3 to 10% below its 252d high at the signal close; never a cut at highs; inside the OLV clip. Engine replay confirms, then ship.</td><td><span class="verdict study">confirm → ship</span></td></tr>
+</table></div>
+
+<h2>Phase 3 · pre-registered, decision rules already written</h2>
+<div class="tbl"><table>
+<tr><th>#</th><th>Candidate</th><th>Rule if adopted</th><th>Gate</th></tr>
+<tr><td class="m">3.1</td><td>LT Trend ST OS fragility band</td><td class="m">[[50, 999, 0.75]] on the PIT dial (not 65)</td><td>Clustered t ≤ −2.0 after two new hi-dial episodes, survives drop-best, episode signs ≥ 6 of 11; adds cell exempt if ≥ 0.4R.</td></tr>
+<tr><td class="m">3.2</td><td>Hedge VIX gate</td><td>Arm only if VIX &lt; 20; force release at VIX ≥ 30</td><td>Not worse than plain 50/45 across the next two out-of-sample episodes.</td></tr>
+<tr><td class="m">3.3</td><td>OVS same-day cluster tilt</td><td>1.25x when ≥ 5 OVS signals stage together</td><td>Episode t ≥ 2 with 2026 included, LOYO floor &gt; +0.20, no worst-day deterioration &gt; 0.5 pt.</td></tr>
+<tr><td class="m">3.4</td><td>52wh dial-conditioned hold (exit rule)</td><td>Shorten the 63d hold while dial ≥ 50</td><td>PIT, episode-clustered; armed-window PnL improves at clustered t ≥ 1.5.</td></tr>
+<tr><td class="m">3.5</td><td>FAMILY4 / P/C bands re-scored on hedged returns</td><td>Fallback if the 2026-08-05 review fails: [[50, 999, 0.5]], not 1.0x</td><td>After the hedge has two live armed episodes.</td></tr>
+<tr><td class="m">3.6</td><td>Index-ETF dip-buy legs to micro futures</td><td>MES/MNQ/MYM/M2K at the same ATR risk</td><td>Design doc; precondition for GRM ≥ 2.5 (lifts the margin wall from ~1.6x to ~2.3x).</td></tr>
+</table></div>
+
+<h2>Standing rules</h2>
+<div class="tbl"><table>
+<tr><th>#</th><th>Rule</th><th>Today</th><th>Proposed</th></tr>
+<tr><td class="m">S.1</td><td>How GRM is set</td><td>Appetite (first plan: P(1y DD &gt; 15%) ≤ 5%)</td><td>Three walls, drawdown disclosed not constrained: growth within 1 pt of linear; p99 requirement ≤ 70% of live NLV and max day ≤ 100% of base at plain PM; k<sub>99.9</sub> × p99 open risk × m ≤ 15% NAV. Step to 2.25 on the first of: NLV ≥ ~$840k, futures routing live, one clean guard trim on a real cluster day. 2.5 to 3.0 only with futures routing and a measured live keep ≥ 0.5. One step per quarter.</td></tr>
+<tr><td class="m">S.2</td><td>Sizing base</td><td class="m">Flat $750k</td><td>Flat $750k while NLV &lt; $750k; then half-compounding, base = max(prior, 0.5 × 750k + 0.5 × NLV), quarterly, never down. Full compounding only at measured keep ≥ 0.75.</td></tr>
+<tr><td class="m">S.3</td><td>Per-strategy 250 bps cap</td><td class="m">250</td><td>Fixed in effective bps through GRM 2.25 (relief only via 1.9); scaling it is a separate decision past 3.0.</td></tr>
+<tr><td class="m">S.4</td><td>Annual and quarterly re-derivations</td><td>None</td><td>Tilt refit each January; GRM walls quarterly and on any 20% NLV move; OLV and LT Trend raises re-read after 2027 Q1.</td></tr>
+</table></div>
+
+<h2>Withdrawn or refused</h2>
+<div class="tbl"><table>
+<tr><th>Item</th><th>Why</th></tr>
+<tr><td>52wh Breakout 0.5x at ≥ 5 open legs (first plan)</td><td>Cuts a 1.71R cell; depth buckets are noise; withdrawn. A ≥ 6 tail-insurance variant is available as an appetite option, default off.</td></tr>
+<tr><td>Any calendar multiplier (month, quarter, season, opex, turn-of-month, day-of-week, holiday, earnings season, book-wide midterm)</td><td>0 of 1,012 cells survive correction; every fitted and unfitted rule replays at or below baseline.</td></tr>
+<tr><td>Book-level scalars (vol targets, dial steps, open-leg √n, correlation or cluster throttles) and drawdown-triggered cuts</td><td>Nine overlays at or below baseline; book PnL is negatively autocorrelated, so cuts after losses are expectancy-negative.</td></tr>
+<tr><td>VIX-, VIX-percentile- or drawdown-armed hedges; QQQ or IWM as instrument; ratios above 1.0x</td><td>−$139k to −$158k with 0 to 3 of 14 to 21 episodes positive; the book's beta is highest in calm tape and lowest after vol arrives.</td></tr>
+<tr><td>Correlation-, sector-, same-ticker- or stack-age-keyed cuts; Kelly-concurrency and sleeve-budget rules; OLV sleeve caps</td><td>The marginal add is the higher-edge leg in every strategy; every such cut lost at equal risk.</td></tr>
+<tr><td>OVS top-extremity boost, OLV 1.25x rung at 6+ open, standing OVS 375 cap, doubled P2 base bps</td><td>Posteriors do not support boosts; the OVS relief is delivered once, through 1.9, never as a second multiplier.</td></tr>
+<tr><td>Switching the base to live NAV now; full compounding; a 75%-of-base downside floor</td><td>A 16% risk cut today; unmeasured live edge; the floor is a drawdown cut in disguise and the guard already tightens with NLV.</td></tr>
+<tr><td>Within-strategy tiers on the current-weights dial, VIX, P/C, ATR%, 200-SMA, tier, or book-wide signal density; any P(win) layer</td><td>The OLV dial gradient vanishes on the point-in-time dial (t −3.24 → +0.03); the rest never clear the bar.</td></tr>
+</table></div>
+
+<p class="note">Implementation document for a separate agent: <code>sizing_optimal_implementation_brief_2026-09-02.md</code> at the repo root (work packages WP0 to WP13 in the order above, files, tests, gates). It supersedes <code>dynamic_sizing_implementation_brief_2026-09-02.md</code> where the two differ. Evidence: <code>scratch/ultracode_sizing_2026-09-02/</code>.</p>
+</main>

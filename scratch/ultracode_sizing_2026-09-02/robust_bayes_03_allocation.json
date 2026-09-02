@@ -1,0 +1,374 @@
+{
+ "keep_used": {
+  "3x Bear ETF Overbot Fade": 0.743,
+  "3x ETF Overbot Fade": 0.782,
+  "3x Leader Gap Fade": 0.438,
+  "52wh Breakout": 0.42,
+  "ATR Extended Gap Up": 0.732,
+  "Indices Oversold Bounce": 0.675,
+  "LT Trend ST OS": 0.411,
+  "Monday Dip": 0.691,
+  "Monthly Weak Close": 0.439,
+  "Overbot Vol Spike": 0.48,
+  "Oversold Low Volume": 0.452,
+  "SPY QQQ MonFri Reversion": 0.721,
+  "Sector BO": 0.648,
+  "St OS Sznl": 0.498,
+  "Weak Close Decent Sznls": 0.369
+ },
+ "per_year": [
+  {
+   "year": 2014,
+   "equal": 7.69,
+   "plan_0.6_1.4": 6.72,
+   "keep_0.7_1.3": 7.58,
+   "keep_0.6_1.4": 7.2,
+   "trust_only_0.7_1.3": 8.4,
+   "minregret": 7.66
+  },
+  {
+   "year": 2015,
+   "equal": 3.29,
+   "plan_0.6_1.4": 8.63,
+   "keep_0.7_1.3": 9.97,
+   "keep_0.6_1.4": 10.27,
+   "trust_only_0.7_1.3": 6.1,
+   "minregret": 7.34
+  },
+  {
+   "year": 2016,
+   "equal": 10.89,
+   "plan_0.6_1.4": 19.14,
+   "keep_0.7_1.3": 18.13,
+   "keep_0.6_1.4": 19.63,
+   "trust_only_0.7_1.3": 11.87,
+   "minregret": 15.32
+  },
+  {
+   "year": 2017,
+   "equal": 16.12,
+   "plan_0.6_1.4": 16.18,
+   "keep_0.7_1.3": 16.16,
+   "keep_0.6_1.4": 16.06,
+   "trust_only_0.7_1.3": 16.62,
+   "minregret": 16.6
+  },
+  {
+   "year": 2018,
+   "equal": 20.25,
+   "plan_0.6_1.4": 26.3,
+   "keep_0.7_1.3": 24.95,
+   "keep_0.6_1.4": 25.55,
+   "trust_only_0.7_1.3": 18.52,
+   "minregret": 22.35
+  },
+  {
+   "year": 2019,
+   "equal": 21.63,
+   "plan_0.6_1.4": 25.36,
+   "keep_0.7_1.3": 25.76,
+   "keep_0.6_1.4": 26.21,
+   "trust_only_0.7_1.3": 23.12,
+   "minregret": 24.38
+  },
+  {
+   "year": 2020,
+   "equal": 25.47,
+   "plan_0.6_1.4": 25.9,
+   "keep_0.7_1.3": 26.16,
+   "keep_0.6_1.4": 26.17,
+   "trust_only_0.7_1.3": 26.42,
+   "minregret": 26.4
+  },
+  {
+   "year": 2021,
+   "equal": 54.64,
+   "plan_0.6_1.4": 67.67,
+   "keep_0.7_1.3": 65.31,
+   "keep_0.6_1.4": 67.02,
+   "trust_only_0.7_1.3": 51.92,
+   "minregret": 59.72
+  },
+  {
+   "year": 2022,
+   "equal": 18.17,
+   "plan_0.6_1.4": 19.32,
+   "keep_0.7_1.3": 19.32,
+   "keep_0.6_1.4": 19.43,
+   "trust_only_0.7_1.3": 18.17,
+   "minregret": 18.85
+  },
+  {
+   "year": 2023,
+   "equal": 35.96,
+   "plan_0.6_1.4": 35.95,
+   "keep_0.7_1.3": 34.51,
+   "keep_0.6_1.4": 34.54,
+   "trust_only_0.7_1.3": 32.61,
+   "minregret": 34.42
+  },
+  {
+   "year": 2024,
+   "equal": 22.03,
+   "plan_0.6_1.4": 24.24,
+   "keep_0.7_1.3": 24.24,
+   "keep_0.6_1.4": 24.42,
+   "trust_only_0.7_1.3": 23.29,
+   "minregret": 23.87
+  },
+  {
+   "year": 2025,
+   "equal": 53.6,
+   "plan_0.6_1.4": 59.58,
+   "keep_0.7_1.3": 57.73,
+   "keep_0.6_1.4": 57.96,
+   "trust_only_0.7_1.3": 50.47,
+   "minregret": 55.21
+  },
+  {
+   "year": 2026,
+   "equal": 25.47,
+   "plan_0.6_1.4": 28.19,
+   "keep_0.7_1.3": 27.85,
+   "keep_0.6_1.4": 27.95,
+   "trust_only_0.7_1.3": 26.74,
+   "minregret": 27.59
+  }
+ ],
+ "summary": {
+  "equal": {
+   "ann": 24.1585,
+   "vol": 11.7964,
+   "sharpe": 2.048,
+   "maxdd": -12.1465,
+   "pnl_over_maxdd": 1.9889
+  },
+  "plan_0.6_1.4": {
+   "ann": 27.835,
+   "vol": 13.0532,
+   "sharpe": 2.1324,
+   "maxdd": -12.133,
+   "pnl_over_maxdd": 2.2942
+  },
+  "keep_0.7_1.3": {
+   "ann": 27.4139,
+   "vol": 12.7854,
+   "sharpe": 2.1442,
+   "maxdd": -11.4449,
+   "pnl_over_maxdd": 2.3953
+  },
+  "keep_0.6_1.4": {
+   "ann": 27.7745,
+   "vol": 12.8899,
+   "sharpe": 2.1547,
+   "maxdd": -11.4,
+   "pnl_over_maxdd": 2.4364
+  },
+  "trust_only_0.7_1.3": {
+   "ann": 24.0861,
+   "vol": 11.7606,
+   "sharpe": 2.048,
+   "maxdd": -12.4912,
+   "pnl_over_maxdd": 1.9282
+  },
+  "minregret": {
+   "ann": 26.0354,
+   "vol": 12.3331,
+   "sharpe": 2.111,
+   "maxdd": -11.7591,
+   "pnl_over_maxdd": 2.2141
+  }
+ },
+ "gate": {
+  "plan_0.6_1.4": {
+   "years_better": 11,
+   "worst_year_vs_equal_pct": -12.618801631835494,
+   "total_gain_pctnav": 47.96915779261818,
+   "pnl_over_maxdd_gain_pct": 15.34646301211624
+  },
+  "keep_0.7_1.3": {
+   "years_better": 11,
+   "worst_year_vs_equal_pct": -4.041844005278725,
+   "total_gain_pctnav": 42.475208874449194,
+   "pnl_over_maxdd_gain_pct": 20.431468650244035
+  },
+  "keep_0.6_1.4": {
+   "years_better": 10,
+   "worst_year_vs_equal_pct": -6.32443851570397,
+   "total_gain_pctnav": 47.17900616383793,
+   "pnl_over_maxdd_gain_pct": 22.49545513083746
+  },
+  "trust_only_0.7_1.3": {
+   "years_better": 9,
+   "worst_year_vs_equal_pct": -9.302800476920874,
+   "total_gain_pctnav": -0.9454792735439792,
+   "pnl_over_maxdd_gain_pct": -3.0510776331432066
+  },
+  "minregret": {
+   "years_better": 11,
+   "worst_year_vs_equal_pct": -4.273652388603246,
+   "total_gain_pctnav": 24.488269898980086,
+   "pnl_over_maxdd_gain_pct": 11.31954540157012
+  }
+ },
+ "shipping": {
+  "52wh Breakout": {
+   "plan_mult": 0.729,
+   "keep_w": 0.358,
+   "keep_mult_0.7_1.3": 0.7,
+   "trust_only": 0.733,
+   "minregret": 0.731,
+   "keep_s": 0.42
+  },
+  "Weak Close Decent Sznls": {
+   "plan_mult": 0.84,
+   "keep_w": 0.499,
+   "keep_mult_0.7_1.3": 0.749,
+   "trust_only": 0.7,
+   "minregret": 0.77,
+   "keep_s": 0.369
+  },
+  "Sector BO": {
+   "plan_mult": 0.837,
+   "keep_w": 0.742,
+   "keep_mult_0.7_1.3": 0.871,
+   "trust_only": 1.13,
+   "minregret": 0.984,
+   "keep_s": 0.648
+  },
+  "St OS Sznl": {
+   "plan_mult": 0.917,
+   "keep_w": 0.768,
+   "keep_mult_0.7_1.3": 0.884,
+   "trust_only": 0.869,
+   "minregret": 0.893,
+   "keep_s": 0.498
+  },
+  "Indices Oversold Bounce": {
+   "plan_mult": 0.829,
+   "keep_w": 0.776,
+   "keep_mult_0.7_1.3": 0.888,
+   "trust_only": 1.178,
+   "minregret": 1.003,
+   "keep_s": 0.675
+  },
+  "Overbot Vol Spike": {
+   "plan_mult": 1.011,
+   "keep_w": 0.911,
+   "keep_mult_0.7_1.3": 0.955,
+   "trust_only": 0.837,
+   "minregret": 0.924,
+   "keep_s": 0.48
+  },
+  "LT Trend ST OS": {
+   "plan_mult": 1.185,
+   "keep_w": 1.07,
+   "keep_mult_0.7_1.3": 1.035,
+   "trust_only": 0.717,
+   "minregret": 0.951,
+   "keep_s": 0.411
+  },
+  "Monday Dip": {
+   "plan_mult": 1.018,
+   "keep_w": 1.178,
+   "keep_mult_0.7_1.3": 1.089,
+   "trust_only": 1.206,
+   "minregret": 1.112,
+   "keep_s": 0.691
+  },
+  "ATR Extended Gap Up": {
+   "plan_mult": 1.042,
+   "keep_w": 1.204,
+   "keep_mult_0.7_1.3": 1.102,
+   "trust_only": 1.276,
+   "minregret": 1.159,
+   "keep_s": 0.732
+  },
+  "Oversold Low Volume": {
+   "plan_mult": 1.286,
+   "keep_w": 1.336,
+   "keep_mult_0.7_1.3": 1.168,
+   "trust_only": 0.789,
+   "minregret": 1.037,
+   "keep_s": 0.452
+  },
+  "3x ETF Overbot Fade": {
+   "plan_mult": 1.152,
+   "keep_w": 1.535,
+   "keep_mult_0.7_1.3": 1.268,
+   "trust_only": 1.3,
+   "minregret": 1.226,
+   "keep_s": 0.782
+  },
+  "SPY QQQ MonFri Reversion": {
+   "plan_mult": 1.155,
+   "keep_w": 1.624,
+   "keep_mult_0.7_1.3": 1.3,
+   "trust_only": 1.258,
+   "minregret": 1.206,
+   "keep_s": 0.721
+  }
+ },
+ "reference": {
+  "3x Bear ETF Overbot Fade": {
+   "sharpe_2010": 0.482,
+   "pnl_share_2010": 0.029
+  },
+  "3x ETF Overbot Fade": {
+   "sharpe_2010": 0.666,
+   "pnl_share_2010": 0.06
+  },
+  "3x Leader Gap Fade": {
+   "sharpe_2010": 0.323,
+   "pnl_share_2010": 0.022
+  },
+  "52wh Breakout": {
+   "sharpe_2010": 0.817,
+   "pnl_share_2010": 0.139
+  },
+  "ATR Extended Gap Up": {
+   "sharpe_2010": 0.583,
+   "pnl_share_2010": 0.059
+  },
+  "Indices Oversold Bounce": {
+   "sharpe_2010": 0.732,
+   "pnl_share_2010": 0.072
+  },
+  "LT Trend ST OS": {
+   "sharpe_2010": 0.859,
+   "pnl_share_2010": 0.057
+  },
+  "Monday Dip": {
+   "sharpe_2010": 0.582,
+   "pnl_share_2010": 0.027
+  },
+  "Monthly Weak Close": {
+   "sharpe_2010": 0.63,
+   "pnl_share_2010": 0.015
+  },
+  "Overbot Vol Spike": {
+   "sharpe_2010": 0.823,
+   "pnl_share_2010": 0.12
+  },
+  "Oversold Low Volume": {
+   "sharpe_2010": 1.041,
+   "pnl_share_2010": 0.121
+  },
+  "SPY QQQ MonFri Reversion": {
+   "sharpe_2010": 1.321,
+   "pnl_share_2010": 0.118
+  },
+  "Sector BO": {
+   "sharpe_2010": 0.436,
+   "pnl_share_2010": 0.044
+  },
+  "St OS Sznl": {
+   "sharpe_2010": 0.438,
+   "pnl_share_2010": 0.022
+  },
+  "Weak Close Decent Sznls": {
+   "sharpe_2010": 0.765,
+   "pnl_share_2010": 0.093
+  }
+ }
+}

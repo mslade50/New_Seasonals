@@ -1,0 +1,807 @@
+{
+ "open_risk_bps_2010+": {
+  "bear_etf_fade": {
+   "mean": 2.082085529468136,
+   "p90": 0.0,
+   "p99": 62.02499999999645,
+   "max": 262.5,
+   "max_date": "2022-09-27"
+  },
+  "breakout": {
+   "mean": 102.27060373742214,
+   "p90": 260.25000000000205,
+   "p99": 539.1749999999752,
+   "max": 682.5,
+   "max_date": "2013-12-18"
+  },
+  "dip_buy_index": {
+   "mean": 14.322816842357451,
+   "p90": 52.5,
+   "p99": 157.5,
+   "max": 300.0,
+   "max_date": "2013-10-09"
+  },
+  "dip_buy_stock": {
+   "mean": 10.434800587832408,
+   "p90": 52.5,
+   "p99": 183.75,
+   "max": 302.5,
+   "max_date": "2025-12-19"
+  },
+  "oversold_hold": {
+   "mean": 15.477414855184772,
+   "p90": 45.0,
+   "p99": 218.5724999999968,
+   "max": 698.8470072948146,
+   "max_date": "2025-01-14"
+  },
+  "short_fade": {
+   "mean": 19.466753531996414,
+   "p90": 60.0,
+   "p99": 218.80818965517233,
+   "max": 714.9202127659573,
+   "max_date": "2023-02-03"
+  },
+  "book": {
+   "mean": 164.0544750842613,
+   "p90": 349.3997424804286,
+   "p99": 640.9359574468051,
+   "max": 882.15,
+   "max_date": "2014-01-07"
+  }
+ },
+ "open_notional_nav_2010+": {
+  "bear_etf_fade": {
+   "mean": 0.004188565837328501,
+   "p99": 0.12836788160211293,
+   "max": 0.635269529008048,
+   "max_date": "2024-04-19"
+  },
+  "breakout": {
+   "mean": 0.2702652228359435,
+   "p99": 1.2390306380138851,
+   "max": 1.5452079787601745,
+   "max_date": "2019-11-29"
+  },
+  "dip_buy_index": {
+   "mean": 0.10168306093546393,
+   "p99": 1.2524244850836252,
+   "max": 2.9813005093441918,
+   "max_date": "2013-10-09"
+  },
+  "dip_buy_stock": {
+   "mean": 0.07274693583914396,
+   "p99": 1.3618439477839772,
+   "max": 3.424031348250525,
+   "max_date": "2024-05-24"
+  },
+  "oversold_hold": {
+   "mean": 0.047890692925785246,
+   "p99": 0.7373139980680933,
+   "max": 2.7657365066723822,
+   "max_date": "2025-01-14"
+  },
+  "short_fade": {
+   "mean": 0.06495696893367982,
+   "p99": 0.90128327451153,
+   "max": 1.926859941906384,
+   "max_date": "2022-03-08"
+  },
+  "book_gross": {
+   "mean": 0.561731447307345,
+   "p95": 1.6800159493884423,
+   "p99": 2.7435741603465003,
+   "max": 4.41435504833176,
+   "max_date": "2013-11-04"
+  }
+ },
+ "open_notional_by_class_2010+": {
+  "index": {
+   "mean": 0.11736159626011436,
+   "p99": 1.3172854664328797,
+   "max": 2.9813005093441918
+  },
+  "lev3x": {
+   "mean": 0.01019690130147817,
+   "p99": 0.2502605899487643,
+   "max": 0.9783526277839343
+  },
+  "stock": {
+   "mean": 0.4341729497457525,
+   "p99": 1.9384906103062145,
+   "max": 3.736471262291954
+  }
+ },
+ "open_risk_bps_2016+": {
+  "bear_etf_fade": {
+   "mean": 3.220016891891892,
+   "p90": 0.0,
+   "p99": 75.0,
+   "max": 262.5,
+   "max_date": "2022-09-27"
+  },
+  "breakout": {
+   "mean": 80.54335585585585,
+   "p90": 210.0,
+   "p99": 405.0,
+   "max": 495.0,
+   "max_date": "2019-11-29"
+  },
+  "dip_buy_index": {
+   "mean": 13.216849662162161,
+   "p90": 52.5,
+   "p99": 150.0,
+   "max": 285.0,
+   "max_date": "2018-02-06"
+  },
+  "dip_buy_stock": {
+   "mean": 11.508317437542216,
+   "p90": 52.5,
+   "p99": 192.15,
+   "max": 302.5,
+   "max_date": "2025-12-19"
+  },
+  "oversold_hold": {
+   "mean": 20.493798650728692,
+   "p90": 63.74999999999999,
+   "p99": 265.2749999999992,
+   "max": 698.8470072948146,
+   "max_date": "2025-01-14"
+  },
+  "short_fade": {
+   "mean": 27.92497177435615,
+   "p90": 90.00245088504181,
+   "p99": 284.3158090185671,
+   "max": 714.9202127659573,
+   "max_date": "2023-02-03"
+  },
+  "book": {
+   "mean": 156.90731027253696,
+   "p90": 330.0,
+   "p99": 544.0274999999999,
+   "max": 772.7387129441186,
+   "max_date": "2026-07-02"
+  }
+ },
+ "open_notional_nav_2016+": {
+  "bear_etf_fade": {
+   "mean": 0.006476636745221775,
+   "p99": 0.1714121314145043,
+   "max": 0.635269529008048,
+   "max_date": "2024-04-19"
+  },
+  "breakout": {
+   "mean": 0.2060241578602208,
+   "p99": 1.142659321165539,
+   "max": 1.5452079787601745,
+   "max_date": "2019-11-29"
+  },
+  "dip_buy_index": {
+   "mean": 0.08787259596249462,
+   "p99": 1.1618058712376185,
+   "max": 2.6142752508669354,
+   "max_date": "2016-06-14"
+  },
+  "dip_buy_stock": {
+   "mean": 0.07615101045224028,
+   "p99": 1.3732557198667588,
+   "max": 3.424031348250525,
+   "max_date": "2024-05-24"
+  },
+  "oversold_hold": {
+   "mean": 0.062356632979273185,
+   "p99": 0.813272699594949,
+   "max": 2.7657365066723822,
+   "max_date": "2025-01-14"
+  },
+  "short_fade": {
+   "mean": 0.09295837996159977,
+   "p99": 1.0604538751142707,
+   "max": 1.926859941906384,
+   "max_date": "2022-03-08"
+  },
+  "book_gross": {
+   "mean": 0.5318394139610504,
+   "p95": 1.596497477426044,
+   "p99": 2.5470084943913878,
+   "max": 4.179424648556709,
+   "max_date": "2016-06-14"
+  }
+ },
+ "open_notional_by_class_2016+": {
+  "index": {
+   "mean": 0.10363371487929254,
+   "p99": 1.1958572442278181,
+   "max": 2.2356449729319983
+  },
+  "lev3x": {
+   "mean": 0.015097670487112571,
+   "p99": 0.38822537131855267,
+   "max": 0.9783526277839343
+  },
+  "stock": {
+   "mean": 0.4131080285946453,
+   "p99": 1.7948627915416384,
+   "max": 2.903697894414765
+  }
+ },
+ "stress_multiple_book": {
+  "days": 3321,
+  "mean": -0.06144128701889006,
+  "p90": 0.3573982009375396,
+  "p95": 0.5008268641975309,
+  "p99": 0.9095139319452623,
+  "p999": 1.2831038984127014,
+  "max": 1.864974358974359,
+  "max_date": "2007-02-27",
+  "note": "k = realized day loss / open ATR risk; 1.0 = every open leg lost one full stop in one day"
+ },
+ "worst_20_days": [
+  {
+   "date": "2015-03-25",
+   "pnl_pct": -5.899252,
+   "open_risk_bps": 562.5,
+   "k": 1.048755911111111,
+   "open_gross_nav": 2.772570431100754,
+   "worst_theme": "dip_buy_stock",
+   "worst_theme_share": 0.4896442238213703,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 247.5,
+    "dip_buy_index": 157.5,
+    "dip_buy_stock": 157.5,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2021-01-27",
+   "pnl_pct": -4.886210666666667,
+   "open_risk_bps": 634.5000000000001,
+   "k": 0.7700883635408459,
+   "open_gross_nav": 1.554414923226243,
+   "worst_theme": "short_fade",
+   "worst_theme_share": 0.7324664402517232,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 210.0,
+    "dip_buy_index": 0.0,
+    "dip_buy_stock": 52.5,
+    "oversold_hold": 0.0,
+    "short_fade": 371.99999999999994
+   }
+  },
+  {
+   "date": "2007-02-27",
+   "pnl_pct": -3.6367,
+   "open_risk_bps": 195.0,
+   "k": 1.864974358974359,
+   "open_gross_nav": 0.9515421009892281,
+   "worst_theme": "breakout",
+   "worst_theme_share": 1.0,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 195.0,
+    "dip_buy_index": 0.0,
+    "dip_buy_stock": 0.0,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2014-01-24",
+   "pnl_pct": -3.541229333333334,
+   "open_risk_bps": 570.0,
+   "k": 0.6212683040935673,
+   "open_gross_nav": 1.2214547537260056,
+   "worst_theme": "breakout",
+   "worst_theme_share": 0.9057818716061692,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 525.0,
+    "dip_buy_index": 0.0,
+    "dip_buy_stock": 0.0,
+    "oversold_hold": 45.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2014-10-09",
+   "pnl_pct": -3.505345333333333,
+   "open_risk_bps": 577.5,
+   "k": 0.6069862049062049,
+   "open_gross_nav": 2.0213525706150643,
+   "worst_theme": "breakout",
+   "worst_theme_share": 0.504630832378284,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 472.5,
+    "dip_buy_index": 105.0,
+    "dip_buy_stock": 0.0,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2014-12-15",
+   "pnl_pct": -3.424650666666667,
+   "open_risk_bps": 690.0000000000001,
+   "k": 0.49632618357487923,
+   "open_gross_nav": 3.742262236845334,
+   "worst_theme": "dip_buy_stock",
+   "worst_theme_share": 0.3636041904809366,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 427.50000000000006,
+    "dip_buy_index": 131.25,
+    "dip_buy_stock": 131.25,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2009-10-28",
+   "pnl_pct": -3.3768186666666664,
+   "open_risk_bps": 371.25,
+   "k": 0.9095807856341189,
+   "open_gross_nav": 2.0252729377029053,
+   "worst_theme": "dip_buy_stock",
+   "worst_theme_share": 0.35455383252244516,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 37.5,
+    "dip_buy_index": 105.0,
+    "dip_buy_stock": 138.75,
+    "oversold_hold": 90.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2015-01-06",
+   "pnl_pct": -3.3658373333333333,
+   "open_risk_bps": 596.25,
+   "k": 0.5645010202655485,
+   "open_gross_nav": 3.056372850558145,
+   "worst_theme": "dip_buy_index",
+   "worst_theme_share": 0.5663743702409069,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 322.5,
+    "dip_buy_index": 247.5,
+    "dip_buy_stock": 0.0,
+    "oversold_hold": 26.25,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2019-10-01",
+   "pnl_pct": -3.309612,
+   "open_risk_bps": 343.49592114208025,
+   "k": 0.9635083843196627,
+   "open_gross_nav": 2.0672873917358032,
+   "worst_theme": "dip_buy_stock",
+   "worst_theme_share": 0.9154176783663261,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 90.0,
+    "dip_buy_index": 0.0,
+    "dip_buy_stock": 157.5,
+    "oversold_hold": 0.0,
+    "short_fade": 95.9959211420802
+   }
+  },
+  {
+   "date": "2014-10-10",
+   "pnl_pct": -3.197754666666667,
+   "open_risk_bps": 577.5,
+   "k": 0.5537237518037518,
+   "open_gross_nav": 2.0213525706150643,
+   "worst_theme": "breakout",
+   "worst_theme_share": 0.5167584254952224,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 472.5,
+    "dip_buy_index": 105.0,
+    "dip_buy_stock": 0.0,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2005-04-15",
+   "pnl_pct": -3.152262666666667,
+   "open_risk_bps": 292.5,
+   "k": 1.0776966381766382,
+   "open_gross_nav": 1.5220081447056135,
+   "worst_theme": "oversold_hold",
+   "worst_theme_share": 0.572036932624481,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 52.5,
+    "dip_buy_index": 105.0,
+    "dip_buy_stock": 0.0,
+    "oversold_hold": 135.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2015-08-21",
+   "pnl_pct": -3.14388,
+   "open_risk_bps": 262.5,
+   "k": 1.1976685714285713,
+   "open_gross_nav": 1.1795146986397333,
+   "worst_theme": "dip_buy_index",
+   "worst_theme_share": 0.7291453024076407,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 157.5,
+    "dip_buy_index": 105.0,
+    "dip_buy_stock": 0.0,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2024-04-19",
+   "pnl_pct": -3.080301333333333,
+   "open_risk_bps": 395.25,
+   "k": 0.7793298756061564,
+   "open_gross_nav": 1.3317279892418272,
+   "worst_theme": "bear_etf_fade",
+   "worst_theme_share": 0.6112211532551362,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 262.5,
+    "breakout": 0.0,
+    "dip_buy_index": 105.0,
+    "dip_buy_stock": 9.0,
+    "oversold_hold": 18.75,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2016-12-01",
+   "pnl_pct": -3.054561333333333,
+   "open_risk_bps": 326.25,
+   "k": 0.9362640102171136,
+   "open_gross_nav": 1.30254642058318,
+   "worst_theme": "dip_buy_stock",
+   "worst_theme_share": 0.8511611705510579,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 247.5,
+    "dip_buy_index": 0.0,
+    "dip_buy_stock": 78.75,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2006-11-01",
+   "pnl_pct": -2.9441186666666668,
+   "open_risk_bps": 588.75,
+   "k": 0.500062618542109,
+   "open_gross_nav": 3.097576765496572,
+   "worst_theme": "breakout",
+   "worst_theme_share": 0.6199288162750686,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 457.5,
+    "dip_buy_index": 0.0,
+    "dip_buy_stock": 131.25,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2015-01-05",
+   "pnl_pct": -2.9424666666666663,
+   "open_risk_bps": 427.50000000000006,
+   "k": 0.6882962962962963,
+   "open_gross_nav": 1.8778359861933391,
+   "worst_theme": "breakout",
+   "worst_theme_share": 0.5021116070417111,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 322.5,
+    "dip_buy_index": 105.0,
+    "dip_buy_stock": 0.0,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2006-05-22",
+   "pnl_pct": -2.890410666666667,
+   "open_risk_bps": 512.5,
+   "k": 0.5639825691056911,
+   "open_gross_nav": 2.420995679642814,
+   "worst_theme": "oversold_hold",
+   "worst_theme_share": 0.5532390322390174,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 105.0,
+    "dip_buy_index": 157.5,
+    "dip_buy_stock": 0.0,
+    "oversold_hold": 250.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2014-12-12",
+   "pnl_pct": -2.8857946666666665,
+   "open_risk_bps": 480.0,
+   "k": 0.6012072222222222,
+   "open_gross_nav": 2.4699664534124643,
+   "worst_theme": "breakout",
+   "worst_theme_share": 0.5477091001161551,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 375.0,
+    "dip_buy_index": 52.5,
+    "dip_buy_stock": 52.5,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2013-11-07",
+   "pnl_pct": -2.83816,
+   "open_risk_bps": 603.75,
+   "k": 0.47008861283643893,
+   "open_gross_nav": 1.9972372119081134,
+   "worst_theme": "breakout",
+   "worst_theme_share": 0.6460575396266125,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 525.0,
+    "dip_buy_index": 0.0,
+    "dip_buy_stock": 78.75,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  },
+  {
+   "date": "2008-01-11",
+   "pnl_pct": -2.7814413333333334,
+   "open_risk_bps": 322.5,
+   "k": 0.8624624289405686,
+   "open_gross_nav": 1.0644763959453218,
+   "worst_theme": "dip_buy_stock",
+   "worst_theme_share": 0.710411532438098,
+   "theme_open_risk_bps": {
+    "bear_etf_fade": 0.0,
+    "breakout": 90.0,
+    "dip_buy_index": 52.5,
+    "dip_buy_stock": 180.0,
+    "oversold_hold": 0.0,
+    "short_fade": 0.0
+   }
+  }
+ ],
+ "stress_multiple_by_theme": {
+  "dip_buy_index": {
+   "days": 822,
+   "p95": 1.0022590847374835,
+   "p99": 1.6663519777777773,
+   "p999": 2.6071090979242983,
+   "max": 2.6124348717948718,
+   "max_date": "2021-02-25",
+   "worst_day_pct": -2.5471239999999997,
+   "worst_day_date": "2021-02-25",
+   "worst21_pct": -5.1246746666666665
+  },
+  "dip_buy_stock": {
+   "days": 595,
+   "p95": 1.1040640317460315,
+   "p99": 1.7497064825396778,
+   "p999": 2.746103622222281,
+   "max": 3.301490793650794,
+   "max_date": "2016-12-01",
+   "worst_day_pct": -3.0296773333333338,
+   "worst_day_date": "2019-10-01",
+   "worst21_pct": -4.237466666666667
+  },
+  "oversold_hold": {
+   "days": 409,
+   "p95": 0.7387800709617175,
+   "p99": 0.9969324867724867,
+   "p999": 1.4985741805500146,
+   "max": 1.5807769934640523,
+   "max_date": "2011-01-06",
+   "worst_day_pct": -2.557956,
+   "worst_day_date": "2025-01-10",
+   "worst21_pct": -7.270538666666666
+  },
+  "short_fade": {
+   "days": 787,
+   "p95": 0.9482382626262608,
+   "p99": 1.6579397460317438,
+   "p999": 2.4000156533333716,
+   "max": 2.9412133333333332,
+   "max_date": "2011-02-11",
+   "worst_day_pct": -3.578985333333333,
+   "worst_day_date": "2021-01-27",
+   "worst21_pct": -5.004716
+  },
+  "breakout": {
+   "days": 3272,
+   "p95": 0.45589932112332104,
+   "p99": 0.7538852761904762,
+   "p999": 1.3766019936508354,
+   "max": 2.3728025396825396,
+   "max_date": "2022-01-26",
+   "worst_day_pct": -3.6367,
+   "worst_day_date": "2007-02-27",
+   "worst21_pct": -7.798776
+  }
+ },
+ "open_risk_vs_loss": {
+  "corr_absloss_openrisk": 0.5231527368387522,
+  "mean_open_risk_bps_all": 159.19993442793862,
+  "mean_open_risk_bps_worst1pct": 423.90016079601116,
+  "mean_open_risk_bps_best1pct": 414.81353361975886,
+  "elasticity_loglog": 0.7204156444222989
+ },
+ "olv_worst_days": [
+  {
+   "date": "2025-01-10",
+   "pnl_pct": -2.421844,
+   "legs": 22,
+   "open_risk_bps": 439.0,
+   "open_notional_nav": 1.97501589299949,
+   "k": 0.5516728929384966
+  },
+  {
+   "date": "2026-07-01",
+   "pnl_pct": -2.3060306666666666,
+   "legs": 13,
+   "open_risk_bps": 479.200251405657,
+   "open_notional_nav": 1.052651829136031,
+   "k": 0.4812248449165658
+  },
+  {
+   "date": "2026-06-26",
+   "pnl_pct": -1.934141333333333,
+   "legs": 9,
+   "open_risk_bps": 329.25000000000006,
+   "open_notional_nav": 0.6629988206443787,
+   "k": 0.5874385218931916
+  },
+  {
+   "date": "2026-06-24",
+   "pnl_pct": -1.6448146666666668,
+   "legs": 5,
+   "open_risk_bps": 119.25,
+   "open_notional_nav": 0.26557631655665803,
+   "k": 1.3792995108315862
+  },
+  {
+   "date": "2021-07-19",
+   "pnl_pct": -1.6226466666666666,
+   "legs": 14,
+   "open_risk_bps": 269.25,
+   "open_notional_nav": 0.8453679010260445,
+   "k": 0.6026542865985762
+  },
+  {
+   "date": "2026-07-09",
+   "pnl_pct": -1.6208026666666666,
+   "legs": 5,
+   "open_risk_bps": 262.5,
+   "open_notional_nav": 0.48160917121614727,
+   "k": 0.617448634920635
+  },
+  {
+   "date": "2005-09-06",
+   "pnl_pct": -1.1187266666666669,
+   "legs": 2,
+   "open_risk_bps": 45.0,
+   "open_notional_nav": 0.1371570052098774,
+   "k": 2.4860592592592594
+  },
+  {
+   "date": "2026-06-15",
+   "pnl_pct": -1.0346786666666667,
+   "legs": 6,
+   "open_risk_bps": 146.25,
+   "open_notional_nav": 0.4059769466989608,
+   "k": 0.7074725925925927
+  },
+  {
+   "date": "2010-02-04",
+   "pnl_pct": -1.011596,
+   "legs": 6,
+   "open_risk_bps": 133.5,
+   "open_notional_nav": 0.3667889039496013,
+   "k": 0.7577498127340824
+  },
+  {
+   "date": "2021-08-13",
+   "pnl_pct": -0.9903346666666667,
+   "legs": 7,
+   "open_risk_bps": 160.49999999999997,
+   "open_notional_nav": 0.33144060288722177,
+   "k": 0.6170309449636553
+  }
+ ],
+ "olv_stress_by_depth": {
+  "2-3": {
+   "days": 155,
+   "mean_pnl_per_openrisk": 0.058576512281671184,
+   "sd": 0.5078010057588204,
+   "p99": 0.9953942857142857,
+   "max": 1.2016376470588235
+  },
+  "4-6": {
+   "days": 105,
+   "mean_pnl_per_openrisk": 0.10201475526574623,
+   "sd": 0.4010201961653182,
+   "p99": 0.768732505113331,
+   "max": 1.3792995108315862
+  },
+  "7-98": {
+   "days": 58,
+   "mean_pnl_per_openrisk": 0.17319847512125874,
+   "sd": 0.42348731439195103,
+   "p99": 0.6088362496955603,
+   "max": 0.6170309449636553
+  }
+ },
+ "stress_Overbot Vol Spike": {
+  "days": 610,
+  "p99": 1.7668520670193957,
+  "max": 2.252666666666667,
+  "max_date": "2017-02-17",
+  "legs_on_max": 1,
+  "worst_day_pct": -3.578985333333333
+ },
+ "stress_52wh Breakout": {
+  "days": 3330,
+  "p99": 0.6874796359788364,
+  "max": 2.3728025396825396,
+  "max_date": "2022-01-26",
+  "legs_on_max": 1,
+  "worst_day_pct": -3.2075813333333336
+ },
+ "margin_req_nav_pm_plain": {
+  "p95": 0.22519953831688513,
+  "p99": 0.34698131719652053,
+  "max": 0.5535662910759247,
+  "max_date": "2023-02-03",
+  "feasible_m_max": 1.8064683780805657,
+  "feasible_m_p99": 2.8819995499458777,
+  "feasible_m_p99_live632k": 2.4285649540877263
+ },
+ "margin_req_nav_pm_rules_3x": {
+  "p95": 0.24789492219643253,
+  "p99": 0.41724868314989827,
+  "max": 0.9897846160997087,
+  "max_date": "2023-02-03",
+  "feasible_m_max": 1.010320814987553,
+  "feasible_m_p99": 2.396652261310423,
+  "feasible_m_p99_live632k": 2.0195789721975834
+ },
+ "margin_req_nav_pm_index_to_futures": {
+  "p95": 0.22090509878375014,
+  "p99": 0.3286609872687905,
+  "max": 0.5514550693478305,
+  "max_date": "2023-02-03",
+  "feasible_m_max": 1.8133843636302662,
+  "feasible_m_p99": 3.0426489262084666,
+  "feasible_m_p99_live632k": 2.5639388284850013
+ },
+ "margin_req_nav_pm_conc30": {
+  "p95": 0.39831309813451765,
+  "p99": 0.5976007922813387,
+  "max": 0.8711093683244295,
+  "max_date": "2024-12-20",
+  "feasible_m_max": 1.147961480340282,
+  "feasible_m_p99": 1.6733578886040361,
+  "feasible_m_p99_live632k": 1.4100829141303344
+ },
+ "class_share_of_gross_top1pct_days_2016+": {
+  "index": 0.42,
+  "lev3x": 0.002,
+  "stock": 0.578
+ }
+}

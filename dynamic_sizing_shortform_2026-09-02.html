@@ -1,0 +1,55 @@
+<title>Sizing Hierarchy Brief</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{color-scheme:light;--ground:#F6F7F5;--panel:#FFFFFF;--ink:#17202A;--ink2:#55626D;--ink3:#8A959D;--rule:#D8DEDC;--accent:#0F6E73;--accent-soft:#E3F0F0;--study:#8F6400;--study-soft:#F6EBD0;--reject:#9E3B2F;--reject-soft:#F5E1DC;--mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;--sans:"IBM Plex Sans",system-ui,"Segoe UI",Roboto,sans-serif;--serif:"Source Serif 4",Georgia,serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--ground:#141A1F;--panel:#1B232A;--ink:#E8ECEA;--ink2:#A9B3B8;--ink3:#78848B;--rule:#2E3940;--accent:#5CBDC1;--accent-soft:#1B3436;--study:#DDAA45;--study-soft:#3A2F14;--reject:#E3806F;--reject-soft:#3E211C}}
+:root[data-theme="dark"]{color-scheme:dark;--ground:#141A1F;--panel:#1B232A;--ink:#E8ECEA;--ink2:#A9B3B8;--ink3:#78848B;--rule:#2E3940;--accent:#5CBDC1;--accent-soft:#1B3436;--study:#DDAA45;--study-soft:#3A2F14;--reject:#E3806F;--reject-soft:#3E211C}
+body{background:var(--ground);color:var(--ink);font-family:var(--serif);font-size:16.5px;line-height:1.5;margin:0}
+main{max-width:70ch;margin:0 auto;padding:40px 24px 72px}
+h1{font-size:2rem;font-weight:600;line-height:1.15;margin:0;text-wrap:balance}
+h2{font-family:var(--sans);font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:2rem 0 .6rem;padding-top:1rem;border-top:1px solid var(--rule)}
+.eyebrow{font-family:var(--sans);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:.5rem}
+.lede{font-size:1.1rem;margin:1rem 0 0}
+p{margin:.6rem 0}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin:1.4rem 0 0}
+.kpi{background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:.7rem .9rem}
+.kpi .v{font-family:var(--mono);font-size:1.5rem;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi .l{font-family:var(--sans);font-size:.76rem;color:var(--ink2);margin-top:.3rem;line-height:1.3}
+ul{padding-left:1.25rem;margin:.4rem 0}li{margin:.3rem 0}
+.row{display:grid;grid-template-columns:7.5rem 1fr;gap:.6rem;padding:.5rem 0;border-bottom:1px solid var(--rule);font-size:.98rem}
+.row:last-child{border-bottom:0}
+.verdict{display:inline-block;font-family:var(--sans);font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.16rem .45rem;border-radius:3px;white-space:nowrap;margin-top:.15rem}
+.ship{background:var(--accent-soft);color:var(--accent)}.study{background:var(--study-soft);color:var(--study)}.reject{background:var(--reject-soft);color:var(--reject)}.build{background:var(--panel);color:var(--ink2);border:1px solid var(--rule)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.92em}
+.note{font-family:var(--sans);font-size:.85rem;color:var(--ink2);margin-top:1.6rem;border-top:1px dashed var(--rule);padding-top:.6rem}
+@media (max-width:560px){.kpis{grid-template-columns:1fr 1fr}.row{grid-template-columns:1fr}}
+</style>
+<main>
+<div class="eyebrow">New_Seasonals · one-page brief · 2026-09-02</div>
+<h1>Sizing Hierarchy Brief</h1>
+<p class="lede">Make sizing dynamic where the ledger says dynamics live: hedge the market factor the dial detects, tidy three stacking cells, set GRM by a written survival rule, and keep every scalar throttle off the book.</p>
+<div class="kpis">
+<div class="kpi"><div class="v">6%</div><div class="l">of full Kelly is where the book runs (Sharpe 1.97 since 2003). GRM is a drawdown choice, not a Kelly one.</div></div>
+<div class="kpi"><div class="v">10% → 35%</div><div class="l">share of book variance that is SPY, dial under 30 vs 65 to 80. Book vol itself is flat across buckets.</div></div>
+<div class="kpi"><div class="v">0.77 → 2.06</div><div class="l">Sharpe in the 65 to 80 bucket, unhedged vs beta-hedged. Nine scalar throttles: none beat baseline at equal vol.</div></div>
+</div>
+
+<h2>What the dial knows</h2>
+<p>Book-wide edge does not degrade with the dial (PIT t = <span class="num">−0.23</span>, reconfirmed). Book <i>composition</i> does: beta to SPY <span class="num">0.21 → 0.54</span>, cross-strategy correlation <span class="num">0.02 → 0.13</span>, effective strategies <span class="num">4.4 → 2.8</span>. OLV, uncorrelated with the dip-buy family in calm tape, correlates <span class="num">0.17 to 0.26</span> with it above 65. The dial is a correlation instrument. The inverse-covariance solution with an index future available says: keep the idiosyncratic book at full size and take the market position to <i>its own Kelly minus the book's embedded beta</i>. At dial 65 to 80 SPY's conditional mean is <span class="num">−29%</span> annualised, so that position is short. Cutting the book shrinks the edge and the exposure by the same factor; hedging removes only the exposure.</p>
+
+<h2>Decisions</h2>
+<div class="row"><span class="verdict ship">ship</span><span>Same-ticker cross-strategy clamp extended to all dip-buy pairs (14 pairs, R corr <span class="num">0.97</span>; one pair clamped today).</span></div>
+<div class="row"><span class="verdict ship">ship</span><span>Indices Oversold Bounce SPY+QQQ same day at <span class="num">0.5x</span> each (50 days, corr <span class="num">0.88</span>, mean 1.9x at sd 2.3x). MonFri clones untouched: 3.1x at 2.1x.</span></div>
+<div class="row"><span class="verdict ship">ship · appetite</span><span>52wh Breakout legs entered with ≥ 5 open at <span class="num">0.5x</span> (N=23, avgR <span class="num">0.08</span>, 35% win; the only stack cell with a negative marginal leg). Re-exam at +20 trades.</span></div>
+<div class="row"><span class="verdict study">prereg</span><span>Dial-armed book beta hedge in MES: β̂ from 63d OLS of book on SPY, armed at dial ≥ 50, release at 45. Full-sample Sharpe <span class="num">2.81 → 2.90</span>. Must pass on point-in-time dial weights (the dial was fit on SPY forward returns) with episode clustering; paper-track one armed episode; then live.</span></div>
+<div class="row"><span class="verdict study">prereg</span><span>Exemption re-test at dial 65 for OLV, LT Trend ST OS, OVS (65+ cell avgR <span class="num">0.23</span> on 132 trades, few episodes). Decision rule fixed before the run; no change from the table.</span></div>
+<div class="row"><span class="verdict ship">ship · capped</span><span>Strategy base-bps half-tilt, clip(0.5w+0.5, 0.6, 1.4), w = shrunk Σ⁻¹μ on the daily series, re-fit each January. Exact log-growth optima (the worst trade, not the win rate, sets a strategy's size), concurrency factor (OLV keeps 38% of its per-leg optimum), two independent routes agree on the cuts (52wh <span class="num">0.73</span>, IOB 0.83, Sector BO 0.84, Weak Close 0.84) and the raises (OLV 1.29, LT Trend 1.19, MonFri 1.16). Walk-forward 2014-26: <span class="num">12 of 13</span> years better, +4 pts NAV/yr, same maxDD, PnL/maxDD +18%. The four cut own 61% of worst-day losses for 36% of PnL. Engine replay must reproduce half the gain before go-live.</span></div>
+<div class="row"><span class="verdict build">rule</span><span>GRM = largest value with P(1-year maxDD &gt; 15%) ≤ 5% under a 50% edge haircut. Today: <span class="num">1.5</span> (3.3%); 1.875 fails (9.1%). Recomputed quarterly; the haircut is replaced by the measured one.</span></div>
+<div class="row"><span class="verdict build">build</span><span>Live-vs-ledger haircut (matched fills), OLV stack independent-leg equivalent on the hedge panel, GRM frontier script.</span></div>
+<div class="row"><span class="verdict reject">reject</span><span>OLV sleeve risk cap (<span class="num">−$70k/16y</span> for <span class="num">−$3.4k</span> worst-21d; cuts the best legs). Any book-level throttle or vol target. Drawdown-state scaling (drawdowns forecast nothing). Changing the ATR unit (avgR flat across vol).</span></div>
+
+<h2>Why no throttle</h2>
+<p>Book variance comes from whether positions are open; positions open when signals fire; signal density is the edge. The best predictor of next month's book vol (trailing signal count, Spearman <span class="num">0.24</span>) predicts next month's mean just as well (<span class="num">0.22</span>). Scale down ahead of volatility and you scale down ahead of profit. The dial predicts neither (R² <span class="num">1%</span> and <span class="num">0.2%</span>).</p>
+
+<p class="note">Caveats: dial rows before 2026-07-02 are the recompute vintage; the daily series ends 2026-08-07; overlays scale daily PnL (a favourable approximation for them, and they still lose); overflow-tier avgR is an upper bound; decisions on 50 days and 23 trades are shipped as variance or appetite rules, not edges. Full plan: dynamic_sizing_plan_2026-09-02.html.</p>
+</main>

@@ -1,0 +1,121 @@
+<title>Sizing Hierarchy Explained</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{color-scheme:light;--ground:#F6F7F5;--panel:#FFFFFF;--ink:#17202A;--ink2:#55626D;--ink3:#8A959D;--rule:#D8DEDC;--accent:#0F6E73;--accent-soft:#E3F0F0;--study:#8F6400;--study-soft:#F6EBD0;--reject:#9E3B2F;--reject-soft:#F5E1DC;--mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;--sans:"IBM Plex Sans",system-ui,"Segoe UI",Roboto,sans-serif;--serif:"Source Serif 4",Georgia,serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--ground:#141A1F;--panel:#1B232A;--ink:#E8ECEA;--ink2:#A9B3B8;--ink3:#78848B;--rule:#2E3940;--accent:#5CBDC1;--accent-soft:#1B3436;--study:#DDAA45;--study-soft:#3A2F14;--reject:#E3806F;--reject-soft:#3E211C}}
+:root[data-theme="dark"]{color-scheme:dark;--ground:#141A1F;--panel:#1B232A;--ink:#E8ECEA;--ink2:#A9B3B8;--ink3:#78848B;--rule:#2E3940;--accent:#5CBDC1;--accent-soft:#1B3436;--study:#DDAA45;--study-soft:#3A2F14;--reject:#E3806F;--reject-soft:#3E211C}
+body{background:var(--ground);color:var(--ink);font-family:var(--serif);font-size:17.5px;line-height:1.58;margin:0}
+main{max-width:66ch;margin:0 auto;padding:48px 24px 96px}
+h1,h2,h3{font-weight:600;line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:2.3rem;letter-spacing:-.01em}
+h2{font-size:1.45rem;margin-top:2.8rem;padding-top:1.2rem;border-top:1px solid var(--rule)}
+h3{font-size:1.1rem;margin-top:1.6rem}
+p{margin:.9rem 0}
+.eyebrow{font-family:var(--sans);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:.6rem}
+.lede{font-size:1.15rem;margin-top:1.3rem}
+.meta{font-family:var(--sans);font-size:.85rem;color:var(--ink2);margin-top:.8rem}
+.pull{border-left:3px solid var(--accent);padding:.4rem 1rem;margin:1.4rem 0;font-size:1.08rem;font-style:italic;color:var(--ink)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.92em}
+.tbl{overflow-x:auto;margin:1rem 0;border:1px solid var(--rule);border-radius:4px;background:var(--panel)}
+table{border-collapse:collapse;font-family:var(--sans);font-size:.86rem;width:100%;min-width:480px}
+th,td{padding:.45rem .7rem;border-bottom:1px solid var(--rule);text-align:right;vertical-align:top}
+th{font-weight:600;color:var(--ink2);font-size:.76rem;letter-spacing:.04em;text-transform:uppercase;background:var(--ground)}
+th:first-child,td:first-child{text-align:left}
+td{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.84rem}
+td:first-child{font-family:var(--sans);font-size:.86rem}
+tr:last-child td{border-bottom:0}
+.verdict{display:inline-block;font-family:var(--sans);font-size:.7rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.18rem .5rem;border-radius:3px;vertical-align:middle;margin-left:.4rem}
+.ship{background:var(--accent-soft);color:var(--accent)}.study{background:var(--study-soft);color:var(--study)}.reject{background:var(--reject-soft);color:var(--reject)}
+.math{font-family:var(--mono);font-size:.9rem;background:var(--panel);border:1px solid var(--rule);padding:.7rem 1rem;margin:.9rem 0;border-radius:4px;overflow-x:auto;white-space:pre}
+code{font-family:var(--mono);font-size:.86em;background:var(--panel);border:1px solid var(--rule);padding:.05em .3em;border-radius:3px}
+ul,ol{padding-left:1.4rem}li{margin:.35rem 0}
+.note{font-family:var(--sans);font-size:.9rem;color:var(--ink2);border-top:1px dashed var(--rule);padding-top:.6rem;margin-top:1.4rem}
+a{color:var(--accent)}a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+<main>
+<div class="eyebrow">New_Seasonals · long-form explainer · 2026-09-02</div>
+<h1>Sizing Hierarchy Explained</h1>
+<p class="lede">What the book's sizing does today, what the article's Kelly ladder says it should do, what the ledger says when you actually ask it, and why the answer is "hedge the market at high dials, tidy three stacking cells, leave the dial off the throttle."</p>
+<p class="meta">Companion to the Sizing Hierarchy Plan. Numbers are flat $750k, ledger of 2026-09-02, dial window 2016-07 to 2026-08.</p>
+
+<h2>1. The article in one paragraph</h2>
+<p>Green Lark's "Position Sizing from First Principles" builds Kelly sizing in seven rungs. A bet's compound growth is its edge minus half its variance, so there is a size that maximises growth: edge over variance, μ/σ². Independent bets each get their own μ/σ² and total exposure is whatever they add up to. Two bets that move together each shrink by 1/(1+ρ). A sleeve of look-alikes has a ceiling, the solo size divided by ρ, no matter how many names you add. The whole book is inverse-covariance times edge, which pays each position only for what the rest of the book cannot replicate. Then the coda: bet half of what the formula says, never more, and distrust your edge estimates ten times more than your correlations.</p>
+<p>All of that is correct. The interesting question is which rungs actually bind on this book, because a formula that is right in general can still have nothing to say about a particular portfolio. Most of the rungs turn out to be already satisfied or irrelevant here, and the one that binds does so in a way the article does not spell out.</p>
+
+<h2>2. Where the book sits on the growth curve</h2>
+<p>The daily mark-to-market series since 2003 has an annualised return of <span class="num">22.5%</span> on <span class="num">11.4%</span> volatility, a Sharpe of <span class="num">1.97</span>. Plug that into the growth identity and full Kelly is about <span class="num">17</span> times current sizing; half Kelly is <span class="num">8.6</span> times. Since 2016 the numbers are larger still.</p>
+<p>Take that with the scepticism it deserves, because the backtest is flattered by survivorship and by the fact that the rules were chosen looking at the data. But even if you cut the Sharpe to <span class="num">0.7</span>, half Kelly is still three times what the book runs. The conclusion does not depend on believing the backtest: the book is deep in the linear region of the growth curve, where growth is simply proportional to size and the compounding tax that Kelly exists to manage is negligible.</p>
+<p class="pull">Kelly has nothing to say about the global multiplier. GRM is a drawdown-appetite decision, and the July GRM replay already showed that: Sharpe barely moved from 1.0 to 1.75.</p>
+<p>So the global question is not a Kelly question, and Section 7 treats it as what it is, a survival probability. Where Kelly does bind is the split of a fixed total across bets, which is what the rest of this document is about.</p>
+
+<h2>3. Two rungs the book already satisfies</h2>
+<h3>The unit of risk</h3>
+<p>The book sizes every position so that one stop distance, measured in ATR, costs a fixed number of basis points of NAV. That is one power of volatility in the denominator. Kelly wants two. They agree only when dollar edge itself scales with ATR, which happens when targets and stops are set in ATR units and, crucially, the R distribution is the same in quiet names as in wild ones. It is: within each strategy, the low, middle and high vol terciles earn <span class="num">0.46</span>, <span class="num">0.43</span> and <span class="num">0.52</span> R per trade. ATR sizing is Kelly sizing in disguise. Nothing to change.</p>
+<h3>Gross as an output</h3>
+<p>Rung 2 says independent bets each deserve their own size and total exposure is just their sum. The strategies here are close to independent: the average pairwise correlation of monthly PnL is <span class="num">0.03</span>, and the vol-weighted effective number of strategies is <span class="num">11</span> out of 15. That is why removing the pooled per-direction caps in July was the right call, and the ledger does not want them back.</p>
+
+<h2>4. Adds: when is the next leg a new bet?</h2>
+<p>This is the first place the article bites. The book stacks legs inside a strategy: OLV builds into a sector washout, the 3x fades stack on consecutive days, the breakouts cluster when the tape runs. The question for each is whether the n-th leg is a new independent bet, a scaled-up copy of the same bet, or a worse bet.</p>
+<p>There is a clean way to ask the data. If n legs of equal size were independent, the sleeve's daily PnL standard deviation would grow like the square root of n. If they were one bet, it would grow like n. Measure the ratio and you get the average correlation between legs; measure the per-leg mean and you learn whether the marginal leg brings edge.</p>
+<h3>OLV: one bet, and a better one</h3>
+<p>OLV's sleeve PnL grows like n, not root n. At seven to twelve open legs, the sleeve's daily standard deviation is <span class="num">2.9</span> times what independence would give; the implied correlation is essentially one. A deep OLV stack is a single position on one sector event. But the per-leg mean rises with depth, from <span class="num">$67</span> a day for a lone position to <span class="num">$320</span> at depth eight, and trade-level legs entered with six or more names open average <span class="num">1.34R</span> against <span class="num">0.55R</span> solo.</p>
+<p>So the article's Rung 4 ceiling applies, but the ceiling is high because the edge per unit of risk keeps rising. When you replay a hard cap on total open OLV risk, the cost is severe and the benefit is not: capping at 250 bps of open risk gives up <span class="num">$70k</span> of <span class="num">$399k</span> over sixteen years to improve the worst three-week window by <span class="num">$3.4k</span>, and the legs it cuts earn more per dollar of risk than the ones it keeps. The article's "cut the clones first" advice assumes the clones are the weakest positions. Here they are the strongest.</p>
+<p class="pull">An OLV sleeve cap is drawdown insurance with a negative expected value, bought against a risk that is real but regime-blind. It is rejected. What the stack needs is to have its market component hedged and its true size shown.</p>
+<h3>52wh Breakout: past five legs, a worse bet <span class="verdict ship">ship</span></h3>
+<p>The one cell where the marginal leg is negative. With seven to twelve breakouts open the sleeve loses <span class="num">$36</span> per leg per day across 169 days, and legs entered with six or more open average <span class="num">0.08R</span> at a <span class="num">35%</span> win rate. Twenty-three trades is a small cell, so this ships as an appetite rule with a written re-examination trigger: half size on any 52wh leg entered with five or more open, re-examined at twenty more trades in the cell.</p>
+<h3>Index clones <span class="verdict ship">ship</span></h3>
+<p>When Indices Oversold Bounce fires SPY and QQQ on the same day (50 of 133 days) the two legs correlate <span class="num">0.88</span>; the day earns <span class="num">1.9</span> times a single-leg day at <span class="num">2.3</span> times the standard deviation. Two tickets on one horse, no extra edge: each at half. The same check on SPY QQQ MonFri Reversion gives the opposite answer, <span class="num">3.1</span> times the PnL at <span class="num">2.1</span> times the risk, so its clone days are its best days and stay untouched. The same-ticker cross-strategy clamp, currently applied to one pair, extends to all fourteen dip-buy pairs in the ledger; their R correlation is <span class="num">0.97</span>.</p>
+
+<h2>5. The dial, and what it actually knows</h2>
+<p>This is the heart of it. Every dial study in the repo's memory asked whether the book's edge degrades at high fragility readings, and book-wide the answer has been no: the point-in-time gate returned a t-statistic of <span class="num">−0.23</span>. This study asked a different question. Never mind the mean; what happens to the <i>shape</i> of the book?</p>
+<div class="tbl"><table>
+<tr><th>Dial bucket</th><th>Book β to SPY</th><th>Share of book variance that is SPY</th><th>Effective N</th></tr>
+<tr><td>under 30</td><td>0.21</td><td>10%</td><td>4.4</td></tr>
+<tr><td>30 to 50</td><td>0.28</td><td>9%</td><td>4.4</td></tr>
+<tr><td>50 to 65</td><td>0.40</td><td>16%</td><td>3.8</td></tr>
+<tr><td>65 to 80</td><td>0.39</td><td>35%</td><td>3.2</td></tr>
+<tr><td>80 and up</td><td>0.54</td><td>25%</td><td>2.8</td></tr>
+</table></div>
+<p>The book's total variance barely changes across buckets. Its composition changes completely. In calm tape the book is a bundle of unrelated bets with a tenth of its variance coming from the market. At dial 65 to 80 a third of its variance is the market, and the strategies start correlating with each other: OLV, which correlates <span class="num">0.01</span> to <span class="num">0.05</span> with the dip-buy family in calm tape, correlates <span class="num">0.17</span> to <span class="num">0.26</span> with it above 65. The oversold names OLV is buying at a high dial <i>are</i> the selloff.</p>
+<p class="pull">The dial is not an edge instrument. It is a correlation instrument. It tells you when the book has quietly become one bet on the index.</p>
+<h3>Why cutting fails and hedging works</h3>
+<p>Once you see the dial that way, the article's Rung 6 gives the answer directly. Write the book's covariance as a market factor plus everything else, and allow an index future as an extra position. The inverse-covariance solution splits in two: the ideal book is Kelly on the idiosyncratic part, plus a market position equal to the index's own Kelly size <i>minus the beta the book already carries</i>. When the index's conditional expected return is negative, and in the 65 to 80 bucket SPY has run at <span class="num">−29%</span> annualised, the ideal market position is short: hedge the embedded beta and then some.</p>
+<p>A scalar cut on the book cannot do this. It shrinks the idiosyncratic book, where the edge lives, by the same factor it shrinks the market exposure it was trying to remove. That is the mechanical reason the study's nine scalar overlays (dial steps, a dial Kelly table, a linear taper, VIX, realised-vol targeting, open-leg count) all land at or below the baseline Sharpe of <span class="num">2.81</span> once you compare at equal volatility, and lose most held-out years. The beta hedge, armed only when the dial is at or above 50, is the one control above the baseline: Sharpe <span class="num">2.90</span> overall, and inside the 65 to 80 bucket <span class="num">2.06</span> against an unhedged <span class="num">0.77</span>.</p>
+<p>It is the systematic form of what McKinley did by hand in August. It is also not yet a ship decision, for a reason specific to this book: the dial's weights were calibrated on SPY forward returns, so a negative SPY mean at high readings is partly something the dial was built to find. The July point-in-time re-estimate exists to remove exactly that lookahead, and the hedge has to pass on those vintage-lagged weights, episode by episode, before it is believed. The plan writes the protocol down in advance.</p>
+<h3>The 65-plus cell</h3>
+<p>One more thing the trade-level table shows: at signal-date dial 65 and above, the book's average R is <span class="num">0.23</span> on 132 trades against <span class="num">0.51</span> in calm tape, and the trades in that cell are almost all OLV, LT Trend ST OS and OVS, the three strategies exempt from fragility bands. That is not a finding; it is the shape of a cell the exemption studies never tested, because they used the 50 line, where the cell earns <span class="num">0.70R</span> and the exemptions look right. It earns a pre-registered re-test at 65, with the decision rule fixed first, and no sizing change from the table. If the hedge ships, the re-test should run on hedged returns, since part of what fails up there is the factor the hedge removes.</p>
+
+<h2>6. Strategy-level allocation: where Kelly earns its keep <span class="verdict ship">ship, capped</span></h2>
+<p>This is the level the first draft of this work under-served, and the level where the article's math does the most. The question is simple to state: with the book's total risk held fixed, does each strategy get risk in proportion to what it earns per unit of growth-relevant risk? Answering it honestly takes four steps, and each one overturns something the naive table said.</p>
+<h3>The exact optimum, not the shortcut</h3>
+<p>The growth-optimal fraction per trade is the f that maximises E[log(1 + fR)], estimated by bootstrapping each strategy's trades. The usual shortcut, E[R]/E[R²], is only right for small symmetric bets, and this book's bets are neither. Run the exact form and the ranking flips in both directions. Indices Oversold Bounce falls from 0.23 to 0.12 because it carries a <span class="num">−7.2R</span> gap-through; MonFri and OVS drop for the same reason (<span class="num">−4.8R</span>, <span class="num">−5.9R</span>); St OS Sznl, five days with no stop, has a <span class="num">−6.8R</span> and an optimum near zero. Sector BO and 52wh Breakout, the low-win-rate breakouts the naive table wanted to cut hardest, <i>rise</i> (0.08 to 0.14, 0.14 to 0.22) because the quadratic form was punishing their right skew as if it were downside. The thing to distrust in this book is not the win rate. It is the worst trade in a small sample.</p>
+<h3>Legs overlap</h3>
+<p>A per-trade optimum assumes trades happen one at a time. Each strategy's legs overlap with some correlation, and the Rung 5 factor 1/(1+(n−1)ρ) applies. OLV, whose stacks are one bet, keeps only <span class="num">38%</span> of its per-leg optimum; the index dip-buys keep about two thirds; 52wh, whose 2.9 simultaneous breakouts are nearly independent, keeps <span class="num">87%</span>.</p>
+<h3>A second route that shares no arithmetic</h3>
+<p>The per-strategy daily PnL series already contains concurrency, hold length and cross-strategy correlation. Inverse-covariance times edge on those series, with the covariance shrunk toward its diagonal and the edge shrunk halfway toward "every strategy earns the same Sharpe", gives a second set of weights. The two routes agree where it matters: rank correlation <span class="num">0.41</span> overall, unanimous on the four to cut (52wh, Indices Oversold Bounce, Sector BO, Weak Close) and the three to raise (LT Trend ST OS, the 3x fades, OLV). They disagree on MonFri because of one trade, which is exactly the case for blending rather than picking.</p>
+<h3>Out of sample, and who owns the tail</h3>
+<p>A walk-forward re-fits the weights every January on data through the prior December and applies them to the next year, 2014 to 2026, vol-matched to the current allocation. A half-blend toward the fitted weights beats the current allocation in <span class="num">12 of 13</span> years on PnL, adds about <span class="num">4 points of NAV a year</span> for 1.3 points more volatility, and leaves the maximum drawdown unchanged; PnL per unit of drawdown improves <span class="num">18%</span>. Unblended full-Kelly weights add more PnL and more drawdown and win only 4 of 13 years on Sharpe, so the article's "bet half" is doing real work. Recency-weighted versions, which a reasonable prior would favour because the strategies being cut have their best readings in 2022 to 2026 on 7 to 60 trades, are worse in every column: chasing three good years on twenty trades is the estimation error the article warns about in its purest form. The cuts also land on the tail's owners: the four strategies cut own <span class="num">61%</span> of the book's worst-day losses for <span class="num">36%</span> of its PnL; the three raised own 12% of the tail for 25% of the PnL. February 2014, October 2014 and August 2015, the book's three worst months since 2010, were 52wh and Indices Oversold Bounce.</p>
+<p>The decision is a capped half-tilt on base bps: multiplier = clip(0.5w + 0.5, 0.6, 1.4), re-fit each January, composing with every existing overlay so OLV's 1.29 still runs under its ladder and ticker cap. From the fit through 2025: 52wh 0.73, Indices Oversold Bounce 0.83, Sector BO 0.84, Weak Close 0.84, St OS Sznl 0.92, LT Trend 1.19, MonFri 1.16, 3x ETF Overbot Fade 1.15, OLV 1.29; OVS and the three thin strategies stay at 1.0. One confirmation stands between the table and the scanner: the engine replay has to reproduce at least half of the walk-forward gain, because the daily-series test cannot see the per-strategy daily cap binding more often on the strategies it raises.</p>
+
+<h2>7. The global multiplier as a probability</h2>
+<p>If Kelly is silent on GRM, what should set it? The plan replaces "appetite" with three declared numbers: a drawdown threshold, a probability budget, and a haircut on the backtest's edge. A block bootstrap of the 2016+ daily series answers the question for any combination.</p>
+<div class="tbl"><table>
+<tr><th>Edge haircut</th><th>GRM</th><th>Median one-year PnL</th><th>P(maxDD &gt; 10%)</th><th>P(maxDD &gt; 15%)</th></tr>
+<tr><td>none</td><td>1.5</td><td>33%</td><td>3%</td><td>0.2%</td></tr>
+<tr><td>50%</td><td>1.5</td><td>16%</td><td>19%</td><td>3.3%</td></tr>
+<tr><td>50%</td><td>1.875</td><td>20%</td><td>38%</td><td>9.1%</td></tr>
+<tr><td>50%</td><td>3.0</td><td>33%</td><td>83%</td><td>47%</td></tr>
+</table></div>
+<p>The rule the plan proposes is: the largest GRM at which a one-year drawdown beyond 15% has at most a 5% probability, assuming only half the backtest's edge is real. Today that is 1.5, which is where the book already sits; the rule's value is that changing it now requires changing a named number. The 50% haircut is a placeholder. The book has the data to measure the real one, live fills against ledger trades, and the plan makes that measurement a build item, because the article is right that edge error dominates everything else.</p>
+<p>Two adjacent ideas were tested and rejected on the way. Drawdown-state scaling (cut exposure as the book falls from its high) would only pay if drawdowns predicted something; they do not, the book earns the same after a 5 to 10% drawdown as at a high. And volatility targeting fails for a reason that is almost a property of this kind of book: its variance comes from whether positions are open, positions open when signals fire, and signal density is the edge. The best predictor of next month's book volatility, the trailing signal count, predicts next month's return just as well. Scale down when it is about to be volatile and you scale down when it is about to make money.</p>
+
+<h2>8. What changes, in order</h2>
+<ol>
+<li><b>Ship, no study needed.</b> Same-ticker clamp for every dip-buy pair; Indices Oversold Bounce SPY+QQQ at half each on both-fire days; 52wh Breakout at half past five open legs (appetite, re-exam at +20 trades).</li>
+<li><b>Ship after one confirmation.</b> The capped half-tilt on strategy base bps, once the engine replay reproduces half the walk-forward gain.</li>
+<li><b>Build.</b> Live-versus-ledger haircut measurement; the OLV stack's independent-leg equivalent on the hedge panel; the GRM frontier as a script with its three numbers declared; the January tilt re-fit script.</li>
+<li><b>Pre-register, paper-track, then decide.</b> The dial-armed beta hedge on point-in-time weights; the exemption re-test at 65 on the daily basis; a dial-conditioned hold shortening for 52wh (an exit rule, outside sizing).</li>
+<li><b>Do not build.</b> Any book-level throttle or vol target; an OLV sleeve cap; drawdown-state scaling; a MonFri clone clamp.</li>
+</ol>
+<p class="note">Evidence: scratch/kelly_read_*_2026-09-02.py, scratch/dynamic_sizing_study_2026-09-02.py, scratch/dynamic_sizing_study2_2026-09-02.py and the JSON results beside them. Caveats that bind every number, above all the dial's recompute vintage before 2026-07-02 and the daily series ending 2026-08-07, are listed in the plan's final section.</p>
+</main>

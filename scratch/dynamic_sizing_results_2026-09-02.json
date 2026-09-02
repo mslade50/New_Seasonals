@@ -1,0 +1,1046 @@
+{
+ "regime_table": [
+  {
+   "bucket": "<30",
+   "days": 1527,
+   "share": 0.6258,
+   "mean_bps": 14.5735,
+   "sd_bps": 83.5279,
+   "sharpe": 2.7697,
+   "worst_pct": -4.8862,
+   "p_lt_1pct": 0.0393,
+   "cvar5_bps": -150.8129,
+   "kelly_rel": 0.9731,
+   "open_legs": 5.5311,
+   "notional_pct": 53.1844,
+   "sig5": 6.5435,
+   "avg_corr": 0.0241,
+   "eff_n": 4.4162,
+   "spy_vol": 20.1866,
+   "book_beta": 0.2052
+  },
+  {
+   "bucket": "30-50",
+   "days": 564,
+   "share": 0.2311,
+   "mean_bps": 16.9698,
+   "sd_bps": 79.8552,
+   "sharpe": 3.3735,
+   "worst_pct": -3.0803,
+   "p_lt_1pct": 0.0355,
+   "cvar5_bps": -145.1775,
+   "kelly_rel": 1.2398,
+   "open_legs": 5.0443,
+   "notional_pct": 58.8848,
+   "sig5": 5.2784,
+   "avg_corr": 0.0217,
+   "eff_n": 4.4295,
+   "spy_vol": 13.9232,
+   "book_beta": 0.2783
+  },
+  {
+   "bucket": "50-65",
+   "days": 216,
+   "share": 0.0885,
+   "mean_bps": 13.7124,
+   "sd_bps": 86.0418,
+   "sharpe": 2.5299,
+   "worst_pct": -1.8089,
+   "p_lt_1pct": 0.037,
+   "cvar5_bps": -132.3137,
+   "kelly_rel": 0.8629,
+   "open_legs": 4.6065,
+   "notional_pct": 47.9542,
+   "sig5": 4.6528,
+   "avg_corr": 0.0852,
+   "eff_n": 3.7722,
+   "spy_vol": 13.8106,
+   "book_beta": 0.3988
+  },
+  {
+   "bucket": "65-80",
+   "days": 109,
+   "share": 0.0447,
+   "mean_bps": 3.2592,
+   "sd_bps": 66.9449,
+   "sharpe": 0.7729,
+   "worst_pct": -1.7705,
+   "p_lt_1pct": 0.055,
+   "cvar5_bps": -131.3312,
+   "kelly_rel": 0.3388,
+   "open_legs": 3.5138,
+   "notional_pct": 32.3436,
+   "sig5": 3.3945,
+   "avg_corr": 0.062,
+   "eff_n": 3.1631,
+   "spy_vol": 16.1161,
+   "book_beta": 0.3897
+  },
+  {
+   "bucket": "80+",
+   "days": 24,
+   "share": 0.0098,
+   "mean_bps": 17.2442,
+   "sd_bps": 99.4579,
+   "sharpe": 2.7524,
+   "worst_pct": -1.3597,
+   "p_lt_1pct": 0.0833,
+   "cvar5_bps": -124.9261,
+   "kelly_rel": 0.8121,
+   "open_legs": 6.0417,
+   "notional_pct": 43.8819,
+   "sig5": 6.5833,
+   "avg_corr": 0.129,
+   "eff_n": 2.8191,
+   "spy_vol": 14.5299,
+   "book_beta": 0.5441
+  }
+ ],
+ "forecast": {
+  "dial": {
+   "vol_spearman": 0.12581072418473635,
+   "vol_r2": 0.010493055701753962,
+   "mean_spearman": 0.09921802696125269,
+   "mean_r2": 0.0016879271553502662
+  },
+  "vix": {
+   "vol_spearman": 0.08233945929080054,
+   "vol_r2": 0.0007278629221376676,
+   "mean_spearman": 0.18915332464278126,
+   "mean_r2": 0.017386851126127256
+  },
+  "rv21": {
+   "vol_spearman": 0.07272151958917208,
+   "vol_r2": 0.004729185429189653,
+   "mean_spearman": 0.12627583435208448,
+   "mean_r2": 0.019509312939473555
+  },
+  "ewv": {
+   "vol_spearman": 0.06500107308606143,
+   "vol_r2": 0.0033684135243862157,
+   "mean_spearman": 0.16031334254516952,
+   "mean_r2": 0.026898218423797027
+  },
+  "open": {
+   "vol_spearman": 0.21509463904217715,
+   "vol_r2": 0.013973115340580988,
+   "mean_spearman": 0.12442019948842213,
+   "mean_r2": 0.01431342024048976
+  },
+  "notional": {
+   "vol_spearman": 0.1821965347555799,
+   "vol_r2": 0.007149836818792998,
+   "mean_spearman": 0.07405758859769829,
+   "mean_r2": 0.005502827600906257
+  },
+  "sig5": {
+   "vol_spearman": 0.23712394392347078,
+   "vol_r2": 0.01934956944143873,
+   "mean_spearman": 0.22099475429572213,
+   "mean_r2": 0.029050723785545296
+  },
+  "dial+rv21": {
+   "vol_r2": 0.015543419969573313,
+   "mean_r2": 0.021463235364380884
+  },
+  "dial+rv21+open": {
+   "vol_r2": 0.029359433612222152,
+   "mean_r2": 0.03342434801795868
+  },
+  "vix+rv21+open": {
+   "vol_r2": 0.01761283391209112,
+   "mean_r2": 0.04295903747398333
+  }
+ },
+ "fwd_by_bucket": {
+  "fwd21_vol": {
+   "<30": 0.1098,
+   "30-50": 0.114,
+   "50-65": 0.1049,
+   "65-80": 0.1233,
+   "80+": 0.1701
+  },
+  "fwd21_mean": {
+   "<30": 0.3434,
+   "30-50": 0.3917,
+   "50-65": 0.3263,
+   "65-80": 0.3465,
+   "80+": -0.0102
+  }
+ },
+ "adds": [
+  {
+   "strategy": "Oversold Low Volume",
+   "legs": "1",
+   "days": 410,
+   "n_mean": 1.0,
+   "sd_per_leg": 950.6503,
+   "sd_vs_sqrtn": 1.0,
+   "implied_rho": NaN,
+   "mean_per_leg": 67.0702
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "legs": "2-3",
+   "days": 313,
+   "n_mean": 2.3482,
+   "sd_per_leg": 925.9178,
+   "sd_vs_sqrtn": 1.4925,
+   "implied_rho": 0.9106,
+   "mean_per_leg": 124.733
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "legs": "4-6",
+   "days": 96,
+   "n_mean": 4.7812,
+   "sd_per_leg": 773.6925,
+   "sd_vs_sqrtn": 1.7796,
+   "implied_rho": 0.5731,
+   "mean_per_leg": 181.5965
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "legs": "7-12",
+   "days": 48,
+   "n_mean": 8.4792,
+   "sd_per_leg": 944.7539,
+   "sd_vs_sqrtn": 2.8938,
+   "implied_rho": 0.986,
+   "mean_per_leg": 320.2979
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "legs": "1",
+   "days": 81,
+   "n_mean": 1.0,
+   "sd_per_leg": 2015.1207,
+   "sd_vs_sqrtn": 1.0,
+   "implied_rho": NaN,
+   "mean_per_leg": -299.3837
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "legs": "2-3",
+   "days": 604,
+   "n_mean": 2.0646,
+   "sd_per_leg": 1013.6728,
+   "sd_vs_sqrtn": 0.7228,
+   "implied_rho": -0.4486,
+   "mean_per_leg": 108.2521
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "legs": "4-6",
+   "days": 264,
+   "n_mean": 4.5795,
+   "sd_per_leg": 743.7701,
+   "sd_vs_sqrtn": 0.7899,
+   "implied_rho": -0.1051,
+   "mean_per_leg": 102.0155
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "legs": "7-12",
+   "days": 109,
+   "n_mean": 9.3578,
+   "sd_per_leg": 406.9926,
+   "sd_vs_sqrtn": 0.6178,
+   "implied_rho": -0.074,
+   "mean_per_leg": 56.7032
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "legs": "13+",
+   "days": 65,
+   "n_mean": 23.5385,
+   "sd_per_leg": 441.8472,
+   "sd_vs_sqrtn": 1.0638,
+   "implied_rho": 0.0058,
+   "mean_per_leg": 71.0304
+  },
+  {
+   "strategy": "Weak Close Decent Sznls",
+   "legs": "1",
+   "days": 240,
+   "n_mean": 1.0,
+   "sd_per_leg": 3549.2044,
+   "sd_vs_sqrtn": 1.0,
+   "implied_rho": NaN,
+   "mean_per_leg": 133.603
+  },
+  {
+   "strategy": "Weak Close Decent Sznls",
+   "legs": "2-3",
+   "days": 102,
+   "n_mean": 2.2745,
+   "sd_per_leg": 2973.9614,
+   "sd_vs_sqrtn": 1.2637,
+   "implied_rho": 0.4684,
+   "mean_per_leg": 430.6781
+  },
+  {
+   "strategy": "3x Bear ETF Overbot Fade",
+   "legs": "1",
+   "days": 68,
+   "n_mean": 1.0,
+   "sd_per_leg": 3067.9002,
+   "sd_vs_sqrtn": 1.0,
+   "implied_rho": NaN,
+   "mean_per_leg": 1134.1888
+  },
+  {
+   "strategy": "52wh Breakout",
+   "legs": "1",
+   "days": 763,
+   "n_mean": 1.0,
+   "sd_per_leg": 1521.0783,
+   "sd_vs_sqrtn": 1.0,
+   "implied_rho": NaN,
+   "mean_per_leg": 97.4112
+  },
+  {
+   "strategy": "52wh Breakout",
+   "legs": "2-3",
+   "days": 1137,
+   "n_mean": 2.4591,
+   "sd_per_leg": 963.739,
+   "sd_vs_sqrtn": 0.9936,
+   "implied_rho": -0.0088,
+   "mean_per_leg": 91.8124
+  },
+  {
+   "strategy": "52wh Breakout",
+   "legs": "4-6",
+   "days": 493,
+   "n_mean": 4.5538,
+   "sd_per_leg": 740.3421,
+   "sd_vs_sqrtn": 1.0386,
+   "implied_rho": 0.0222,
+   "mean_per_leg": 75.4298
+  },
+  {
+   "strategy": "52wh Breakout",
+   "legs": "7-12",
+   "days": 169,
+   "n_mean": 8.3669,
+   "sd_per_leg": 715.5664,
+   "sd_vs_sqrtn": 1.3608,
+   "implied_rho": 0.1156,
+   "mean_per_leg": -36.3608
+  },
+  {
+   "strategy": "SPY QQQ MonFri Reversion",
+   "legs": "1",
+   "days": 230,
+   "n_mean": 1.0,
+   "sd_per_leg": 2322.1315,
+   "sd_vs_sqrtn": 1.0,
+   "implied_rho": NaN,
+   "mean_per_leg": 360.5133
+  },
+  {
+   "strategy": "SPY QQQ MonFri Reversion",
+   "legs": "2-3",
+   "days": 208,
+   "n_mean": 2.0529,
+   "sd_per_leg": 2114.9074,
+   "sd_vs_sqrtn": 1.3049,
+   "implied_rho": 0.6675,
+   "mean_per_leg": 741.2865
+  },
+  {
+   "strategy": "Indices Oversold Bounce",
+   "legs": "1",
+   "days": 209,
+   "n_mean": 1.0,
+   "sd_per_leg": 2648.2619,
+   "sd_vs_sqrtn": 1.0,
+   "implied_rho": NaN,
+   "mean_per_leg": 550.1712
+  },
+  {
+   "strategy": "Indices Oversold Bounce",
+   "legs": "2-3",
+   "days": 131,
+   "n_mean": 2.0992,
+   "sd_per_leg": 2766.1997,
+   "sd_vs_sqrtn": 1.5134,
+   "implied_rho": 1.1739,
+   "mean_per_leg": 572.2744
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "legs": "1",
+   "days": 171,
+   "n_mean": 1.0,
+   "sd_per_leg": 2512.1246,
+   "sd_vs_sqrtn": 1.0,
+   "implied_rho": NaN,
+   "mean_per_leg": 508.518
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "legs": "2-3",
+   "days": 54,
+   "n_mean": 2.2778,
+   "sd_per_leg": 1797.0002,
+   "sd_vs_sqrtn": 1.0796,
+   "implied_rho": 0.1295,
+   "mean_per_leg": 573.4363
+  }
+ ],
+ "olv_rho_by_regime": {
+  "dial<50": {
+   "days": 323,
+   "legs": 3.9256965944272446,
+   "rho": 1.7233432306944496,
+   "mean_per_leg": 234.26336750788644,
+   "sd_per_leg": 1147.726147781179
+  },
+  "dial>=50": {
+   "days": 90,
+   "legs": 3.9,
+   "rho": 1.1983587428728124,
+   "mean_per_leg": 111.90846153846152,
+   "sd_per_leg": 991.021096700227
+  },
+  "dial>=65": {
+   "days": 37,
+   "legs": 2.864864864864865,
+   "rho": 0.31145791937059963,
+   "mean_per_leg": 127.95915094339621,
+   "sd_per_leg": 687.2220932762651
+  }
+ },
+ "overlays": [
+  {
+   "label": "baseline (raw)",
+   "ann_ret": 36.7216,
+   "ann_vol": 13.0796,
+   "sharpe": 2.8075,
+   "maxdd": -8.3232,
+   "worst_day": -4.8862,
+   "cvar5": -1.4818,
+   "skew": 2.1189,
+   "calmar": 4.412,
+   "avg_mult": 1.0
+  },
+  {
+   "label": "baseline (equal-vol)",
+   "ann_ret": 36.7216,
+   "ann_vol": 13.0796,
+   "sharpe": 2.8075,
+   "maxdd": -8.3232,
+   "worst_day": -4.8862,
+   "cvar5": -1.4818,
+   "skew": 2.1189,
+   "calmar": 4.412,
+   "avg_mult": 1.0
+  },
+  {
+   "label": "A_ewma_voltarget (raw)",
+   "ann_ret": 31.6721,
+   "ann_vol": 12.4535,
+   "sharpe": 2.5432,
+   "maxdd": -9.5862,
+   "worst_day": -4.9644,
+   "cvar5": -1.4719,
+   "skew": 2.0038,
+   "calmar": 3.3039,
+   "avg_mult": 1.0183
+  },
+  {
+   "label": "A_ewma_voltarget (equal-vol)",
+   "ann_ret": 33.2643,
+   "ann_vol": 13.0796,
+   "sharpe": 2.5432,
+   "maxdd": -10.0681,
+   "worst_day": -5.214,
+   "cvar5": -1.5458,
+   "skew": 2.0038,
+   "calmar": 3.3039,
+   "avg_mult": 1.0183
+  },
+  {
+   "label": "A2_ewma_cutonly (raw)",
+   "ann_ret": 29.2059,
+   "ann_vol": 10.8197,
+   "sharpe": 2.6993,
+   "maxdd": -7.3076,
+   "worst_day": -3.3096,
+   "cvar5": -1.2548,
+   "skew": 2.0551,
+   "calmar": 3.9967,
+   "avg_mult": 0.87
+  },
+  {
+   "label": "A2_ewma_cutonly (equal-vol)",
+   "ann_ret": 35.306,
+   "ann_vol": 13.0796,
+   "sharpe": 2.6993,
+   "maxdd": -8.8339,
+   "worst_day": -4.0009,
+   "cvar5": -1.5168,
+   "skew": 2.0551,
+   "calmar": 3.9967,
+   "avg_mult": 0.87
+  },
+  {
+   "label": "B_dial_kelly_insample (raw)",
+   "ann_ret": 35.361,
+   "ann_vol": 12.4851,
+   "sharpe": 2.8323,
+   "maxdd": -7.7712,
+   "worst_day": -4.7548,
+   "cvar5": -1.4113,
+   "skew": 2.1351,
+   "calmar": 4.5502,
+   "avg_mult": 0.9396
+  },
+  {
+   "label": "B_dial_kelly_insample (equal-vol)",
+   "ann_ret": 37.0447,
+   "ann_vol": 13.0796,
+   "sharpe": 2.8323,
+   "maxdd": -8.1413,
+   "worst_day": -4.9812,
+   "cvar5": -1.4785,
+   "skew": 2.1351,
+   "calmar": 4.5502,
+   "avg_mult": 0.9396
+  },
+  {
+   "label": "B2_dial_step_50 (raw)",
+   "ann_ret": 34.7949,
+   "ann_vol": 12.3853,
+   "sharpe": 2.8094,
+   "maxdd": -7.8877,
+   "worst_day": -4.8862,
+   "cvar5": -1.4047,
+   "skew": 2.1122,
+   "calmar": 4.4113,
+   "avg_mult": 0.9285
+  },
+  {
+   "label": "B2_dial_step_50 (equal-vol)",
+   "ann_ret": 36.7454,
+   "ann_vol": 13.0796,
+   "sharpe": 2.8094,
+   "maxdd": -8.3299,
+   "worst_day": -5.1601,
+   "cvar5": -1.4834,
+   "skew": 2.1122,
+   "calmar": 4.4113,
+   "avg_mult": 0.9285
+  },
+  {
+   "label": "B3_dial_step_65 (raw)",
+   "ann_ret": 36.3244,
+   "ann_vol": 12.8691,
+   "sharpe": 2.8226,
+   "maxdd": -8.3232,
+   "worst_day": -4.8862,
+   "cvar5": -1.452,
+   "skew": 2.1844,
+   "calmar": 4.3643,
+   "avg_mult": 0.9727
+  },
+  {
+   "label": "B3_dial_step_65 (equal-vol)",
+   "ann_ret": 36.9186,
+   "ann_vol": 13.0796,
+   "sharpe": 2.8226,
+   "maxdd": -8.4593,
+   "worst_day": -4.9661,
+   "cvar5": -1.4758,
+   "skew": 2.1844,
+   "calmar": 4.3643,
+   "avg_mult": 0.9727
+  },
+  {
+   "label": "B4_dial_linear (raw)",
+   "ann_ret": 34.1966,
+   "ann_vol": 12.1542,
+   "sharpe": 2.8136,
+   "maxdd": -7.8824,
+   "worst_day": -4.8862,
+   "cvar5": -1.3739,
+   "skew": 2.1813,
+   "calmar": 4.3383,
+   "avg_mult": 0.9136
+  },
+  {
+   "label": "B4_dial_linear (equal-vol)",
+   "ann_ret": 36.8002,
+   "ann_vol": 13.0796,
+   "sharpe": 2.8136,
+   "maxdd": -8.4825,
+   "worst_day": -5.2582,
+   "cvar5": -1.4785,
+   "skew": 2.1813,
+   "calmar": 4.3383,
+   "avg_mult": 0.9136
+  },
+  {
+   "label": "C_open_sqrt (raw)",
+   "ann_ret": 29.6112,
+   "ann_vol": 10.8101,
+   "sharpe": 2.7392,
+   "maxdd": -8.5447,
+   "worst_day": -4.0194,
+   "cvar5": -1.2733,
+   "skew": 1.6703,
+   "calmar": 3.4655,
+   "avg_mult": 1.0699
+  },
+  {
+   "label": "C_open_sqrt (equal-vol)",
+   "ann_ret": 35.8278,
+   "ann_vol": 13.0796,
+   "sharpe": 2.7392,
+   "maxdd": -10.3386,
+   "worst_day": -4.8633,
+   "cvar5": -1.5406,
+   "skew": 1.6703,
+   "calmar": 3.4655,
+   "avg_mult": 1.0699
+  },
+  {
+   "label": "D_ewma_x_dial65 (raw)",
+   "ann_ret": 31.2687,
+   "ann_vol": 12.1685,
+   "sharpe": 2.5696,
+   "maxdd": -7.3076,
+   "worst_day": -4.9644,
+   "cvar5": -1.4249,
+   "skew": 2.0749,
+   "calmar": 4.2789,
+   "avg_mult": 0.9895
+  },
+  {
+   "label": "D_ewma_x_dial65 (equal-vol)",
+   "ann_ret": 33.6097,
+   "ann_vol": 13.0796,
+   "sharpe": 2.5696,
+   "maxdd": -7.8547,
+   "worst_day": -5.3361,
+   "cvar5": -1.5315,
+   "skew": 2.0749,
+   "calmar": 4.2789,
+   "avg_mult": 0.9895
+  },
+  {
+   "label": "E_vix (raw)",
+   "ann_ret": 30.9606,
+   "ann_vol": 11.7648,
+   "sharpe": 2.6316,
+   "maxdd": -8.5866,
+   "worst_day": -3.9265,
+   "cvar5": -1.4767,
+   "skew": 1.1683,
+   "calmar": 3.6057,
+   "avg_mult": 1.0041
+  },
+  {
+   "label": "E_vix (equal-vol)",
+   "ann_ret": 34.4204,
+   "ann_vol": 13.0796,
+   "sharpe": 2.6316,
+   "maxdd": -9.5461,
+   "worst_day": -4.3653,
+   "cvar5": -1.6418,
+   "skew": 1.1683,
+   "calmar": 3.6057,
+   "avg_mult": 1.0041
+  }
+ ],
+ "loyo": [
+  {
+   "year": 2016,
+   "base": 0.9,
+   "dial_table": 0.9,
+   "ewma": 0.916,
+   "step65": 0.9
+  },
+  {
+   "year": 2017,
+   "base": 2.375,
+   "dial_table": 2.267,
+   "ewma": 2.042,
+   "step65": 2.375
+  },
+  {
+   "year": 2018,
+   "base": 1.743,
+   "dial_table": 1.751,
+   "ewma": 1.084,
+   "step65": 1.932
+  },
+  {
+   "year": 2019,
+   "base": 2.176,
+   "dial_table": 2.183,
+   "ewma": 1.895,
+   "step65": 2.176
+  },
+  {
+   "year": 2020,
+   "base": 3.785,
+   "dial_table": 3.679,
+   "ewma": 3.781,
+   "step65": 3.729
+  },
+  {
+   "year": 2021,
+   "base": 3.504,
+   "dial_table": 3.377,
+   "ewma": 2.999,
+   "step65": 3.43
+  },
+  {
+   "year": 2022,
+   "base": 1.578,
+   "dial_table": 1.669,
+   "ewma": 1.543,
+   "step65": 1.733
+  },
+  {
+   "year": 2023,
+   "base": 3.786,
+   "dial_table": 3.8,
+   "ewma": 3.984,
+   "step65": 3.786
+  },
+  {
+   "year": 2024,
+   "base": 2.117,
+   "dial_table": 2.034,
+   "ewma": 1.888,
+   "step65": 2.059
+  },
+  {
+   "year": 2025,
+   "base": 4.457,
+   "dial_table": 4.463,
+   "ewma": 4.752,
+   "step65": 4.457
+  },
+  {
+   "year": 2026,
+   "base": 2.87,
+   "dial_table": 2.827,
+   "ewma": 2.448,
+   "step65": 2.832
+  }
+ ],
+ "dd_frontier": [
+  {
+   "mult_of_current": 0.5,
+   "grm_equiv": 0.75,
+   "median_ann_pct": 16.5487,
+   "p_dd_gt10": 0.0,
+   "p_dd_gt15": 0.0,
+   "p_dd_gt20": 0.0,
+   "p_dd_gt30": 0.0,
+   "median_dd": -2.5869,
+   "p5_dd": -4.4047
+  },
+  {
+   "mult_of_current": 0.75,
+   "grm_equiv": 1.125,
+   "median_ann_pct": 24.823,
+   "p_dd_gt10": 0.0013,
+   "p_dd_gt15": 0.0,
+   "p_dd_gt20": 0.0,
+   "p_dd_gt30": 0.0,
+   "median_dd": -3.8804,
+   "p5_dd": -6.6071
+  },
+  {
+   "mult_of_current": 1.0,
+   "grm_equiv": 1.5,
+   "median_ann_pct": 33.0973,
+   "p_dd_gt10": 0.024,
+   "p_dd_gt15": 0.0007,
+   "p_dd_gt20": 0.0,
+   "p_dd_gt30": 0.0,
+   "median_dd": -5.1739,
+   "p5_dd": -8.8094
+  },
+  {
+   "mult_of_current": 1.25,
+   "grm_equiv": 1.875,
+   "median_ann_pct": 41.3716,
+   "p_dd_gt10": 0.111,
+   "p_dd_gt15": 0.0063,
+   "p_dd_gt20": 0.0,
+   "p_dd_gt30": 0.0,
+   "median_dd": -6.4673,
+   "p5_dd": -11.0118
+  },
+  {
+   "mult_of_current": 1.5,
+   "grm_equiv": 2.25,
+   "median_ann_pct": 49.646,
+   "p_dd_gt10": 0.2707,
+   "p_dd_gt15": 0.024,
+   "p_dd_gt20": 0.0013,
+   "p_dd_gt30": 0.0,
+   "median_dd": -7.7608,
+   "p5_dd": -13.2142
+  },
+  {
+   "mult_of_current": 2.0,
+   "grm_equiv": 3.0,
+   "median_ann_pct": 66.1946,
+   "p_dd_gt10": 0.5253,
+   "p_dd_gt15": 0.1517,
+   "p_dd_gt20": 0.024,
+   "p_dd_gt30": 0.0007,
+   "median_dd": -10.3477,
+   "p5_dd": -17.6189
+  },
+  {
+   "mult_of_current": 2.5,
+   "grm_equiv": 3.75,
+   "median_ann_pct": 82.7433,
+   "p_dd_gt10": 0.702,
+   "p_dd_gt15": 0.343,
+   "p_dd_gt20": 0.111,
+   "p_dd_gt30": 0.0063,
+   "median_dd": -12.9347,
+   "p5_dd": -22.0236
+  },
+  {
+   "mult_of_current": 3.0,
+   "grm_equiv": 4.5,
+   "median_ann_pct": 99.2919,
+   "p_dd_gt10": 0.8423,
+   "p_dd_gt15": 0.5253,
+   "p_dd_gt20": 0.2707,
+   "p_dd_gt30": 0.024,
+   "median_dd": -15.5216,
+   "p5_dd": -26.4283
+  }
+ ],
+ "dd_frontier_overlayA": [
+  {
+   "mult": 1.0,
+   "median_ann_pct": 33.4037,
+   "p_dd_gt10": 0.071,
+   "p_dd_gt15": 0.005,
+   "p_dd_gt20": 0.0003
+  },
+  {
+   "mult": 1.5,
+   "median_ann_pct": 50.1055,
+   "p_dd_gt10": 0.3663,
+   "p_dd_gt15": 0.071,
+   "p_dd_gt20": 0.011
+  },
+  {
+   "mult": 2.0,
+   "median_ann_pct": 66.8073,
+   "p_dd_gt10": 0.642,
+   "p_dd_gt15": 0.2513,
+   "p_dd_gt20": 0.071
+  }
+ ],
+ "dd_state": {
+  "dd < 2%": {
+   "days": 3398,
+   "fwd_mean": 0.2681724131842263,
+   "fwd_vol": 0.10590481162780607
+  },
+  "2-5%": {
+   "days": 625,
+   "fwd_mean": 0.29260253747200027,
+   "fwd_vol": 0.11167715786153126
+  },
+  "5-10%": {
+   "days": 279,
+   "fwd_mean": 0.25383215885304683,
+   "fwd_vol": 0.10022406482755973
+  },
+  "> 10%": {
+   "days": 8,
+   "fwd_mean": 0.4125516400000002,
+   "fwd_vol": 0.0999810643374417
+  }
+ },
+ "corr_by_regime": {
+  "dial<50": {
+   "avg": 0.03771484929234686,
+   "n_gt_03": 0,
+   "matrix": {
+    "Oversold Low Volume": {
+     "Oversold Low Volume": 1.0,
+     "Overbot Vol Spike": -0.023,
+     "Weak Close Decent Sznls": 0.012,
+     "SPY QQQ MonFri Reversion": 0.023,
+     "52wh Breakout": 0.054,
+     "Indices Oversold Bounce": 0.028,
+     "LT Trend ST OS": 0.096,
+     "3x ETF Overbot Fade": -0.01
+    },
+    "Overbot Vol Spike": {
+     "Oversold Low Volume": -0.023,
+     "Overbot Vol Spike": 1.0,
+     "Weak Close Decent Sznls": 0.001,
+     "SPY QQQ MonFri Reversion": -0.04,
+     "52wh Breakout": -0.054,
+     "Indices Oversold Bounce": 0.018,
+     "LT Trend ST OS": -0.0,
+     "3x ETF Overbot Fade": 0.104
+    },
+    "Weak Close Decent Sznls": {
+     "Oversold Low Volume": 0.012,
+     "Overbot Vol Spike": 0.001,
+     "Weak Close Decent Sznls": 1.0,
+     "SPY QQQ MonFri Reversion": 0.068,
+     "52wh Breakout": 0.09,
+     "Indices Oversold Bounce": 0.138,
+     "LT Trend ST OS": 0.027,
+     "3x ETF Overbot Fade": -0.013
+    },
+    "SPY QQQ MonFri Reversion": {
+     "Oversold Low Volume": 0.023,
+     "Overbot Vol Spike": -0.04,
+     "Weak Close Decent Sznls": 0.068,
+     "SPY QQQ MonFri Reversion": 1.0,
+     "52wh Breakout": 0.079,
+     "Indices Oversold Bounce": 0.147,
+     "LT Trend ST OS": 0.104,
+     "3x ETF Overbot Fade": -0.018
+    },
+    "52wh Breakout": {
+     "Oversold Low Volume": 0.054,
+     "Overbot Vol Spike": -0.054,
+     "Weak Close Decent Sznls": 0.09,
+     "SPY QQQ MonFri Reversion": 0.079,
+     "52wh Breakout": 1.0,
+     "Indices Oversold Bounce": 0.07,
+     "LT Trend ST OS": 0.029,
+     "3x ETF Overbot Fade": -0.019
+    },
+    "Indices Oversold Bounce": {
+     "Oversold Low Volume": 0.028,
+     "Overbot Vol Spike": 0.018,
+     "Weak Close Decent Sznls": 0.138,
+     "SPY QQQ MonFri Reversion": 0.147,
+     "52wh Breakout": 0.07,
+     "Indices Oversold Bounce": 1.0,
+     "LT Trend ST OS": 0.161,
+     "3x ETF Overbot Fade": -0.007
+    },
+    "LT Trend ST OS": {
+     "Oversold Low Volume": 0.096,
+     "Overbot Vol Spike": -0.0,
+     "Weak Close Decent Sznls": 0.027,
+     "SPY QQQ MonFri Reversion": 0.104,
+     "52wh Breakout": 0.029,
+     "Indices Oversold Bounce": 0.161,
+     "LT Trend ST OS": 1.0,
+     "3x ETF Overbot Fade": -0.01
+    },
+    "3x ETF Overbot Fade": {
+     "Oversold Low Volume": -0.01,
+     "Overbot Vol Spike": 0.104,
+     "Weak Close Decent Sznls": -0.013,
+     "SPY QQQ MonFri Reversion": -0.018,
+     "52wh Breakout": -0.019,
+     "Indices Oversold Bounce": -0.007,
+     "LT Trend ST OS": -0.01,
+     "3x ETF Overbot Fade": 1.0
+    }
+   }
+  },
+  "dial>=65": {
+   "avg": 0.06237961742869163,
+   "n_gt_03": 0,
+   "matrix": {
+    "Oversold Low Volume": {
+     "Oversold Low Volume": 1.0,
+     "Overbot Vol Spike": -0.005,
+     "Weak Close Decent Sznls": 0.17,
+     "SPY QQQ MonFri Reversion": 0.216,
+     "52wh Breakout": 0.265,
+     "Indices Oversold Bounce": 0.204,
+     "LT Trend ST OS": 0.099,
+     "3x ETF Overbot Fade": NaN
+    },
+    "Overbot Vol Spike": {
+     "Oversold Low Volume": -0.005,
+     "Overbot Vol Spike": 1.0,
+     "Weak Close Decent Sznls": 0.0,
+     "SPY QQQ MonFri Reversion": -0.0,
+     "52wh Breakout": 0.063,
+     "Indices Oversold Bounce": -0.006,
+     "LT Trend ST OS": -0.014,
+     "3x ETF Overbot Fade": NaN
+    },
+    "Weak Close Decent Sznls": {
+     "Oversold Low Volume": 0.17,
+     "Overbot Vol Spike": 0.0,
+     "Weak Close Decent Sznls": 1.0,
+     "SPY QQQ MonFri Reversion": 0.005,
+     "52wh Breakout": 0.111,
+     "Indices Oversold Bounce": 0.018,
+     "LT Trend ST OS": 0.009,
+     "3x ETF Overbot Fade": NaN
+    },
+    "SPY QQQ MonFri Reversion": {
+     "Oversold Low Volume": 0.216,
+     "Overbot Vol Spike": -0.0,
+     "Weak Close Decent Sznls": 0.005,
+     "SPY QQQ MonFri Reversion": 1.0,
+     "52wh Breakout": 0.133,
+     "Indices Oversold Bounce": -0.007,
+     "LT Trend ST OS": -0.001,
+     "3x ETF Overbot Fade": NaN
+    },
+    "52wh Breakout": {
+     "Oversold Low Volume": 0.265,
+     "Overbot Vol Spike": 0.063,
+     "Weak Close Decent Sznls": 0.111,
+     "SPY QQQ MonFri Reversion": 0.133,
+     "52wh Breakout": 1.0,
+     "Indices Oversold Bounce": 0.0,
+     "LT Trend ST OS": 0.044,
+     "3x ETF Overbot Fade": NaN
+    },
+    "Indices Oversold Bounce": {
+     "Oversold Low Volume": 0.204,
+     "Overbot Vol Spike": -0.006,
+     "Weak Close Decent Sznls": 0.018,
+     "SPY QQQ MonFri Reversion": -0.007,
+     "52wh Breakout": 0.0,
+     "Indices Oversold Bounce": 1.0,
+     "LT Trend ST OS": 0.005,
+     "3x ETF Overbot Fade": NaN
+    },
+    "LT Trend ST OS": {
+     "Oversold Low Volume": 0.099,
+     "Overbot Vol Spike": -0.014,
+     "Weak Close Decent Sznls": 0.009,
+     "SPY QQQ MonFri Reversion": -0.001,
+     "52wh Breakout": 0.044,
+     "Indices Oversold Bounce": 0.005,
+     "LT Trend ST OS": 1.0,
+     "3x ETF Overbot Fade": NaN
+    },
+    "3x ETF Overbot Fade": {
+     "Oversold Low Volume": NaN,
+     "Overbot Vol Spike": NaN,
+     "Weak Close Decent Sznls": NaN,
+     "SPY QQQ MonFri Reversion": NaN,
+     "52wh Breakout": NaN,
+     "Indices Oversold Bounce": NaN,
+     "LT Trend ST OS": NaN,
+     "3x ETF Overbot Fade": NaN
+    }
+   }
+  }
+ }
+}

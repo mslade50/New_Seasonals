@@ -1,0 +1,531 @@
+<title>Sizing Hierarchy Plan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --ground:#F6F7F5; --panel:#FFFFFF; --ink:#17202A; --ink2:#55626D; --ink3:#8A959D; --rule:#D8DEDC;
+  --accent:#0F6E73; --accent-soft:#E3F0F0; --study:#8F6400; --study-soft:#F6EBD0; --reject:#9E3B2F; --reject-soft:#F5E1DC;
+  --series:#2a78d6; --series2:#eb6834; --series3:#1baf7a; --grid:#E6EAE8;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --ground:#141A1F; --panel:#1B232A; --ink:#E8ECEA; --ink2:#A9B3B8; --ink3:#78848B; --rule:#2E3940;
+    --accent:#5CBDC1; --accent-soft:#1B3436; --study:#DDAA45; --study-soft:#3A2F14; --reject:#E3806F; --reject-soft:#3E211C;
+    --series:#3987e5; --series2:#d95926; --series3:#199e70; --grid:#28323A;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ground:#141A1F; --panel:#1B232A; --ink:#E8ECEA; --ink2:#A9B3B8; --ink3:#78848B; --rule:#2E3940;
+  --accent:#5CBDC1; --accent-soft:#1B3436; --study:#DDAA45; --study-soft:#3A2F14; --reject:#E3806F; --reject-soft:#3E211C;
+  --series:#3987e5; --series2:#d95926; --series3:#199e70; --grid:#28323A;
+}
+body{background:var(--ground);color:var(--ink);font-family:var(--serif);font-size:17px;line-height:1.55;margin:0}
+main{max-width:70ch;margin:0 auto;padding:48px 24px 96px}
+h1,h2,h3{font-family:var(--serif);font-weight:600;line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:2.35rem;letter-spacing:-.01em}
+h2{font-size:1.5rem;margin-top:3rem;padding-top:1.25rem;border-top:1px solid var(--rule)}
+h3{font-size:1.15rem;margin-top:1.75rem}
+p{margin:.85rem 0}
+.eyebrow{font-family:var(--sans);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:.6rem}
+.meta{font-family:var(--sans);font-size:.85rem;color:var(--ink2);margin-top:1rem;display:flex;flex-wrap:wrap;gap:.35rem 1.5rem}
+.meta b{color:var(--ink);font-weight:500}
+.lede{font-size:1.15rem;color:var(--ink);margin-top:1.4rem}
+.toc{font-family:var(--sans);font-size:.9rem;background:var(--panel);border:1px solid var(--rule);padding:1rem 1.25rem;margin:2rem 0;border-radius:4px}
+.toc ol{margin:.4rem 0 0;padding-left:1.3rem}
+.toc li{margin:.2rem 0}
+a{color:var(--accent)}
+.level{display:grid;grid-template-columns:3.2rem 1fr;gap:1rem;align-items:start;margin-top:2.5rem}
+.level .tag{font-family:var(--mono);font-size:.8rem;color:var(--ink3);padding-top:.35rem;border-top:2px solid var(--accent)}
+.level h2{margin-top:0;border-top:0;padding-top:0}
+.q{font-family:var(--sans);font-size:.92rem;color:var(--ink2);margin:.3rem 0 0}
+.q b{color:var(--ink);font-weight:600}
+.verdict{display:inline-block;font-family:var(--sans);font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.2rem .55rem;border-radius:3px;vertical-align:middle;margin-left:.4rem}
+.ship{background:var(--accent-soft);color:var(--accent)}
+.study{background:var(--study-soft);color:var(--study)}
+.reject{background:var(--reject-soft);color:var(--reject)}
+.keep{background:var(--panel);color:var(--ink2);border:1px solid var(--rule)}
+.decision{background:var(--panel);border:1px solid var(--rule);border-left:3px solid var(--accent);padding:.9rem 1.1rem;margin:1.2rem 0;border-radius:0 4px 4px 0}
+.decision.study{border-left-color:var(--study)}
+.decision.reject{border-left-color:var(--reject)}
+.decision .dh{font-family:var(--sans);font-weight:600;font-size:.95rem;margin:0 0 .35rem}
+.decision p{margin:.4rem 0;font-size:.98rem}
+.math{font-family:var(--mono);font-size:.9rem;background:var(--panel);border:1px solid var(--rule);padding:.7rem 1rem;margin:.9rem 0;border-radius:4px;overflow-x:auto;white-space:pre;line-height:1.5}
+.tbl{overflow-x:auto;margin:1rem 0;border:1px solid var(--rule);border-radius:4px;background:var(--panel)}
+table{border-collapse:collapse;font-family:var(--sans);font-size:.86rem;width:100%;min-width:520px}
+th,td{padding:.45rem .7rem;border-bottom:1px solid var(--rule);text-align:right;vertical-align:top}
+th{font-weight:600;color:var(--ink2);font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;background:var(--ground)}
+th:first-child,td:first-child{text-align:left}
+td{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.84rem}
+td:first-child{font-family:var(--sans);font-size:.86rem}
+tr:last-child td{border-bottom:0}
+.cap{font-family:var(--sans);font-size:.8rem;color:var(--ink2);margin:.3rem 0 0;line-height:1.45}
+figure{margin:1.5rem 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-family:var(--sans);font-size:.82rem;color:var(--ink2);margin-top:.4rem}
+.chart-text{font-family:var(--sans);fill:var(--ink2);font-size:11px}
+.chart-val{font-family:var(--mono);fill:var(--ink);font-size:11px}
+.chart-title{font-family:var(--sans);fill:var(--ink);font-size:12px;font-weight:600}
+.legend{display:flex;gap:1.2rem;font-family:var(--sans);font-size:.8rem;color:var(--ink2);margin-top:.4rem}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:.35rem;vertical-align:-1px}
+ul,ol{padding-left:1.4rem}
+li{margin:.35rem 0}
+.note{font-family:var(--sans);font-size:.9rem;color:var(--ink2);border-top:1px dashed var(--rule);padding-top:.6rem;margin-top:1.2rem}
+code{font-family:var(--mono);font-size:.86em;background:var(--panel);border:1px solid var(--rule);padding:.05em .3em;border-radius:3px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media (max-width:640px){.grid2{grid-template-columns:1fr}.level{grid-template-columns:1fr}.level .tag{border-top:0;border-left:2px solid var(--accent);padding:.1rem 0 .1rem .5rem}}
+@media (prefers-reduced-motion:no-preference){a{transition:color .15s}}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<main>
+<div class="eyebrow">New_Seasonals · sizing research · 2026-09-02</div>
+<h1>Sizing Hierarchy Plan</h1>
+<p class="lede">A decision framework for making the book's sizing dynamic in the three places the evidence says dynamics live: adds inside a strategy, correlation between strategies, and the market factor the risk dial detects. It is built on growth-optimal sizing where that applies, and steps outside it where it does not.</p>
+<div class="meta"><span>Basis <b>flat $750k, ledger vintage gha:33608560596</b></span><span>Dial window <b>2016-07-20 to 2026-08-07</b></span><span>Trades <b>4,696</b></span><span>Evidence <b>scratch/dynamic_sizing_study*_2026-09-02.py</b></span></div>
+
+<div class="toc"><b>Contents</b><ol>
+<li><a href="#s1">What the book is, in growth terms</a></li>
+<li><a href="#s2">The framework: one statistic per level</a></li>
+<li><a href="#L0">L0 Leg · L1 Strategy · L2 Adds · L3 Cross-strategy and the dial · L4 Book · L5 Measurement</a></li>
+<li><a href="#s4">The negative results, and why they are load-bearing</a></li>
+<li><a href="#s5">Decision register</a></li>
+<li><a href="#s6">Pre-registration protocols</a></li>
+<li><a href="#s7">Caveats that bind every number here</a></li>
+</ol></div>
+
+<h2 id="s1">1. What the book is, in growth terms</h2>
+<p>Every sizing argument starts from the growth-rate identity. For a fraction <i>f</i> of capital in a bet with excess mean μ and variance σ², compound growth is approximately</p>
+<div class="math">g(f) ≈ f·μ − ½·f²·σ²          f* = μ/σ²          g(f*) = μ²/(2σ²) = S²/2</div>
+<p>where S is the Sharpe ratio. The book's daily mark-to-market series gives μ and σ directly, so the first question is where current sizing sits on that curve.</p>
+<div class="tbl"><table>
+<tr><th>Window</th><th>Ann. return</th><th>Ann. vol</th><th>Sharpe</th><th>f* as multiple of current</th><th>Half-Kelly multiple</th><th>Share of max growth captured now</th></tr>
+<tr><td>2003 to 2026</td><td>22.5%</td><td>11.4%</td><td>1.97</td><td>17.2x</td><td>8.6x</td><td>11%</td></tr>
+<tr><td>2016 to 2026</td><td>33.4%</td><td>12.5%</td><td>2.67</td><td>21.3x</td><td>10.7x</td><td>9%</td></tr>
+</table></div>
+<p>Two consequences shape everything below.</p>
+<ul>
+<li><b>The book runs at about 6% of full Kelly.</b> That far down the curve, growth is linear in <i>f</i> and the compounding tax is negligible. The Kelly argument therefore has nothing to say about the global multiplier; the global multiplier is a drawdown-appetite choice, which is what the 2026-07-16 GRM replay found empirically (Sharpe 1.89 to 1.83 across GRM 1.0 to 1.75). Section L4 replaces "appetite" with a stated probability rule.</li>
+<li><b>Where Kelly does bite is relative allocation.</b> Inside a fixed total, the growth-optimal split across bets is proportional to each bet's μ/σ² after accounting for correlation. That is the lever this plan works, at four levels of aggregation.</li>
+</ul>
+<p>The 2016+ Sharpe of 2.67 is not a number to size to. It carries survivorship in the overflow tier, in-sample rule selection, and a flat-dollar basis. Section L5 turns that discount into a measured quantity; until measured, the plan uses a 50% haircut on μ wherever a number is sized to.</p>
+
+<h2 id="s2">2. The framework: one statistic per level</h2>
+<p>The article's closing line, "size themes, not tickers; give each idea capital only for what it adds beyond the book", is a hierarchy. The version of it that survives contact with this book has six levels. Each level owns exactly one question and one statistic, and a control belongs at the lowest level where its statistic moves. That rule is what stopped this study from proposing a book-level throttle: the thing that changes with the dial is not book variance, it is book <i>composition</i>, so the control belongs at L3, not L4.</p>
+<div class="tbl"><table>
+<tr><th>Level</th><th>Question</th><th>Statistic</th><th>Framework</th><th>Verdict</th></tr>
+<tr><td>L0 Leg</td><td>Is a unit of risk the same across names?</td><td>avgR by ATR% tercile</td><td>Rung 1: shares ∝ μ/σ² ⇔ ATR sizing iff avgR ⟂ vol</td><td>Keep</td></tr>
+<tr><td>L1 Strategy</td><td>Does each strategy get risk in proportion to its growth efficiency?</td><td>bootstrap E[log(1+fR)], concurrency factor, shrunk Σ⁻¹μ on the daily series</td><td>Exact Kelly in R units + walk-forward validation</td><td>Ship, capped half-tilt</td></tr>
+<tr><td>L2 Adds</td><td>Is the n-th leg of a stack a new bet or the same bet?</td><td>sd(sleeve PnL)/(sd₁·√n), per-leg mean vs n</td><td>Rung 4/5 sleeve ceiling; Euler marginal risk</td><td>Mixed</td></tr>
+<tr><td>L3 Cross</td><td>How much of the book is one factor, and when?</td><td>R²_SPY by dial bucket; effective N</td><td>Σ⁻¹μ with a one-factor covariance; hedge, do not cut</td><td>Prereg</td></tr>
+<tr><td>L4 Book</td><td>What total is survivable?</td><td>P(1y maxDD &gt; x) under a μ haircut</td><td>Drawdown-probability frontier (block bootstrap)</td><td>Rule</td></tr>
+<tr><td>L5 Measure</td><td>How much of the backtest is real?</td><td>live R / ledger R on matched fills</td><td>The μ haircut, measured</td><td>Build</td></tr>
+</table></div>
+
+<div class="level" id="L0"><div class="tag">L0</div><div>
+<h2>Leg: the unit of risk <span class="verdict keep">keep</span></h2>
+<p class="q"><b>Question.</b> Does one ATR of risk buy the same expected R in a quiet name as in a wild one?</p>
+<p>The book sizes shares as risk_bps × NAV / (stop_atr × ATR). That is inverse-volatility sizing, one power of σ, while Kelly wants μ/σ², two powers. They coincide only if dollar edge itself scales with ATR, which it does when targets and stops are in ATR units <i>and</i> the R distribution does not depend on the vol level. That second condition is testable and it holds:</p>
+<div class="tbl"><table>
+<tr><th>Within-strategy vol tercile (2010+)</th><th>avgR</th><th>sdR</th><th>N</th></tr>
+<tr><td>low</td><td>0.455</td><td>1.35</td><td>1,266</td></tr>
+<tr><td>mid</td><td>0.433</td><td>1.30</td><td>1,263</td></tr>
+<tr><td>high</td><td>0.519</td><td>1.29</td><td>1,271</td></tr>
+</table></div>
+<p>No strategy shows a monotone vol dependence worth acting on (OLV 0.79/0.58/0.96, 52wh 0.65/0.62/0.68, OVS 0.36/0.33/0.41). The leg-level unit is correct as built. Nothing in this plan touches it.</p>
+</div></div>
+
+<div class="level" id="L1"><div class="tag">L1</div><div>
+<h2>Strategy: base bps as growth efficiency <span class="verdict ship">ship, capped</span></h2>
+<p class="q"><b>Question.</b> Holding the book's total risk fixed, is risk distributed across strategies in proportion to what each one earns per unit of growth-relevant risk, once tails, concurrency and estimation error are counted?</p>
+<p>This is the level where the article's Rung 1 and Rung 6 both bind, and where a one-table answer is wrong in three separate ways: the quadratic Kelly form misprices skew, the per-trade view ignores that a strategy's legs overlap, and any point estimate from 24 to 2,000 trades is mostly noise. Each is handled in turn, then the two independent routes to an allocation are compared, and the allocation is tested out of sample before anything is recommended.</p>
+
+<h3>1a. The per-trade growth optimum, exact form</h3>
+<p>The quantity a strategy's size should be proportional to is the fraction of equity per unit of R that maximises expected log growth, not the quadratic approximation:</p>
+<div class="math">f*ₛ = argmax_f  E[ log(1 + f·R) ]     estimated by bootstrap over the strategy's trades (600 resamples, 2010+)
+quadratic shortcut:  f_q = E[R] / E[R²]     (exact only when R is small and symmetric)</div>
+<div class="tbl"><table>
+<tr><th>Strategy (2010+)</th><th>N</th><th>avgR</th><th>win</th><th>skew</th><th>worst R</th><th>f_q (quadratic)</th><th>f* (exact, median)</th><th>f* 10th to 90th pct</th></tr>
+<tr><td>St OS Sznl</td><td>37</td><td>0.32</td><td>73%</td><td>−2.4</td><td>−6.8</td><td>0.08</td><td>0.06</td><td>0.00 to 0.23</td></tr>
+<tr><td>Indices Oversold Bounce</td><td>183</td><td>0.44</td><td>69%</td><td>−1.6</td><td>−7.2</td><td>0.23</td><td>0.12</td><td>0.10 to 0.30</td></tr>
+<tr><td>Sector BO</td><td>58</td><td>0.94</td><td>28%</td><td>+1.3</td><td>−1.4</td><td>0.08</td><td>0.14</td><td>0.06 to 0.23</td></tr>
+<tr><td>OVS path 1</td><td>2,076</td><td>0.37</td><td>67%</td><td>−1.0</td><td>−5.9</td><td>0.28</td><td>0.16</td><td>0.15 to 0.17</td></tr>
+<tr><td>SPY QQQ MonFri Reversion</td><td>239</td><td>0.53</td><td>69%</td><td>−0.7</td><td>−4.8</td><td>0.31</td><td>0.19</td><td>0.17 to 0.37</td></tr>
+<tr><td>ATR Extended Gap Up</td><td>55</td><td>0.84</td><td>67%</td><td>0.0</td><td>−3.9</td><td>0.20</td><td>0.21</td><td>0.14 to 0.33</td></tr>
+<tr><td>3x Bear ETF Overbot Fade</td><td>55</td><td>0.66</td><td>67%</td><td>−0.5</td><td>−3.5</td><td>0.22</td><td>0.21</td><td>0.14 to 0.30</td></tr>
+<tr><td>52wh Breakout</td><td>190</td><td>0.65</td><td>46%</td><td>+0.7</td><td>−1.9</td><td>0.14</td><td>0.22</td><td>0.16 to 0.28</td></tr>
+<tr><td>Weak Close Decent Sznls</td><td>213</td><td>0.42</td><td>68%</td><td>−0.5</td><td>−3.5</td><td>0.28</td><td>0.24</td><td>0.19 to 0.31</td></tr>
+<tr><td>LT Trend ST OS</td><td>198</td><td>0.35</td><td>69%</td><td>−0.8</td><td>−3.4</td><td>0.41</td><td>0.27</td><td>0.22 to 0.38</td></tr>
+<tr><td>Oversold Low Volume</td><td>299</td><td>0.78</td><td>73%</td><td>−0.8</td><td>−2.9</td><td>0.30</td><td>0.28</td><td>0.25 to 0.31</td></tr>
+<tr><td>3x Leader Gap Fade</td><td>24</td><td>1.15</td><td>58%</td><td>+1.4</td><td>−1.8</td><td>0.16</td><td>0.36</td><td>0.19 to 0.52</td></tr>
+<tr><td>3x ETF Overbot Fade</td><td>87</td><td>0.86</td><td>74%</td><td>+1.0</td><td>−2.3</td><td>0.32</td><td>0.40</td><td>0.35 to 0.70</td></tr>
+<tr><td>Monday Dip</td><td>77</td><td>0.43</td><td>64%</td><td>−0.1</td><td>−1.0</td><td>0.35</td><td>0.43</td><td>0.30 to 0.58</td></tr>
+</table><p class="cap">OVS path 1 = rows staged at the 60-bps effective P1 size; rows are scale-out tranches, so N is roughly 2x trades. OVS is bounded by its per-strategy daily cap and P2 aggregate cap, not by base bps, and is held at 1.0x throughout this level.</p></div>
+<p>The exact form reverses the quadratic ranking in both directions, and the reason is the tails rather than the win rate. Indices Oversold Bounce (quadratic 0.23, exact 0.12) carries a −7.2R gap-through; OVS path 1 a −5.9R; MonFri a −4.8R; St OS Sznl, which holds five days with no stop, a −6.8R. One such trade in a 24-to-240-trade history dominates E[log] because log(1 − 7f) goes to minus infinity fast. In the other direction Sector BO (0.08 to 0.14) and 52wh (0.14 to 0.22) are paid for their right skew, which the quadratic form penalises as if it were downside. The article's "distrust your μ" is right, but the thing to distrust most in this book is the left tail of a small sample, and it cuts the index dip-buys, not the breakouts.</p>
+
+<h3>1b. The concurrency term</h3>
+<p>A per-trade optimum assumes the trades happen one at a time. They do not: a strategy's legs overlap, and when they overlap with correlation ρ the growth-optimal size per leg falls by the Rung 5 factor. Using the mean number of simultaneous legs on active days and the implied ρ from L2's sleeve-variance test:</p>
+<div class="math">f_adj,s = f*ₛ / (1 + (n̄ₛ − 1)·ρₛ)          n̄ = mean concurrent legs on active days, ρ clipped to [0, 1]</div>
+<div class="tbl"><table>
+<tr><th>Strategy</th><th>n̄</th><th>ρ</th><th>Concurrency factor</th><th>f_adj</th></tr>
+<tr><td>Oversold Low Volume</td><td>2.65</td><td>1.00</td><td>0.38</td><td>0.11</td></tr>
+<tr><td>Indices Oversold Bounce</td><td>1.47</td><td>1.00</td><td>0.68</td><td>0.08</td></tr>
+<tr><td>Sector BO</td><td>1.57</td><td>0.73</td><td>0.71</td><td>0.10</td></tr>
+<tr><td>3x Bear ETF Overbot Fade</td><td>1.65</td><td>0.52</td><td>0.75</td><td>0.16</td></tr>
+<tr><td>SPY QQQ MonFri Reversion</td><td>1.52</td><td>0.60</td><td>0.76</td><td>0.15</td></tr>
+<tr><td>3x ETF Overbot Fade</td><td>2.19</td><td>0.22</td><td>0.79</td><td>0.32</td></tr>
+<tr><td>Monday Dip</td><td>1.40</td><td>0.57</td><td>0.82</td><td>0.35</td></tr>
+<tr><td>Weak Close Decent Sznls</td><td>1.65</td><td>0.26</td><td>0.86</td><td>0.20</td></tr>
+<tr><td>52wh Breakout</td><td>2.88</td><td>0.08</td><td>0.87</td><td>0.19</td></tr>
+<tr><td>LT Trend ST OS</td><td>1.66</td><td>0.13</td><td>0.92</td><td>0.25</td></tr>
+<tr><td>ATR Extended Gap Up, 3x Leader Gap Fade, St OS Sznl</td><td>1.1 to 1.6</td><td>0.00</td><td>1.00</td><td>unchanged</td></tr>
+</table></div>
+<p>OLV's stacks cost it 62% of its per-leg optimum, which is the quantitative form of L2's "one bet" finding and is already partly expressed by its recency ladder. 52wh, whose legs are genuinely independent (ρ 0.08 across 2.9 simultaneous breakouts), keeps almost all of its per-leg optimum despite being the most stacked strategy in the book after OVS.</p>
+
+<h3>1c. An independent route: the daily series</h3>
+<p>Everything above is built from trades. A second estimate that shares none of the same arithmetic comes from the per-strategy daily mark-to-market series, which already contains concurrency, hold length and cross-strategy correlation. With Σ̃ the Ledoit-Wolf-shrunk covariance of the 13 active strategies (shrinkage δ = 0.28 toward the diagonal) and μ̃ the mean vector shrunk halfway to an equal-Sharpe prior (every strategy earns the average Sharpe on its own vol):</p>
+<div class="math">w = Σ̃⁻¹ μ̃,   normalised to mean |w| = 1 so that w = 1 everywhere reproduces today's allocation</div>
+<div class="tbl"><table>
+<tr><th>Strategy</th><th>Daily Sharpe 2010+</th><th>w, expanding window through 2025</th><th>w, 5-year half-life</th><th>Per-trade route ratio (1a+1b, shrunk, OVS excluded)</th></tr>
+<tr><td>52wh Breakout</td><td>0.82</td><td>0.46</td><td>0.57</td><td>0.56</td></tr>
+<tr><td>Indices Oversold Bounce</td><td>0.73</td><td>0.66</td><td>0.93</td><td>0.36</td></tr>
+<tr><td>Sector BO</td><td>0.44</td><td>0.67</td><td>0.88</td><td>0.55</td></tr>
+<tr><td>Weak Close Decent Sznls</td><td>0.77</td><td>0.68</td><td>0.87</td><td>0.51</td></tr>
+<tr><td>St OS Sznl</td><td>0.44</td><td>0.83</td><td>0.75</td><td>0.54</td></tr>
+<tr><td>Overbot Vol Spike</td><td>0.82</td><td>1.02</td><td>0.85</td><td>held 1.0</td></tr>
+<tr><td>Monday Dip</td><td>0.58</td><td>1.04</td><td>1.28</td><td>1.05</td></tr>
+<tr><td>ATR Extended Gap Up</td><td>0.58</td><td>1.08</td><td>0.97</td><td>0.55</td></tr>
+<tr><td>3x ETF Overbot Fade</td><td>0.67</td><td>1.30</td><td>1.07</td><td>0.80</td></tr>
+<tr><td>SPY QQQ MonFri Reversion</td><td>1.32</td><td>1.31</td><td>1.38</td><td>0.58</td></tr>
+<tr><td>LT Trend ST OS</td><td>0.86</td><td>1.37</td><td>1.22</td><td>0.87</td></tr>
+<tr><td>Oversold Low Volume</td><td>1.04</td><td>1.57</td><td>1.22</td><td>0.69</td></tr>
+</table><p class="cap">Daily Sharpe includes flat days, so it measures contribution to the book rather than per-trade quality. 3x Bear Fade, 3x Leader Gap Fade and Monthly Weak Close have too few active days to enter the covariance and stay at 1.0. The per-trade column is normalised over the non-OVS book so its mean is comparable.</p></div>
+<p>The two routes agree where it matters: rank correlation 0.41 overall, and unanimous on the four to cut (52wh, Indices Oversold Bounce, Sector BO, Weak Close) and the three to raise (LT Trend, the 3x fades, OLV). They disagree on MonFri, which the per-trade route marks down for one −4.8R trade and the daily route marks up for the highest daily Sharpe in the book. When two estimators built from different data disagree on one name because of one trade, the blend is the answer, not either estimate.</p>
+
+<h3>1d. Out of sample: does adopting the weights actually help?</h3>
+<p>A walk-forward re-fits the daily-route weights each January on all data through the prior December and applies them to the following year, 2014 to 2026, with every weight set scaled so that its in-sample book volatility equals the equal-weight book's. Four variants are tested: a half-blend toward the expanding-window weights (w_used = 0.5·w + 0.5), the same with 5-year and 3-year half-lives on the moments, and a tail-aware allocation proportional to each strategy's PnL per unit of worst-day loss (1e below). The gate was written before the run: adopt only if PnL/maxDD improves by more than 10% out of sample and no held-out year loses more than 15% of the equal-weight PnL.</p>
+<div class="tbl"><table>
+<tr><th>Walk-forward 2014 to 2026</th><th>Ann. PnL (% NAV)</th><th>Ann. vol</th><th>Sharpe</th><th>maxDD</th><th>PnL/maxDD</th><th>Years better on PnL</th><th>Worst year vs equal</th><th>13-year PnL gain (% NAV)</th></tr>
+<tr><td>equal weights (current)</td><td>24.2</td><td>11.8</td><td>2.05</td><td>−12.1</td><td>1.99</td><td></td><td></td><td></td></tr>
+<tr><td>half-blend, expanding</td><td>28.2</td><td>13.1</td><td>2.15</td><td>−12.0</td><td>2.36</td><td>12 of 13</td><td>−13%</td><td>+53</td></tr>
+<tr><td>half-blend, 5y half-life</td><td>27.8</td><td>12.9</td><td>2.16</td><td>−12.6</td><td>2.21</td><td>11 of 13</td><td>−23%</td><td>+48</td></tr>
+<tr><td>half-blend, 3y half-life</td><td>27.6</td><td>12.8</td><td>2.16</td><td>−12.8</td><td>2.15</td><td>11 of 13</td><td>−27%</td><td>+45</td></tr>
+<tr><td>tail-aware (PnL per CVaR share)</td><td>27.3</td><td>12.9</td><td>2.11</td><td>−12.7</td><td>2.15</td><td>11 of 13</td><td>−12%</td><td>+41</td></tr>
+<tr><td>full Kelly weights, unblended</td><td>31.1</td><td>14.7</td><td>2.11</td><td>−13.9</td><td>2.24</td><td>4 of 13 on Sharpe</td><td></td><td></td></tr>
+<tr><td>equal risk contribution</td><td>18.3</td><td>13.3</td><td>1.38</td><td>−17.6</td><td>1.04</td><td>3 of 13</td><td></td><td></td></tr>
+</table><p class="cap">Vol-matched in sample; realised out-of-sample vol runs 1 to 3 points higher for the tilted books because the strategies they raise are the ones that grew. Equal risk contribution degenerates here because several strategy pairs are negatively correlated, which sends the solver to negative weights; it is reported for completeness and not considered further.</p></div>
+<p>The half-blend on the expanding window passes the gate: PnL/maxDD +18%, 12 of 13 years better, worst year −13%. It earns about 4 points of NAV a year more than the current allocation for 1.3 points more volatility and the same maximum drawdown. Unblended full Kelly weights add more PnL and more drawdown and beat the current allocation in only 4 of 13 years on Sharpe: the article's "bet half" is doing real work here. The recency-weighted variants are worse out of sample, which settles a prior that would otherwise argue for them (1e).</p>
+
+<h3>1e. Tail ownership and era stability</h3>
+<p>Two checks on whether the cuts land on the right strategies. First, who owns the tail: the share of book loss on the worst 5% of days attributable to each strategy (component CVaR), against its share of book PnL.</p>
+<div class="tbl"><table>
+<tr><th>Strategy (2010+)</th><th>Share of worst-5%-day losses</th><th>Share of book variance</th><th>Share of book PnL</th><th>PnL per unit of tail</th></tr>
+<tr><td>52wh Breakout</td><td>27.3%</td><td>20.6%</td><td>14.5%</td><td>0.53</td></tr>
+<tr><td>Sector BO</td><td>11.1%</td><td>7.8%</td><td>4.6%</td><td>0.41</td></tr>
+<tr><td>Weak Close Decent Sznls</td><td>12.5%</td><td>11.3%</td><td>9.7%</td><td>0.77</td></tr>
+<tr><td>Indices Oversold Bounce</td><td>9.7%</td><td>9.4%</td><td>7.5%</td><td>0.78</td></tr>
+<tr><td>Oversold Low Volume</td><td>8.1%</td><td>9.0%</td><td>12.5%</td><td>1.55</td></tr>
+<tr><td>Overbot Vol Spike</td><td>7.1%</td><td>10.9%</td><td>12.4%</td><td>1.75</td></tr>
+<tr><td>SPY QQQ MonFri Reversion</td><td>6.7%</td><td>7.7%</td><td>12.3%</td><td>1.83</td></tr>
+<tr><td>3x ETF Overbot Fade</td><td>2.9%</td><td>4.1%</td><td>6.2%</td><td>2.18</td></tr>
+<tr><td>LT Trend ST OS</td><td>2.6%</td><td>4.2%</td><td>5.9%</td><td>2.28</td></tr>
+</table><p class="cap">Worst 21-day book windows since 2010 and who drove them: Feb 2014 −9.3% (52wh 74%), Oct 2014 −8.2% (52wh 62%), Aug 2015 −8.1% (Indices Oversold Bounce 73%), Apr 2024 −6.8% (St OS Sznl 59%, 3x Bear Fade 39%), Jan 2015 −6.6% (Weak Close and IOB 37% each).</p></div>
+<p>The four strategies the allocation cuts own 61% of the book's worst-day losses for 36% of its PnL; the three it raises own 12% of the tail for 25% of the PnL. The tail-aware allocation built on exactly this ratio lands within a few points of the Kelly blend out of sample, which is the reassurance that the daily route's covariance is picking up the same thing as the CVaR decomposition rather than an artefact of squared returns.</p>
+<p>Second, era stability. The strategies being cut have their best readings in the most recent era: Weak Close avgR 0.04 / 0.09 / 0.35 / 0.96 across 2003-09 / 2010-16 / 2017-21 / 2022-26 (N=61 in the last), 52wh 0.17 / 0.62 / 0.49 / 1.32 (N=20), Sector BO 0.42 / 0.51 / 1.32 / 1.54 (N=7). An expanding window weights that history lightly and that is the prior behind the recency-weighted variants in 1d. Out of sample the recency variants are worse in every column, because chasing a strategy's last three years on 7 to 20 trades is the estimation error the article warns about in its purest form. The expanding window is the one that survives, and the half-blend and the cap below are what protect a strategy whose recent improvement is real: the largest cut any strategy can take in a year is 27%.</p>
+
+<div class="decision"><p class="dh">Decision: ship a capped half-tilt on base bps, re-estimated each January, with the engine replay as confirmation rather than exploration.</p>
+<p>Multiplier per strategy = clip(0.5·w + 0.5, 0.6, 1.4) with w the expanding-window shrunk Σ̃⁻¹μ̃ weight through the prior December; strategies without enough active days (3x Bear Fade, 3x Leader Gap Fade, Monthly Weak Close) and OVS stay at 1.0. From the fit through 2025: 52wh 0.73, Indices Oversold Bounce 0.83, Sector BO 0.84, Weak Close 0.84, St OS Sznl 0.92, Monday Dip 1.02, ATR Extended Gap Up 1.04, 3x ETF Overbot Fade 1.15, MonFri 1.16, LT Trend ST OS 1.19, OLV 1.29. The multiplier scales the strategy's base bps only and composes with every existing overlay (frag bands, recency ladder, earnings override, derates), which is what keeps OLV's 1.29 from re-opening the stack question: its ladder and ticker cap still apply on top. Confirmation gate before it goes live: the engine replay via <code>process_signals_fast(risk_multipliers=…)</code> must reproduce at least half of the walk-forward PnL gain with maxDD no worse by more than one point, because the daily-series overlay cannot see cap interactions (a raised strategy hits its 250 bps daily cap more often, a cut one less). The annual re-fit is mechanical and the numbers go in the commit message; the cap means no January can move a strategy more than 40% from base in either direction.</p></div>
+<p>What this does not do: it does not touch GRM (total in-sample vol is held), it does not size by dial (that is L3), and it does not rescue a strategy whose edge has gone. A strategy whose expanding-window weight falls below 0.6 for two consecutive years is a retirement question, not a sizing one.</p>
+</div></div>
+
+<div class="level" id="L2"><div class="tag">L2</div><div>
+<h2>Adds: the n-th leg of a stack <span class="verdict ship">ship</span><span class="verdict reject">reject</span></h2>
+<p class="q"><b>Question.</b> When a strategy adds its n-th concurrent leg, is that a new independent bet, a scaled-up version of the same bet, or a worse version of it?</p>
+<p>The article's Rung 4 says a sleeve of look-alikes at pairwise correlation ρ deserves at most μ/(σ²ρ) in total, however many names. The two ingredients are observable from the sleeve's own daily PnL: with n legs of equal size, sleeve variance is nσ²(1+(n−1)ρ), so the ratio of the sleeve's daily PnL sd to sd₁√n identifies ρ, and the per-leg mean identifies whether the marginal leg carries edge.</p>
+<div class="tbl"><table>
+<tr><th>Strategy · open legs (2010+)</th><th>Days</th><th>Mean legs</th><th>sd / (sd₁·√n)</th><th>Implied ρ</th><th>Mean $/leg/day</th><th>sd $/leg/day</th></tr>
+<tr><td>OLV · 1</td><td>410</td><td>1.0</td><td>1.00</td><td></td><td>67</td><td>951</td></tr>
+<tr><td>OLV · 2-3</td><td>313</td><td>2.3</td><td>1.49</td><td>0.91</td><td>125</td><td>926</td></tr>
+<tr><td>OLV · 4-6</td><td>96</td><td>4.8</td><td>1.78</td><td>0.57</td><td>182</td><td>774</td></tr>
+<tr><td>OLV · 7-12</td><td>48</td><td>8.5</td><td>2.89</td><td>0.99</td><td>320</td><td>945</td></tr>
+<tr><td>OVS · 2-3</td><td>604</td><td>2.1</td><td>0.72</td><td>−0.45</td><td>108</td><td>1,014</td></tr>
+<tr><td>OVS · 7-12</td><td>109</td><td>9.4</td><td>0.62</td><td>−0.07</td><td>57</td><td>407</td></tr>
+<tr><td>OVS · 13+</td><td>65</td><td>23.5</td><td>1.06</td><td>0.01</td><td>71</td><td>442</td></tr>
+<tr><td>52wh · 2-3</td><td>1,137</td><td>2.5</td><td>0.99</td><td>−0.01</td><td>92</td><td>964</td></tr>
+<tr><td>52wh · 4-6</td><td>493</td><td>4.6</td><td>1.04</td><td>0.02</td><td>75</td><td>740</td></tr>
+<tr><td>52wh · 7-12</td><td>169</td><td>8.4</td><td>1.36</td><td>0.12</td><td>−36</td><td>716</td></tr>
+<tr><td>WCDS · 2-3</td><td>102</td><td>2.3</td><td>1.26</td><td>0.47</td><td>431</td><td>2,974</td></tr>
+<tr><td>MonFri · 2-3</td><td>208</td><td>2.1</td><td>1.31</td><td>0.67</td><td>741</td><td>2,115</td></tr>
+<tr><td>IOB · 2-3</td><td>131</td><td>2.1</td><td>1.51</td><td>1.17</td><td>572</td><td>2,766</td></tr>
+</table><p class="cap">sd₁ = daily sleeve sd on single-leg days. Implied ρ above 1 means heavy-tailed cluster days, i.e. effectively one bet. Mean-leg baselines: OVS 1 leg −299 (N=81, unstable), WCDS 1 leg 134, MonFri 1 leg 361, IOB 1 leg 550.</p></div>
+<p>Three distinct answers come out of one table.</p>
+<h3>OLV stacks are one bet, and a better one</h3>
+<p>Variance scales like n, not √n: a deep OLV stack behaves as a single position with ρ near 1, because the legs cluster in one sector washout (the June 2026 oil names, the August 2026 airlines). But the per-leg mean rises with depth, 67 to 320 dollars a day, and at the trade level legs entered with six or more OLV names open average 1.34R against 0.55R for a solo entry. With ρ = 1 the stack's Kelly-optimal total is μ_stack/σ²_stack, which does not grow with n at all when per-leg stats are constant; here per-leg μ/σ² rises about five-fold from depth 1 to depth 8, so the optimal stack total does rise, roughly five-fold, while the book's linear stacking rises eight-fold. Depth 7+ is therefore modestly over the Kelly shape and depth 2 to 6 is about right.</p>
+<p>The question is whether a sleeve budget is worth its price. A replay that scales each new OLV leg into the room left under a cap on open OLV risk answers no:</p>
+<div class="tbl"><table>
+<tr><th>OLV open-risk policy (2010+)</th><th>Total PnL</th><th>Worst 21d</th><th>maxDD</th><th>Legs scaled</th><th>PnL per $ risk</th></tr>
+<tr><td>none (current)</td><td>398,916</td><td>−13,994</td><td>−20,592</td><td>0</td><td>0.80</td></tr>
+<tr><td>cap 250 bps open</td><td>328,831</td><td>−10,546</td><td>−16,116</td><td>36</td><td>0.74</td></tr>
+<tr><td>cap 300 bps open</td><td>344,940</td><td>−12,484</td><td>−19,082</td><td>26</td><td>0.76</td></tr>
+<tr><td>cap 400 bps open</td><td>370,839</td><td>−16,143</td><td>−22,741</td><td>15</td><td>0.77</td></tr>
+<tr><td>√n marginal budget</td><td>137,947</td><td>−7,698</td><td>−9,968</td><td>219</td><td>0.64</td></tr>
+</table><p class="cap">Open OLV risk at each new entry, 2010+: median 45 bps, p90 251, p95 382, max 526 bps of NAV. PnL per $ risk falling under every cap means the legs being cut were the better legs.</p></div>
+<div class="decision reject"><p class="dh">Decision: no OLV sleeve risk cap. The retired 100%-NAV notional trim stays retired.</p>
+<p>A 250 bps cap costs $70k of $399k over 16 years to improve the worst 21-day window by $3.4k; the "cut the clones first" rule from the article fails here because the clones are the highest-edge legs. Concentration in an OLV stack is real, but its variance is regime-independent (implied ρ 1.7 at dial &lt; 50, 1.2 at ≥ 50) and its worst episodes came at dial 13 to 51. The right response to a stack that is one bet is at L3: hedge the part of it that is the market, and display the stack's independent-leg equivalent n_eff = (Σrᵢ)²/(rᵀCr) on the hedge panel so the size of the single bet is visible before it is taken.</p></div>
+<h3>52wh Breakout past five open legs is a worse bet</h3>
+<p>The only cell in the table where the marginal leg is negative: at 7 to 12 open legs the sleeve loses $36 per leg-day over 169 days, and trade-level legs entered with six or more open average 0.08R at a 35% win rate (N=23) against 0.56 to 0.89 at every shallower depth. Breakout clusters are a late-stage market condition; the sixth simultaneous breakout is the one that fails.</p>
+<div class="decision"><p class="dh">Decision: 52wh Breakout legs entered with ≥ 5 open 52wh positions size at 0.5x. Ship as a small-N appetite rule with a written re-exam trigger.</p>
+<p>Mechanism: the dormant open-position-count machinery (<code>ladder_multipliers</code>, <code>load_open_position_counts</code>) if its key is per-strategy; otherwise a per-strategy open-count derate mirroring <code>same_day_signal_derate</code>. Expected cost near zero ($7.5k of $487k lives in the cell). Re-exam at +20 trades in the cell; retire if the cell's avgR exceeds 0.4 then.</p></div>
+<h3>Index clones: SPY and QQQ on the same day</h3>
+<p>Indices Oversold Bounce fires SPY and QQQ together on 50 of 133 signal days with leg-R correlation 0.88; the day's mean PnL is 1.9x a single-leg day but its sd is 2.3x. That is two tickets on one horse with no extra edge, and Rung 3 at ρ = 1 says each ticket at half. SPY QQQ MonFri Reversion is the opposite case: both-fire days earn 3.1x at 2.1x the sd (77 days), so its clone days are its best days and must not be touched. Monthly Weak Close has two both-fire days; no decision possible.</p>
+<div class="decision"><p class="dh">Decision: Indices Oversold Bounce SPY+QQQ same-day pairs clamp to 0.5x each; MonFri untouched.</p>
+<p>Same machinery as the cross-strategy overlap clamp, keyed within one strategy. Variance-only change; expected PnL effect is −$1.3k a year on the cell's $139k over 16 years, accepted for a 2.3x to 1.15x cut in both-day sd.</p></div>
+<h3>Same-ticker fires across strategies</h3>
+<p>Fourteen same-day, same-ticker pairs across the dip-buy family since 2010 with R correlation 0.97: Monday Dip + Weak Close (6), MonFri + Weak Close (6), Monthly Weak Close + MonFri (2). Only Indices Oversold Bounce + MonFri is clamped today.</p>
+<div class="decision"><p class="dh">Decision: extend <code>CROSS_STRATEGY_OVERLAP_OVERRIDES</code> to every dip-buy pair. Ship.</p>
+<p>The existing clamp convention (20 bps nominal per side, GRM-scaled) applies; the engine already replays it from a candidate pre-pass. No prereg needed: a ρ = 1 clamp has no expected-value content, it only removes a doubled ticket.</p></div>
+</div></div>
+
+<div class="level" id="L3"><div class="tag">L3</div><div>
+<h2>Cross-strategy: what the dial actually measures <span class="verdict study">prereg</span></h2>
+<p class="q"><b>Question.</b> How much of the book is one bet on the market, and does the dial know when?</p>
+<p>Every previous dial study in this repo asked whether edge degrades at high readings. Book-wide it does not, robustly: the PIT gate returned t = −0.23 in July, and the trade-level table below repeats it at the 50 line. What the dial does move is the covariance structure. Regressing the daily book return on SPY within each lagged dial bucket:</p>
+<div class="tbl"><table>
+<tr><th>Dial bucket (lag-1)</th><th>Days</th><th>Book β to SPY</th><th>SPY-explained share of book variance</th><th>Avg pairwise strategy corr</th><th>Effective N</th><th>Open legs</th><th>Book Sharpe</th></tr>
+<tr><td>&lt; 30</td><td>1,527</td><td>0.21</td><td>10%</td><td>0.02</td><td>4.4</td><td>5.5</td><td>2.77</td></tr>
+<tr><td>30 to 50</td><td>564</td><td>0.28</td><td>9%</td><td>0.02</td><td>4.4</td><td>5.0</td><td>3.37</td></tr>
+<tr><td>50 to 65</td><td>216</td><td>0.40</td><td>16%</td><td>0.09</td><td>3.8</td><td>4.6</td><td>2.53</td></tr>
+<tr><td>65 to 80</td><td>109</td><td>0.39</td><td>35%</td><td>0.06</td><td>3.2</td><td>3.5</td><td>0.77</td></tr>
+<tr><td>80+</td><td>24</td><td>0.54</td><td>25%</td><td>0.13</td><td>2.8</td><td>6.0</td><td>2.75</td></tr>
+</table><p class="cap">R² = β²·σ²_SPY/σ²_book per bucket. Effective N = 1/(wᵀCw) over strategies active on &gt; 10% of the bucket's days, vol-weighted. Book sd per bucket is flat (67 to 99 bps a day), which is why a scalar throttle sees nothing.</p></div>
+<figure>
+<svg viewBox="0 0 560 210" role="img" aria-labelledby="c1t">
+<title id="c1t">SPY-explained share of book variance by dial bucket</title>
+<text x="0" y="14" class="chart-title">SPY-explained share of daily book variance, by lagged dial bucket</text>
+<g class="chart-text">
+<line x1="60" y1="170" x2="540" y2="170" stroke="var(--grid)"/>
+<line x1="60" y1="120" x2="540" y2="120" stroke="var(--grid)"/>
+<line x1="60" y1="70" x2="540" y2="70" stroke="var(--grid)"/>
+<text x="52" y="174" text-anchor="end">0%</text><text x="52" y="124" text-anchor="end">20%</text><text x="52" y="74" text-anchor="end">40%</text>
+</g>
+<g fill="var(--series)">
+<rect x="90" y="145" width="24" height="25" rx="4" ry="4"><title>&lt; 30: 10% (β 0.21, 1,527 days)</title></rect>
+<rect x="190" y="147.5" width="24" height="22.5" rx="4" ry="4"><title>30 to 50: 9% (β 0.28, 564 days)</title></rect>
+<rect x="290" y="130" width="24" height="40" rx="4" ry="4"><title>50 to 65: 16% (β 0.40, 216 days)</title></rect>
+<rect x="390" y="82.5" width="24" height="87.5" rx="4" ry="4"><title>65 to 80: 35% (β 0.39, 109 days)</title></rect>
+<rect x="490" y="107.5" width="24" height="62.5" rx="4" ry="4"><title>80+: 25% (β 0.54, 24 days)</title></rect>
+</g>
+<g class="chart-val" text-anchor="middle">
+<text x="102" y="139">10%</text><text x="202" y="141">9%</text><text x="302" y="124">16%</text><text x="402" y="76">35%</text><text x="502" y="101">25%</text>
+</g>
+<g class="chart-text" text-anchor="middle">
+<text x="102" y="190">&lt; 30</text><text x="202" y="190">30 to 50</text><text x="302" y="190">50 to 65</text><text x="402" y="190">65 to 80</text><text x="502" y="190">80+</text>
+<text x="300" y="206" fill="var(--ink3)">10d-MA 63d dial, lagged one session · 2016-07 to 2026-08</text>
+</g>
+</svg>
+<figcaption>The book is three and a half times more of a market bet at dial 65 to 80 than in calm tape. Hover a bar for β and day count; the table above is the full view.</figcaption>
+</figure>
+<p>The mechanism is visible pairwise. At dial &lt; 50 no pair of the eight active strategies correlates above 0.16. At ≥ 65, OLV correlates 0.26 with 52wh Breakout, 0.22 with MonFri, 0.20 with Indices Oversold Bounce and 0.17 with Weak Close, all from 0.01 to 0.05 in calm tape. The oversold names OLV buys at a high dial <i>are</i> the market selloff, so the dip-buy family, the trend dip-buy and OLV collapse toward one bet. Variance contribution shifts the same way: OVS carries 41% of book variance below 50; at 50+ OLV (37%) and LT Trend ST OS (31%) carry two thirds between them.</p>
+<h3>The math says hedge, not cut</h3>
+<p>Write the book's covariance as one market factor plus idiosyncratic risk, Σ = D + σ²ₘ ββᵀ, and allow a costless index future as an extra asset with mean μₘ. Solving w = Σ⁻¹μ with the future included separates into two pieces:</p>
+<div class="math">idiosyncratic book:   w_idio = D⁻¹ μ_idio               (Kelly on what the market cannot replicate)
+market position:      w_m    = μₘ/σ²ₘ  −  βᵀ w_idio     (own Kelly on the index, minus the book's embedded beta)</div>
+<p>The second line is the whole argument. The optimal index position is the book's embedded beta, hedged out, plus whatever the index deserves on its own. In calm tape μₘ is positive (SPY +22.6% annualised in the &lt; 30 bucket, 2016+) and the residual beta is welcome. At dial 65 to 80 the conditional SPY mean is −28.9% annualised: the term flips sign and the optimum is to short the embedded beta and then some. A scalar cut on the book does neither of these things; it shrinks the idiosyncratic Kelly book, where the edge is, by the same factor as the market exposure it was trying to remove. That is why every throttle in Section 4 loses and the hedge does not.</p>
+<div class="tbl"><table>
+<tr><th>Dial bucket</th><th>Days</th><th>Ex-ante β̂ (63d, lag-1)</th><th>SPY ann. in bucket</th><th>Book Sharpe</th><th>Hedged Sharpe</th><th>Book bps/day</th><th>Hedged bps/day</th></tr>
+<tr><td>&lt; 30</td><td>1,527</td><td>0.34</td><td>+22.6%</td><td>2.77</td><td>2.30</td><td>14.6</td><td>11.3</td></tr>
+<tr><td>30 to 50</td><td>564</td><td>0.42</td><td>+13.8%</td><td>3.37</td><td>2.69</td><td>17.0</td><td>13.5</td></tr>
+<tr><td>50 to 65</td><td>216</td><td>0.45</td><td>−2.7%</td><td>2.53</td><td>3.02</td><td>13.7</td><td>15.3</td></tr>
+<tr><td>65 to 80</td><td>109</td><td>0.55</td><td>−28.9%</td><td>0.77</td><td>2.06</td><td>3.3</td><td>8.3</td></tr>
+<tr><td>80+</td><td>24</td><td>0.47</td><td>−2.4%</td><td>2.75</td><td>2.84</td><td>17.2</td><td>16.5</td></tr>
+</table><p class="cap">Hedge = −β̂ × SPY return on NAV, β̂ from a trailing 63-day OLS of the flat book return on SPY, lagged one session, clipped to [−1, 2]. Hedging everywhere costs 3.3 to 3.5 bps a day in calm buckets; arming it by the dial keeps the calm carry and removes the factor when its conditional mean is negative.</p></div>
+<div class="tbl"><table>
+<tr><th>Policy (2016-07+)</th><th>Ann. return</th><th>Ann. vol</th><th>Sharpe</th><th>maxDD</th><th>Worst day</th></tr>
+<tr><td>never hedge (current)</td><td>36.7%</td><td>13.1%</td><td>2.81</td><td>−8.3%</td><td>−4.89%</td></tr>
+<tr><td>hedge β̂ when dial ≥ 65</td><td>37.3%</td><td>13.0%</td><td>2.86</td><td>−8.3%</td><td>−4.89%</td></tr>
+<tr><td>hedge β̂ when dial ≥ 50</td><td>37.6%</td><td>13.0%</td><td>2.90</td><td>−8.3%</td><td>−4.89%</td></tr>
+</table></div>
+<p>The full-sample improvement is small because the armed buckets are 13% of days; inside them it is large. Two caveats keep this at pre-registration rather than ship, and both are specific to this book.</p>
+<ul>
+<li><b>The dial was calibrated on SPY forward returns.</b> Its signal weights are diff_mean edges on SPY. A negative conditional SPY mean at high readings is therefore partly what the dial was fit to produce, and the hedge test inherits that lookahead. The July PIT re-estimate (<code>scratch/pit_reestimate.py</code>) exists precisely to remove it; the hedge must be scored on those vintage-lagged weights before it is believed.</li>
+<li><b>Episode count.</b> The 65+ buckets are 133 days across roughly five episodes (Q4 2018, early 2020, 2021-12, 2022, 2026-08), and the last one is live and was hedged by hand. Any decision rule has to be episode-clustered.</li>
+</ul>
+<div class="decision study"><p class="dh">Decision: pre-register a dial-armed book beta hedge; paper-track; ship only on the PIT result.</p>
+<p>Instrument MES/ES sized to β̂ × NAV, armed when the 10d-MA 63d dial crosses the threshold and released when it falls back below with a 5-point hysteresis; β̂ from the flat-basis book MTM on SPY, 63 days, lag-1, refreshed daily. This is the systematic form of the August 2026 manual hedge, and the one dial-conditioned control in this study that acts on the quantity the dial actually predicts. Protocol in Section 6.</p></div>
+<h3>What the trade-level table adds, and what it does not</h3>
+<div class="tbl"><table>
+<tr><th>Signal-date dial (2016+)</th><th>&lt; 30</th><th>30 to 50</th><th>50 to 65</th><th>65+</th></tr>
+<tr><td>Book avgR (N)</td><td>0.51 (2,065)</td><td>0.43 (651)</td><td>0.70 (184)</td><td>0.23 (132)</td></tr>
+<tr><td>LT Trend ST OS</td><td>0.42 (48)</td><td>0.29 (25)</td><td>0.44 (45)</td><td>0.08 (35)</td></tr>
+<tr><td>Oversold Low Volume</td><td>1.13 (80)</td><td>0.70 (107)</td><td>0.95 (39)</td><td>0.22 (32)</td></tr>
+<tr><td>Overbot Vol Spike</td><td>0.40 (1,382)</td><td>0.22 (357)</td><td>0.70 (76)</td><td>0.12 (50)</td></tr>
+</table><p class="cap">Current-weights dial at the signal date, the engine's convention. Not point-in-time; 65+ is a handful of episodes.</p></div>
+<p>At 65+ the book's avgR halves and the three strategies that make up the cell are the three exempt from fragility bands. This is not a finding, it is the shape of the cell the exemptions were never tested on: the exemption studies used the 50 line, where the cell is 0.70R on 184 trades and the exemptions look right. The correct response is a pre-registered re-test of the three exemptions at 65 with PIT weights and episode clustering, with the decision rule written before the run, and no sizing change from this table. If the hedge at L3 ships, the re-test should be run on hedged returns, since part of what fails at 65+ is the factor the hedge removes.</p>
+<h3>Per-strategy behaviour by dial, on the daily basis</h3>
+<p>The trade-level table grades trades by the dial at their signal date. The daily series grades what the book is actually holding, which for long-hold strategies is a different thing:</p>
+<div class="tbl"><table>
+<tr><th>Strategy (active days, 2016-07+)</th><th>Sharpe, dial &lt; 50</th><th>Sharpe, 50 to 65</th><th>Sharpe, 65+</th><th>Days at ≥ 50</th><th>β to SPY per active day</th></tr>
+<tr><td>52wh Breakout</td><td>1.22</td><td>−2.16</td><td>−2.32</td><td>125</td><td>0.11</td></tr>
+<tr><td>Overbot Vol Spike</td><td>1.53</td><td>4.33</td><td>0.03</td><td>123</td><td>−0.05</td></tr>
+<tr><td>LT Trend ST OS</td><td>4.36</td><td>4.24</td><td>1.07</td><td>63</td><td>0.27</td></tr>
+<tr><td>Oversold Low Volume</td><td>2.50</td><td>1.87</td><td>3.14</td><td>161</td><td>0.09</td></tr>
+<tr><td>Sector BO</td><td>1.42</td><td>3.31</td><td></td><td>31</td><td>0.12</td></tr>
+<tr><td>Indices Oversold Bounce</td><td>5.16</td><td></td><td></td><td>0</td><td>0.49</td></tr>
+<tr><td>3x Leader Gap Fade</td><td>2.56</td><td></td><td></td><td>0</td><td>1.77</td></tr>
+</table><p class="cap">Strategies with fewer than 20 active days in a bucket are blank. β is the OLS slope of the strategy's daily NAV return on SPY, divided by its active-day share.</p></div>
+<p>Three things this adds. 52wh Breakout is the strategy the dial hurts, with a Sharpe of −2.2 across 125 active days at readings of 50 and above, and it is not a sizing problem: 52wh cannot enter above dial 30 (its <code>dial_filters</code> gate), so those days are 63-day holds opened in calm tape and marked through a fragile one. Its β of 0.11 means the beta hedge only partly covers it; what fails is momentum in a rolling-over tape. That is an exit question (a dial-conditioned hold shortening for 52wh), listed as protocol P4 and outside this plan's sizing scope. OVS is flat at 65+ on 48 days, consistent with its trade-level 0.12R there. OLV, by contrast, is fine on the daily basis at 65+ (Sharpe 3.1 on 63 days) even though its 32 trades signalled at 65+ averaged 0.22R: the legs it was carrying into those readings recovered. The exemption re-test in P2 has to state which basis it grades, and the daily basis is the one that matches what the account experiences.</p>
+</div></div>
+
+<div class="level" id="L4"><div class="tag">L4</div><div>
+<h2>Book: the survivable total <span class="verdict keep">rule</span></h2>
+<p class="q"><b>Question.</b> What global multiplier is survivable, stated as a probability rather than a feeling?</p>
+<p>With the book at 6% of Kelly, growth theory is silent on GRM and the binding constraint is drawdown. The drawdown-constrained growth literature (Grossman and Zhou) makes exposure a function of the running drawdown; that only pays if drawdowns predict anything, and here they do not: conditional on the book being 5 to 10% below its 252-day high, the next 21 days average +25% annualised on 10% vol, indistinguishable from any other state. So the plan uses the static version of the constraint: a stationary block bootstrap of the 2016+ daily series (mean block 10 sessions, 3,000 one-year paths) gives the probability that a year's maximum drawdown exceeds a threshold, at each multiple of current sizing and each haircut on the daily mean.</p>
+<div class="tbl"><table>
+<tr><th>μ haircut</th><th>GRM</th><th>Median 1y PnL (% NAV)</th><th>P(maxDD &gt; 10%)</th><th>P(maxDD &gt; 15%)</th><th>P(maxDD &gt; 20%)</th><th>5th-pct maxDD</th></tr>
+<tr><td>none</td><td>1.5</td><td>33.0</td><td>3.1%</td><td>0.2%</td><td>0.0%</td><td>−9.2%</td></tr>
+<tr><td>none</td><td>1.875</td><td>41.2</td><td>12.9%</td><td>1.0%</td><td>0.1%</td><td>−11.5%</td></tr>
+<tr><td>none</td><td>3.0</td><td>66.0</td><td>52.9%</td><td>17.8%</td><td>3.1%</td><td>−18.4%</td></tr>
+<tr><td>50%</td><td>1.125</td><td>12.2</td><td>6.0%</td><td>0.4%</td><td>0.0%</td><td>−10.4%</td></tr>
+<tr><td>50%</td><td>1.5</td><td>16.3</td><td>18.5%</td><td>3.3%</td><td>0.4%</td><td>−13.9%</td></tr>
+<tr><td>50%</td><td>1.875</td><td>20.4</td><td>38.2%</td><td>9.1%</td><td>2.2%</td><td>−17.4%</td></tr>
+<tr><td>50%</td><td>2.25</td><td>24.5</td><td>57.8%</td><td>18.5%</td><td>6.0%</td><td>−20.8%</td></tr>
+<tr><td>75%</td><td>1.5</td><td>7.9</td><td>40.9%</td><td>11.4%</td><td>3.1%</td><td>−18.1%</td></tr>
+</table></div>
+<figure>
+<svg viewBox="0 0 560 230" role="img" aria-labelledby="c3t">
+<title id="c3t">Probability of a one-year drawdown beyond 15 percent versus GRM, at three edge haircuts</title>
+<text x="0" y="14" class="chart-title">P(1-year maxDD &gt; 15%) by GRM, three haircuts on the daily mean</text>
+<g class="chart-text">
+<line x1="60" y1="180" x2="540" y2="180" stroke="var(--grid)"/><line x1="60" y1="130" x2="540" y2="130" stroke="var(--grid)"/><line x1="60" y1="80" x2="540" y2="80" stroke="var(--grid)"/><line x1="60" y1="30" x2="540" y2="30" stroke="var(--grid)"/>
+<text x="52" y="184" text-anchor="end">0%</text><text x="52" y="134" text-anchor="end">10%</text><text x="52" y="84" text-anchor="end">20%</text><text x="52" y="34" text-anchor="end">30%</text>
+<line x1="60" y1="155" x2="540" y2="155" stroke="var(--ink3)" stroke-dasharray="3 3"/><text x="540" y="151" text-anchor="end" fill="var(--ink3)">5% budget</text>
+</g>
+<!-- x: GRM 1.125 -> 100, 1.5 -> 210, 1.875 -> 320, 2.25 -> 430, 3.0 -> 540(off) ; y = 180 - p*500 -->
+<g fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+<polyline stroke="var(--series)" points="100,180 210,179 320,175 430,164.5"/>
+<polyline stroke="var(--series2)" points="100,178 210,163.5 320,134.5 430,87.5"/>
+<polyline stroke="var(--series3)" points="100,164.5 210,123 320,54"/>
+</g>
+<g stroke="var(--panel)" stroke-width="2">
+<circle cx="100" cy="180" r="4" fill="var(--series)"><title>no haircut · GRM 1.125 · 0.0%</title></circle><circle cx="210" cy="179" r="4" fill="var(--series)"><title>no haircut · GRM 1.5 · 0.2%</title></circle><circle cx="320" cy="175" r="4" fill="var(--series)"><title>no haircut · GRM 1.875 · 1.0%</title></circle><circle cx="430" cy="164.5" r="4" fill="var(--series)"><title>no haircut · GRM 2.25 · 3.1%</title></circle>
+<circle cx="100" cy="178" r="4" fill="var(--series2)"><title>50% haircut · GRM 1.125 · 0.4%</title></circle><circle cx="210" cy="163.5" r="4" fill="var(--series2)"><title>50% haircut · GRM 1.5 · 3.3%</title></circle><circle cx="320" cy="134.5" r="4" fill="var(--series2)"><title>50% haircut · GRM 1.875 · 9.1%</title></circle><circle cx="430" cy="87.5" r="4" fill="var(--series2)"><title>50% haircut · GRM 2.25 · 18.5%</title></circle>
+<circle cx="100" cy="164.5" r="4" fill="var(--series3)"><title>75% haircut · GRM 1.125 · 3.1%</title></circle><circle cx="210" cy="123" r="4" fill="var(--series3)"><title>75% haircut · GRM 1.5 · 11.4%</title></circle><circle cx="320" cy="54" r="4" fill="var(--series3)"><title>75% haircut · GRM 1.875 · 25.2%</title></circle>
+</g>
+<g class="chart-text" text-anchor="middle"><text x="100" y="200">1.125</text><text x="210" y="200">1.5</text><text x="320" y="200">1.875</text><text x="430" y="200">2.25</text><text x="300" y="222" fill="var(--ink3)">GRM (current 1.5)</text></g>
+</svg>
+<div class="legend"><span><i style="background:var(--series)"></i>no haircut</span><span><i style="background:var(--series2)"></i>50% haircut</span><span><i style="background:var(--series3)"></i>75% haircut</span></div>
+<figcaption>Under a 50% haircut on the edge, GRM 1.5 sits just inside a 5% budget for a 15% year; 1.875 is outside it. The table above carries every value.</figcaption>
+</figure>
+<div class="decision"><p class="dh">Decision: GRM is set by a written rule, re-derived quarterly. Current rule: the largest GRM at which P(1-year maxDD &gt; 15%) ≤ 5% under a 50% μ haircut. Today that is 1.5.</p>
+<p>The rule replaces the appetite reading with three declared numbers (drawdown threshold, probability budget, haircut). Changing any of them is a decision that gets written down; the frontier script recomputes the answer. When L5 delivers a measured haircut the 50% placeholder is replaced by it, which is the only path by which GRM rises. Book-level dynamic scaling of any kind is not part of the rule (Section 4).</p></div>
+</div></div>
+
+<div class="level" id="L5"><div class="tag">L5</div><div>
+<h2>Measurement: the haircut, measured <span class="verdict ship">build</span></h2>
+<p class="q"><b>Question.</b> How much of the ledger's edge shows up in fills?</p>
+<p>The article's strongest practical claim is that the output of any sizing formula is an order of magnitude more sensitive to μ than to ρ. The book has the data to measure its own μ discount: <code>verify_fills.py</code> writes fill status to Trade_Signals_Log, and the Trade Log tab holds executions for both accounts. Matched trade by trade, the ratio of realised live R to ledger R (and the fill rate of staged limits) is the haircut that L1's shrinkage and L4's frontier should use instead of 50%.</p>
+<div class="decision"><p class="dh">Decision: build the live-vs-ledger reconciliation as a scheduled script and publish the ratio on the site's Execution tab.</p>
+<p>Until at least 150 matched trades exist, the plan's haircut stays at 50%. Every later sizing study cites the measured number and its date.</p></div>
+</div></div>
+
+<h2 id="s4">4. The negative results, and why they are load-bearing</h2>
+<p>The natural first idea for "dynamic sizing from the dial" is a scalar on the book. This study tested that family properly, as volatility-managed portfolios in the Moreira and Muir sense, with every instrument the book can see at the prior close, and compared each overlay to the baseline at equal realised volatility so that a pure de-leveraging cannot masquerade as an improvement.</p>
+<div class="tbl"><table>
+<tr><th>Overlay on daily book PnL (2016-07+, lag-1, equal vol)</th><th>Sharpe</th><th>maxDD</th><th>Worst day</th><th>LOYO years beating baseline</th></tr>
+<tr><td>baseline</td><td>2.81</td><td>−8.3%</td><td>−4.89%</td><td></td></tr>
+<tr><td>dial bucket Kelly table (in-sample)</td><td>2.83</td><td>−8.1%</td><td>−4.98%</td><td>5 of 11</td></tr>
+<tr><td>dial step 0.5x at ≥ 65</td><td>2.82</td><td>−8.5%</td><td>−4.97%</td><td>2 of 11</td></tr>
+<tr><td>dial step 0.5x at ≥ 50</td><td>2.81</td><td>−8.3%</td><td>−5.16%</td><td></td></tr>
+<tr><td>dial linear taper 30 to 90</td><td>2.81</td><td>−8.5%</td><td>−5.26%</td><td></td></tr>
+<tr><td>open-leg count, 1/√n</td><td>2.74</td><td>−10.3%</td><td>−4.86%</td><td></td></tr>
+<tr><td>EWMA vol target, cut only</td><td>2.70</td><td>−8.8%</td><td>−4.00%</td><td></td></tr>
+<tr><td>VIX inverse</td><td>2.63</td><td>−9.5%</td><td>−4.37%</td><td></td></tr>
+<tr><td>EWMA vol target, two-sided</td><td>2.54</td><td>−10.1%</td><td>−5.21%</td><td>3 of 11</td></tr>
+<tr><td>dial-armed β hedge at ≥ 50 (L3)</td><td>2.90</td><td>−8.3%</td><td>−4.89%</td><td></td></tr>
+</table></div>
+<figure>
+<svg viewBox="0 0 560 300" role="img" aria-labelledby="c2t">
+<title id="c2t">Equal-volatility Sharpe of each overlay against the baseline</title>
+<text x="0" y="14" class="chart-title">Equal-vol Sharpe, 2016-07 to 2026-08</text>
+<g class="chart-text">
+<line x1="200" y1="28" x2="200" y2="272" stroke="var(--grid)"/><line x1="330" y1="28" x2="330" y2="272" stroke="var(--grid)"/><line x1="460" y1="28" x2="460" y2="272" stroke="var(--grid)"/>
+<text x="200" y="286" text-anchor="middle">2.5</text><text x="330" y="286" text-anchor="middle">2.75</text><text x="460" y="286" text-anchor="middle">3.0</text>
+<line x1="361" y1="28" x2="361" y2="272" stroke="var(--ink3)" stroke-dasharray="3 3"/><text x="365" y="38" fill="var(--ink3)">baseline 2.81</text>
+</g>
+<!-- x = 200 + (S-2.5)*520 -->
+<g fill="var(--series)">
+<rect x="0" y="44" width="408" height="16" rx="4"><title>dial-armed β hedge ≥ 50 · 2.90</title></rect>
+<rect x="0" y="68" width="372" height="16" rx="4"><title>dial bucket Kelly table (in-sample) · 2.83</title></rect>
+<rect x="0" y="92" width="366" height="16" rx="4"><title>dial step at ≥ 65 · 2.82</title></rect>
+<rect x="0" y="116" width="361" height="16" rx="4"><title>dial step at ≥ 50 · 2.81</title></rect>
+<rect x="0" y="140" width="361" height="16" rx="4"><title>dial linear taper · 2.81</title></rect>
+<rect x="0" y="164" width="325" height="16" rx="4"><title>open-leg 1/√n · 2.74</title></rect>
+<rect x="0" y="188" width="304" height="16" rx="4"><title>EWMA vol target, cut only · 2.70</title></rect>
+<rect x="0" y="212" width="268" height="16" rx="4"><title>VIX inverse · 2.63</title></rect>
+<rect x="0" y="236" width="221" height="16" rx="4"><title>EWMA vol target, two-sided · 2.54</title></rect>
+</g>
+<g class="chart-text" fill="var(--panel)" font-weight="500">
+<text x="8" y="56">β hedge armed at dial ≥ 50 (L3)</text><text x="8" y="80">dial bucket Kelly table, in-sample</text><text x="8" y="104">dial step 0.5x at ≥ 65</text><text x="8" y="128">dial step 0.5x at ≥ 50</text><text x="8" y="152">dial linear taper</text><text x="8" y="176">open-leg count 1/√n</text><text x="8" y="200">EWMA vol target, cut only</text><text x="8" y="224">VIX inverse</text><text x="8" y="248">EWMA vol target, two-sided</text>
+</g>
+<g class="chart-val"><text x="414" y="56">2.90</text><text x="378" y="80">2.83</text><text x="372" y="104">2.82</text><text x="367" y="128">2.81</text><text x="367" y="152">2.81</text><text x="331" y="176">2.74</text><text x="310" y="200">2.70</text><text x="274" y="224">2.63</text><text x="227" y="248">2.54</text></g>
+</svg>
+<figcaption>Every scalar overlay lands at or below the baseline once its de-leveraging is undone; the one control that acts on composition instead of scale is the only one above it.</figcaption>
+</figure>
+<p>The reason is structural, not a matter of the instrument. Book variance is driven by whether positions are open, and positions open when signals fire, and signal density is itself the edge: the best single predictor of next-month book vol is the trailing five-day signal count (Spearman 0.24), and the same variable predicts next-month book <i>mean</i> just as well (0.22). Anything that scales the book down when it is about to be volatile scales it down when it is about to make money. The dial itself predicts neither (0.13 and 0.10; R² 1% and 0.2%).</p>
+<p>These rows are the institutional memory the July studies already recorded (throttle t = −0.23, taper −11.4R) reproduced in a different frame, and they should close the question for the book level. The dial's information survives at L3 because there it is not used to scale anything: it is used to decide the sign of a factor position.</p>
+
+<h2 id="s5">5. Decision register</h2>
+<div class="tbl"><table>
+<tr><th>#</th><th>Control</th><th>Level</th><th>Verdict</th><th>Evidence in one line</th><th>Cost of being wrong</th></tr>
+<tr><td>1</td><td>Same-ticker cross-strategy clamp, all dip-buy pairs</td><td>L2</td><td>ship</td><td>14 pairs, R corr 0.97, only one pair clamped today</td><td>none in expectation; variance only</td></tr>
+<tr><td>2</td><td>IOB SPY+QQQ same-day 0.5x each</td><td>L2</td><td>ship</td><td>50 days, corr 0.88, mean 1.9x at sd 2.3x</td><td>≈ −$1.3k/yr</td></tr>
+<tr><td>3</td><td>52wh Breakout 0.5x at ≥ 5 open legs</td><td>L2</td><td>ship (appetite, small N)</td><td>N=23 avgR 0.08, 169 sleeve-days at −$36/leg</td><td>≈ $0.5k/yr if the cell is noise</td></tr>
+<tr><td>4</td><td>Dial-armed book β hedge (MES), threshold 50, hysteresis 5</td><td>L3</td><td>prereg, paper, then ship</td><td>armed-bucket Sharpe 0.77 to 2.06; full 2.81 to 2.90; inherits dial lookahead</td><td>≈ 3.5 bps/day carry in false alarms</td></tr>
+<tr><td>5</td><td>Capped half-tilt on base bps (clip(0.5w+0.5, 0.6, 1.4), annual re-fit)</td><td>L1</td><td>ship after engine confirmation</td><td>walk-forward 2014-26: 12 of 13 years better, PnL/maxDD +18%, same maxDD; both routes agree on the cuts</td><td>≈ 1.3 pts more vol; worst held-out year −13%</td></tr>
+<tr><td>6</td><td>Exemption re-test at dial 65 (OLV, LT Trend ST OS, OVS)</td><td>L3</td><td>prereg study</td><td>65+ cell avgR 0.23 on 132 trades, few episodes</td><td>none until run</td></tr>
+<tr><td>7</td><td>GRM by drawdown-probability rule</td><td>L4</td><td>rule</td><td>1.5 passes P(DD&gt;15%) ≤ 5% at 50% haircut; 1.875 fails</td><td>formalises what exists</td></tr>
+<tr><td>8</td><td>Live-vs-ledger haircut measurement</td><td>L5</td><td>build</td><td>every sizing number depends on it</td><td>none</td></tr>
+<tr><td>9</td><td>OLV stack n_eff on the hedge panel</td><td>L2</td><td>build (display)</td><td>stacks are one bet; make its size visible</td><td>none</td></tr>
+<tr><td>10</td><td>OLV sleeve open-risk cap</td><td>L2</td><td>reject</td><td>−$70k/16y for −$3.4k worst-21d; cuts the best legs</td><td></td></tr>
+<tr><td>11</td><td>Any book-level scalar throttle or vol target</td><td>L4</td><td>reject</td><td>nine overlays at or below baseline at equal vol</td><td></td></tr>
+<tr><td>12</td><td>Drawdown-state exposure scaling (Grossman-Zhou)</td><td>L4</td><td>reject</td><td>drawdown state has no forecast content</td><td></td></tr>
+<tr><td>13</td><td>MonFri SPY+QQQ clone clamp</td><td>L2</td><td>reject</td><td>both-fire days earn 3.1x at 2.1x sd</td><td></td></tr>
+<tr><td>14</td><td>Leg-level vol-power change (σ^α, α ≠ 1)</td><td>L0</td><td>reject</td><td>avgR flat across vol terciles</td><td></td></tr>
+</table></div>
+
+<h2 id="s6">6. Pre-registration protocols</h2>
+<h3>P1. Dial-armed book beta hedge</h3>
+<ol>
+<li><b>Series.</b> Flat-basis daily book MTM from the ledger build; SPY total return from master_prices. Dial: 10d MA of the 63d column, lag-1. Two dial vintages scored separately: current weights (the live series) and the PIT vintage-lagged weights from <code>scratch/pit_reestimate.py</code>. The PIT vintage is primary.</li>
+<li><b>β̂.</b> 63-session OLS of book return on SPY, lag-1, clipped [−1, 2]. Sensitivity: 42 and 126 sessions.</li>
+<li><b>Arming.</b> Primary threshold 50, release at 45. Sensitivity: 65/60. Hedge PnL = −β̂ × SPY return × NAV on armed days, less 2 bps round-trip per arm event for futures friction.</li>
+<li><b>Decision statistic.</b> Hedge PnL summed per armed episode (episodes separated by ≥ 21 unarmed sessions); episode-clustered t of mean episode PnL; full-sample equal-vol Sharpe of hedged vs unhedged; LOYO.</li>
+<li><b>Ship rule.</b> On the PIT vintage: mean armed-episode hedge PnL &gt; 0 with clustered t ≥ 1.0, full-sample equal-vol Sharpe ≥ unhedged, and at least 6 of 10 LOYO years not worse. Otherwise parked, with the table filed.</li>
+<li><b>Paper period.</b> One full armed episode logged on the hedge panel before live orders. Live mechanics: MES contracts = β̂ × NAV / (50 × ES price), native MOC entry per the 2026-08-21 encoding rule, quarterly roll on the panel's roll-off schedule.</li>
+</ol>
+<h3>P2. Exemption re-test at dial 65</h3>
+<ol>
+<li>Cell: trades of OLV, LT Trend ST OS and OVS with signal-date PIT dial ≥ 65, 2018+ (PIT weights start there).</li>
+<li>Statistic: avgR difference vs the same strategy at &lt; 50, episode-clustered t (episodes = runs of ≥ 65 separated by 21 sessions), LOYO floor.</li>
+<li>Rule: a band [[65, 999, 0.5]] is adopted for a strategy only if its clustered t ≤ −2.0 on PIT weights AND the effect survives dropping the best episode. If P1 ships first, the test is run on β-hedged trade returns.</li>
+</ol>
+<h3>P3. Base-bps tilt, engine confirmation</h3>
+<p>The walk-forward in L1d already met the pre-stated gate (PnL/maxDD +10%, no held-out year losing &gt; 15%). Confirmation before go-live: run <code>process_signals_fast(risk_multipliers=…)</code> with the shipping multipliers on the full ledger (flat basis), compare to the unmodified ledger. Pass if the engine reproduces at least half of the walk-forward's annual PnL gain (≥ +2 points of NAV a year over 2014-2026) with maxDD no worse by more than one point and the worst 21-day window no worse by more than 10%. Fail means the cap interactions ate the gain; the multipliers are then re-derived with the per-strategy 250 bps daily cap inside the objective (a second walk-forward on engine output, not the daily series).</p>
+<h3>P4. 52wh Breakout dial-conditioned hold (exit rule, outside sizing scope)</h3>
+<p>Candidate: shorten the 63-day hold for open 52wh positions while the dial is ≥ 50 (e.g. exit MOC on the first close below the 10-day low once armed). Evidence to beat: 125 active days at ≥ 50 with Sharpe −2.2 while the entry gate at 30 already blocks new positions. PIT dial, episode-clustered, LOYO; ship only if the armed-window PnL improves with clustered t ≥ 1.5 and no calm-tape cost (the rule never fires below 50 by construction).</p>
+
+<h2 id="s7">7. Caveats that bind every number here</h2>
+<ul>
+<li><b>Vintage.</b> Dial rows before 2026-07-02 are the recompute vintage (drift up to about 7 points on the 63d column); the append-only PIT series has two months of history. Every bucket table above is current-weights, which is why the L3 decisions are pre-registrations.</li>
+<li><b>Daily series end.</b> The per-strategy MTM payload ends 2026-08-07; the ledger runs to 2026-09-01. The August 2026 high-dial episode is only partly inside the daily tests.</li>
+<li><b>Overlay simulation.</b> Scaling daily PnL by a lag-1 multiplier approximates scaling new entries; positions carry holds of 2 to 63 days, so a live overlay would respond more slowly than simulated. This biases the overlay tests in the overlays' favour, and they still lose.</li>
+<li><b>Survivorship.</b> The ledger trades only tickers alive today; overflow-tier avgR is an upper bound. L1 ratios for overflow-heavy strategies are less reliable than their N suggests.</li>
+<li><b>Flat basis.</b> All dollars are on the flat $750k basis; live NAV differs across accounts and time. Nothing here is sized in notional.</li>
+<li><b>Small cells.</b> Decisions 2 and 3 rest on 50 days and 23 trades. They are shipped as variance-only or appetite rules with re-exam triggers, not as evidenced edges, and the plan says so wherever they appear.</li>
+</ul>
+<p class="note">Companion documents: the long-form explainer (dynamic_sizing_longform_2026-09-02.html), the one-page brief (dynamic_sizing_shortform_2026-09-02.html) and the implementation brief for the build agent (dynamic_sizing_implementation_brief_2026-09-02.md). Evidence scripts: scratch/kelly_read_*_2026-09-02.py, scratch/dynamic_sizing_study_2026-09-02.py, scratch/dynamic_sizing_study2_2026-09-02.py; results in the matching JSON files.</p>
+</main>

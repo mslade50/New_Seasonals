@@ -1,0 +1,89 @@
+<title>Sizing Phase One</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{color-scheme:light;--ground:#F6F7F5;--panel:#FFFFFF;--ink:#17202A;--ink2:#55626D;--ink3:#8A959D;--rule:#D8DEDC;--accent:#0F6E73;--accent-soft:#E3F0F0;--study:#8F6400;--study-soft:#F6EBD0;--mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;--sans:"IBM Plex Sans",system-ui,"Segoe UI",Roboto,sans-serif;--serif:"Source Serif 4",Georgia,serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--ground:#141A1F;--panel:#1B232A;--ink:#E8ECEA;--ink2:#A9B3B8;--ink3:#78848B;--rule:#2E3940;--accent:#5CBDC1;--accent-soft:#1B3436;--study:#DDAA45;--study-soft:#3A2F14}}
+:root[data-theme="dark"]{color-scheme:dark;--ground:#141A1F;--panel:#1B232A;--ink:#E8ECEA;--ink2:#A9B3B8;--ink3:#78848B;--rule:#2E3940;--accent:#5CBDC1;--accent-soft:#1B3436;--study:#DDAA45;--study-soft:#3A2F14}
+body{background:var(--ground);color:var(--ink);font-family:var(--serif);font-size:16.5px;line-height:1.5;margin:0}
+main{max-width:66ch;margin:0 auto;padding:40px 24px 72px}
+h1{font-size:2rem;font-weight:600;line-height:1.15;margin:0;text-wrap:balance}
+.eyebrow{font-family:var(--sans);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:.5rem}
+.lede{font-size:1.05rem;margin:1rem 0 1.5rem}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:1rem 1.15rem;margin:.9rem 0}
+.card h2{font-family:var(--sans);font-size:1rem;font-weight:600;margin:0;display:flex;gap:.6rem;align-items:baseline;flex-wrap:wrap}
+.card h2 .id{font-family:var(--mono);font-size:.8rem;color:var(--ink3);font-weight:500}
+.verdict{display:inline-block;font-family:var(--sans);font-size:.64rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.14rem .42rem;border-radius:3px;white-space:nowrap;margin-left:auto}
+.ship{background:var(--accent-soft);color:var(--accent)}.study{background:var(--study-soft);color:var(--study)}
+.row{display:grid;grid-template-columns:5.2rem 1fr;gap:.6rem;margin-top:.6rem;font-size:.95rem}
+.row .k{font-family:var(--sans);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);padding-top:.2rem}
+.row .v{margin:0}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.9em}
+ul{margin:.3rem 0 0;padding-left:1.2rem}li{margin:.2rem 0}
+.note{font-family:var(--sans);font-size:.85rem;color:var(--ink2);margin-top:1.4rem;border-top:1px dashed var(--rule);padding-top:.6rem}
+code{font-family:var(--mono);font-size:.86em;background:var(--ground);border:1px solid var(--rule);padding:.05em .3em;border-radius:3px}
+@media (max-width:520px){.row{grid-template-columns:1fr}}
+</style>
+<main>
+<div class="eyebrow">New_Seasonals · proposed sizing changes · phase 1</div>
+<h1>Sizing Phase One</h1>
+<p class="lede">The eleven items that ship together in one release, behind a single engine confirmation. Preconditions from Phase 0: the margin guard in order_staging is live and the IBKR what-if has been run on the four peak-requirement books.</p>
+
+<div class="card"><h2><span class="id">1.1</span>Global risk multiplier<span class="verdict ship">ship after 0.1 and 0.2</span></h2>
+<div class="row"><div class="k">Today</div><p class="v mono">GRM 1.5</p></div>
+<div class="row"><div class="k">Proposed</div><p class="v mono">GRM 1.875 (1.25x current size)</p></div>
+<div class="row"><div class="k">Why</div><p class="v">Growth is linear through 3x current size; the margin wall on the live $632k account sits at about 1.34x on the historical peak day, so 1.25x clears it with the guard and reliefs off on guard days (84% of NLV). 2.25 follows by rule (S.1 in the change list).</p></div></div>
+
+<div class="card"><h2><span class="id">1.2</span>Overflow-tier longs excluded from the step<span class="verdict ship">ship</span></h2>
+<div class="row"><div class="k">Today</div><p class="v">Overflow OLV at 25 bps nominal; LT Trend, St OS Sznl and 52wh at their native nominals on the overflow universe.</p></div>
+<div class="row"><div class="k">Proposed</div><p class="v"><code>OVERFLOW_RISK_OVERRIDES</code> scaled by 0.8 so effective bps stay where they are today: <span class="mono">OLV 20 · LT Trend 24 · St OS Sznl 32 · 52wh 28</span> nominal (three new carriers, wired like OLV's). Overflow shorts (OVS, ATR Ext) take the step. Every order limited to 1% of the 21-day median dollar ADV (0.4% for LT Trend, St OS Sznl, Weak Close, IOB), hard refusal above 5%.</p></div>
+<div class="row"><div class="k">Why</div><p class="v">Overflow longs carry survivorship (keep 0.85), earn no more than their liquid twins, cost twice the impact, and are the only positions already at 1 to 2.7% of ADV.</p></div></div>
+
+<div class="card"><h2><span class="id">1.3</span>Strategy allocation tilt on base bps<span class="verdict ship">ship</span></h2>
+<div class="row"><div class="k">Today</div><p class="v">Every strategy at 1.0x its configured bps.</p></div>
+<div class="row"><div class="k">Proposed</div><div class="v">Keep-adjusted inverse-covariance half-blend, clipped to [0.7, 1.3], refit each January:
+<ul class="mono">
+<li>52wh Breakout 0.70</li><li>Weak Close Decent Sznls 0.75</li><li>Sector BO 0.87</li><li>St OS Sznl 0.88</li><li>Indices Oversold Bounce 0.89</li><li>Overbot Vol Spike 1.00 (held, cap-bound)</li><li>LT Trend ST OS 1.04</li><li>Monday Dip 1.09</li><li>ATR Extended Gap Up 1.10</li><li>Oversold Low Volume 1.17</li><li>3x ETF Overbot Fade 1.27</li><li>SPY QQQ MonFri Reversion 1.30</li><li>3x Bear Fade, 3x Leader Gap Fade, Monthly Weak Close 1.00</li></ul></div></div>
+<div class="row"><div class="k">Why</div><p class="v">Walk-forward 2014 to 2026: PnL per unit of drawdown +20%, Sharpe 2.05 to 2.14, maxDD 12.1% to 11.4%, worst held-out year −4% versus today. The four cut own 61% of worst-day losses for 36% of PnL. Multiplies base bps only; every overlay composes on top; the earnings override is tilted too.</p></div></div>
+
+<div class="card"><h2><span class="id">1.4</span>OLV ladder re-keyed to sleeve depth<span class="verdict ship">ship</span></h2>
+<div class="row"><div class="k">Today</div><p class="v mono">0.5 / 0.7 / 1.0 by the ticker's own OLV signal days in the trailing 21 sessions</p></div>
+<div class="row"><div class="k">Proposed</div><p class="v">mult = max(recency rung, depth rung). Depth rung by open OLV legs, filled positions plus working T+3 limits: <span class="mono">0 open → 0.5 · 1 to 2 → 0.7 · 3+ → 1.0</span>. Same-ticker adds full size; the 50%-NAV ticker cap stays. New composite clip: the product of tilt × ladder × pullback tilt × flow on any OLV leg is capped at 1.5x pre-GRM.</p></div>
+<div class="row"><div class="k">Why</div><p class="v">The current ladder halves 81% of solo legs (0.48R) but also 43 to 49% of legs entered into 3+ open names (0.93 to 1.15R). Replay: +$125k over 21 years raw, +$16k at equal risk, PnL per $ risk 0.790 to 0.820, better worst-21d. The clip is what stopped the composed levers turning June 2026 into the worst episode.</p></div></div>
+
+<div class="card"><h2><span class="id">1.5</span>Weak Close and LT Trend ST OS adds<span class="verdict ship">ship</span></h2>
+<div class="row"><div class="k">Today</div><p class="v">1.0x every leg.</p></div>
+<div class="row"><div class="k">Proposed</div><p class="v"><span class="mono">0.8x</span> with no leg of the strategy open or working, <span class="mono">1.2x</span> otherwise. Same-sector clusters are not cut.</p></div>
+<div class="row"><div class="k">Why</div><p class="v">Weak Close adds 0.73R vs 0.21R solo (t 2.7); LT Trend depth 3+ 0.63R vs 0.22R (t 2.65). Reallocating raises PnL per unit risk 9 to 13% with lower sleeve maxDD in both.</p></div></div>
+
+<div class="card"><h2><span class="id">1.6</span>OVS signal-quality tier<span class="verdict ship">ship</span></h2>
+<div class="row"><div class="k">Today</div><p class="v">None.</p></div>
+<div class="row"><div class="k">Proposed</div><p class="v"><span class="mono">0.7x</span> when the mean of rank_2d, rank_5d, rank_10d and rank_21d is below 94 at the signal close. No top-tier boost. Stamped on the staging row; replayed point-in-time in the engine from the same columns.</p></div>
+<div class="row"><div class="k">Why</div><p class="v">Bottom cell 0.17R (N 392) vs 0.47R (N 878), t 5.4, LOYO 80%, holds in both tiers, both gap paths and all four eras. Win rate and expectancy move together here, so it is not the deleted meta-labeller's trap. 0.7 is the shrunk posterior; the study's 0.5 was the in-sample fit.</p></div></div>
+
+<div class="card"><h2><span class="id">1.7</span>OVS path-2 aggregate cap<span class="verdict ship">ship</span></h2>
+<div class="row"><div class="k">Today</div><p class="v mono">path2_daily_cap_pct 0.75 (nominal)</p></div>
+<div class="row"><div class="k">Proposed</div><p class="v mono">1.0 nominal; second step to 1.5 after one year if the capped cell keeps out-earning the uncapped one</p></div>
+<div class="row"><div class="k">Why</div><p class="v">202 of 609 path-2 trades were capped and the capped ones averaged 0.37R vs 0.18R uncapped; full uncapping was worth +$49.5k over 24 years with a worst extra day of −$1.4k. The per-strategy cap still bounds the day.</p></div></div>
+
+<div class="card"><h2><span class="id">1.8</span>Index clone clamps<span class="verdict ship">ship</span></h2>
+<div class="row"><div class="k">Today</div><p class="v">Only the Indices Oversold Bounce + MonFri same-ticker pair is clamped.</p></div>
+<div class="row"><div class="k">Proposed</div><p class="v">Indices Oversold Bounce SPY and QQQ on the same day at <span class="mono">0.5x</span> each. Cross-strategy same-ticker clamp extended to every dip-buy pair (Monday Dip + Weak Close, MonFri + Weak Close, Monthly Weak Close + MonFri, Monthly Weak Close + IOB, Monday Dip + IOB) at 20 bps nominal. MonFri's own SPY+QQQ days untouched.</p></div>
+<div class="row"><div class="k">Why</div><p class="v">IOB both-fire days: leg correlation 0.88, 1.9x the PnL at 2.3x the sd. Cross-strategy pairs: R correlation 0.97. MonFri's clone days earn 3.1x at 2.1x sd and are its best days. Variance-only; about −$1.3k a year on the IOB cell.</p></div></div>
+
+<div class="card"><h2><span class="id">1.9</span>Flow-aware per-strategy daily cap<span class="verdict ship">ship</span></h2>
+<div class="row"><div class="k">Today</div><p class="v mono">250 bps effective, always</p></div>
+<div class="row"><div class="k">Proposed</div><p class="v"><span class="mono">375 bps</span> for every strategy in a family on days the family's trailing-5-session raw candidate count is top-tercile: <span class="mono">dip_buy ≥ 6 · oversold_hold ≥ 7 · short_fade ≥ 104</span>. Counted from the same filter masks daily_scan evaluates, before earnings blackouts and T+1 gates, never from staged rows. Breakouts and bear-ETF fades excluded. Reliefs take the max, never the product. Off for the day when the margin guard projects the requirement above 60% of NLV.</p></div>
+<div class="row"><div class="k">Why</div><p class="v">The cap binds on 21% of trades and on exactly the good ones (cap-bound OVS 0.62R vs 0.20R unbound; Weak Close 0.96 vs 0.24). Unfitted replay 2010 to 2026: book PnL +3.8%, Sharpe 2.20 to 2.22, maxDD and worst-21d byte-identical. Never ×99: full removal takes short_fade's maxDD from −$44k to −$127k.</p></div></div>
+
+<div class="card"><h2><span class="id">1.10</span>Family flow up-size<span class="verdict ship">ship</span></h2>
+<div class="row"><div class="k">Today</div><p class="v">None.</p></div>
+<div class="row"><div class="k">Proposed</div><p class="v">New sizing step after the fragility band and before the OLV ladder: <span class="mono">1.2x</span> base bps when the family is in its top-tercile flow state (dip_buy also requires the 10d-MA 63d dial below 50). No down-size leg. No breakout carrier. Off when the guard projects above 60% of NLV. Post-ship review written now: PnL per unit risk on the first 60 high-flow trades at least 1.3x the concurrent rest, else retire.</p></div>
+<div class="row"><div class="k">Why</div><p class="v">Top-tercile flow earns 1.7 to 2.7x the PnL per unit risk of the bottom tercile in every mean-reverting family (t 2.7 to 3.2, positive in 82 to 84% of years, survives VIX, trend, vol, drawdown and dial controls). Up-only replay at 1.25x: +5.0% PnL, Sharpe flat, maxDD +10%, 17 of 17 years better. A growth lever, not a Sharpe lever; 1.2 is the shrunk posterior.</p></div></div>
+
+<div class="card"><h2><span class="id">1.11</span>Engine confirmation gate for all of Phase 1<span class="verdict study">gate</span></h2>
+<div class="row"><div class="k">Rule</div><div class="v">One full-ledger replay with 1.1 to 1.10 applied and every cap re-applied (per-strategy, OVS path-2, OLV ticker, cross-strategy clamp), compared to the unmodified ledger over 2010 to 2026 and 2016-07 onward. Pass only if all four hold:
+<ul><li>annual PnL gain at least half the package replay's: ≥ +4 points of NAV a year at GRM 1.875 versus today;</li><li>maxDD no worse than today's by more than 1 point at the GRM-1.5-equivalent (the levers, not the multiplier, must not widen the drawdown);</li><li>worst 21 days no worse by more than 10%;</li><li>the 2016+ worst episode is not the June 2026 OLV stack.</li></ul></div></div>
+<div class="row"><div class="k">On fail</div><p class="v">Fix the composition (the OLV clip in 1.4, the guard gate in 1.9 and 1.10), not the multipliers, and re-run.</p></div></div>
+
+<p class="note">Reference numbers for the whole package at GRM 1.875, 2005 to 2026, from the composed replay: annual PnL 33.0% of NAV (today 24.6%), Sharpe 2.16 (2.00), maxDD 12.5% (12.4%), worst day 7.3% (5.9%), worst 21 days 9.5% (9.5%). Build instructions: <code>sizing_optimal_implementation_brief_2026-09-02.md</code>, WP5 to WP8.</p>
+</main>

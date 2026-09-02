@@ -1,0 +1,551 @@
+{
+ "cache": {
+  "n_tickers": 1120,
+  "last_bar": "2026-09-02",
+  "n_dead_in_cache": 10,
+  "dead_tickers": [
+   "CSGS",
+   "CTLP",
+   "CTRA",
+   "CUK",
+   "GDEN",
+   "LBS=F",
+   "RSX",
+   "SEE",
+   "SEM",
+   "TGNA"
+  ],
+  "n_ledger_tickers": 815,
+  "n_ledger_tickers_dead": 6,
+  "csv_universe_n": 1025,
+  "liquid_n": 197
+ },
+ "csv_universe_names_with_bars_by_year": {
+  "2003": 788,
+  "2004": 811,
+  "2005": 837,
+  "2006": 877,
+  "2007": 907,
+  "2008": 921,
+  "2009": 934,
+  "2010": 976,
+  "2011": 992,
+  "2012": 1022,
+  "2013": 1023,
+  "2014": 1023,
+  "2015": 1024,
+  "2016": 1024,
+  "2017": 1024,
+  "2018": 1025,
+  "2019": 1025,
+  "2020": 1025,
+  "2021": 1025,
+  "2022": 1025,
+  "2023": 1025,
+  "2024": 1025,
+  "2025": 1025,
+  "2026": 1025
+ },
+ "dead_vs_alive": {
+  "False": {
+   "N": 4673,
+   "avgR": 0.45503061447585164,
+   "sdR": 1.2947424268735532
+  },
+  "True": {
+   "N": 23,
+   "avgR": -0.02881676907383508,
+   "sdR": 1.052396127900019
+  }
+ },
+ "dead_by_strategy": {
+  "ATR Extended Gap Up|Short": {
+   "N": 1,
+   "avgR": 1.1610856061735855
+  },
+  "LT Trend ST OS|Long": {
+   "N": 4,
+   "avgR": -0.16570082650525098
+  },
+  "Overbot Vol Spike|Short": {
+   "N": 14,
+   "avgR": 0.20526675604995992
+  },
+  "Oversold Low Volume|Long": {
+   "N": 4,
+   "avgR": -1.0087006433875567
+  }
+ },
+ "tier_split": {
+  "3x Bear ETF Overbot Fade|Liquid": {
+   "N": 55,
+   "avgR": 0.6596060717994495,
+   "sdR": 1.6138603116397616
+  },
+  "3x ETF Overbot Fade|Liquid": {
+   "N": 87,
+   "avgR": 0.8613655657920588,
+   "sdR": 1.4143925403084365
+  },
+  "3x Leader Gap Fade|Liquid": {
+   "N": 24,
+   "avgR": 1.1545467173891926,
+   "sdR": 2.441452289282386
+  },
+  "52wh Breakout|Liquid": {
+   "N": 60,
+   "avgR": 0.543179729963257,
+   "sdR": 2.1258824045767146
+  },
+  "52wh Breakout|Overflow": {
+   "N": 196,
+   "avgR": 0.5215893788003375,
+   "sdR": 1.9704211374479679
+  },
+  "ATR Extended Gap Up|Liquid": {
+   "N": 12,
+   "avgR": 1.252595363840335,
+   "sdR": 2.008055251214603
+  },
+  "ATR Extended Gap Up|Overflow": {
+   "N": 59,
+   "avgR": 0.6866084950773438,
+   "sdR": 1.854450687671157
+  },
+  "Indices Oversold Bounce|Liquid": {
+   "N": 290,
+   "avgR": 0.35111167849359853,
+   "sdR": 1.2411258217282932
+  },
+  "LT Trend ST OS|Liquid": {
+   "N": 61,
+   "avgR": 0.40477322771609336,
+   "sdR": 0.8230064163944603
+  },
+  "LT Trend ST OS|Overflow": {
+   "N": 185,
+   "avgR": 0.291153517551743,
+   "sdR": 0.9226095597280346
+  },
+  "Monday Dip|Liquid": {
+   "N": 108,
+   "avgR": 0.46588646679901446,
+   "sdR": 1.059602720130971
+  },
+  "Monthly Weak Close|Liquid": {
+   "N": 14,
+   "avgR": 1.8015904046570348,
+   "sdR": 0.5099524419094617
+  },
+  "Overbot Vol Spike|Liquid": {
+   "N": 615,
+   "avgR": 0.39745482654122427,
+   "sdR": 1.1164503783976447
+  },
+  "Overbot Vol Spike|Overflow": {
+   "N": 1868,
+   "avgR": 0.38997640636004893,
+   "sdR": 1.052127669592956
+  },
+  "Oversold Low Volume|Liquid": {
+   "N": 87,
+   "avgR": 0.9691557512510816,
+   "sdR": 1.3746770860912014
+  },
+  "Oversold Low Volume|Overflow": {
+   "N": 228,
+   "avgR": 0.6805036531896804,
+   "sdR": 1.4212303632363827
+  },
+  "SPY QQQ MonFri Reversion|Liquid": {
+   "N": 348,
+   "avgR": 0.44912125353857674,
+   "sdR": 1.1627671459278606
+  },
+  "Sector BO|Liquid": {
+   "N": 73,
+   "avgR": 0.8368797064050343,
+   "sdR": 3.343711570054475
+  },
+  "St OS Sznl|Liquid": {
+   "N": 11,
+   "avgR": 1.0208030090181697,
+   "sdR": 0.7318777933596725
+  },
+  "St OS Sznl|Overflow": {
+   "N": 47,
+   "avgR": 0.18425130144558308,
+   "sdR": 1.8336238828489988
+  },
+  "Weak Close Decent Sznls|Liquid": {
+   "N": 268,
+   "avgR": 0.3389314272850296,
+   "sdR": 1.1468888642339456
+  }
+ },
+ "collapse_proxy_by_direction": {
+  "Long|0.30-0.50": {
+   "N": 47,
+   "avgR": 0.03228604502562389
+  },
+  "Long|0.50-0.70": {
+   "N": 183,
+   "avgR": 0.04476118368209586
+  },
+  "Long|<0.30": {
+   "N": 13,
+   "avgR": -0.2827428476240124
+  },
+  "Long|>=0.70": {
+   "N": 1715,
+   "avgR": 0.5586801132135388
+  },
+  "Long|na": {
+   "N": 18,
+   "avgR": -0.325119582470544
+  },
+  "Short|0.30-0.50": {
+   "N": 212,
+   "avgR": 0.7023002509142674
+  },
+  "Short|0.50-0.70": {
+   "N": 481,
+   "avgR": 0.38923049889504785
+  },
+  "Short|<0.30": {
+   "N": 82,
+   "avgR": 0.6614158485695574
+  },
+  "Short|>=0.70": {
+   "N": 1945,
+   "avgR": 0.3995035103466554
+  }
+ },
+ "collapse_proxy_by_strategy": {
+  "3x Bear ETF Overbot Fade|0.30-0.50": {
+   "N": 20,
+   "avgR": 1.088267031162816
+  },
+  "3x Bear ETF Overbot Fade|0.50-0.70": {
+   "N": 17,
+   "avgR": 0.45805759166022897
+  },
+  "3x Bear ETF Overbot Fade|<0.30": {
+   "N": 6,
+   "avgR": 1.1830899941221398
+  },
+  "3x Bear ETF Overbot Fade|>=0.70": {
+   "N": 12,
+   "avgR": -0.03104380810361057
+  },
+  "3x ETF Overbot Fade|0.30-0.50": {
+   "N": 20,
+   "avgR": 0.6938665593070455
+  },
+  "3x ETF Overbot Fade|0.50-0.70": {
+   "N": 18,
+   "avgR": 0.9050286982030398
+  },
+  "3x ETF Overbot Fade|<0.30": {
+   "N": 2,
+   "avgR": 0.10749714707397373
+  },
+  "3x ETF Overbot Fade|>=0.70": {
+   "N": 47,
+   "avgR": 0.9479991952333092
+  },
+  "3x Leader Gap Fade|0.30-0.50": {
+   "N": 10,
+   "avgR": 1.9631559264137508
+  },
+  "3x Leader Gap Fade|0.50-0.70": {
+   "N": 6,
+   "avgR": -0.23230771113955043
+  },
+  "3x Leader Gap Fade|<0.30": {
+   "N": 5,
+   "avgR": 1.0857844121198583
+  },
+  "3x Leader Gap Fade|>=0.70": {
+   "N": 3,
+   "avgR": 1.347495386480376
+  },
+  "52wh Breakout|0.30-0.50": {
+   "N": 4,
+   "avgR": -1.0781095704442802
+  },
+  "52wh Breakout|0.50-0.70": {
+   "N": 30,
+   "avgR": -0.5021955288088248
+  },
+  "52wh Breakout|<0.30": {
+   "N": 4,
+   "avgR": -1.0040991401396697
+  },
+  "52wh Breakout|>=0.70": {
+   "N": 218,
+   "avgR": 0.7257660676571657
+  },
+  "ATR Extended Gap Up|0.30-0.50": {
+   "N": 9,
+   "avgR": 0.7299406160812603
+  },
+  "ATR Extended Gap Up|0.50-0.70": {
+   "N": 13,
+   "avgR": 0.6663717958295512
+  },
+  "ATR Extended Gap Up|<0.30": {
+   "N": 7,
+   "avgR": 1.733684795753657
+  },
+  "ATR Extended Gap Up|>=0.70": {
+   "N": 42,
+   "avgR": 0.6707845979727667
+  },
+  "Indices Oversold Bounce|0.30-0.50": {
+   "N": 2,
+   "avgR": 0.3863593494195915
+  },
+  "Indices Oversold Bounce|0.50-0.70": {
+   "N": 26,
+   "avgR": 0.41750633512346064
+  },
+  "Indices Oversold Bounce|>=0.70": {
+   "N": 262,
+   "avgR": 0.3442538295843298
+  },
+  "LT Trend ST OS|0.30-0.50": {
+   "N": 15,
+   "avgR": 0.41818940218217077
+  },
+  "LT Trend ST OS|0.50-0.70": {
+   "N": 33,
+   "avgR": 0.21818039042376008
+  },
+  "LT Trend ST OS|<0.30": {
+   "N": 4,
+   "avgR": 0.28076254353913
+  },
+  "LT Trend ST OS|>=0.70": {
+   "N": 193,
+   "avgR": 0.3306055023293754
+  },
+  "LT Trend ST OS|na": {
+   "N": 1,
+   "avgR": 0.15186159731153512
+  },
+  "Monday Dip|0.50-0.70": {
+   "N": 3,
+   "avgR": 1.2398142606509996
+  },
+  "Monday Dip|>=0.70": {
+   "N": 105,
+   "avgR": 0.4437742441175292
+  },
+  "Monthly Weak Close|>=0.70": {
+   "N": 14,
+   "avgR": 1.8015904046570348
+  },
+  "Overbot Vol Spike|0.30-0.50": {
+   "N": 153,
+   "avgR": 0.5689147488598603
+  },
+  "Overbot Vol Spike|0.50-0.70": {
+   "N": 427,
+   "avgR": 0.3650430615074767
+  },
+  "Overbot Vol Spike|<0.30": {
+   "N": 62,
+   "avgR": 0.47351370472496823
+  },
+  "Overbot Vol Spike|>=0.70": {
+   "N": 1841,
+   "avgR": 0.3805733035693782
+  },
+  "Oversold Low Volume|0.30-0.50": {
+   "N": 16,
+   "avgR": 0.12239119002260404
+  },
+  "Oversold Low Volume|0.50-0.70": {
+   "N": 40,
+   "avgR": 0.24944672312241423
+  },
+  "Oversold Low Volume|<0.30": {
+   "N": 1,
+   "avgR": 1.9999551674985887
+  },
+  "Oversold Low Volume|>=0.70": {
+   "N": 241,
+   "avgR": 0.96074404246936
+  },
+  "Oversold Low Volume|na": {
+   "N": 17,
+   "avgR": -0.3531772989283134
+  },
+  "SPY QQQ MonFri Reversion|0.50-0.70": {
+   "N": 28,
+   "avgR": 0.08418559037179008
+  },
+  "SPY QQQ MonFri Reversion|>=0.70": {
+   "N": 320,
+   "avgR": 0.4810531240656705
+  },
+  "Sector BO|0.30-0.50": {
+   "N": 2,
+   "avgR": -1.0085121024517576
+  },
+  "Sector BO|0.50-0.70": {
+   "N": 4,
+   "avgR": -1.1150517824267299
+  },
+  "Sector BO|>=0.70": {
+   "N": 67,
+   "avgR": 1.0084992522713125
+  },
+  "St OS Sznl|0.30-0.50": {
+   "N": 6,
+   "avgR": -0.20307794001247803
+  },
+  "St OS Sznl|0.50-0.70": {
+   "N": 6,
+   "avgR": 0.00964787737586322
+  },
+  "St OS Sznl|<0.30": {
+   "N": 4,
+   "avgR": -0.6955664500521477
+  },
+  "St OS Sznl|>=0.70": {
+   "N": 42,
+   "avgR": 0.5674164391231082
+  },
+  "Weak Close Decent Sznls|0.30-0.50": {
+   "N": 2,
+   "avgR": 0.030777735513208726
+  },
+  "Weak Close Decent Sznls|0.50-0.70": {
+   "N": 13,
+   "avgR": -0.4961648839164402
+  },
+  "Weak Close Decent Sznls|>=0.70": {
+   "N": 253,
+   "avgR": 0.38427751198527765
+  }
+ },
+ "collapse63_proxy_by_direction": {
+  "Long|0.30-0.50": {
+   "N": 4,
+   "avgR": 1.069492573109621
+  },
+  "Long|0.50-0.70": {
+   "N": 39,
+   "avgR": -0.22158371038732
+  },
+  "Long|<0.30": {
+   "N": 1,
+   "avgR": 0.8236246728538584
+  },
+  "Long|>=0.70": {
+   "N": 1915,
+   "avgR": 0.5038268545476946
+  },
+  "Long|na": {
+   "N": 17,
+   "avgR": -0.17476066655041453
+  },
+  "Short|0.30-0.50": {
+   "N": 63,
+   "avgR": 0.9036336109869475
+  },
+  "Short|0.50-0.70": {
+   "N": 309,
+   "avgR": 0.6741336892814002
+  },
+  "Short|<0.30": {
+   "N": 11,
+   "avgR": 0.3853327061010104
+  },
+  "Short|>=0.70": {
+   "N": 2337,
+   "avgR": 0.38421183702269995
+  }
+ },
+ "long_collapse_summary": {
+  "N_long": 1976,
+  "avgR_long": 0.4849784035362677,
+  "N_collapse50": 60,
+  "avgR_collapse50": -0.03597021504846398,
+  "share_collapse50": 0.030364372469635626
+ },
+ "long_collapse_by_strategy": {
+  "52wh Breakout": {
+   "N": 256,
+   "avgR": 0.5266496173541467,
+   "N_collapse50": 8,
+   "avgR_collapse50": -1.041104355291975,
+   "share": 0.03125
+  },
+  "Indices Oversold Bounce": {
+   "N": 290,
+   "avgR": 0.35111167849359853,
+   "N_collapse50": 2,
+   "avgR_collapse50": 0.3863593494195915,
+   "share": 0.006896551724137931
+  },
+  "LT Trend ST OS": {
+   "N": 246,
+   "avgR": 0.31932751072257787,
+   "N_collapse50": 19,
+   "avgR_collapse50": 0.38925743194153056,
+   "share": 0.07723577235772358
+  },
+  "Monday Dip": {
+   "N": 108,
+   "avgR": 0.4658864667990144,
+   "N_collapse50": 0,
+   "avgR_collapse50": null,
+   "share": 0.0
+  },
+  "Monthly Weak Close": {
+   "N": 14,
+   "avgR": 1.8015904046570346,
+   "N_collapse50": 0,
+   "avgR_collapse50": null,
+   "share": 0.0
+  },
+  "Oversold Low Volume": {
+   "N": 315,
+   "avgR": 0.7602266136066388,
+   "N_collapse50": 17,
+   "avgR_collapse50": 0.23283612987413257,
+   "share": 0.05396825396825397
+  },
+  "SPY QQQ MonFri Reversion": {
+   "N": 348,
+   "avgR": 0.4491212535385767,
+   "N_collapse50": 0,
+   "avgR_collapse50": null,
+   "share": 0.0
+  },
+  "Sector BO": {
+   "N": 73,
+   "avgR": 0.8368797064050342,
+   "N_collapse50": 2,
+   "avgR_collapse50": -1.0085121024517576,
+   "share": 0.0273972602739726
+  },
+  "St OS Sznl": {
+   "N": 58,
+   "avgR": 0.3429076597783151,
+   "N_collapse50": 10,
+   "avgR_collapse50": -0.400073344028346,
+   "share": 0.1724137931034483
+  },
+  "Weak Close Decent Sznls": {
+   "N": 268,
+   "avgR": 0.3389314272850297,
+   "N_collapse50": 2,
+   "avgR_collapse50": 0.030777735513208726,
+   "share": 0.007462686567164179
+  }
+ }
+}

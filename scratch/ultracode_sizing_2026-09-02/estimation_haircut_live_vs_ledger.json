@@ -1,0 +1,376 @@
+{
+ "staged_rows": 879,
+ "staged_date_range": [
+  "2026-03-26",
+  "2026-08-31"
+ ],
+ "staged_rows_current_book_strats": 853,
+ "staged_rows_retired_strats": 26,
+ "parity_by_status": {
+  "": {
+   "n": 653,
+   "share_in_ledger": 0.11332312404287902
+  },
+  "EXPIRED": {
+   "n": 129,
+   "share_in_ledger": 0.0
+  },
+  "FILLED": {
+   "n": 68,
+   "share_in_ledger": 0.6911764705882353
+  },
+  "PENDING": {
+   "n": 3,
+   "share_in_ledger": 0.0
+  }
+ },
+ "crosstab_graded": {
+  "EXPIRED": {
+   "False": 129,
+   "True": 0
+  },
+  "FILLED": {
+   "False": 21,
+   "True": 47
+  }
+ },
+ "disagreements": [
+  {
+   "Date": "2026-07-28",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "HPQ",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-07-28",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "FDS",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Overflow"
+  },
+  {
+   "Date": "2026-08-03",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "ULTA",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Overflow"
+  },
+  {
+   "Date": "2026-08-03",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "WDAY",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Overflow"
+  },
+  {
+   "Date": "2026-08-07",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "ADSK",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-10",
+   "Strategy_Name": "SPY QQQ MonFri Reversion",
+   "Ticker": "QQQ",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-10",
+   "Strategy_Name": "Monday Dip",
+   "Ticker": "SMH",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-10",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "BAH",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Overflow"
+  },
+  {
+   "Date": "2026-08-17",
+   "Strategy_Name": "SPY QQQ MonFri Reversion",
+   "Ticker": "QQQ",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-19",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "HSY",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-19",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "KO",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-19",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "ARIS",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Overflow"
+  },
+  {
+   "Date": "2026-08-19",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "CPRT",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Overflow"
+  },
+  {
+   "Date": "2026-08-19",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "EXLS",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Overflow"
+  },
+  {
+   "Date": "2026-08-21",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "DLB",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Overflow"
+  },
+  {
+   "Date": "2026-08-24",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "CMCSA",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-27",
+   "Strategy_Name": "Oversold Low Volume",
+   "Ticker": "SPG",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-28",
+   "Strategy_Name": "Weak Close Decent Sznls",
+   "Ticker": "XBI",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-28",
+   "Strategy_Name": "Oversold Low Volume",
+   "Ticker": "SPG",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-28",
+   "Strategy_Name": "SPY QQQ MonFri Reversion",
+   "Ticker": "SPY",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Liquid"
+  },
+  {
+   "Date": "2026-08-28",
+   "Strategy_Name": "Overbot Vol Spike",
+   "Ticker": "NOW",
+   "status": "FILLED",
+   "in_ledger": "False",
+   "Scan_Source": "Overflow"
+  }
+ ],
+ "live_fill_rate_by_strategy": {
+  "3x Bear ETF Overbot Fade": {
+   "fill_rate": 0.6666666666666666,
+   "n_graded": 9
+  },
+  "3x ETF Overbot Fade": {
+   "fill_rate": 0.5,
+   "n_graded": 2
+  },
+  "ATR Extended Gap Up": {
+   "fill_rate": 0.0,
+   "n_graded": 2
+  },
+  "LT Trend ST OS": {
+   "fill_rate": 0.25,
+   "n_graded": 4
+  },
+  "Monday Dip": {
+   "fill_rate": 0.75,
+   "n_graded": 4
+  },
+  "Overbot Vol Spike": {
+   "fill_rate": 0.19327731092436976,
+   "n_graded": 119
+  },
+  "Oversold Low Volume": {
+   "fill_rate": 0.5957446808510638,
+   "n_graded": 47
+  },
+  "SPY QQQ MonFri Reversion": {
+   "fill_rate": 0.7142857142857143,
+   "n_graded": 7
+  },
+  "St OS Sznl": {
+   "fill_rate": 0.0,
+   "n_graded": 2
+  },
+  "Weak Close Decent Sznls": {
+   "fill_rate": 1.0,
+   "n_graded": 1
+  }
+ },
+ "ledger_presence_by_strategy_all_staged": {
+  "3x Bear ETF Overbot Fade": {
+   "share_in_ledger": 0.5,
+   "n_staged": 14
+  },
+  "3x ETF Overbot Fade": {
+   "share_in_ledger": 0.16666666666666666,
+   "n_staged": 6
+  },
+  "3x Leader Gap Fade": {
+   "share_in_ledger": 0.0,
+   "n_staged": 4
+  },
+  "ATR Extended Gap Up": {
+   "share_in_ledger": 0.0,
+   "n_staged": 4
+  },
+  "Indices Oversold Bounce": {
+   "share_in_ledger": 0.0,
+   "n_staged": 1
+  },
+  "LT Trend ST OS": {
+   "share_in_ledger": 0.36363636363636365,
+   "n_staged": 22
+  },
+  "Monday Dip": {
+   "share_in_ledger": 0.5,
+   "n_staged": 6
+  },
+  "Overbot Vol Spike": {
+   "share_in_ledger": 0.07430340557275542,
+   "n_staged": 646
+  },
+  "Oversold Low Volume": {
+   "share_in_ledger": 0.38345864661654133,
+   "n_staged": 133
+  },
+  "SPY QQQ MonFri Reversion": {
+   "share_in_ledger": 0.3,
+   "n_staged": 10
+  },
+  "St OS Sznl": {
+   "share_in_ledger": 0.0,
+   "n_staged": 2
+  },
+  "Weak Close Decent Sznls": {
+   "share_in_ledger": 0.0,
+   "n_staged": 5
+  }
+ },
+ "ledger_R_on_live_staged": {
+  "N": 121,
+  "avgR": 0.19686365446468365,
+  "sumR": 23.820502190226723,
+  "by_strategy": {
+   "3x Bear ETF Overbot Fade": {
+    "N": 7,
+    "avgR": 0.7526278693755316
+   },
+   "3x ETF Overbot Fade": {
+    "N": 1,
+    "avgR": 0.20817389503388917
+   },
+   "LT Trend ST OS": {
+    "N": 8,
+    "avgR": 0.2528383125213898
+   },
+   "Monday Dip": {
+    "N": 3,
+    "avgR": 0.31361449193370716
+   },
+   "Overbot Vol Spike": {
+    "N": 48,
+    "avgR": 0.15465326793000808
+   },
+   "Oversold Low Volume": {
+    "N": 51,
+    "avgR": 0.22200117960400947
+   },
+   "SPY QQQ MonFri Reversion": {
+    "N": 3,
+    "avgR": -1.121677928951
+   }
+  }
+ },
+ "ledger_trades_in_window": {
+  "N_keys": 158,
+  "share_staged_live": 0.7658227848101266,
+  "unstaged_by_strategy": {
+   "3x Bear ETF Overbot Fade": 2,
+   "ATR Extended Gap Up": 6,
+   "LT Trend ST OS": 1,
+   "Monday Dip": 2,
+   "Overbot Vol Spike": 17,
+   "Oversold Low Volume": 7,
+   "SPY QQQ MonFri Reversion": 2
+  }
+ },
+ "fill_price_vs_ledger_entry_bps": {
+  "N": 47,
+  "mean": 30.177056605307985,
+  "median": 0.172359974415226,
+  "abs_gt_20bps": 8
+ },
+ "broker_journal_feb2026": {
+  "rows": 27,
+  "filled": 9,
+  "fill_rate_by_type": {
+   "LMT": 0.5714285714285714,
+   "LOC": 0.07692307692307693
+  },
+  "slippage_bps_filled": {
+   "count": 9.0,
+   "mean": 0.0,
+   "std": 0.0,
+   "min": 0.0,
+   "25%": 0.0,
+   "50%": 0.0,
+   "75%": 0.0,
+   "max": 0.0
+  },
+  "commission_per_share_filled": 0.0011333333333333334
+ },
+ "manual_journal_results": {
+  "": 35,
+  "Small win": 2
+ }
+}

@@ -1,0 +1,424 @@
+{
+ "hedge_by_regime": [
+  {
+   "bucket": "<30",
+   "days": 1527,
+   "beta_hat": 0.3361,
+   "spy_ann": 22.595,
+   "book_sharpe": 2.7697,
+   "hedged_sharpe": 2.2957,
+   "book_mean_bps": 14.5735,
+   "hedged_mean_bps": 11.2745,
+   "book_sd": 83.5279,
+   "hedged_sd": 77.961,
+   "hedge_cost_bps": 3.2991
+  },
+  {
+   "bucket": "30-50",
+   "days": 564,
+   "beta_hat": 0.4161,
+   "spy_ann": 13.8386,
+   "book_sharpe": 3.3735,
+   "hedged_sharpe": 2.6877,
+   "book_mean_bps": 16.9698,
+   "hedged_mean_bps": 13.4517,
+   "book_sd": 79.8552,
+   "hedged_sd": 79.4513,
+   "hedge_cost_bps": 3.5182
+  },
+  {
+   "bucket": "50-65",
+   "days": 216,
+   "beta_hat": 0.4525,
+   "spy_ann": -2.6793,
+   "book_sharpe": 2.5299,
+   "hedged_sharpe": 3.0217,
+   "book_mean_bps": 13.7124,
+   "hedged_mean_bps": 15.2843,
+   "book_sd": 86.0418,
+   "hedged_sd": 80.297,
+   "hedge_cost_bps": -1.5718
+  },
+  {
+   "bucket": "65-80",
+   "days": 109,
+   "beta_hat": 0.5534,
+   "spy_ann": -28.9283,
+   "book_sharpe": 0.7729,
+   "hedged_sharpe": 2.0563,
+   "book_mean_bps": 3.2592,
+   "hedged_mean_bps": 8.2533,
+   "book_sd": 66.9449,
+   "hedged_sd": 63.714,
+   "hedge_cost_bps": -4.994
+  },
+  {
+   "bucket": "80+",
+   "days": 24,
+   "beta_hat": 0.4648,
+   "spy_ann": -2.3905,
+   "book_sharpe": 2.7524,
+   "hedged_sharpe": 2.8381,
+   "book_mean_bps": 17.2442,
+   "hedged_mean_bps": 16.5305,
+   "book_sd": 99.4579,
+   "hedged_sd": 92.461,
+   "hedge_cost_bps": 0.7137
+  }
+ ],
+ "hedge_policy": {
+  "never": {
+   "ann": 0.3672156875409836,
+   "vol": 0.13079584164591213,
+   "sharpe": 2.807548641608214,
+   "maxdd": -0.08323155999999932,
+   "worst": -0.04886210666666667
+  },
+  "dial>=65": {
+   "ann": 0.3726607513460145,
+   "vol": 0.13045466120283486,
+   "sharpe": 2.8566304025472133,
+   "maxdd": -0.08323155999999932,
+   "worst": -0.04886210666666667
+  },
+  "dial>=50": {
+   "ann": 0.37616725405421686,
+   "vol": 0.1296375532274075,
+   "sharpe": 2.901684308977601,
+   "maxdd": -0.0828701414100812,
+   "worst": -0.04886210666666667
+  }
+ },
+ "olv_budget": [
+  {
+   "policy": "none",
+   "total": 398916.0,
+   "worst21": -13994.0,
+   "maxdd": -20592.0,
+   "scaled_legs": 0,
+   "risk_deployed": 501426.56,
+   "pnl_per_risk": 0.8
+  },
+  {
+   "policy": "cap 150 bps open",
+   "total": 282587.03,
+   "worst21": -10546.0,
+   "maxdd": -16033.0,
+   "scaled_legs": 61,
+   "risk_deployed": 395523.02,
+   "pnl_per_risk": 0.71
+  },
+  {
+   "policy": "cap 200 bps open",
+   "total": 312867.97,
+   "worst21": -10546.0,
+   "maxdd": -16033.0,
+   "scaled_legs": 47,
+   "risk_deployed": 422410.52,
+   "pnl_per_risk": 0.74
+  },
+  {
+   "policy": "cap 250 bps open",
+   "total": 328830.85,
+   "worst21": -10546.0,
+   "maxdd": -16115.65,
+   "scaled_legs": 36,
+   "risk_deployed": 441910.52,
+   "pnl_per_risk": 0.74
+  },
+  {
+   "policy": "cap 300 bps open",
+   "total": 344939.91,
+   "worst21": -12484.21,
+   "maxdd": -19082.21,
+   "scaled_legs": 26,
+   "risk_deployed": 457116.77,
+   "pnl_per_risk": 0.75
+  },
+  {
+   "policy": "cap 400 bps open",
+   "total": 370838.64,
+   "worst21": -16142.88,
+   "maxdd": -22740.88,
+   "scaled_legs": 15,
+   "risk_deployed": 479616.77,
+   "pnl_per_risk": 0.77
+  },
+  {
+   "policy": "cap 500 bps open",
+   "total": 395611.83,
+   "worst21": -13994.0,
+   "maxdd": -20592.0,
+   "scaled_legs": 3,
+   "risk_deployed": 496638.03,
+   "pnl_per_risk": 0.8
+  },
+  {
+   "policy": "sqrt(n) marginal",
+   "total": 137947.11,
+   "worst21": -7698.38,
+   "maxdd": -9968.36,
+   "scaled_legs": 219,
+   "risk_deployed": 217224.16,
+   "pnl_per_risk": 0.64
+  }
+ ],
+ "olv_open_risk_quantiles": {
+  "0.5": 45.0,
+  "0.75": 117.0,
+  "0.9": 251.0,
+  "0.95": 382.0,
+  "1.0": 526.0
+ },
+ "clones": {
+  "Indices Oversold Bounce": {
+   "both_days": 50,
+   "day_mean": 2782.94,
+   "day_sd": 9836.065287667894,
+   "single_mean": 1482.313253012048,
+   "single_sd": 4280.902432009306
+  },
+  "SPY QQQ MonFri Reversion": {
+   "both_days": 77,
+   "day_mean": 4030.4285714285716,
+   "day_sd": 7641.677067634763,
+   "single_mean": 1281.9176470588236,
+   "single_sd": 3602.5139641901283
+  },
+  "Monthly Weak Close": {
+   "both_days": 2,
+   "day_mean": 11478.0,
+   "day_sd": 2845.397687494667,
+   "single_mean": 6013.6,
+   "single_sd": 2677.327921641277
+  }
+ },
+ "haircut_frontier": [
+  {
+   "mu_haircut": 1.0,
+   "mult": 0.75,
+   "grm": 1.125,
+   "median_ann": 24.7378,
+   "p_dd10": 0.005,
+   "p_dd15": 0.0,
+   "p_dd20": 0.0,
+   "p5_dd": -6.9159
+  },
+  {
+   "mu_haircut": 1.0,
+   "mult": 1.0,
+   "grm": 1.5,
+   "median_ann": 32.9837,
+   "p_dd10": 0.0313,
+   "p_dd15": 0.002,
+   "p_dd20": 0.0,
+   "p5_dd": -9.2211
+  },
+  {
+   "mu_haircut": 1.0,
+   "mult": 1.25,
+   "grm": 1.875,
+   "median_ann": 41.2296,
+   "p_dd10": 0.1287,
+   "p_dd15": 0.0097,
+   "p_dd20": 0.001,
+   "p5_dd": -11.5264
+  },
+  {
+   "mu_haircut": 1.0,
+   "mult": 1.5,
+   "grm": 2.25,
+   "median_ann": 49.4755,
+   "p_dd10": 0.2907,
+   "p_dd15": 0.0313,
+   "p_dd20": 0.005,
+   "p5_dd": -13.8317
+  },
+  {
+   "mu_haircut": 1.0,
+   "mult": 2.0,
+   "grm": 3.0,
+   "median_ann": 65.9674,
+   "p_dd10": 0.5293,
+   "p_dd15": 0.1777,
+   "p_dd20": 0.0313,
+   "p5_dd": -18.4423
+  },
+  {
+   "mu_haircut": 0.5,
+   "mult": 0.75,
+   "grm": 1.125,
+   "median_ann": 12.2491,
+   "p_dd10": 0.0603,
+   "p_dd15": 0.0043,
+   "p_dd20": 0.0,
+   "p5_dd": -10.4245
+  },
+  {
+   "mu_haircut": 0.5,
+   "mult": 1.0,
+   "grm": 1.5,
+   "median_ann": 16.3322,
+   "p_dd10": 0.1853,
+   "p_dd15": 0.0333,
+   "p_dd20": 0.0043,
+   "p5_dd": -13.8994
+  },
+  {
+   "mu_haircut": 0.5,
+   "mult": 1.25,
+   "grm": 1.875,
+   "median_ann": 20.4152,
+   "p_dd10": 0.3823,
+   "p_dd15": 0.091,
+   "p_dd20": 0.0223,
+   "p5_dd": -17.3742
+  },
+  {
+   "mu_haircut": 0.5,
+   "mult": 1.5,
+   "grm": 2.25,
+   "median_ann": 24.4983,
+   "p_dd10": 0.5783,
+   "p_dd15": 0.1853,
+   "p_dd20": 0.0603,
+   "p5_dd": -20.8491
+  },
+  {
+   "mu_haircut": 0.5,
+   "mult": 2.0,
+   "grm": 3.0,
+   "median_ann": 32.6643,
+   "p_dd10": 0.8267,
+   "p_dd15": 0.4663,
+   "p_dd20": 0.1853,
+   "p5_dd": -27.7988
+  },
+  {
+   "mu_haircut": 0.25,
+   "mult": 0.75,
+   "grm": 1.125,
+   "median_ann": 5.9491,
+   "p_dd10": 0.1847,
+   "p_dd15": 0.031,
+   "p_dd20": 0.0027,
+   "p5_dd": -13.5602
+  },
+  {
+   "mu_haircut": 0.25,
+   "mult": 1.0,
+   "grm": 1.5,
+   "median_ann": 7.9321,
+   "p_dd10": 0.409,
+   "p_dd15": 0.1143,
+   "p_dd20": 0.031,
+   "p5_dd": -18.0803
+  },
+  {
+   "mu_haircut": 0.25,
+   "mult": 1.25,
+   "grm": 1.875,
+   "median_ann": 9.9151,
+   "p_dd10": 0.6327,
+   "p_dd15": 0.252,
+   "p_dd20": 0.0903,
+   "p5_dd": -22.6004
+  },
+  {
+   "mu_haircut": 0.25,
+   "mult": 1.5,
+   "grm": 2.25,
+   "median_ann": 11.8982,
+   "p_dd10": 0.7883,
+   "p_dd15": 0.409,
+   "p_dd20": 0.1847,
+   "p5_dd": -27.1205
+  },
+  {
+   "mu_haircut": 0.25,
+   "mult": 2.0,
+   "grm": 3.0,
+   "median_ann": 15.8642,
+   "p_dd10": 0.9343,
+   "p_dd15": 0.6993,
+   "p_dd20": 0.409,
+   "p5_dd": -36.1606
+  }
+ ],
+ "clusters": {
+  "dial<50": {
+   "1": [
+    "52wh Breakout",
+    "Indices Oversold Bounce",
+    "LT Trend ST OS",
+    "Overbot Vol Spike",
+    "Oversold Low Volume",
+    "SPY QQQ MonFri Reversion",
+    "Sector BO",
+    "Weak Close Decent Sznls"
+   ]
+  },
+  "dial<50_risk_contrib": {
+   "Overbot Vol Spike": 0.4146,
+   "52wh Breakout": 0.1633,
+   "Oversold Low Volume": 0.1497,
+   "Weak Close Decent Sznls": 0.1492,
+   "Indices Oversold Bounce": 0.0581,
+   "SPY QQQ MonFri Reversion": 0.0292,
+   "Sector BO": 0.0276,
+   "LT Trend ST OS": 0.0085
+  },
+  "dial>=50": {
+   "1": [
+    "52wh Breakout",
+    "Indices Oversold Bounce",
+    "LT Trend ST OS",
+    "Overbot Vol Spike",
+    "Oversold Low Volume",
+    "SPY QQQ MonFri Reversion",
+    "Sector BO",
+    "Weak Close Decent Sznls"
+   ]
+  },
+  "dial>=50_risk_contrib": {
+   "Oversold Low Volume": 0.3749,
+   "LT Trend ST OS": 0.305,
+   "Overbot Vol Spike": 0.1155,
+   "52wh Breakout": 0.1095,
+   "SPY QQQ MonFri Reversion": 0.0708,
+   "Sector BO": 0.0207,
+   "Indices Oversold Bounce": 0.0032,
+   "Weak Close Decent Sznls": 0.0004
+  }
+ },
+ "b52_stack": [
+  {
+   "nb": "0",
+   "N": 31,
+   "avgR": 0.836,
+   "win": 0.484,
+   "pnl": 101976.0
+  },
+  {
+   "nb": "1-2",
+   "N": 76,
+   "avgR": 0.559,
+   "win": 0.434,
+   "pnl": 167188.0
+  },
+  {
+   "nb": "3-5",
+   "N": 60,
+   "avgR": 0.89,
+   "win": 0.517,
+   "pnl": 210113.0
+  },
+  {
+   "nb": "6+",
+   "N": 23,
+   "avgR": 0.083,
+   "win": 0.348,
+   "pnl": 7514.0
+  }
+ ]
+}

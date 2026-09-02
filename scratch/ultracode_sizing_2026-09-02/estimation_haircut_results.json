@@ -1,0 +1,874 @@
+{
+ "per_strategy": {
+  "3x Bear ETF Overbot Fade": {
+   "N": 55,
+   "avgR_ledger": 0.6596060717994495,
+   "versions": 6,
+   "class": "etf/Short",
+   "overflow_share": 0.0,
+   "sel_keep": [
+    0.8522308366855387,
+    0.6303631727399643,
+    0.8522308366855387
+   ],
+   "sel_note": "trials versions/3=2: keep 0.85 [ver 0.63, ver/8 0.85]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "2026 N=12 (uninformative) PnL/risk 0.85",
+   "surv_keep": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "surv_note": "index/ETF: no survivorship",
+   "cost_keep": [
+    0.9691,
+    0.94365,
+    0.98237
+   ],
+   "keep_central": 0.74330721344876,
+   "keep_range": [
+    0.4461316559670505,
+    0.8372060070347725
+   ],
+   "haircut_central": 0.25669278655123995,
+   "haircut_range": [
+    0.16279399296522745,
+    0.5538683440329495
+   ],
+   "avgR_haircut_central": 0.49028995120313157,
+   "pnl_share": 0.024510463893940026
+  },
+  "3x ETF Overbot Fade": {
+   "N": 87,
+   "avgR_ledger": 0.8613655657920587,
+   "versions": 6,
+   "class": "etf/Short",
+   "overflow_share": 0.0,
+   "sel_keep": [
+    0.9008289369878,
+    0.7519287768461823,
+    0.9008289369878
+   ],
+   "sel_note": "trials versions/3=2: keep 0.90 [ver 0.75, ver/8 0.90]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "2026 N=1 (uninformative) PnL/risk 0.21",
+   "surv_keep": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "surv_note": "index/ETF: no survivorship",
+   "cost_keep": [
+    0.9644,
+    0.9366,
+    0.97908
+   ],
+   "keep_central": 0.781883484147931,
+   "keep_range": [
+    0.5281923692956008,
+    0.8819835956260151
+   ],
+   "haircut_central": 0.21811651585206904,
+   "haircut_range": [
+    0.11801640437398486,
+    0.47180763070439924
+   ],
+   "avgR_haircut_central": 0.6734875097065487,
+   "pnl_share": 0.050529461116894776
+  },
+  "3x Leader Gap Fade": {
+   "N": 24,
+   "avgR_ledger": 1.1545467173891926,
+   "versions": 3,
+   "class": "etf/Short",
+   "overflow_share": 0.0,
+   "sel_keep": [
+    0.5,
+    0.35,
+    0.65
+   ],
+   "sel_note": "N=24: base-rate prior (pilot); DSR meaningless",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "no 2026 trades (gated or rare)",
+   "surv_keep": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "surv_note": "index/ETF: no survivorship",
+   "cost_keep": [
+    0.9741,
+    0.9511499999999999,
+    0.98587
+   ],
+   "keep_central": 0.438345,
+   "keep_range": [
+    0.24967687499999994,
+    0.6408155
+   ],
+   "haircut_central": 0.561655,
+   "haircut_range": [
+    0.3591845,
+    0.7503231250000001
+   ],
+   "avgR_haircut_central": 0.5060897808339656,
+   "pnl_share": 0.01885074463438552
+  },
+  "52wh Breakout": {
+   "N": 256,
+   "avgR_ledger": 0.5266496173541467,
+   "versions": 17,
+   "class": "stock/Long",
+   "overflow_share": 0.765625,
+   "sel_keep": [
+    0.4252196195780622,
+    0.25,
+    0.7702209043019222
+   ],
+   "sel_note": "trials versions/3=6: keep 0.43 [ver 0.25, ver/8 0.77]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "no 2026 trades (gated or rare)",
+   "surv_keep": [
+    0.85,
+    0.8,
+    0.92
+   ],
+   "surv_note": "long single-stock, overflow share 77%",
+   "cost_keep": [
+    0.962,
+    0.9329999999999999,
+    0.9774
+   ],
+   "keep_central": 0.3129318746360833,
+   "keep_range": [
+    0.13995000000000002,
+    0.6925887989155229
+   ],
+   "haircut_central": 0.6870681253639167,
+   "haircut_range": [
+    0.30741120108447706,
+    0.86005
+   ],
+   "avgR_haircut_central": 0.16480545203500907,
+   "pnl_share": 0.12828962873063482
+  },
+  "ATR Extended Gap Up": {
+   "N": 71,
+   "avgR_ledger": 0.7822682475443282,
+   "versions": 4,
+   "class": "stock/Short",
+   "overflow_share": 0.8309859154929577,
+   "sel_keep": [
+    0.8549706951636156,
+    0.706422178292117,
+    0.8549706951636156
+   ],
+   "sel_note": "trials versions/3=1: keep 0.85 [ver 0.71, ver/8 0.85]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "2026 N=11 (uninformative) PnL/risk 1.15",
+   "surv_keep": [
+    1.0,
+    0.95,
+    1.03
+   ],
+   "surv_note": "short single-stock: missing collapsers understate, missing takeover targets overstate; net ~0",
+   "cost_keep": [
+    0.9509,
+    0.91635,
+    0.96963
+   ],
+   "keep_central": 0.7316924706279738,
+   "keep_range": [
+    0.46122259869306165,
+    0.8538753922060415
+   ],
+   "haircut_central": 0.2683075293720262,
+   "haircut_range": [
+    0.14612460779395853,
+    0.5387774013069384
+   ],
+   "avgR_haircut_central": 0.5723797867395249,
+   "pnl_share": 0.06039305982817561
+  },
+  "Indices Oversold Bounce": {
+   "N": 290,
+   "avgR_ledger": 0.35111167849359853,
+   "versions": 5,
+   "class": "etf/Long",
+   "overflow_share": 0.0,
+   "sel_keep": [
+    0.7865122039204655,
+    0.5101459413616946,
+    0.7865122039204655
+   ],
+   "sel_note": "trials versions/3=2: keep 0.79 [ver 0.51, ver/8 0.79]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "2026 N=4 (uninformative) PnL/risk 0.71",
+   "surv_keep": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "surv_note": "index/ETF: no survivorship",
+   "cost_keep": [
+    0.9538,
+    0.9207,
+    0.97166
+   ],
+   "keep_central": 0.675157806089406,
+   "keep_range": [
+    0.3522685261587841,
+    0.7642224480613595
+   ],
+   "haircut_central": 0.324842193910594,
+   "haircut_range": [
+    0.23577755193864047,
+    0.6477314738412159
+   ],
+   "avgR_haircut_central": 0.23705579054410686,
+   "pnl_share": 0.08120530870306017
+  },
+  "LT Trend ST OS": {
+   "N": 246,
+   "avgR_ledger": 0.31932751072257787,
+   "versions": 11,
+   "class": "stock/Long",
+   "overflow_share": 0.7520325203252033,
+   "sel_keep": [
+    0.6559480269737528,
+    0.4695284447414544,
+    0.8300361444699578
+   ],
+   "sel_note": "trials versions/3=4: keep 0.66 [ver 0.47, ver/8 0.83]",
+   "oos_adj": [
+    0.8037289687834003,
+    0.7,
+    1.0
+   ],
+   "oos_note": "2026 N=23 PnL/risk 0.01 vs 2021-25 0.27 ratio 0.04, shrunk 0.35 (risk-weighted)",
+   "surv_keep": [
+    0.85,
+    0.8,
+    0.92
+   ],
+   "surv_note": "long single-stock, overflow share 75%",
+   "cost_keep": [
+    0.9168999999999999,
+    0.86535,
+    0.94583
+   ],
+   "keep_central": 0.4108846815963214,
+   "keep_range": [
+    0.2275316062079298,
+    0.7222672396020985
+   ],
+   "haircut_central": 0.5891153184036786,
+   "haircut_range": [
+    0.2777327603979015,
+    0.7724683937920702
+   ],
+   "avgR_haircut_central": 0.13120678256819232,
+   "pnl_share": 0.0562537178542328
+  },
+  "Monday Dip": {
+   "N": 108,
+   "avgR_ledger": 0.4658864667990144,
+   "versions": 6,
+   "class": "stock/Long",
+   "overflow_share": 0.0,
+   "sel_keep": [
+    0.8626383537915335,
+    0.65639703201362,
+    0.8626383537915335
+   ],
+   "sel_note": "trials versions/3=2: keep 0.86 [ver 0.66, ver/8 0.86]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "2026 N=5 (uninformative) PnL/risk 0.30",
+   "surv_keep": [
+    0.95,
+    0.92,
+    0.98
+   ],
+   "surv_note": "long single-stock, overflow share 0%",
+   "cost_keep": [
+    0.9373,
+    0.89595,
+    0.96011
+   ],
+   "keep_central": 0.6913110443025277,
+   "keep_range": [
+    0.405788255374496,
+    0.8116631556616135
+   ],
+   "haircut_central": 0.30868895569747234,
+   "haircut_range": [
+    0.1883368443383865,
+    0.594211744625504
+   ],
+   "avgR_haircut_central": 0.32207245988924155,
+   "pnl_share": 0.037750798802358446
+  },
+  "Monthly Weak Close": {
+   "N": 14,
+   "avgR_ledger": 1.8015904046570346,
+   "versions": 3,
+   "class": "etf/Long",
+   "overflow_share": 0.0,
+   "sel_keep": [
+    0.5,
+    0.35,
+    0.65
+   ],
+   "sel_note": "N=14: base-rate prior (pilot); DSR meaningless",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "no 2026 trades (gated or rare)",
+   "surv_keep": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "surv_note": "index/ETF: no survivorship",
+   "cost_keep": [
+    0.9745,
+    0.95175,
+    0.98615
+   ],
+   "keep_central": 0.438525,
+   "keep_range": [
+    0.24983437499999994,
+    0.6409975
+   ],
+   "haircut_central": 0.561475,
+   "haircut_range": [
+    0.3590025,
+    0.7501656250000001
+   ],
+   "avgR_haircut_central": 0.790042432202226,
+   "pnl_share": 0.0209729882858435
+  },
+  "Overbot Vol Spike": {
+   "N": 2483,
+   "avgR_ledger": 0.3918286932756441,
+   "versions": 51,
+   "class": "stock/Short",
+   "overflow_share": 0.752315747080145,
+   "sel_keep": [
+    0.4208954570317943,
+    0.2765107505237848,
+    0.5881406880061912
+   ],
+   "sel_note": "trials versions/3=17: keep 0.42 [ver 0.28, ver/8 0.59]",
+   "oos_adj": [
+    0.7981581775459153,
+    0.7,
+    1.0
+   ],
+   "oos_note": "2026 N=217 PnL/risk 0.10 vs 2021-25 0.33 ratio 0.29, shrunk 0.33 (risk-weighted)",
+   "surv_keep": [
+    1.0,
+    0.95,
+    1.03
+   ],
+   "surv_note": "short single-stock: missing collapsers understate, missing takeover targets overstate; net ~0",
+   "cost_keep": [
+    0.8949,
+    0.8323499999999999,
+    0.93043
+   ],
+   "keep_central": 0.3006337359599654,
+   "keep_range": [
+    0.15305222592698406,
+    0.5636404525518486
+   ],
+   "haircut_central": 0.6993662640400347,
+   "haircut_range": [
+    0.4363595474481514,
+    0.8469477740730159
+   ],
+   "avgR_haircut_central": 0.11779692391576826,
+   "pnl_share": 0.14681744426270282
+  },
+  "Oversold Low Volume": {
+   "N": 315,
+   "avgR_ledger": 0.7602266136066388,
+   "versions": 27,
+   "class": "stock/Long",
+   "overflow_share": 0.7238095238095238,
+   "sel_keep": [
+    0.6717188218383141,
+    0.5618824011295399,
+    0.8159102580184074
+   ],
+   "sel_note": "trials versions/3=9: keep 0.67 [ver 0.56, ver/8 0.82]",
+   "oos_adj": [
+    0.8229150311547336,
+    0.7,
+    1.0
+   ],
+   "oos_note": "2026 N=69 PnL/risk 0.36 vs 2021-25 1.05 ratio 0.34, shrunk 0.41 (risk-weighted)",
+   "surv_keep": [
+    0.85,
+    0.8,
+    0.92
+   ],
+   "surv_note": "long single-stock, overflow share 72%",
+   "cost_keep": [
+    0.963,
+    0.9345,
+    0.9781
+   ],
+   "keep_central": 0.45246784956720326,
+   "keep_range": [
+    0.2940442981591109,
+    0.73419847749838
+   ],
+   "haircut_central": 0.5475321504327968,
+   "haircut_range": [
+    0.26580152250162004,
+    0.7059557018408891
+   ],
+   "avgR_haircut_central": 0.343978101042353,
+   "pnl_share": 0.10106544849558788
+  },
+  "SPY QQQ MonFri Reversion": {
+   "N": 348,
+   "avgR_ledger": 0.4491212535385767,
+   "versions": 5,
+   "class": "etf/Long",
+   "overflow_share": 0.0,
+   "sel_keep": [
+    0.8436378395652285,
+    0.6412224009381244,
+    0.8436378395652285
+   ],
+   "sel_note": "trials versions/3=2: keep 0.84 [ver 0.64, ver/8 0.84]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "2026 N=5 (uninformative) PnL/risk 0.39",
+   "surv_keep": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "surv_note": "index/ETF: no survivorship",
+   "cost_keep": [
+    0.9498,
+    0.9147,
+    0.9688599999999999
+   ],
+   "keep_central": 0.7211584980171486,
+   "keep_range": [
+    0.4398945976035768,
+    0.8173669572411673
+   ],
+   "haircut_central": 0.2788415019828514,
+   "haircut_range": [
+    0.18263304275883274,
+    0.5601054023964231
+   ],
+   "avgR_haircut_central": 0.3238876086294589,
+   "pnl_share": 0.1245266345203959
+  },
+  "Sector BO": {
+   "N": 73,
+   "avgR_ledger": 0.8368797064050342,
+   "versions": 4,
+   "class": "etf/Long",
+   "overflow_share": 0.0,
+   "sel_keep": [
+    0.7586939065553634,
+    0.5115323943789417,
+    0.7586939065553634
+   ],
+   "sel_note": "trials versions/3=1: keep 0.76 [ver 0.51, ver/8 0.76]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "no 2026 trades (gated or rare)",
+   "surv_keep": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "surv_note": "index/ETF: no survivorship",
+   "cost_keep": [
+    0.9486,
+    0.9128999999999999,
+    0.96802
+   ],
+   "keep_central": 0.6477273357825759,
+   "keep_range": [
+    0.35023344212140184,
+    0.7344308754237229
+   ],
+   "haircut_central": 0.3522726642174241,
+   "haircut_range": [
+    0.2655691245762771,
+    0.6497665578785982
+   ],
+   "avgR_haircut_central": 0.5420698626002372,
+   "pnl_share": 0.04152998781039324
+  },
+  "St OS Sznl": {
+   "N": 58,
+   "avgR_ledger": 0.3429076597783151,
+   "versions": 5,
+   "class": "stock/Long",
+   "overflow_share": 0.8103448275862069,
+   "sel_keep": [
+    0.699202131930083,
+    0.30981040036169316,
+    0.699202131930083
+   ],
+   "sel_note": "trials versions/3=2: keep 0.70 [ver 0.31, ver/8 0.70]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "2026 N=1 (uninformative) PnL/risk 1.50",
+   "surv_keep": [
+    0.85,
+    0.8,
+    0.92
+   ],
+   "surv_note": "long single-stock, overflow share 81%",
+   "cost_keep": [
+    0.9319,
+    0.88785,
+    0.95633
+   ],
+   "keep_central": 0.49846364706041796,
+   "keep_range": [
+    0.16503909837667757,
+    0.6151745368424006
+   ],
+   "haircut_central": 0.501536352939582,
+   "haircut_range": [
+    0.38482546315759936,
+    0.8349609016233224
+   ],
+   "avgR_haircut_central": 0.17092700269805194,
+   "pnl_share": 0.02575794675102142
+  },
+  "Weak Close Decent Sznls": {
+   "N": 268,
+   "avgR_ledger": 0.3389314272850297,
+   "versions": 17,
+   "class": "stock/Long",
+   "overflow_share": 0.0,
+   "sel_keep": [
+    0.4887851833121314,
+    0.28119429583018996,
+    0.7956324149412222
+   ],
+   "sel_note": "trials versions/3=6: keep 0.49 [ver 0.28, ver/8 0.80]",
+   "oos_adj": [
+    0.9,
+    0.75,
+    1.0
+   ],
+   "oos_note": "no 2026 trades (gated or rare)",
+   "surv_keep": [
+    0.95,
+    0.92,
+    0.98
+   ],
+   "surv_note": "long single-stock, overflow share 0%",
+   "cost_keep": [
+    0.8831,
+    0.81465,
+    0.9221699999999999
+   ],
+   "keep_central": 0.3690574970524164,
+   "keep_range": [
+    0.15806170383766432,
+    0.7190341772046198
+   ],
+   "haircut_central": 0.6309425029475836,
+   "haircut_range": [
+    0.2809658227953802,
+    0.8419382961623356
+   ],
+   "avgR_haircut_central": 0.12508518422621612,
+   "pnl_share": 0.08154636631037306
+  }
+ },
+ "book": {
+  "keep_bottom_up_pnl_weighted": 0.5130654493161105,
+  "keep_range_bottom_up": [
+   0.28875638537288867,
+   0.7280795913113636
+  ],
+  "keep_direct_blend": 0.6974725053101982,
+  "keep_recommended": 0.6052689773131543,
+  "haircut_recommended": 0.3947310226868457,
+  "haircut_range": [
+   0.27192040868863643,
+   0.7112436146271113
+  ],
+  "haircut_range_note": "low end = every component at its generous bound; high end = bottom-up pessimistic bound or the raw unweighted 2026 ratio, whichever is worse",
+  "direct_evidence": {
+   "dsr_keep_2016plus_N31_N250": [
+    0.7947791051988792,
+    0.7209462558558504
+   ],
+   "dsr_keep_2003plus_N31_N250": [
+    0.7619528644184883,
+    0.6763100339700494
+   ],
+   "raw_2026_ratio_vs_trailing5_at_mix": 0.3457400237383155,
+   "raw_2026_ratio_vs_prerepo_at_mix": 0.4112177615086851,
+   "raw_2026_ratio_ci95_dayblock": [
+    0.020057346233643598,
+    0.787960876382288
+   ],
+   "rule_freeze_oos_ratio": 0.3591947506379677,
+   "rule_freeze_oos_N": 108,
+   "rule_freeze_oos_ci95": [
+    -0.5686824523667675,
+    1.2183246858242538
+   ],
+   "midterm_conditioned_2026_ratio": 0.7698253192036517,
+   "strategy_x_dial_mix_ratio_2026": 0.3871508055788214,
+   "historical_yearly_ratio_dist": {
+    "mean": 1.0837489600014765,
+    "median": 1.1135761609760793,
+    "sd": 0.47632627606561545,
+    "min": 0.289499561721443,
+    "share_below_0.5": 0.16666666666666666,
+    "share_below_0.7": 0.2222222222222222,
+    "ratio_2026": 0.3457400237383155
+   },
+   "book_cost_share": 0.05595064320834658,
+   "marginal_fill_giveup_share": 0.017526483957405192,
+   "cross_sectional_shrink_signal_share": 0.7318771893114653,
+   "live_staged_ledger_R_2026": {
+    "N": 121,
+    "avgR": 0.19686365446468365,
+    "sumR": 23.820502190226723,
+    "by_strategy": {
+     "3x Bear ETF Overbot Fade": {
+      "N": 7,
+      "avgR": 0.7526278693755316
+     },
+     "3x ETF Overbot Fade": {
+      "N": 1,
+      "avgR": 0.20817389503388917
+     },
+     "LT Trend ST OS": {
+      "N": 8,
+      "avgR": 0.2528383125213898
+     },
+     "Monday Dip": {
+      "N": 3,
+      "avgR": 0.31361449193370716
+     },
+     "Overbot Vol Spike": {
+      "N": 48,
+      "avgR": 0.15465326793000808
+     },
+     "Oversold Low Volume": {
+      "N": 51,
+      "avgR": 0.22200117960400947
+     },
+     "SPY QQQ MonFri Reversion": {
+      "N": 3,
+      "avgR": -1.121677928951
+     }
+    }
+   },
+   "riskweighted_2026_ratio_vs_trailing5_at_risk_mix": 0.5241291656313891,
+   "riskweighted_yearly_ratio_dist": {
+    "mean": 1.1684034082268129,
+    "median": 1.076516683381779,
+    "sd": 0.6430194217978311,
+    "min": 0.21896706810325683,
+    "share_below_0.5": 0.16666666666666666,
+    "share_below_0.7": 0.2222222222222222,
+    "ratio_2026": 0.5241291656313891,
+    "rank_2026_of_19": 4
+   },
+   "riskweighted_midterm_conditioned_2026_ratio": 1.223533999823469,
+   "riskweighted_2026_vs_nonmidterm_JanAug": 0.6493822458561995,
+   "structural_keep": 0.6328804278047019,
+   "realized_2026_keep": 0.7620645828156946
+  },
+  "daily_series_check": {
+   "book_2026ytd_sharpe": 2.803500986849449,
+   "book_2016_2025_sharpe": 2.6687125757048467,
+   "book_2026ytd_ann_ret": 0.47547929273885353,
+   "book_2016_2025_ann_ret": 0.32599346152548864,
+   "book_midterm_years_JanJul_sharpe": {
+    "2006": 0.08557514111401927,
+    "2010": 1.7456545347599512,
+    "2014": 0.038032439953517724,
+    "2018": 1.7625284337974338,
+    "2022": 1.4592461087110862,
+    "2026": 2.803500986849449
+   },
+   "book_midterm_years_JanJul_ann_ret": {
+    "2006": 0.009820999999999974,
+    "2010": 0.12676086769230768,
+    "2014": 0.004427581146496816,
+    "2018": 0.2182399612738853,
+    "2022": 0.18707051458064514,
+    "2026": 0.47547929273885353
+   },
+   "series_end": "2026-08-07",
+   "per_strategy_2026ytd_vs_2016_25": {
+    "3x Bear ETF Overbot Fade": {
+     "sh_2026": 1.3423600703129437,
+     "sh_2016_25": 0.5282715181597453,
+     "ret_2026_pct_nav": 4.152134666666667,
+     "ret_2016_25_avg_yr_pct_nav": 0.9368266666666665
+    },
+    "3x ETF Overbot Fade": {
+     "sh_2026": 1.5728542625924593,
+     "sh_2016_25": 0.7566255779760116,
+     "ret_2026_pct_nav": 0.12493333333333334,
+     "ret_2016_25_avg_yr_pct_nav": 2.372773333333333
+    },
+    "3x Leader Gap Fade": {
+     "sh_2026": null,
+     "sh_2016_25": 0.38775672310392345,
+     "ret_2026_pct_nav": 0.0,
+     "ret_2016_25_avg_yr_pct_nav": 0.9658535999999998
+    },
+    "52wh Breakout": {
+     "sh_2026": null,
+     "sh_2016_25": 0.6782883813249896,
+     "ret_2026_pct_nav": 0.0,
+     "ret_2016_25_avg_yr_pct_nav": 2.6820085333333337
+    },
+    "ATR Extended Gap Up": {
+     "sh_2026": 1.8161647092872975,
+     "sh_2016_25": 0.7117800976831458,
+     "ret_2026_pct_nav": 7.562134666666666,
+     "ret_2016_25_avg_yr_pct_nav": 2.2033196
+    },
+    "Indices Oversold Bounce": {
+     "sh_2026": 2.9995939423083025,
+     "sh_2016_25": 1.2259058436135353,
+     "ret_2026_pct_nav": 3.3447999999999998,
+     "ret_2016_25_avg_yr_pct_nav": 3.2427066666666664
+    },
+    "LT Trend ST OS": {
+     "sh_2026": 0.021254870376651618,
+     "sh_2016_25": 0.9523327680229022,
+     "ret_2026_pct_nav": 0.03280000000000019,
+     "ret_2016_25_avg_yr_pct_nav": 1.9418535999999997
+    },
+    "Monday Dip": {
+     "sh_2026": 0.8718439863537879,
+     "sh_2016_25": 0.6203131114371445,
+     "ret_2026_pct_nav": 0.4457333333333334,
+     "ret_2016_25_avg_yr_pct_nav": 0.7078664000000001
+    },
+    "Monthly Weak Close": {
+     "sh_2026": null,
+     "sh_2016_25": 0.7550957217540506,
+     "ret_2026_pct_nav": 0.0,
+     "ret_2016_25_avg_yr_pct_nav": 0.5982932
+    },
+    "Overbot Vol Spike": {
+     "sh_2026": 0.7362617333584062,
+     "sh_2016_25": 0.9544693451939882,
+     "ret_2026_pct_nav": 2.6637386666666667,
+     "ret_2016_25_avg_yr_pct_nav": 4.708519466666667
+    },
+    "Oversold Low Volume": {
+     "sh_2026": 0.9378298905634177,
+     "sh_2016_25": 1.4077719525680246,
+     "ret_2026_pct_nav": 6.057069333333333,
+     "ret_2016_25_avg_yr_pct_nav": 4.1733611999999995
+    },
+    "SPY QQQ MonFri Reversion": {
+     "sh_2026": 0.6160645473507012,
+     "sh_2016_25": 1.2776340681865335,
+     "ret_2026_pct_nav": 0.689866666666667,
+     "ret_2016_25_avg_yr_pct_nav": 3.143052533333334
+    },
+    "Sector BO": {
+     "sh_2026": null,
+     "sh_2016_25": 0.6169345338498677,
+     "ret_2026_pct_nav": 0.0,
+     "ret_2016_25_avg_yr_pct_nav": 1.4444538666666666
+    },
+    "St OS Sznl": {
+     "sh_2026": 1.7252045491370083,
+     "sh_2016_25": 0.5698943849278836,
+     "ret_2026_pct_nav": 0.9000000000000001,
+     "ret_2016_25_avg_yr_pct_nav": 1.0228006666666667
+    },
+    "Weak Close Decent Sznls": {
+     "sh_2026": 1.785682930894682,
+     "sh_2016_25": 1.0283878137650426,
+     "ret_2026_pct_nav": 3.6499133333333336,
+     "ret_2016_25_avg_yr_pct_nav": 3.606982133333333
+    }
+   }
+  }
+ },
+ "trust_tiers": {
+  "more": [
+   "SPY QQQ MonFri Reversion",
+   "Indices Oversold Bounce",
+   "3x ETF Overbot Fade",
+   "Overbot Vol Spike"
+  ],
+  "average": [
+   "Monday Dip",
+   "ATR Extended Gap Up",
+   "3x Bear ETF Overbot Fade",
+   "Sector BO",
+   "Oversold Low Volume"
+  ],
+  "less": [
+   "Weak Close Decent Sznls",
+   "52wh Breakout",
+   "LT Trend ST OS",
+   "St OS Sznl",
+   "3x Leader Gap Fade",
+   "Monthly Weak Close"
+  ]
+ },
+ "method": "Synthesis: per-strategy and book-level haircut on the ledger mean, with ranges.\n\nkeep_s = sel_keep x oos_adj x surv_keep x cost_keep      haircut = 1 - keep\n  sel_keep : Bailey/LdP deflation, trials = config versions / 3 (roughly two thirds of the git\n             versions are sizing-only and do not re-select the signal set);\n             range = [trials = versions, trials = versions/8]; floor 0.25, cap 0.95;\n             N < 30 -> base-rate prior 0.50 (range 0.35-0.65)\n  oos_adj  : 2026 realized vs trailing-5y, shrunk toward the book's 2026 ratio by\n             N; mapped to [0.70, 1.00]; uninformative (N_2026 < 15) -> 0.90\n  surv_keep: by instrument/direction (see SURV)\n  cost_keep: 1 - cost_share_of_avgR - 0.02 (marginal-fill give-up)\nBook keep = PnL-weighted average of strategy keeps, cross-checked against the\ndirect book-level numbers (DSR grid, raw 2026 ratio, midterm-conditioned ratio).\n"
+}

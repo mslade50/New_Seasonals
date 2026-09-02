@@ -1,0 +1,612 @@
+{
+ "margin_per_unit_weight_pct_nav": {
+  "Indices Oversold Bounce": 0.349,
+  "SPY QQQ MonFri Reversion": 0.414,
+  "Weak Close Decent Sznls": 0.96,
+  "Overbot Vol Spike": 0.808,
+  "Monday Dip": 0.167,
+  "ATR Extended Gap Up": 0.132,
+  "52wh Breakout": 2.94,
+  "St OS Sznl": 0.122,
+  "Sector BO": 1.123,
+  "LT Trend ST OS": 0.227,
+  "Oversold Low Volume": 0.519,
+  "Monthly Weak Close": 0.026,
+  "3x Leader Gap Fade": 0.057,
+  "3x ETF Overbot Fade": 0.266,
+  "3x Bear ETF Overbot Fade": 0.128
+ },
+ "weights_2025": [
+  {
+   "strategy": "3x Bear ETF Overbot Fade",
+   "baseline": 1.4098,
+   "keep": 0.7433,
+   "keep_judged": 1.3479,
+   "keep_half": 1.6219,
+   "raw": 0.9188,
+   "sharpe_daily": 0.4176,
+   "margin_pct_nav": 0.1282
+  },
+  {
+   "strategy": "3x ETF Overbot Fade",
+   "baseline": 1.2266,
+   "keep": 0.7819,
+   "keep_judged": 1.6607,
+   "keep_half": 1.4634,
+   "raw": 1.2524,
+   "sharpe_daily": 0.6752,
+   "margin_pct_nav": 0.2662
+  },
+  {
+   "strategy": "52wh Breakout",
+   "baseline": 0.4836,
+   "keep": 0.3129,
+   "keep_judged": 0.3089,
+   "keep_half": 0.2875,
+   "raw": 0.5681,
+   "sharpe_daily": 0.8318,
+   "margin_pct_nav": 2.9399
+  },
+  {
+   "strategy": "ATR Extended Gap Up",
+   "baseline": 1.0291,
+   "keep": 0.7317,
+   "keep_judged": 1.0859,
+   "keep_half": 1.1488,
+   "raw": 0.8724,
+   "sharpe_daily": 0.4865,
+   "margin_pct_nav": 0.1322
+  },
+  {
+   "strategy": "Indices Oversold Bounce",
+   "baseline": 0.5948,
+   "keep": 0.6752,
+   "keep_judged": 0.8266,
+   "keep_half": 0.7266,
+   "raw": 0.6104,
+   "sharpe_daily": 0.6773,
+   "margin_pct_nav": 0.3486
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "baseline": 1.3924,
+   "keep": 0.4109,
+   "keep_judged": 1.0239,
+   "keep_half": 1.0649,
+   "raw": 1.7717,
+   "sharpe_daily": 0.9048,
+   "margin_pct_nav": 0.2267
+  },
+  {
+   "strategy": "Monday Dip",
+   "baseline": 0.9279,
+   "keep": 0.6913,
+   "keep_judged": 0.6871,
+   "keep_half": 1.0557,
+   "raw": 0.4246,
+   "sharpe_daily": 0.5762,
+   "margin_pct_nav": 0.1671
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "baseline": 0.8681,
+   "keep": 0.3006,
+   "keep_judged": 0.8141,
+   "keep_half": 0.6238,
+   "raw": 1.002,
+   "sharpe_daily": 0.8313,
+   "margin_pct_nav": 0.8079
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "baseline": 1.3955,
+   "keep": 0.4525,
+   "keep_judged": 1.4183,
+   "keep_half": 1.1695,
+   "raw": 1.9703,
+   "sharpe_daily": 1.2156,
+   "margin_pct_nav": 0.5185
+  },
+  {
+   "strategy": "SPY QQQ MonFri Reversion",
+   "baseline": 1.3385,
+   "keep": 0.7212,
+   "keep_judged": 2.7316,
+   "keep_half": 1.702,
+   "raw": 2.1079,
+   "sharpe_daily": 1.342,
+   "margin_pct_nav": 0.4138
+  },
+  {
+   "strategy": "Sector BO",
+   "baseline": 0.691,
+   "keep": 0.6477,
+   "keep_judged": 0.5991,
+   "keep_half": 0.7542,
+   "raw": 0.4795,
+   "sharpe_daily": 0.4441,
+   "margin_pct_nav": 1.1226
+  },
+  {
+   "strategy": "St OS Sznl",
+   "baseline": 0.9468,
+   "keep": 0.4985,
+   "keep_judged": 0.1777,
+   "keep_half": 0.8758,
+   "raw": 0.2802,
+   "sharpe_daily": 0.4109,
+   "margin_pct_nav": 0.1216
+  },
+  {
+   "strategy": "Weak Close Decent Sznls",
+   "baseline": 0.6957,
+   "keep": 0.3691,
+   "keep_judged": 0.3181,
+   "keep_half": 0.506,
+   "raw": 0.7418,
+   "sharpe_daily": 0.727,
+   "margin_pct_nav": 0.9598
+  }
+ ],
+ "margin_shadow_price": [
+  {
+   "lam": 0.0,
+   "sharpe": 2.2480047076024903,
+   "ann": 26.330933042998726,
+   "margin_pct_nav": 5.259243102824716,
+   "margin_per_vol": 7.127783240539069,
+   "w": {
+    "3x Bear ETF Overbot Fade": 1.38,
+    "3x ETF Overbot Fade": 1.74,
+    "52wh Breakout": 0.15,
+    "ATR Extended Gap Up": 1.13,
+    "Indices Oversold Bounce": 0.88,
+    "LT Trend ST OS": 1.06,
+    "Monday Dip": 0.72,
+    "Overbot Vol Spike": 0.48,
+    "Oversold Low Volume": 1.46,
+    "SPY QQQ MonFri Reversion": 2.8,
+    "Sector BO": 0.62,
+    "St OS Sznl": 0.17,
+    "Weak Close Decent Sznls": 0.34
+   }
+  },
+  {
+   "lam": 0.5,
+   "sharpe": 2.2449357061063044,
+   "ann": 26.294985754885115,
+   "margin_pct_nav": 5.213391854254581,
+   "margin_per_vol": 7.065641644357584,
+   "w": {
+    "3x Bear ETF Overbot Fade": 1.39,
+    "3x ETF Overbot Fade": 1.74,
+    "52wh Breakout": 0.14,
+    "ATR Extended Gap Up": 1.13,
+    "Indices Oversold Bounce": 0.88,
+    "LT Trend ST OS": 1.06,
+    "Monday Dip": 0.72,
+    "Overbot Vol Spike": 0.48,
+    "Oversold Low Volume": 1.46,
+    "SPY QQQ MonFri Reversion": 2.81,
+    "Sector BO": 0.61,
+    "St OS Sznl": 0.17,
+    "Weak Close Decent Sznls": 0.34
+   }
+  },
+  {
+   "lam": 1.0,
+   "sharpe": 2.2417617012209403,
+   "ann": 26.25780855955629,
+   "margin_pct_nav": 5.1669626440438865,
+   "margin_per_vol": 7.002716744340408,
+   "w": {
+    "3x Bear ETF Overbot Fade": 1.39,
+    "3x ETF Overbot Fade": 1.74,
+    "52wh Breakout": 0.13,
+    "ATR Extended Gap Up": 1.13,
+    "Indices Oversold Bounce": 0.89,
+    "LT Trend ST OS": 1.06,
+    "Monday Dip": 0.72,
+    "Overbot Vol Spike": 0.47,
+    "Oversold Low Volume": 1.46,
+    "SPY QQQ MonFri Reversion": 2.82,
+    "Sector BO": 0.6,
+    "St OS Sznl": 0.17,
+    "Weak Close Decent Sznls": 0.33
+   }
+  },
+  {
+   "lam": 2.0,
+   "sharpe": 2.2350904952482624,
+   "ann": 26.17966856403556,
+   "margin_pct_nav": 5.07235077623784,
+   "margin_per_vol": 6.874490520049345,
+   "w": {
+    "3x Bear ETF Overbot Fade": 1.39,
+    "3x ETF Overbot Fade": 1.75,
+    "52wh Breakout": 0.11,
+    "ATR Extended Gap Up": 1.14,
+    "Indices Oversold Bounce": 0.9,
+    "LT Trend ST OS": 1.06,
+    "Monday Dip": 0.73,
+    "Overbot Vol Spike": 0.47,
+    "Oversold Low Volume": 1.46,
+    "SPY QQQ MonFri Reversion": 2.84,
+    "Sector BO": 0.58,
+    "St OS Sznl": 0.16,
+    "Weak Close Decent Sznls": 0.32
+   }
+  },
+  {
+   "lam": 4.0,
+   "sharpe": 2.220397196852539,
+   "ann": 26.00756560760928,
+   "margin_pct_nav": 4.875982646076174,
+   "margin_per_vol": 6.608355367180947,
+   "w": {
+    "3x Bear ETF Overbot Fade": 1.39,
+    "3x ETF Overbot Fade": 1.76,
+    "52wh Breakout": 0.06,
+    "ATR Extended Gap Up": 1.15,
+    "Indices Oversold Bounce": 0.91,
+    "LT Trend ST OS": 1.06,
+    "Monday Dip": 0.74,
+    "Overbot Vol Spike": 0.45,
+    "Oversold Low Volume": 1.45,
+    "SPY QQQ MonFri Reversion": 2.88,
+    "Sector BO": 0.54,
+    "St OS Sznl": 0.15,
+    "Weak Close Decent Sznls": 0.3
+   }
+  }
+ ],
+ "equal_weight_margin_pct_nav": 8.153166683220954,
+ "walk_forward": {
+  "summary": {
+   "ann": {
+    "equal": 24.1585,
+    "baseline_half": 28.0458,
+    "keep_full": 28.1898,
+    "keep_half_blend": 27.7645,
+    "keep_judged_full": 28.3542,
+    "keep_judged_half_blend": 27.7364,
+    "keep_clip05_16": 29.3344,
+    "raw_full": 30.1669
+   },
+   "vol": {
+    "equal": 11.7964,
+    "baseline_half": 13.1165,
+    "keep_full": 13.6965,
+    "keep_half_blend": 12.9166,
+    "keep_judged_full": 14.0315,
+    "keep_judged_half_blend": 13.056,
+    "keep_clip05_16": 13.5767,
+    "raw_full": 15.1951
+   },
+   "sharpe": {
+    "equal": 2.048,
+    "baseline_half": 2.1382,
+    "keep_full": 2.0582,
+    "keep_half_blend": 2.1495,
+    "keep_judged_full": 2.0207,
+    "keep_judged_half_blend": 2.1244,
+    "keep_clip05_16": 2.1606,
+    "raw_full": 1.9853
+   },
+   "maxdd": {
+    "equal": -12.1465,
+    "baseline_half": -11.9439,
+    "keep_full": -13.5741,
+    "keep_half_blend": -11.6463,
+    "keep_judged_full": -12.6255,
+    "keep_judged_half_blend": -11.775,
+    "keep_clip05_16": -14.6629,
+    "raw_full": -16.6658
+   },
+   "calmar": {
+    "equal": 1.9889,
+    "baseline_half": 2.3481,
+    "keep_full": 2.0767,
+    "keep_half_blend": 2.384,
+    "keep_judged_full": 2.2458,
+    "keep_judged_half_blend": 2.3555,
+    "keep_clip05_16": 2.0006,
+    "raw_full": 1.8101
+   },
+   "years_better_pnl_vs_equal": {
+    "equal": 0,
+    "baseline_half": 12,
+    "keep_full": 8,
+    "keep_half_blend": 10,
+    "keep_judged_full": 8,
+    "keep_judged_half_blend": 9,
+    "keep_clip05_16": 10,
+    "raw_full": 8
+   },
+   "worst_year_vs_equal_pct": {
+    "equal": 0.0,
+    "baseline_half": -12.4869,
+    "keep_full": -45.9229,
+    "keep_half_blend": -17.7045,
+    "keep_judged_full": -67.9432,
+    "keep_judged_half_blend": -29.5331,
+    "keep_clip05_16": -7.8876,
+    "raw_full": -89.5341
+   },
+   "cum_gain_vs_equal_pctNAV": {
+    "equal": 0.0,
+    "baseline_half": 50.6068,
+    "keep_full": 52.0371,
+    "keep_half_blend": 46.8026,
+    "keep_judged_full": 53.8604,
+    "keep_judged_half_blend": 46.179,
+    "keep_clip05_16": 68.0822,
+    "raw_full": 77.8368
+   }
+  },
+  "yearly": [
+   {
+    "year": 2014,
+    "equal": 7.421,
+    "baseline_half": 6.495,
+    "keep_full": 4.013,
+    "keep_half_blend": 6.107,
+    "keep_judged_full": 2.379,
+    "keep_judged_half_blend": 5.23,
+    "keep_clip05_16": 6.912,
+    "raw_full": 0.777
+   },
+   {
+    "year": 2015,
+    "equal": 3.172,
+    "baseline_half": 8.467,
+    "keep_full": 26.234,
+    "keep_half_blend": 14.509,
+    "keep_judged_full": 22.469,
+    "keep_judged_half_blend": 13.091,
+    "keep_clip05_16": 16.224,
+    "raw_full": 17.224
+   },
+   {
+    "year": 2016,
+    "equal": 10.517,
+    "baseline_half": 20.219,
+    "keep_full": 28.171,
+    "keep_half_blend": 20.793,
+    "keep_judged_full": 31.997,
+    "keep_judged_half_blend": 22.904,
+    "keep_clip05_16": 24.621,
+    "raw_full": 32.636
+   },
+   {
+    "year": 2017,
+    "equal": 15.62,
+    "baseline_half": 15.808,
+    "keep_full": 9.152,
+    "keep_half_blend": 13.766,
+    "keep_judged_full": 9.675,
+    "keep_judged_half_blend": 13.997,
+    "keep_clip05_16": 15.16,
+    "raw_full": 11.055
+   },
+   {
+    "year": 2018,
+    "equal": 19.554,
+    "baseline_half": 25.987,
+    "keep_full": 21.743,
+    "keep_half_blend": 22.622,
+    "keep_judged_full": 18.73,
+    "keep_judged_half_blend": 20.992,
+    "keep_clip05_16": 26.425,
+    "raw_full": 24.724
+   },
+   {
+    "year": 2019,
+    "equal": 20.881,
+    "baseline_half": 24.647,
+    "keep_full": 31.903,
+    "keep_half_blend": 28.046,
+    "keep_judged_full": 32.122,
+    "keep_judged_half_blend": 28.095,
+    "keep_clip05_16": 28.087,
+    "raw_full": 30.432
+   },
+   {
+    "year": 2020,
+    "equal": 24.502,
+    "baseline_half": 24.612,
+    "keep_full": 21.355,
+    "keep_half_blend": 25.009,
+    "keep_judged_full": 19.688,
+    "keep_judged_half_blend": 24.0,
+    "keep_clip05_16": 24.893,
+    "raw_full": 18.934
+   },
+   {
+    "year": 2021,
+    "equal": 52.757,
+    "baseline_half": 68.186,
+    "keep_full": 68.754,
+    "keep_half_blend": 65.117,
+    "keep_judged_full": 72.828,
+    "keep_judged_half_blend": 66.809,
+    "keep_clip05_16": 68.935,
+    "raw_full": 83.157
+   },
+   {
+    "year": 2022,
+    "equal": 17.609,
+    "baseline_half": 18.655,
+    "keep_full": 17.091,
+    "keep_half_blend": 18.516,
+    "keep_judged_full": 17.79,
+    "keep_judged_half_blend": 18.733,
+    "keep_clip05_16": 18.671,
+    "raw_full": 17.524
+   },
+   {
+    "year": 2023,
+    "equal": 34.854,
+    "baseline_half": 35.009,
+    "keep_full": 23.828,
+    "keep_half_blend": 31.127,
+    "keep_judged_full": 24.41,
+    "keep_judged_half_blend": 31.129,
+    "keep_clip05_16": 32.105,
+    "raw_full": 31.268
+   },
+   {
+    "year": 2024,
+    "equal": 21.192,
+    "baseline_half": 23.208,
+    "keep_full": 22.634,
+    "keep_half_blend": 23.036,
+    "keep_judged_full": 23.01,
+    "keep_judged_half_blend": 23.01,
+    "keep_clip05_16": 23.287,
+    "raw_full": 22.496
+   },
+   {
+    "year": 2025,
+    "equal": 51.754,
+    "baseline_half": 55.037,
+    "keep_full": 53.694,
+    "keep_half_blend": 54.471,
+    "keep_judged_full": 55.947,
+    "keep_judged_half_blend": 55.196,
+    "keep_clip05_16": 55.33,
+    "raw_full": 62.024
+   },
+   {
+    "year": 2026,
+    "equal": 40.883,
+    "baseline_half": 44.996,
+    "keep_full": 44.183,
+    "keep_half_blend": 44.403,
+    "keep_judged_full": 43.533,
+    "keep_judged_half_blend": 43.712,
+    "keep_clip05_16": 48.151,
+    "raw_full": 46.305
+   }
+  ]
+ },
+ "ship_multipliers": [
+  {
+   "strategy": "3x Bear ETF Overbot Fade",
+   "plan_L1_clip06_14": 1.205,
+   "growth_keep_half_clip05_16": 1.196,
+   "growth_keepjudged_half_clip05_16": 1.174,
+   "growth_keep_full_clip05_16": 1.391,
+   "keep": 0.743,
+   "margin_pct_nav": 0.128
+  },
+  {
+   "strategy": "3x ETF Overbot Fade",
+   "plan_L1_clip06_14": 1.113,
+   "growth_keep_half_clip05_16": 1.372,
+   "growth_keepjudged_half_clip05_16": 1.33,
+   "growth_keep_full_clip05_16": 1.6,
+   "keep": 0.782,
+   "margin_pct_nav": 0.266
+  },
+  {
+   "strategy": "52wh Breakout",
+   "plan_L1_clip06_14": 0.742,
+   "growth_keep_half_clip05_16": 0.577,
+   "growth_keepjudged_half_clip05_16": 0.654,
+   "growth_keep_full_clip05_16": 0.5,
+   "keep": 0.313,
+   "margin_pct_nav": 2.94
+  },
+  {
+   "strategy": "ATR Extended Gap Up",
+   "plan_L1_clip06_14": 1.015,
+   "growth_keep_half_clip05_16": 1.066,
+   "growth_keepjudged_half_clip05_16": 1.043,
+   "growth_keep_full_clip05_16": 1.132,
+   "keep": 0.732,
+   "margin_pct_nav": 0.132
+  },
+  {
+   "strategy": "Indices Oversold Bounce",
+   "plan_L1_clip06_14": 0.797,
+   "growth_keep_half_clip05_16": 0.942,
+   "growth_keepjudged_half_clip05_16": 0.913,
+   "growth_keep_full_clip05_16": 0.884,
+   "keep": 0.675,
+   "margin_pct_nav": 0.349
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "plan_L1_clip06_14": 1.196,
+   "growth_keep_half_clip05_16": 1.033,
+   "growth_keepjudged_half_clip05_16": 1.012,
+   "growth_keep_full_clip05_16": 1.066,
+   "keep": 0.411,
+   "margin_pct_nav": 0.227
+  },
+  {
+   "strategy": "Monday Dip",
+   "plan_L1_clip06_14": 0.964,
+   "growth_keep_half_clip05_16": 0.861,
+   "growth_keepjudged_half_clip05_16": 0.844,
+   "growth_keep_full_clip05_16": 0.722,
+   "keep": 0.691,
+   "margin_pct_nav": 0.167
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "plan_L1_clip06_14": 0.934,
+   "growth_keep_half_clip05_16": 0.742,
+   "growth_keepjudged_half_clip05_16": 0.907,
+   "growth_keep_full_clip05_16": 0.5,
+   "keep": 0.301,
+   "margin_pct_nav": 0.808
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "plan_L1_clip06_14": 1.198,
+   "growth_keep_half_clip05_16": 1.232,
+   "growth_keepjudged_half_clip05_16": 1.209,
+   "growth_keep_full_clip05_16": 1.464,
+   "keep": 0.452,
+   "margin_pct_nav": 0.519
+  },
+  {
+   "strategy": "SPY QQQ MonFri Reversion",
+   "plan_L1_clip06_14": 1.169,
+   "growth_keep_half_clip05_16": 1.6,
+   "growth_keepjudged_half_clip05_16": 1.6,
+   "growth_keep_full_clip05_16": 1.6,
+   "keep": 0.721,
+   "margin_pct_nav": 0.414
+  },
+  {
+   "strategy": "Sector BO",
+   "plan_L1_clip06_14": 0.846,
+   "growth_keep_half_clip05_16": 0.812,
+   "growth_keepjudged_half_clip05_16": 0.8,
+   "growth_keep_full_clip05_16": 0.624,
+   "keep": 0.648,
+   "margin_pct_nav": 1.123
+  },
+  {
+   "strategy": "St OS Sznl",
+   "plan_L1_clip06_14": 0.973,
+   "growth_keep_half_clip05_16": 0.587,
+   "growth_keepjudged_half_clip05_16": 0.589,
+   "growth_keep_full_clip05_16": 0.5,
+   "keep": 0.498,
+   "margin_pct_nav": 0.122
+  },
+  {
+   "strategy": "Weak Close Decent Sznls",
+   "plan_L1_clip06_14": 0.848,
+   "growth_keep_half_clip05_16": 0.672,
+   "growth_keepjudged_half_clip05_16": 0.659,
+   "growth_keep_full_clip05_16": 0.5,
+   "keep": 0.369,
+   "margin_pct_nav": 0.96
+  }
+ ]
+}

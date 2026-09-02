@@ -1,0 +1,763 @@
+{
+ "dipbuy_core_mayoct": {
+  "label": "DIP-BUY CORE (6 strats) May-Oct vs Nov-Apr",
+  "N_in": 486,
+  "N_out": 600,
+  "avgR_in": 0.3011233486342952,
+  "avgR_out": 0.49362746823408693,
+  "sdR_in": 1.2142542241692307,
+  "sdR_out": 1.1930409887244506,
+  "R_per_risk_in": 0.2978381393515069,
+  "R_per_risk_out": 0.4759698163259903,
+  "pnl_in": 512617.0,
+  "pnl_out": 1025403.0,
+  "t_episode": -2.1162136140205465,
+  "p_episode": 0.035190504120177275,
+  "n_episodes_in": 287,
+  "t_year": -1.7908530640821592,
+  "p_year": 0.08648867141780435,
+  "n_years": 24,
+  "loyo_diff_min": -0.250558877740663,
+  "loyo_diff_max": -0.1415640426848488,
+  "per_strategy_diff": {
+   "Indices Oversold Bounce": -0.2185129251481602,
+   "Monday Dip": -0.3150259526812674,
+   "Monthly Weak Close": -0.3461654320987655,
+   "SPY QQQ MonFri Reversion": -0.068636471230126,
+   "St OS Sznl": -0.2299507936507937,
+   "Weak Close Decent Sznls": -0.3325607011375528
+  },
+  "n_strats_same_sign": 6,
+  "n_strats": 6
+ },
+ "dipbuy_ext_mayoct": {
+  "label": "DIP-BUY EXT (+52wh, LT Trend) May-Oct vs Nov-Apr",
+  "N_in": 733,
+  "N_out": 855,
+  "avgR_in": 0.3115448949050041,
+  "avgR_out": 0.49997407752557604,
+  "sdR_in": 1.3218094105936242,
+  "sdR_out": 1.3302135015526904,
+  "R_per_risk_in": 0.3123036402983657,
+  "R_per_risk_out": 0.4884409516098833,
+  "pnl_in": 818353.0,
+  "pnl_out": 1483147.0,
+  "t_episode": -2.3804048037886556,
+  "p_episode": 0.017741012763777694,
+  "n_episodes_in": 419,
+  "t_year": -1.3786878137176655,
+  "p_year": 0.18125380736230565,
+  "n_years": 24,
+  "loyo_diff_min": -0.2282073720618159,
+  "loyo_diff_max": -0.1503820360175252,
+  "per_strategy_diff": {
+   "52wh Breakout": -0.17871022716239265,
+   "Indices Oversold Bounce": -0.2185129251481602,
+   "LT Trend ST OS": -0.17418097307621672,
+   "Monday Dip": -0.3150259526812674,
+   "Monthly Weak Close": -0.3461654320987655,
+   "SPY QQQ MonFri Reversion": -0.068636471230126,
+   "St OS Sznl": -0.2299507936507937,
+   "Weak Close Decent Sznls": -0.3325607011375528
+  },
+  "n_strats_same_sign": 8,
+  "n_strats": 8
+ },
+ "dipbuy_core_by_month": [
+  {
+   "month": 1,
+   "N": 84.0,
+   "avgR": 0.3899,
+   "R_per_risk": 0.3874,
+   "pnl": 112574.0
+  },
+  {
+   "month": 2,
+   "N": 75.0,
+   "avgR": 0.5951,
+   "R_per_risk": 0.6221,
+   "pnl": 153612.0
+  },
+  {
+   "month": 3,
+   "N": 107.0,
+   "avgR": 0.539,
+   "R_per_risk": 0.5142,
+   "pnl": 189870.0
+  },
+  {
+   "month": 4,
+   "N": 91.0,
+   "avgR": 0.4532,
+   "R_per_risk": 0.4587,
+   "pnl": 158165.0
+  },
+  {
+   "month": 5,
+   "N": 68.0,
+   "avgR": 0.218,
+   "R_per_risk": 0.3351,
+   "pnl": 83683.0
+  },
+  {
+   "month": 6,
+   "N": 105.0,
+   "avgR": 0.3406,
+   "R_per_risk": 0.2958,
+   "pnl": 106197.0
+  },
+  {
+   "month": 7,
+   "N": 75.0,
+   "avgR": 0.5776,
+   "R_per_risk": 0.5526,
+   "pnl": 148497.0
+  },
+  {
+   "month": 8,
+   "N": 58.0,
+   "avgR": 0.355,
+   "R_per_risk": 0.3688,
+   "pnl": 76145.0
+  },
+  {
+   "month": 9,
+   "N": 70.0,
+   "avgR": 0.1042,
+   "R_per_risk": 0.0272,
+   "pnl": 6762.0
+  },
+  {
+   "month": 10,
+   "N": 110.0,
+   "avgR": 0.2232,
+   "R_per_risk": 0.2351,
+   "pnl": 91333.0
+  },
+  {
+   "month": 11,
+   "N": 100.0,
+   "avgR": 0.4569,
+   "R_per_risk": 0.4556,
+   "pnl": 177817.0
+  },
+  {
+   "month": 12,
+   "N": 143.0,
+   "avgR": 0.5188,
+   "R_per_risk": 0.4553,
+   "pnl": 233365.0
+  }
+ ],
+ "dipbuy_core_Jun-Sep": {
+  "label": "DIP-BUY CORE Jun-Sep vs rest",
+  "N_in": 308,
+  "N_out": 778,
+  "avgR_in": 0.3472981177264294,
+  "avgR_out": 0.43130412354367526,
+  "sdR_in": 1.1966486834720675,
+  "sdR_out": 1.2093874640643834,
+  "R_per_risk_in": 0.31177109852746243,
+  "R_per_risk_out": 0.42985376988486734,
+  "pnl_in": 337601.0,
+  "pnl_out": 1200419.0,
+  "t_episode": -0.8381204841941924,
+  "p_episode": 0.4030504435224187,
+  "n_episodes_in": 185,
+  "t_year": -1.0743757203762019,
+  "p_year": 0.2937968472014437,
+  "n_years": 24,
+  "loyo_diff_min": -0.1360699737672596,
+  "loyo_diff_max": -0.049404687242998346,
+  "per_strategy_diff": {
+   "Indices Oversold Bounce": -0.17084308218236785,
+   "Monday Dip": -0.1911651982314997,
+   "Monthly Weak Close": -0.5546666666666664,
+   "SPY QQQ MonFri Reversion": 0.059680237199224495,
+   "St OS Sznl": 0.17443410852713187,
+   "Weak Close Decent Sznls": -0.24386146087398627
+  },
+  "n_strats_same_sign": 4,
+  "n_strats": 6
+ },
+ "dipbuy_core_May-Oct": {
+  "label": "DIP-BUY CORE May-Oct vs rest",
+  "N_in": 486,
+  "N_out": 600,
+  "avgR_in": 0.3011233486342952,
+  "avgR_out": 0.49362746823408693,
+  "sdR_in": 1.2142542241692307,
+  "sdR_out": 1.1930409887244506,
+  "R_per_risk_in": 0.2978381393515069,
+  "R_per_risk_out": 0.4759698163259903,
+  "pnl_in": 512617.0,
+  "pnl_out": 1025403.0,
+  "t_episode": -2.1162136140205465,
+  "p_episode": 0.035190504120177275,
+  "n_episodes_in": 287,
+  "t_year": -1.7908530640821592,
+  "p_year": 0.08648867141780435,
+  "n_years": 24,
+  "loyo_diff_min": -0.250558877740663,
+  "loyo_diff_max": -0.1415640426848488,
+  "per_strategy_diff": {
+   "Indices Oversold Bounce": -0.2185129251481602,
+   "Monday Dip": -0.3150259526812674,
+   "Monthly Weak Close": -0.3461654320987655,
+   "SPY QQQ MonFri Reversion": -0.068636471230126,
+   "St OS Sznl": -0.2299507936507937,
+   "Weak Close Decent Sznls": -0.3325607011375528
+  },
+  "n_strats_same_sign": 6,
+  "n_strats": 6
+ },
+ "dipbuy_core_Jul-Sep": {
+  "label": "DIP-BUY CORE Jul-Sep vs rest",
+  "N_in": 203,
+  "N_out": 883,
+  "avgR_in": 0.3507775098391847,
+  "avgR_out": 0.4205148288554531,
+  "sdR_in": 1.2335876238858532,
+  "sdR_out": 1.1996936781746603,
+  "R_per_risk_in": 0.3196990168088011,
+  "R_per_risk_out": 0.4145812520196831,
+  "pnl_in": 231404.0,
+  "pnl_out": 1306616.0,
+  "t_episode": -0.5808902222381332,
+  "p_episode": 0.562327927724209,
+  "n_episodes_in": 130,
+  "t_year": -1.505878619343603,
+  "p_year": 0.14570980937957348,
+  "n_years": 24,
+  "loyo_diff_min": -0.11678644885358663,
+  "loyo_diff_max": -0.03324488789815139,
+  "per_strategy_diff": {
+   "Indices Oversold Bounce": -0.1828189480591476,
+   "Monday Dip": -0.5679177755262863,
+   "Monthly Weak Close": -0.5546666666666664,
+   "SPY QQQ MonFri Reversion": 0.1531973468061688,
+   "St OS Sznl": 0.17443410852713187,
+   "Weak Close Decent Sznls": -0.1721011643738977
+  },
+  "n_strats_same_sign": 4,
+  "n_strats": 6
+ },
+ "dipbuy_core_Aug-Sep": {
+  "label": "DIP-BUY CORE Aug-Sep vs rest",
+  "N_in": 128,
+  "N_out": 958,
+  "avgR_in": 0.2178587566137566,
+  "avgR_out": 0.4328147260231302,
+  "sdR_in": 1.364563405447508,
+  "sdR_out": 1.1815058739305917,
+  "R_per_risk_in": 0.18218065455344512,
+  "R_per_risk_out": 0.4254231916044384,
+  "pnl_in": 82907.0,
+  "pnl_out": 1455113.0,
+  "t_episode": -1.3810764659223724,
+  "p_episode": 0.17091863235590357,
+  "n_episodes_in": 85,
+  "t_year": -0.8790278521716984,
+  "p_year": 0.3888866052410612,
+  "n_years": 23,
+  "loyo_diff_min": -0.2679819994222271,
+  "loyo_diff_max": -0.1618416823547294,
+  "per_strategy_diff": {
+   "Indices Oversold Bounce": -0.21295880018674135,
+   "Monday Dip": -0.6698685944784956,
+   "SPY QQQ MonFri Reversion": 0.05858877757163472,
+   "St OS Sznl": -0.4905415301923238,
+   "Weak Close Decent Sznls": -0.3440730467595126
+  },
+  "n_strats_same_sign": 4,
+  "n_strats": 5
+ },
+ "nonfamily_mayoct": {
+  "label": "NON-FAMILY (OVS, OLV, fades, ATR, Sector) May-Oct vs Nov-Apr",
+  "N_in": 878,
+  "N_out": 1017,
+  "avgR_in": 0.5499891055262294,
+  "avgR_out": 0.4839999891211957,
+  "sdR_in": 1.4312555728593757,
+  "sdR_out": 1.3371023204925196,
+  "R_per_risk_in": 0.5049923098194498,
+  "R_per_risk_out": 0.5114942355299318,
+  "pnl_in": 855088.0,
+  "pnl_out": 980543.0,
+  "t_episode": 0.7212813101564004,
+  "p_episode": 0.4713895570084611,
+  "n_episodes_in": 259,
+  "t_year": 1.26417858908889,
+  "p_year": 0.21882786456361486,
+  "n_years": 24,
+  "loyo_diff_min": 0.0034220572241970837,
+  "loyo_diff_max": 0.11551212326422738,
+  "per_strategy_diff": {
+   "3x Bear ETF Overbot Fade": 0.5271346175873775,
+   "3x ETF Overbot Fade": 0.7385972569812654,
+   "3x Leader Gap Fade": -2.300444444444444,
+   "ATR Extended Gap Up": -0.12864734299516933,
+   "Overbot Vol Spike": 0.011833443903124907,
+   "Oversold Low Volume": -0.14485976218083685,
+   "Sector BO": 0.7339982649315988
+  },
+  "n_strats_same_sign": 4,
+  "n_strats": 7
+ },
+ "eseason_singlestock": {
+  "label": "SINGLE-STOCK strats, earnings season vs off",
+  "N_in": 699,
+  "N_out": 1785,
+  "avgR_in": 0.5204265205777864,
+  "avgR_out": 0.4120916745601964,
+  "sdR_in": 1.3958686140361107,
+  "sdR_out": 1.2329746945904252,
+  "R_per_risk_in": 0.5139244088513077,
+  "R_per_risk_out": 0.35927942908129096,
+  "pnl_in": 977530.0,
+  "pnl_out": 1505260.0,
+  "t_episode": 1.3883846566613416,
+  "p_episode": 0.16603310970820523,
+  "n_episodes_in": 306,
+  "t_year": 1.4875227435998448,
+  "p_year": 0.15045924658996818,
+  "n_years": 24,
+  "loyo_diff_min": 0.06357237716771325,
+  "loyo_diff_max": 0.15126120251898395,
+  "per_strategy_diff": {
+   "52wh Breakout": 0.09342283166361054,
+   "ATR Extended Gap Up": 0.1612703301127213,
+   "LT Trend ST OS": 0.2333647026439296,
+   "Overbot Vol Spike": 0.046717736415961275,
+   "Oversold Low Volume": 0.03063458500531946,
+   "St OS Sznl": 0.40530646332607106,
+   "Weak Close Decent Sznls": 0.02422567927997299
+  },
+  "n_strats_same_sign": 7,
+  "n_strats": 7
+ },
+ "eseason_index": {
+  "label": "INDEX/ETF strats, earnings season vs off",
+  "N_in": 322,
+  "N_out": 677,
+  "avgR_in": 0.644496474196764,
+  "avgR_out": 0.4786839382168973,
+  "sdR_in": 1.4681443692907914,
+  "sdR_out": 1.5606133396529083,
+  "R_per_risk_in": 0.6137844691677189,
+  "R_per_risk_out": 0.4754282726382056,
+  "pnl_in": 641774.0,
+  "pnl_out": 1012567.0,
+  "t_episode": 1.3393664518867203,
+  "p_episode": 0.1820683642846954,
+  "n_episodes_in": 189,
+  "t_year": 1.3841038072847711,
+  "p_year": 0.17961127428980334,
+  "n_years": 24,
+  "loyo_diff_min": 0.11877453916962344,
+  "loyo_diff_max": 0.22247730141140692,
+  "per_strategy_diff": {
+   "3x Bear ETF Overbot Fade": 0.5274235390946503,
+   "3x ETF Overbot Fade": -0.17695967060508389,
+   "3x Leader Gap Fade": 0.6853164912280705,
+   "Indices Oversold Bounce": 0.10662457726504115,
+   "Monday Dip": 0.06895815440205688,
+   "Monthly Weak Close": 0.0013975308641978046,
+   "SPY QQQ MonFri Reversion": 0.12309761204187436,
+   "Sector BO": 0.3779017584541061
+  },
+  "n_strats_same_sign": 7,
+  "n_strats": 8
+ },
+ "replays": {
+  "dip_mayoct_0.75x": {
+   "2003-01-01_2026-08-07": {
+    "window": [
+     "2003-01-01",
+     "2026-08-07"
+    ],
+    "d_pnl_pct": -3.131730598527782,
+    "d_sharpe": -0.010568137617564144,
+    "d_sharpe_volmatched": -0.0105681376175637,
+    "d_maxdd_pts": 0.0,
+    "d_pnl_over_maxdd_pct": -3.1317305985278043,
+    "years_better": 6,
+    "years": 24,
+    "base": {
+     "total_pnl": 4040418.9,
+     "ann_ret_pct": 22.096040859375,
+     "ann_vol_pct": 11.295531581507975,
+     "sharpe": 1.956175386694385,
+     "maxdd_pct": -12.146493333333295,
+     "pnl_over_maxdd": 1.8191292130986834,
+     "worst_day_pct": -5.899252
+    },
+    "alt": {
+     "total_pnl": 3913883.865,
+     "ann_ret_pct": 21.404052386718746,
+     "ann_vol_pct": 11.001219489120862,
+     "sharpe": 1.9456072490768208,
+     "maxdd_pct": -12.146493333333295,
+     "pnl_over_maxdd": 1.7621589869053138,
+     "worst_day_pct": -5.607500666666667
+    }
+   },
+   "2010-01-01_2026-08-07": {
+    "window": [
+     "2010-01-01",
+     "2026-08-07"
+    ],
+    "d_pnl_pct": -2.8775641826569665,
+    "d_sharpe": -0.012497208711649055,
+    "d_sharpe_volmatched": -0.012497208711649499,
+    "d_maxdd_pts": 0.0,
+    "d_pnl_over_maxdd_pct": -2.8775641826569553,
+    "years_better": 3,
+    "years": 17,
+    "base": {
+     "total_pnl": 3407022.79,
+     "ann_ret_pct": 26.43176304410067,
+     "ann_vol_pct": 12.043133439013207,
+     "sharpe": 2.1947579654374767,
+     "maxdd_pct": -12.146493333333343,
+     "pnl_over_maxdd": 2.176081797333605,
+     "worst_day_pct": -5.899252
+    },
+    "alt": {
+     "total_pnl": 3308983.5225,
+     "ann_ret_pct": 25.67117209789887,
+     "ann_vol_pct": 11.76356767575971,
+     "sharpe": 2.1822607567258276,
+     "maxdd_pct": -12.146493333333343,
+     "pnl_over_maxdd": 2.1134636469482153,
+     "worst_day_pct": -5.607500666666667
+    }
+   }
+  },
+  "dip_mayoct_0.5x": {
+   "2003-01-01_2026-08-07": {
+    "window": [
+     "2003-01-01",
+     "2026-08-07"
+    ],
+    "d_pnl_pct": -6.263461197055575,
+    "d_sharpe": -0.03021916543436065,
+    "d_sharpe_volmatched": -0.03021916543436065,
+    "d_maxdd_pts": 0.0,
+    "d_pnl_over_maxdd_pct": -6.2634611970555865,
+    "years_better": 6,
+    "years": 24,
+    "base": {
+     "total_pnl": 4040418.9,
+     "ann_ret_pct": 22.096040859375,
+     "ann_vol_pct": 11.295531581507975,
+     "sharpe": 1.956175386694385,
+     "maxdd_pct": -12.146493333333295,
+     "pnl_over_maxdd": 1.8191292130986834,
+     "worst_day_pct": -5.899252
+    },
+    "alt": {
+     "total_pnl": 3787348.83,
+     "ann_ret_pct": 20.7120639140625,
+     "ann_vol_pct": 10.754171712434866,
+     "sharpe": 1.9259562212600243,
+     "maxdd_pct": -12.146493333333295,
+     "pnl_over_maxdd": 1.7051887607119447,
+     "worst_day_pct": -5.315749333333334
+    }
+   },
+   "2010-01-01_2026-08-07": {
+    "window": [
+     "2010-01-01",
+     "2026-08-07"
+    ],
+    "d_pnl_pct": -5.755128365313933,
+    "d_sharpe": -0.03394092845830832,
+    "d_sharpe_volmatched": -0.03394092845830832,
+    "d_maxdd_pts": 8.881784197001252e-15,
+    "d_pnl_over_maxdd_pct": -5.755128365313855,
+    "years_better": 3,
+    "years": 17,
+    "base": {
+     "total_pnl": 3407022.79,
+     "ann_ret_pct": 26.43176304410067,
+     "ann_vol_pct": 12.043133439013207,
+     "sharpe": 2.1947579654374767,
+     "maxdd_pct": -12.146493333333343,
+     "pnl_over_maxdd": 2.176081797333605,
+     "worst_day_pct": -5.899252
+    },
+    "alt": {
+     "total_pnl": 3210944.255,
+     "ann_ret_pct": 24.91058115169707,
+     "ann_vol_pct": 11.528315783053142,
+     "sharpe": 2.1608170369791684,
+     "maxdd_pct": -12.146493333333334,
+     "pnl_over_maxdd": 2.050845496562827,
+     "worst_day_pct": -5.315749333333334
+    }
+   }
+  },
+  "dip_novapr_1.25x": {
+   "2003-01-01_2026-08-07": {
+    "window": [
+     "2003-01-01",
+     "2026-08-07"
+    ],
+    "d_pnl_pct": 1.639359225846615,
+    "d_sharpe": -0.05571607699365955,
+    "d_sharpe_volmatched": -0.05571607699365955,
+    "d_maxdd_pts": -1.3602169999999933,
+    "d_pnl_over_maxdd_pct": -8.596411059898745,
+    "years_better": 16,
+    "years": 24,
+    "base": {
+     "total_pnl": 4040418.9,
+     "ann_ret_pct": 22.096040859375,
+     "ann_vol_pct": 11.295531581507975,
+     "sharpe": 1.956175386694385,
+     "maxdd_pct": -12.146493333333295,
+     "pnl_over_maxdd": 1.8191292130986834,
+     "worst_day_pct": -5.899252
+    },
+    "alt": {
+     "total_pnl": 4106655.88,
+     "ann_ret_pct": 22.458274343750002,
+     "ann_vol_pct": 11.817287657311965,
+     "sharpe": 1.9004593097007254,
+     "maxdd_pct": -13.506710333333288,
+     "pnl_over_maxdd": 1.662749388230019,
+     "worst_day_pct": -6.465434666666667
+    }
+   },
+   "2010-01-01_2026-08-07": {
+    "window": [
+     "2010-01-01",
+     "2026-08-07"
+    ],
+    "d_pnl_pct": 1.5567243974907496,
+    "d_sharpe": -0.048932387608437544,
+    "d_sharpe_volmatched": -0.0489323876084371,
+    "d_maxdd_pts": -1.3602170000000395,
+    "d_pnl_over_maxdd_pct": -8.670724002647844,
+    "years_better": 13,
+    "years": 17,
+    "base": {
+     "total_pnl": 3407022.79,
+     "ann_ret_pct": 26.43176304410067,
+     "ann_vol_pct": 12.043133439013207,
+     "sharpe": 2.1947579654374767,
+     "maxdd_pct": -12.146493333333343,
+     "pnl_over_maxdd": 2.176081797333605,
+     "worst_day_pct": -5.899252
+    },
+    "alt": {
+     "total_pnl": 3460060.745,
+     "ann_ret_pct": 26.843232748095126,
+     "ann_vol_pct": 12.50951290050927,
+     "sharpe": 2.145825577829039,
+     "maxdd_pct": -13.506710333333382,
+     "pnl_over_maxdd": 1.9873997506149494,
+     "worst_day_pct": -6.465434666666667
+    }
+   }
+  },
+  "dip_rebalance_0.8_1.2": {
+   "2003-01-01_2026-08-07": {
+    "window": [
+     "2003-01-01",
+     "2026-08-07"
+    ],
+    "d_pnl_pct": -1.193897098144936,
+    "d_sharpe": -0.05373697841065517,
+    "d_sharpe_volmatched": -0.053736978410654945,
+    "d_maxdd_pts": -1.0881735999999886,
+    "d_pnl_over_maxdd_pct": -9.317878852901618,
+    "years_better": 10,
+    "years": 24,
+    "base": {
+     "total_pnl": 4040418.9,
+     "ann_ret_pct": 22.096040859375,
+     "ann_vol_pct": 11.295531581507975,
+     "sharpe": 1.956175386694385,
+     "maxdd_pct": -12.146493333333295,
+     "pnl_over_maxdd": 1.8191292130986834,
+     "worst_day_pct": -5.899252
+    },
+    "alt": {
+     "total_pnl": 3992180.4560000002,
+     "ann_ret_pct": 21.832236868749998,
+     "ann_vol_pct": 11.475923096215128,
+     "sharpe": 1.9024384082837298,
+     "maxdd_pct": -13.234666933333283,
+     "pnl_over_maxdd": 1.6496249568444055,
+     "worst_day_pct": -6.118797066666667
+    }
+   },
+   "2010-01-01_2026-08-07": {
+    "window": [
+     "2010-01-01",
+     "2026-08-07"
+    ],
+    "d_pnl_pct": -1.0566718281329712,
+    "d_sharpe": -0.04938897033904244,
+    "d_sharpe_volmatched": -0.04938897033904244,
+    "d_maxdd_pts": -1.0881736000000046,
+    "d_pnl_over_maxdd_pct": -9.191936444546334,
+    "years_better": 7,
+    "years": 17,
+    "base": {
+     "total_pnl": 3407022.79,
+     "ann_ret_pct": 26.43176304410067,
+     "ann_vol_pct": 12.043133439013207,
+     "sharpe": 2.1947579654374767,
+     "maxdd_pct": -12.146493333333343,
+     "pnl_over_maxdd": 2.176081797333605,
+     "worst_day_pct": -5.899252
+    },
+    "alt": {
+     "total_pnl": 3371021.74,
+     "ann_ret_pct": 26.152466050334787,
+     "ann_vol_pct": 12.190194838317247,
+     "sharpe": 2.1453689950984343,
+     "maxdd_pct": -13.234666933333347,
+     "pnl_over_maxdd": 1.9760577415413583,
+     "worst_day_pct": -6.118797066666667
+    }
+   }
+  },
+  "dip_mayoct_0.75x_walkforward_gated": {
+   "2010-01-01_2026-08-07": {
+    "window": [
+     "2010-01-01",
+     "2026-08-07"
+    ],
+    "d_pnl_pct": -0.3512668754411252,
+    "d_sharpe": -0.0021282199649759193,
+    "d_sharpe_volmatched": -0.002128219964975031,
+    "d_maxdd_pts": 0.0,
+    "d_pnl_over_maxdd_pct": -0.35126687544114743,
+    "years_better": 1,
+    "years": 17,
+    "base": {
+     "total_pnl": 3407022.79,
+     "ann_ret_pct": 26.43176304410067,
+     "ann_vol_pct": 12.043133439013207,
+     "sharpe": 2.1947579654374767,
+     "maxdd_pct": -12.146493333333343,
+     "pnl_over_maxdd": 2.176081797333605,
+     "worst_day_pct": -5.899252
+    },
+    "alt": {
+     "total_pnl": 3395055.0475,
+     "ann_ret_pct": 26.33891701593165,
+     "ann_vol_pct": 12.012478198983725,
+     "sharpe": 2.192629745472501,
+     "maxdd_pct": -12.146493333333343,
+     "pnl_over_maxdd": 2.1684379427970675,
+     "worst_day_pct": -5.899252
+    }
+   },
+   "gate": [
+    [
+     2010,
+     0.131,
+     false
+    ],
+    [
+     2011,
+     0.092,
+     false
+    ],
+    [
+     2012,
+     0.059,
+     false
+    ],
+    [
+     2013,
+     0.018,
+     false
+    ],
+    [
+     2014,
+     -0.027,
+     false
+    ],
+    [
+     2015,
+     -0.057,
+     false
+    ],
+    [
+     2016,
+     -0.062,
+     false
+    ],
+    [
+     2017,
+     -0.073,
+     false
+    ],
+    [
+     2018,
+     -0.072,
+     false
+    ],
+    [
+     2019,
+     -0.081,
+     false
+    ],
+    [
+     2020,
+     -0.102,
+     true
+    ],
+    [
+     2021,
+     -0.069,
+     false
+    ],
+    [
+     2022,
+     -0.03,
+     false
+    ],
+    [
+     2023,
+     -0.099,
+     false
+    ],
+    [
+     2024,
+     -0.148,
+     true
+    ],
+    [
+     2025,
+     -0.16,
+     true
+    ],
+    [
+     2026,
+     -0.18,
+     true
+    ]
+   ]
+  }
+ },
+ "dipbuy_sleeve_daily": {
+  "mayoct": {
+   "mean_bps": 2.246269252316311,
+   "sd_bps": 34.18641547045143,
+   "sharpe": 1.0430581394747462
+  },
+  "novapr": {
+   "mean_bps": 4.334623197903014,
+   "sd_bps": 41.72817685777176,
+   "sharpe": 1.6490059052297574
+  },
+  "kelly_ratio_mayoct_over_novapr": 0.7720797279761338
+ }
+}

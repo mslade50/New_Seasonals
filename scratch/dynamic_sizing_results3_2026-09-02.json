@@ -1,0 +1,1134 @@
+{
+ "per_trade": [
+  {
+   "strategy": "3x Bear ETF Overbot Fade",
+   "N": 55,
+   "avgR": 0.6596,
+   "sdR": 1.5991,
+   "win": 0.6727,
+   "skew": -0.529,
+   "minR": -3.5045,
+   "f_quad": 0.2204,
+   "f_star": 0.2,
+   "f_p10": 0.136,
+   "f_p50": 0.2119,
+   "f_p90": 0.2999,
+   "cur_f": 0.0036,
+   "trades_yr": 7.8571,
+   "mean_conc": 1.6535,
+   "rho": 0.5173,
+   "conc_factor": 0.7473,
+   "f_adj": 0.1584,
+   "cur_over_half_adj": 0.0459,
+   "f_shr": 0.1594,
+   "kelly_bps": 24.989,
+   "cur_bps": 36.3068,
+   "ratio_A": 0.6883
+  },
+  {
+   "strategy": "3x ETF Overbot Fade",
+   "N": 87,
+   "avgR": 0.8614,
+   "sdR": 1.4062,
+   "win": 0.7356,
+   "skew": 0.9882,
+   "minR": -2.3136,
+   "f_quad": 0.3167,
+   "f_star": 0.3942,
+   "f_p10": 0.3449,
+   "f_p50": 0.3997,
+   "f_p90": 0.7014,
+   "cur_f": 0.0046,
+   "trades_yr": 8.7,
+   "mean_conc": 2.1901,
+   "rho": 0.2203,
+   "conc_factor": 0.7923,
+   "f_adj": 0.3166,
+   "cur_over_half_adj": 0.0293,
+   "f_shr": 0.238,
+   "kelly_bps": 37.3091,
+   "cur_bps": 46.4468,
+   "ratio_A": 0.8033
+  },
+  {
+   "strategy": "3x Leader Gap Fade",
+   "N": 24,
+   "avgR": 1.1545,
+   "sdR": 2.39,
+   "win": 0.5833,
+   "skew": 1.3816,
+   "minR": -1.8154,
+   "f_quad": 0.1639,
+   "f_star": 0.3524,
+   "f_p10": 0.1938,
+   "f_p50": 0.3625,
+   "f_p90": 0.5153,
+   "cur_f": 0.0038,
+   "trades_yr": 3.4286,
+   "mean_conc": 1.5625,
+   "rho": 0.0,
+   "conc_factor": 1.0,
+   "f_adj": 0.3625,
+   "cur_over_half_adj": 0.0207,
+   "f_shr": 0.2428,
+   "kelly_bps": 38.0614,
+   "cur_bps": 37.5,
+   "ratio_A": 1.015
+  },
+  {
+   "strategy": "52wh Breakout",
+   "N": 190,
+   "avgR": 0.6509,
+   "sdR": 2.0355,
+   "win": 0.4579,
+   "skew": 0.6646,
+   "minR": -1.9118,
+   "f_quad": 0.1425,
+   "f_star": 0.2155,
+   "f_p10": 0.1574,
+   "f_p50": 0.2163,
+   "f_p90": 0.2819,
+   "cur_f": 0.0052,
+   "trades_yr": 11.875,
+   "mean_conc": 2.8845,
+   "rho": 0.083,
+   "conc_factor": 0.8648,
+   "f_adj": 0.1871,
+   "cur_over_half_adj": 0.0561,
+   "f_shr": 0.1864,
+   "kelly_bps": 29.2193,
+   "cur_bps": 52.5,
+   "ratio_A": 0.5566
+  },
+  {
+   "strategy": "ATR Extended Gap Up",
+   "N": 55,
+   "avgR": 0.8387,
+   "sdR": 1.8854,
+   "win": 0.6727,
+   "skew": 0.0287,
+   "minR": -3.8695,
+   "f_quad": 0.197,
+   "f_star": 0.2007,
+   "f_p10": 0.1388,
+   "f_p50": 0.2089,
+   "f_p90": 0.3309,
+   "cur_f": 0.006,
+   "trades_yr": 3.6667,
+   "mean_conc": 1.125,
+   "rho": 0.0,
+   "conc_factor": 1.0,
+   "f_adj": 0.2089,
+   "cur_over_half_adj": 0.0575,
+   "f_shr": 0.2122,
+   "kelly_bps": 33.2684,
+   "cur_bps": 60.0,
+   "ratio_A": 0.5545
+  },
+  {
+   "strategy": "Indices Oversold Bounce",
+   "N": 183,
+   "avgR": 0.4441,
+   "sdR": 1.3222,
+   "win": 0.694,
+   "skew": -1.551,
+   "minR": -7.1662,
+   "f_quad": 0.2283,
+   "f_star": 0.1199,
+   "f_p10": 0.0959,
+   "f_p50": 0.1212,
+   "f_p90": 0.2949,
+   "cur_f": 0.0045,
+   "trades_yr": 10.7647,
+   "mean_conc": 1.4682,
+   "rho": 1.0,
+   "conc_factor": 0.6811,
+   "f_adj": 0.0826,
+   "cur_over_half_adj": 0.1095,
+   "f_shr": 0.1049,
+   "kelly_bps": 16.4449,
+   "cur_bps": 45.2152,
+   "ratio_A": 0.3637
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "N": 198,
+   "avgR": 0.3488,
+   "sdR": 0.8583,
+   "win": 0.6919,
+   "skew": -0.7661,
+   "minR": -3.4098,
+   "f_quad": 0.4063,
+   "f_star": 0.2601,
+   "f_p10": 0.2184,
+   "f_p50": 0.2661,
+   "f_p90": 0.3832,
+   "cur_f": 0.0041,
+   "trades_yr": 11.6471,
+   "mean_conc": 1.657,
+   "rho": 0.1323,
+   "conc_factor": 0.92,
+   "f_adj": 0.2448,
+   "cur_over_half_adj": 0.0338,
+   "f_shr": 0.2288,
+   "kelly_bps": 35.8603,
+   "cur_bps": 41.3736,
+   "ratio_A": 0.8667
+  },
+  {
+   "strategy": "Monday Dip",
+   "N": 77,
+   "avgR": 0.4266,
+   "sdR": 1.0139,
+   "win": 0.6364,
+   "skew": -0.0626,
+   "minR": -1.0384,
+   "f_quad": 0.3525,
+   "f_star": 0.4264,
+   "f_p10": 0.2951,
+   "f_p50": 0.4325,
+   "f_p90": 0.576,
+   "cur_f": 0.0038,
+   "trades_yr": 4.8125,
+   "mean_conc": 1.3961,
+   "rho": 0.5722,
+   "conc_factor": 0.8152,
+   "f_adj": 0.3526,
+   "cur_over_half_adj": 0.0213,
+   "f_shr": 0.252,
+   "kelly_bps": 39.4974,
+   "cur_bps": 37.5487,
+   "ratio_A": 1.0519
+  },
+  {
+   "strategy": "OVS path 1",
+   "N": 2076,
+   "avgR": 0.3673,
+   "sdR": 1.0796,
+   "win": 0.6734,
+   "skew": -1.0225,
+   "minR": -5.9335,
+   "f_quad": 0.2825,
+   "f_star": 0.1601,
+   "f_p10": 0.1543,
+   "f_p50": 0.1601,
+   "f_p90": 0.1707,
+   "cur_f": 0.0011,
+   "trades_yr": 122.1176,
+   "mean_conc": 5.1578,
+   "rho": 0.0,
+   "conc_factor": 1.0,
+   "f_adj": 0.1601,
+   "cur_over_half_adj": 0.0132,
+   "f_shr": 0.1626,
+   "kelly_bps": 25.4847,
+   "cur_bps": 10.5844,
+   "ratio_A": 2.4078
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "N": 299,
+   "avgR": 0.7766,
+   "sdR": 1.4081,
+   "win": 0.7258,
+   "skew": -0.8207,
+   "minR": -2.9414,
+   "f_quad": 0.3003,
+   "f_star": 0.2768,
+   "f_p10": 0.2457,
+   "f_p50": 0.2776,
+   "f_p90": 0.3081,
+   "cur_f": 0.0022,
+   "trades_yr": 18.6875,
+   "mean_conc": 2.6544,
+   "rho": 1.0,
+   "conc_factor": 0.3767,
+   "f_adj": 0.1046,
+   "cur_over_half_adj": 0.0428,
+   "f_shr": 0.0986,
+   "kelly_bps": 15.4543,
+   "cur_bps": 22.3602,
+   "ratio_A": 0.6912
+  },
+  {
+   "strategy": "SPY QQQ MonFri Reversion",
+   "N": 239,
+   "avgR": 0.5264,
+   "sdR": 1.2027,
+   "win": 0.6862,
+   "skew": -0.6886,
+   "minR": -4.8117,
+   "f_quad": 0.3054,
+   "f_star": 0.1916,
+   "f_p10": 0.1693,
+   "f_p50": 0.1935,
+   "f_p90": 0.3711,
+   "cur_f": 0.0041,
+   "trades_yr": 14.9375,
+   "mean_conc": 1.5226,
+   "rho": 0.6018,
+   "conc_factor": 0.7607,
+   "f_adj": 0.1472,
+   "cur_over_half_adj": 0.0559,
+   "f_shr": 0.1518,
+   "kelly_bps": 23.7988,
+   "cur_bps": 41.1362,
+   "ratio_A": 0.5785
+  },
+  {
+   "strategy": "Sector BO",
+   "N": 58,
+   "avgR": 0.9436,
+   "sdR": 3.3655,
+   "win": 0.2759,
+   "skew": 1.254,
+   "minR": -1.4014,
+   "f_quad": 0.0772,
+   "f_star": 0.1399,
+   "f_p10": 0.0583,
+   "f_p50": 0.1419,
+   "f_p90": 0.2277,
+   "cur_f": 0.0038,
+   "trades_yr": 4.8333,
+   "mean_conc": 1.5717,
+   "rho": 0.7304,
+   "conc_factor": 0.7054,
+   "f_adj": 0.1001,
+   "cur_over_half_adj": 0.0749,
+   "f_shr": 0.1323,
+   "kelly_bps": 20.7442,
+   "cur_bps": 37.5,
+   "ratio_A": 0.5532
+  },
+  {
+   "strategy": "St OS Sznl",
+   "N": 37,
+   "avgR": 0.3157,
+   "sdR": 1.9346,
+   "win": 0.7297,
+   "skew": -2.4253,
+   "minR": -6.7833,
+   "f_quad": 0.0822,
+   "f_star": 0.0606,
+   "f_p10": 0.002,
+   "f_p50": 0.0643,
+   "f_p90": 0.2286,
+   "cur_f": 0.005,
+   "trades_yr": 3.0833,
+   "mean_conc": 1.1575,
+   "rho": 0.0,
+   "conc_factor": 1.0,
+   "f_adj": 0.0643,
+   "cur_over_half_adj": 0.1565,
+   "f_shr": 0.1737,
+   "kelly_bps": 27.2199,
+   "cur_bps": 50.3514,
+   "ratio_A": 0.5406
+  },
+  {
+   "strategy": "Weak Close Decent Sznls",
+   "N": 213,
+   "avgR": 0.4172,
+   "sdR": 1.1432,
+   "win": 0.6808,
+   "skew": -0.5336,
+   "minR": -3.4514,
+   "f_quad": 0.2817,
+   "f_star": 0.2332,
+   "f_p10": 0.1857,
+   "f_p50": 0.2357,
+   "f_p90": 0.3082,
+   "cur_f": 0.0061,
+   "trades_yr": 12.5294,
+   "mean_conc": 1.6496,
+   "rho": 0.2572,
+   "conc_factor": 0.8569,
+   "f_adj": 0.2019,
+   "cur_over_half_adj": 0.06,
+   "f_shr": 0.196,
+   "kelly_bps": 30.7261,
+   "cur_bps": 60.5552,
+   "ratio_A": 0.5074
+  }
+ ],
+ "daily_weights": [
+  {
+   "strategy": "3x Bear ETF Overbot Fade",
+   "kelly_w": 1.218,
+   "erc_w": 2.6428,
+   "sharpe_daily": 0.4822,
+   "ann_ret_pct": 0.7867
+  },
+  {
+   "strategy": "3x ETF Overbot Fade",
+   "kelly_w": 1.2894,
+   "erc_w": -1.6245,
+   "sharpe_daily": 0.6658,
+   "ann_ret_pct": 1.6218
+  },
+  {
+   "strategy": "52wh Breakout",
+   "kelly_w": 0.5117,
+   "erc_w": 0.7496,
+   "sharpe_daily": 0.8165,
+   "ann_ret_pct": 3.7765
+  },
+  {
+   "strategy": "ATR Extended Gap Up",
+   "kelly_w": 1.0245,
+   "erc_w": -1.3824,
+   "sharpe_daily": 0.583,
+   "ann_ret_pct": 1.6098
+  },
+  {
+   "strategy": "Indices Oversold Bounce",
+   "kelly_w": 0.691,
+   "erc_w": 1.2834,
+   "sharpe_daily": 0.7323,
+   "ann_ret_pct": 1.9558
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "kelly_w": 1.38,
+   "erc_w": 2.0513,
+   "sharpe_daily": 0.8586,
+   "ann_ret_pct": 1.5485
+  },
+  {
+   "strategy": "Monday Dip",
+   "kelly_w": 0.9646,
+   "erc_w": 2.6557,
+   "sharpe_daily": 0.5819,
+   "ann_ret_pct": 0.7323
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "kelly_w": 0.86,
+   "erc_w": -0.9878,
+   "sharpe_daily": 0.8228,
+   "ann_ret_pct": 3.2432
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "kelly_w": 1.0532,
+   "erc_w": 1.2183,
+   "sharpe_daily": 1.041,
+   "ann_ret_pct": 3.2637
+  },
+  {
+   "strategy": "SPY QQQ MonFri Reversion",
+   "kelly_w": 1.4007,
+   "erc_w": 1.3443,
+   "sharpe_daily": 1.3208,
+   "ann_ret_pct": 3.2004
+  },
+  {
+   "strategy": "Sector BO",
+   "kelly_w": 0.7314,
+   "erc_w": 1.2942,
+   "sharpe_daily": 0.436,
+   "ann_ret_pct": 1.1941
+  },
+  {
+   "strategy": "St OS Sznl",
+   "kelly_w": 1.123,
+   "erc_w": 2.6368,
+   "sharpe_daily": 0.4385,
+   "ann_ret_pct": 0.609
+  },
+  {
+   "strategy": "Weak Close Decent Sznls",
+   "kelly_w": 0.7524,
+   "erc_w": 1.1181,
+   "sharpe_daily": 0.7652,
+   "ann_ret_pct": 2.5217
+  }
+ ],
+ "route_agreement_spearman": 0.41208791208791207,
+ "walk_forward": {
+  "yearly": [
+   {
+    "year": 2014,
+    "equal": 0.479,
+    "kelly": 0.423,
+    "erc": 0.822,
+    "kelly_clip": 0.482,
+    "kelly_half": 0.459
+   },
+   {
+    "year": 2015,
+    "equal": 0.22,
+    "kelly": 1.157,
+    "erc": 0.624,
+    "kelly_clip": 1.033,
+    "kelly_half": 0.609
+   },
+   {
+    "year": 2016,
+    "equal": 1.026,
+    "kelly": 1.806,
+    "erc": -0.055,
+    "kelly_clip": 1.752,
+    "kelly_half": 1.561
+   },
+   {
+    "year": 2017,
+    "equal": 2.202,
+    "kelly": 1.847,
+    "erc": 1.673,
+    "kelly_clip": 2.167,
+    "kelly_half": 2.172
+   },
+   {
+    "year": 2018,
+    "equal": 1.664,
+    "kelly": 1.84,
+    "erc": 2.175,
+    "kelly_clip": 1.783,
+    "kelly_half": 1.801
+   },
+   {
+    "year": 2019,
+    "equal": 2.123,
+    "kelly": 2.961,
+    "erc": 1.693,
+    "kelly_clip": 2.801,
+    "kelly_half": 2.555
+   },
+   {
+    "year": 2020,
+    "equal": 2.193,
+    "kelly": 1.961,
+    "erc": 1.979,
+    "kelly_clip": 2.165,
+    "kelly_half": 2.203
+   },
+   {
+    "year": 2021,
+    "equal": 3.419,
+    "kelly": 3.199,
+    "erc": 1.224,
+    "kelly_clip": 3.186,
+    "kelly_half": 3.354
+   },
+   {
+    "year": 2022,
+    "equal": 1.688,
+    "kelly": 1.518,
+    "erc": 1.068,
+    "kelly_clip": 1.534,
+    "kelly_half": 1.62
+   },
+   {
+    "year": 2023,
+    "equal": 4.13,
+    "kelly": 3.815,
+    "erc": 2.935,
+    "kelly_clip": 3.787,
+    "kelly_half": 4.083
+   },
+   {
+    "year": 2024,
+    "equal": 2.046,
+    "kelly": 1.85,
+    "erc": 0.437,
+    "kelly_clip": 1.918,
+    "kelly_half": 1.959
+   },
+   {
+    "year": 2025,
+    "equal": 4.654,
+    "kelly": 3.985,
+    "erc": 4.654,
+    "kelly_clip": 4.041,
+    "kelly_half": 4.379
+   },
+   {
+    "year": 2026,
+    "equal": 2.721,
+    "kelly": 2.214,
+    "erc": 0.4,
+    "kelly_clip": 2.234,
+    "kelly_half": 2.45
+   }
+  ],
+  "summary": {
+   "ann": {
+    "equal": 24.1585,
+    "kelly": 31.0895,
+    "erc": 18.3416,
+    "kelly_clip": 29.7548,
+    "kelly_half": 28.0458
+   },
+   "vol": {
+    "equal": 11.7964,
+    "kelly": 14.7225,
+    "erc": 13.3118,
+    "kelly_clip": 14.0051,
+    "kelly_half": 13.1165
+   },
+   "sharpe": {
+    "equal": 2.048,
+    "kelly": 2.1117,
+    "erc": 1.3778,
+    "kelly_clip": 2.1246,
+    "kelly_half": 2.1382
+   },
+   "maxdd": {
+    "equal": -12.1465,
+    "kelly": -13.8845,
+    "erc": -17.5943,
+    "kelly_clip": -13.4605,
+    "kelly_half": -11.9439
+   },
+   "calmar": {
+    "equal": 1.9889,
+    "kelly": 2.2391,
+    "erc": 1.0425,
+    "kelly_clip": 2.2105,
+    "kelly_half": 2.3481
+   }
+  }
+ },
+ "weights_2025": [
+  {
+   "strategy": "3x ETF Overbot Fade",
+   "kelly": 1.265,
+   "erc": -2.176
+  },
+  {
+   "strategy": "52wh Breakout",
+   "kelly": 0.461,
+   "erc": 0.889
+  },
+  {
+   "strategy": "ATR Extended Gap Up",
+   "kelly": 1.053,
+   "erc": -2.19
+  },
+  {
+   "strategy": "Indices Oversold Bounce",
+   "kelly": 0.674,
+   "erc": 1.508
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "kelly": 1.372,
+   "erc": 2.484
+  },
+  {
+   "strategy": "Monday Dip",
+   "kelly": 1.124,
+   "erc": 3.32
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "kelly": 0.99,
+   "erc": -1.291
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "kelly": 1.54,
+   "erc": 2.046
+  },
+  {
+   "strategy": "SPY QQQ MonFri Reversion",
+   "kelly": 1.298,
+   "erc": 1.659
+  },
+  {
+   "strategy": "Sector BO",
+   "kelly": 0.67,
+   "erc": 1.537
+  },
+  {
+   "strategy": "St OS Sznl",
+   "kelly": 0.873,
+   "erc": 2.827
+  },
+  {
+   "strategy": "Weak Close Decent Sznls",
+   "kelly": 0.679,
+   "erc": 1.389
+  }
+ ],
+ "tail": [
+  {
+   "strategy": "52wh Breakout",
+   "cvar5_share": 0.2728,
+   "variance_share": 0.2059,
+   "pnl_share": 0.1449,
+   "pnl_per_tail": 0.5312
+  },
+  {
+   "strategy": "Weak Close Decent Sznls",
+   "cvar5_share": 0.1254,
+   "variance_share": 0.1129,
+   "pnl_share": 0.0968,
+   "pnl_per_tail": 0.7715
+  },
+  {
+   "strategy": "Sector BO",
+   "cvar5_share": 0.1113,
+   "variance_share": 0.0779,
+   "pnl_share": 0.0458,
+   "pnl_per_tail": 0.4115
+  },
+  {
+   "strategy": "Indices Oversold Bounce",
+   "cvar5_share": 0.0968,
+   "variance_share": 0.0942,
+   "pnl_share": 0.075,
+   "pnl_per_tail": 0.7748
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "cvar5_share": 0.081,
+   "variance_share": 0.0899,
+   "pnl_share": 0.1252,
+   "pnl_per_tail": 1.5468
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "cvar5_share": 0.0712,
+   "variance_share": 0.1093,
+   "pnl_share": 0.1244,
+   "pnl_per_tail": 1.7476
+  },
+  {
+   "strategy": "SPY QQQ MonFri Reversion",
+   "cvar5_share": 0.0672,
+   "variance_share": 0.0768,
+   "pnl_share": 0.1228,
+   "pnl_per_tail": 1.8269
+  },
+  {
+   "strategy": "ATR Extended Gap Up",
+   "cvar5_share": 0.0417,
+   "variance_share": 0.0568,
+   "pnl_share": 0.0618,
+   "pnl_per_tail": 1.4804
+  },
+  {
+   "strategy": "Monday Dip",
+   "cvar5_share": 0.0343,
+   "variance_share": 0.0338,
+   "pnl_share": 0.0281,
+   "pnl_per_tail": 0.8189
+  },
+  {
+   "strategy": "3x ETF Overbot Fade",
+   "cvar5_share": 0.0286,
+   "variance_share": 0.0413,
+   "pnl_share": 0.0622,
+   "pnl_per_tail": 2.1762
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "cvar5_share": 0.0261,
+   "variance_share": 0.0425,
+   "pnl_share": 0.0594,
+   "pnl_per_tail": 2.2767
+  },
+  {
+   "strategy": "St OS Sznl",
+   "cvar5_share": 0.0242,
+   "variance_share": 0.0265,
+   "pnl_share": 0.0234,
+   "pnl_per_tail": 0.9642
+  },
+  {
+   "strategy": "3x Bear ETF Overbot Fade",
+   "cvar5_share": 0.0193,
+   "variance_share": 0.0322,
+   "pnl_share": 0.0302,
+   "pnl_per_tail": 1.5652
+  }
+ ],
+ "worst_windows": [
+  {
+   "end": "2014-02-14",
+   "book_21d_pct": -9.338,
+   "top": "52wh Breakout",
+   "top_share": 0.739,
+   "second": "LT Trend ST OS",
+   "second_share": 0.164
+  },
+  {
+   "end": "2014-10-16",
+   "book_21d_pct": -8.158,
+   "top": "52wh Breakout",
+   "top_share": 0.617,
+   "second": "Indices Oversold Bounce",
+   "second_share": 0.221
+  },
+  {
+   "end": "2015-08-27",
+   "book_21d_pct": -8.052,
+   "top": "Indices Oversold Bounce",
+   "top_share": 0.734,
+   "second": "52wh Breakout",
+   "second_share": 0.382
+  },
+  {
+   "end": "2024-04-19",
+   "book_21d_pct": -6.835,
+   "top": "St OS Sznl",
+   "top_share": 0.588,
+   "second": "3x Bear ETF Overbot Fade",
+   "second_share": 0.388
+  },
+  {
+   "end": "2015-01-06",
+   "book_21d_pct": -6.56,
+   "top": "Weak Close Decent Sznls",
+   "top_share": 0.372,
+   "second": "Indices Oversold Bounce",
+   "second_share": 0.366
+  }
+ ],
+ "era": [
+  {
+   "Strategy": "3x Bear ETF Overbot Fade",
+   "mean_2003-09": NaN,
+   "mean_2010-16": NaN,
+   "mean_2017-21": 1.002,
+   "mean_2022-26": 0.554,
+   "size_2003-09": NaN,
+   "size_2010-16": NaN,
+   "size_2017-21": 13.0,
+   "size_2022-26": 42.0
+  },
+  {
+   "Strategy": "3x ETF Overbot Fade",
+   "mean_2003-09": NaN,
+   "mean_2010-16": 1.002,
+   "mean_2017-21": 1.678,
+   "mean_2022-26": 0.325,
+   "size_2003-09": NaN,
+   "size_2010-16": 7.0,
+   "size_2017-21": 31.0,
+   "size_2022-26": 49.0
+  },
+  {
+   "Strategy": "3x Leader Gap Fade",
+   "mean_2003-09": NaN,
+   "mean_2010-16": 0.403,
+   "mean_2017-21": 1.811,
+   "mean_2022-26": 1.133,
+   "size_2003-09": NaN,
+   "size_2010-16": 3.0,
+   "size_2017-21": 4.0,
+   "size_2022-26": 17.0
+  },
+  {
+   "Strategy": "52wh Breakout",
+   "mean_2003-09": 0.169,
+   "mean_2010-16": 0.622,
+   "mean_2017-21": 0.491,
+   "mean_2022-26": 1.316,
+   "size_2003-09": 66.0,
+   "size_2010-16": 106.0,
+   "size_2017-21": 64.0,
+   "size_2022-26": 20.0
+  },
+  {
+   "Strategy": "ATR Extended Gap Up",
+   "mean_2003-09": 0.588,
+   "mean_2010-16": 0.012,
+   "mean_2017-21": 0.991,
+   "mean_2022-26": 1.008,
+   "size_2003-09": 16.0,
+   "size_2010-16": 9.0,
+   "size_2017-21": 21.0,
+   "size_2022-26": 25.0
+  },
+  {
+   "Strategy": "Indices Oversold Bounce",
+   "mean_2003-09": 0.192,
+   "mean_2010-16": 0.091,
+   "mean_2017-21": 0.719,
+   "mean_2022-26": 0.686,
+   "size_2003-09": 107.0,
+   "size_2010-16": 77.0,
+   "size_2017-21": 48.0,
+   "size_2022-26": 58.0
+  },
+  {
+   "Strategy": "LT Trend ST OS",
+   "mean_2003-09": 0.198,
+   "mean_2010-16": 0.407,
+   "mean_2017-21": 0.354,
+   "mean_2022-26": 0.32,
+   "size_2003-09": 48.0,
+   "size_2010-16": 44.0,
+   "size_2017-21": 54.0,
+   "size_2022-26": 100.0
+  },
+  {
+   "Strategy": "Monday Dip",
+   "mean_2003-09": 0.564,
+   "mean_2010-16": 0.261,
+   "mean_2017-21": 0.717,
+   "mean_2022-26": 0.488,
+   "size_2003-09": 31.0,
+   "size_2010-16": 40.0,
+   "size_2017-21": 19.0,
+   "size_2022-26": 18.0
+  },
+  {
+   "Strategy": "Monthly Weak Close",
+   "mean_2003-09": 2.0,
+   "mean_2010-16": 1.208,
+   "mean_2017-21": 1.701,
+   "mean_2022-26": 2.0,
+   "size_2003-09": 5.0,
+   "size_2010-16": 2.0,
+   "size_2017-21": 4.0,
+   "size_2022-26": 3.0
+  },
+  {
+   "Strategy": "Overbot Vol Spike",
+   "mean_2003-09": 0.517,
+   "mean_2010-16": 0.338,
+   "mean_2017-21": 0.406,
+   "mean_2022-26": 0.345,
+   "size_2003-09": 407.0,
+   "size_2010-16": 292.0,
+   "size_2017-21": 795.0,
+   "size_2022-26": 989.0
+  },
+  {
+   "Strategy": "Oversold Low Volume",
+   "mean_2003-09": 0.455,
+   "mean_2010-16": 0.662,
+   "mean_2017-21": 0.973,
+   "mean_2022-26": 0.669,
+   "size_2003-09": 16.0,
+   "size_2010-16": 46.0,
+   "size_2017-21": 107.0,
+   "size_2022-26": 146.0
+  },
+  {
+   "Strategy": "SPY QQQ MonFri Reversion",
+   "mean_2003-09": 0.28,
+   "mean_2010-16": 0.51,
+   "mean_2017-21": 0.512,
+   "mean_2022-26": 0.582,
+   "size_2003-09": 109.0,
+   "size_2010-16": 127.0,
+   "size_2017-21": 60.0,
+   "size_2022-26": 52.0
+  },
+  {
+   "Strategy": "Sector BO",
+   "mean_2003-09": 0.424,
+   "mean_2010-16": 0.513,
+   "mean_2017-21": 1.323,
+   "mean_2022-26": 1.536,
+   "size_2003-09": 15.0,
+   "size_2010-16": 29.0,
+   "size_2017-21": 22.0,
+   "size_2022-26": 7.0
+  },
+  {
+   "Strategy": "St OS Sznl",
+   "mean_2003-09": 0.391,
+   "mean_2010-16": -0.696,
+   "mean_2017-21": 0.927,
+   "mean_2022-26": 0.169,
+   "size_2003-09": 21.0,
+   "size_2010-16": 6.0,
+   "size_2017-21": 14.0,
+   "size_2022-26": 17.0
+  },
+  {
+   "Strategy": "Weak Close Decent Sznls",
+   "mean_2003-09": 0.036,
+   "mean_2010-16": 0.087,
+   "mean_2017-21": 0.352,
+   "mean_2022-26": 0.962,
+   "size_2003-09": 55.0,
+   "size_2010-16": 88.0,
+   "size_2017-21": 64.0,
+   "size_2022-26": 61.0
+  }
+ ],
+ "by_dial": [
+  {
+   "strategy": "3x Bear ETF Overbot Fade",
+   "bucket": "<50",
+   "days": 84,
+   "sharpe": 3.1954494910420315,
+   "mean_bps": 14.288949206349207
+  },
+  {
+   "strategy": "3x ETF Overbot Fade",
+   "bucket": "<50",
+   "days": 94,
+   "sharpe": 4.066068595264401,
+   "mean_bps": 25.085246808510636
+  },
+  {
+   "strategy": "3x Leader Gap Fade",
+   "bucket": "<50",
+   "days": 31,
+   "sharpe": 2.5598507164115003,
+   "mean_bps": 21.37393978494623
+  },
+  {
+   "strategy": "52wh Breakout",
+   "bucket": "<50",
+   "days": 1101,
+   "sharpe": 1.2234649884561863,
+   "mean_bps": 2.6054366333636083
+  },
+  {
+   "strategy": "52wh Breakout",
+   "bucket": "50-65",
+   "days": 54,
+   "sharpe": -2.1579834003324057,
+   "mean_bps": -4.987365432098767
+  },
+  {
+   "strategy": "52wh Breakout",
+   "bucket": "65+",
+   "days": 71,
+   "sharpe": -2.3222341090792953,
+   "mean_bps": -4.486747417840375
+  },
+  {
+   "strategy": "ATR Extended Gap Up",
+   "bucket": "<50",
+   "days": 103,
+   "sharpe": 3.4528833881063314,
+   "mean_bps": 21.55145242718446
+  },
+  {
+   "strategy": "Indices Oversold Bounce",
+   "bucket": "<50",
+   "days": 182,
+   "sharpe": 5.161353388673496,
+   "mean_bps": 18.079782417582418
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "bucket": "<50",
+   "days": 109,
+   "sharpe": 4.362161024378152,
+   "mean_bps": 10.913549847094801
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "bucket": "50-65",
+   "days": 32,
+   "sharpe": 4.23683364458909,
+   "mean_bps": 13.761341666666667
+  },
+  {
+   "strategy": "LT Trend ST OS",
+   "bucket": "65+",
+   "days": 31,
+   "sharpe": 1.0676194668718404,
+   "mean_bps": 4.819582795698925
+  },
+  {
+   "strategy": "Monday Dip",
+   "bucket": "<50",
+   "days": 80,
+   "sharpe": 4.5908583168160195,
+   "mean_bps": 10.731628333333333
+  },
+  {
+   "strategy": "Monthly Weak Close",
+   "bucket": "<50",
+   "days": 21,
+   "sharpe": 9.674601807699224,
+   "mean_bps": 28.490152380952374
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "bucket": "<50",
+   "days": 789,
+   "sharpe": 1.5263564918324748,
+   "mean_bps": 5.09197346852556
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "bucket": "50-65",
+   "days": 75,
+   "sharpe": 4.328535408846468,
+   "mean_bps": 10.01883911111111
+  },
+  {
+   "strategy": "Overbot Vol Spike",
+   "bucket": "65+",
+   "days": 48,
+   "sharpe": 0.032909070828270735,
+   "mean_bps": 0.06736388888888781
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "bucket": "<50",
+   "days": 514,
+   "sharpe": 2.4981918342396385,
+   "mean_bps": 7.6889154345006485
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "bucket": "50-65",
+   "days": 98,
+   "sharpe": 1.8704966928079017,
+   "mean_bps": 5.774733333333333
+  },
+  {
+   "strategy": "Oversold Low Volume",
+   "bucket": "65+",
+   "days": 63,
+   "sharpe": 3.13986166895713,
+   "mean_bps": 4.208493121693122
+  },
+  {
+   "strategy": "SPY QQQ MonFri Reversion",
+   "bucket": "<50",
+   "days": 200,
+   "sharpe": 4.3875069790016585,
+   "mean_bps": 12.927797333333332
+  },
+  {
+   "strategy": "Sector BO",
+   "bucket": "<50",
+   "days": 474,
+   "sharpe": 1.4234035469567483,
+   "mean_bps": 2.7969310829817156
+  },
+  {
+   "strategy": "Sector BO",
+   "bucket": "50-65",
+   "days": 31,
+   "sharpe": 3.3097100162324953,
+   "mean_bps": 8.58519139784946
+  },
+  {
+   "strategy": "St OS Sznl",
+   "bucket": "<50",
+   "days": 89,
+   "sharpe": 3.378437977464601,
+   "mean_bps": 7.964347565543071
+  },
+  {
+   "strategy": "St OS Sznl",
+   "bucket": "50-65",
+   "days": 27,
+   "sharpe": 2.2244495868869216,
+   "mean_bps": 11.62915061728395
+  },
+  {
+   "strategy": "Weak Close Decent Sznls",
+   "bucket": "<50",
+   "days": 211,
+   "sharpe": 4.1756629130265335,
+   "mean_bps": 18.90432922590837
+  }
+ ]
+}
