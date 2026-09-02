@@ -1,0 +1,8 @@
+# Install after the repository's base requirements.txt.
+databento==0.85.0
+ib-insync==0.9.86
+numpy==1.26.4
+pandas==2.3.3
+keyring==25.7.0
+exchange-calendars==4.2.8
+python-dotenv==1.2.2

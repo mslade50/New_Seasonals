@@ -163,5 +163,8 @@ data/context_briefs/
 data/posts_state.json
 content/queue/
 
+# Dedicated Legend EMA ETF runtime state, audit logs, plans, and rolling cache.
+data/legend_etf/
+
 # Repo health check tripwire state - machine-local, advanced every run
 data/health_check_state.json
