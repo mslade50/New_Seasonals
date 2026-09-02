@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from episodic_pivot.config import DEFAULT_POLICY
+from episodic_pivot.daily_prices import calculate_prior_daily_metrics
 from episodic_pivot.premarket import nominate_candidates
 from episodic_pivot.schema import PremarketSnapshot, parse_timestamp
 
@@ -107,8 +108,6 @@ def _as_ny_index(values) -> pd.DatetimeIndex:  # type: ignore[no-untyped-def]
 
 
 def _daily_metrics(bars, session_date):  # type: ignore[no-untyped-def]
-    from trading_calendar import TRADING_DAY
-
     frame = pd.DataFrame(
         {
             "date": [bar.date for bar in bars],
@@ -119,73 +118,7 @@ def _daily_metrics(bars, session_date):  # type: ignore[no-untyped-def]
             "volume": [_finite(bar.volume) for bar in bars],
         }
     )
-    frame["date"] = pd.to_datetime(frame["date"]).dt.date
-    frame = (
-        frame[frame["date"] < session_date].sort_values("date").reset_index(drop=True)
-    )
-    if len(frame) < 126:
-        raise ValueError("fewer than 126 completed daily bars")
-    if frame["date"].duplicated().any():
-        raise ValueError("duplicate completed daily bars")
-    expected_previous_session = (pd.Timestamp(session_date) - TRADING_DAY).date()
-    expected_atr_dates = list(
-        pd.date_range(
-            end=expected_previous_session,
-            periods=15,
-            freq=TRADING_DAY,
-        ).date
-    )
-    if frame.tail(15)["date"].tolist() != expected_atr_dates:
-        raise ValueError("stale or incomplete 15-bar ATR source window")
-    previous_close = float(frame.iloc[-1]["close"])
-    invalid = (
-        frame[["open", "high", "low", "close"]].le(0).any(axis=1)
-        | frame["volume"].le(0)
-        | frame["high"].lt(frame["low"])
-    )
-    close_ratio = frame["close"] / frame["close"].shift(1)
-    half_double = close_ratio.between(0.45, 0.55) | close_ratio.between(1.80, 2.20)
-    gap_pct = 100.0 * (frame["open"] / frame["close"].shift(1) - 1.0)
-    close_change_pct = 100.0 * (close_ratio - 1.0)
-    extreme = gap_pct.abs().ge(50) | close_change_pct.abs().ge(50)
-    # Fourteen true ranges consume fifteen completed source bars. Match the
-    # historical fail-closed basis check before an ATR value can qualify a row.
-    if (invalid | half_double | extreme).tail(15).any():
-        raise ValueError("unclean 15-bar ATR source window")
-    prior_two_day_low = float(frame.tail(2)["low"].min())
-    previous = frame["close"].shift(1)
-    true_range = pd.concat(
-        [
-            frame["high"] - frame["low"],
-            (frame["high"] - previous).abs(),
-            (frame["low"] - previous).abs(),
-        ],
-        axis=1,
-    ).max(axis=1, skipna=False)
-    atr_14 = float(true_range.tail(14).mean())
-    if not math.isfinite(atr_14) or atr_14 <= 0 or previous_close <= 0:
-        raise ValueError("unresolved prior-session ATR")
-    daily_change = 100.0 * (frame["close"] / frame["close"].shift(1) - 1.0)
-    prior_avg_volume_100 = frame["volume"].shift(1).rolling(100, min_periods=50).mean()
-    prior_ep = (daily_change.abs() >= 8.0) & (
-        frame["volume"] >= 3.0 * prior_avg_volume_100
-    )
-    prior_ep_positions = frame.index[prior_ep]
-    sessions_since_prior_ep = (
-        int((len(frame) - 1) - prior_ep_positions[-1])
-        if len(prior_ep_positions)
-        else None
-    )
-    return {
-        "previous_close": previous_close,
-        "prior_two_day_low": prior_two_day_low,
-        "atr_14": atr_14,
-        "avg_volume_20": float(frame["volume"].tail(20).mean()),
-        "addv_63": float((frame["close"] * frame["volume"]).tail(63).mean()),
-        "prior_63d_return_pct": 100.0
-        * (previous_close / float(frame.iloc[-64]["close"]) - 1.0),
-        "sessions_since_prior_ep": sessions_since_prior_ep,
-    }
+    return calculate_prior_daily_metrics(frame, session_date)
 
 
 def _premarket_metrics(bars, session_date, previous_close: float | None = None):  # type: ignore[no-untyped-def]
@@ -811,6 +744,14 @@ def main(argv: list[str] | None = None) -> int:
                                     "IBKR_ADJUSTED_LAST_DAILY_WITH_LIVE_TRADES_QUOTE"
                                 ),
                                 "daily_price_basis": _DAILY_PRICE_BASIS,
+                                "atr_reference_close": item["daily"][
+                                    "previous_close"
+                                ],
+                                "daily_data_status": "VERIFIED",
+                                "daily_data_observed_at": batch_finished.isoformat().replace(
+                                    "+00:00", "Z"
+                                ),
+                                "daily_source_symbol": contract.symbol.upper(),
                                 "contract_con_id": contract.conId,
                                 "primary_exchange": item["primary_exchange"],
                                 "contract_identity_status": item[

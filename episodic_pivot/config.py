@@ -101,8 +101,8 @@ class HistoricalPolicy:
 
 @dataclass(frozen=True)
 class EPPolicy:
-    policy_id: str = "ep-shadow-v0.3.0"
-    policy_date: str = "2026-08-25"
+    policy_id: str = "ep-shadow-v0.4.0"
+    policy_date: str = "2026-09-02"
     mode: str = "SHADOW_RESEARCH"
     live_actions_enabled: bool = False
     discovery: DiscoveryPolicy = field(default_factory=DiscoveryPolicy)

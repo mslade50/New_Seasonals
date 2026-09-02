@@ -57,6 +57,12 @@ class PremarketSnapshot:
     source: str = "IBKR_READ_ONLY"
     price_basis: str = "IBKR_TRADES"
     daily_price_basis: str = "UNVERIFIED"
+    atr_reference_close: float | None = None
+    daily_data_status: str = "UNRESOLVED"
+    daily_data_observed_at: str | None = None
+    daily_source_session: str = ""
+    daily_source_symbol: str = ""
+    daily_repaired_bar_count: int = 0
     contract_con_id: int | None = None
     primary_exchange: str = ""
     contract_identity_status: str = "UNRESOLVED"
@@ -90,6 +96,10 @@ class PremarketSnapshot:
             values["premarket_metrics_at"] = iso_utc(values["premarket_metrics_at"])
         if values.get("first_trigger_at"):
             values["first_trigger_at"] = iso_utc(values["first_trigger_at"])
+        if values.get("daily_data_observed_at"):
+            values["daily_data_observed_at"] = iso_utc(
+                values["daily_data_observed_at"]
+            )
         return cls(**values)
 
     @property
@@ -102,9 +112,14 @@ class PremarketSnapshot:
 
     @property
     def prior_atr_pct(self) -> float | None:
+        reference_close = (
+            float(self.atr_reference_close)
+            if self.atr_reference_close is not None
+            else self.previous_close
+        )
         return (
-            100.0 * self.atr_14 / self.previous_close
-            if self.previous_close > 0 and self.atr_14 > 0
+            100.0 * self.atr_14 / reference_close
+            if reference_close > 0 and self.atr_14 > 0
             else None
         )
 

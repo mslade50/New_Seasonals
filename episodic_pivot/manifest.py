@@ -11,7 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from .config import EPPolicy
+from .qualify import prior_atr_blocker
 from .schema import ResearchSizingPreview, RunResult
+
+
+_RESEARCH_SKIP_BLOCKERS = {
+    "NEWS_RESEARCH_SKIPPED_PRIOR_ATR",
+    "NEWS_RESEARCH_NOT_SELECTED_BY_CAP",
+}
 
 
 def sha256_file(path: str | Path) -> str:
@@ -89,14 +96,10 @@ def _validate_research_previews(previews: list[ResearchSizingPreview]) -> None:
 def _refresh_targets(result: RunResult) -> dict[str, Any]:
     """Build a bounded, non-executable quote-refresh list after news research."""
 
-    skipped = {
-        "NEWS_RESEARCH_SKIPPED_PRIOR_ATR",
-        "NEWS_RESEARCH_NOT_SELECTED_BY_CAP",
-    }
     researched_ids = {
         decision.candidate_id
         for decision in result.decisions
-        if not (skipped & set(decision.blockers))
+        if not (_RESEARCH_SKIP_BLOCKERS & set(decision.blockers))
     }
     snapshots = [
         candidate.snapshot.to_dict()
@@ -123,10 +126,40 @@ def _refresh_targets(result: RunResult) -> dict[str, Any]:
     }
 
 
+def _research_counts(result: RunResult, policy: EPPolicy) -> dict[str, int]:
+    decisions = {item.candidate_id: item for item in result.decisions}
+    atr_qualified = sum(
+        prior_atr_blocker(candidate.snapshot, policy=policy) is None
+        for candidate in result.candidates
+    )
+    selected = sum(
+        not (
+            _RESEARCH_SKIP_BLOCKERS
+            & set(decisions[candidate.candidate_id].blockers)
+        )
+        for candidate in result.candidates
+        if candidate.candidate_id in decisions
+    )
+    execution_verified = sum(
+        candidate.snapshot.provider.upper() == "IBKR"
+        and candidate.snapshot.market_data_status.upper() == "LIVE"
+        and candidate.snapshot.contract_identity_status == "UNIQUE_IBKR_MATCH"
+        and candidate.snapshot.bid > 0
+        and candidate.snapshot.ask > 0
+        for candidate in result.candidates
+    )
+    return {
+        "atr_qualified": int(atr_qualified),
+        "news_research_selected": int(selected),
+        "execution_data_verified": int(execution_verified),
+    }
+
+
 def _report(result: RunResult, policy: EPPolicy) -> str:
     by_decision: dict[str, int] = {}
     for decision in result.decisions:
         by_decision[decision.decision] = by_decision.get(decision.decision, 0) + 1
+    research_counts = _research_counts(result, policy)
     lines = [
         f"# Episodic Pivot shadow run — {result.run_id}",
         "",
@@ -136,7 +169,10 @@ def _report(result: RunResult, policy: EPPolicy) -> str:
         "",
         "## Counts",
         "",
-        f"- Nominations: {len(result.candidates)}",
+        f"- Broad mover nominations: {len(result.candidates)}",
+        f"- Verified prior ATR(14)% above 4%: {research_counts['atr_qualified']}",
+        f"- Selected for news research: {research_counts['news_research_selected']}",
+        f"- Fresh IBKR execution-data verification: {research_counts['execution_data_verified']}",
         f"- Research sizing previews: {len(result.previews)}",
     ]
     for label in sorted(by_decision):
@@ -195,15 +231,22 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
             item.snapshot.symbol,
         ),
     )
-    counts: dict[str, int] = {}
-    for decision in result.decisions:
-        counts[decision.decision] = counts.get(decision.decision, 0) + 1
+    research_counts = _research_counts(result, policy)
+    focused = [
+        candidate
+        for candidate in ordered
+        if candidate.candidate_id in decisions
+        and not (
+            _RESEARCH_SKIP_BLOCKERS
+            & set(decisions[candidate.candidate_id].blockers)
+        )
+    ]
 
     cards = [
-        ("Nominations", len(result.candidates)),
-        ("Preview-eligible", counts.get("RESEARCH_PREVIEW_ELIGIBLE", 0)),
-        ("Watch", counts.get("WATCH", 0)),
-        ("Rejected", counts.get("REJECT", 0)),
+        ("Broad movers", len(result.candidates)),
+        ("ATR > 4%", research_counts["atr_qualified"]),
+        ("News researched", research_counts["news_research_selected"]),
+        ("IBKR verified", research_counts["execution_data_verified"]),
     ]
     card_html = "".join(
         f'<div class="metric"><span>{html.escape(label)}</span><strong>{value}</strong></div>'
@@ -211,7 +254,7 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
     )
 
     candidate_html: list[str] = []
-    for index, candidate in enumerate(ordered, start=1):
+    for index, candidate in enumerate(focused, start=1):
         snap = candidate.snapshot
         decision = decisions.get(candidate.candidate_id)
         if decision is None:
@@ -221,6 +264,18 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
         blockers = list(decision.blockers)
         warnings = list(decision.warnings)
         first_rejection = blockers[0] if blockers else "None"
+        atr_label = (
+            f"{snap.prior_atr_pct:.2f}%"
+            if snap.prior_atr_pct is not None
+            else "unresolved"
+        )
+        daily_basis = (
+            "yfinance adjusted"
+            if snap.daily_price_basis.startswith("YFINANCE")
+            else "IBKR adjusted"
+            if snap.daily_price_basis.startswith("IBKR")
+            else "unverified"
+        )
         evidence_links = []
         for document in docs:
             url = _safe_link(document.canonical_url or document.url)
@@ -273,6 +328,8 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
                 <span><b>${snap.discovery_move_dollars:+.2f}</b> dollar move</span>
                 <span><b>{snap.premarket_volume:,}</b> session volume</span>
                 <span><b>${snap.premarket_dollar_volume:,.0f}</b> est. dollar volume</span>
+                <span><b>{html.escape(atr_label)}</b> prior ATR(14)%</span>
+                <span><b>{html.escape(daily_basis)}</b> through {html.escape(snap.daily_source_session or 'unknown')}</span>
                 <span><b>{html.escape(snap.session)}</b> capture</span>
               </div>
               <div class="grid">
@@ -294,7 +351,33 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
             """
         )
 
-    empty = "" if candidate_html else '<div class="empty">No rows passed the broad move/price/volume nomination rule.</div>'
+    empty = (
+        ""
+        if candidate_html
+        else '<div class="empty">No mover had verified prior ATR above 4% and a place in today\'s bounded news-research queue.</div>'
+    )
+    audit_count = len(result.candidates) - len(focused)
+    focused_ids = {candidate.candidate_id for candidate in focused}
+    audit_examples = [
+        candidate
+        for candidate in ordered
+        if candidate.candidate_id not in focused_ids
+    ][:10]
+    audit_examples_html = "".join(
+        f"<li><b>{html.escape(candidate.snapshot.symbol)}</b> — "
+        f"{html.escape(candidate.snapshot.company_name or 'Company name unavailable')}</li>"
+        for candidate in audit_examples
+    )
+    audit_html = (
+        f'<div class="audit"><b>{audit_count}</b> additional broad mover(s) were retained in the hashed audit files but omitted from this focused email because ATR was low/unresolved or the 25-name research cap was reached.<ul>{audit_examples_html}</ul></div>'
+        if audit_count
+        else ""
+    )
+    execution_banner = (
+        '<div class="coverage ok"><b>Execution telemetry available.</b> Fresh IBKR data verified at least one researched name; any sizing shown remains hypothetical and non-executable.</div>'
+        if research_counts["execution_data_verified"]
+        else '<div class="coverage"><b>Execution data unavailable or unverified.</b> IBKR is not required for candidate research. Spread, depth, halt, contract, entry, and sizing fields are suppressed until a fresh read-only verification succeeds.</div>'
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EP research triage · {html.escape(result.run_id)}</title>
@@ -304,6 +387,7 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
 main{{max-width:1160px;margin:auto;padding:34px 22px 70px}} .eyebrow{{text-transform:uppercase;letter-spacing:.16em;font-size:11px;font-weight:800;color:#64748b}}
 h1{{font:700 40px/1.05 Georgia,serif;margin:7px 0 10px;color:var(--navy)}} .dek{{max-width:780px;color:var(--muted);margin:0 0 22px}}
 .safety{{border-left:5px solid var(--amber);background:#fff7ed;padding:13px 16px;border-radius:8px;margin:20px 0}} .safety b{{color:#92400e}}
+.coverage{{border-left:5px solid var(--blue);background:#eff6ff;padding:13px 16px;border-radius:8px;margin:14px 0}} .coverage.ok{{border-left-color:#15803d;background:#f0fdf4}} .audit{{color:var(--muted);background:#fff;border:1px solid var(--line);padding:12px 15px;border-radius:8px}}
 .metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0 30px}} .metric{{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:baseline}} .metric span{{color:var(--muted)}} .metric strong{{font-size:24px;color:var(--navy)}}
 .candidate{{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:20px;margin:0 0 18px;box-shadow:0 4px 14px rgba(15,23,42,.04)}}
 .candidate header{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .candidate header>div{{display:grid;grid-template-columns:auto auto;column-gap:12px;align-items:center}} .rank{{font:700 12px ui-monospace,monospace;color:var(--muted);grid-row:1/3}} h2{{font:700 26px Georgia,serif;margin:0;color:var(--navy)}} header p{{margin:0;color:var(--muted)}}
@@ -314,10 +398,10 @@ h1{{font:700 40px/1.05 Georgia,serif;margin:7px 0 10px;color:var(--navy)}} .dek{
 details{{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}} summary{{cursor:pointer;font-weight:700;color:var(--navy)}} .sources{{padding-left:20px}} .sources li{{margin:8px 0}} .sources small{{display:block;color:var(--muted)}} a{{color:var(--blue)}} .empty{{background:white;padding:28px;border-radius:10px}}
 footer{{color:var(--muted);font-size:12px;margin-top:30px}} @media(max-width:800px){{.metrics,.grid{{grid-template-columns:1fr 1fr}}}} @media(max-width:520px){{.metrics,.grid{{grid-template-columns:1fr}} h1{{font-size:32px}}}}
 </style></head><body><main>
-<div class="eyebrow">Episodic Pivot · Shadow Research</div><h1>Daily event triage</h1>
-<p class="dek">A broad mover screen narrowed by fetched causal news, materiality, freshness, extension, and current-liquidity gates. Queue position allocates research attention; it is not an investment recommendation.</p>
+<div class="eyebrow">Episodic Pivot · Shadow Research</div><h1>Morning EP candidates</h1>
+<p class="dek">TradingView finds the movers; fresh adjusted yfinance bars verify prior ATR; actual-source news research narrows the focused list. This is research prioritization, not an investment recommendation.</p>
 <div class="safety"><b>Research only.</b> This artifact cannot submit, stage, approve, route, publish, or deploy an order. Every hypothetical sizing object is non-executable and requires a separate future design plus explicit approval.</div>
-<div class="metrics">{card_html}</div>{empty}{''.join(candidate_html)}
+{execution_banner}<div class="metrics">{card_html}</div>{empty}{''.join(candidate_html)}{audit_html}
 <footer>Run {html.escape(result.run_id)} · generated {html.escape(result.generated_at)} · policy {html.escape(policy.policy_id)} · broker route NONE</footer>
 </main></body></html>"""
 
@@ -357,6 +441,7 @@ def write_run_artifacts(
             "candidates": len(result.candidates),
             "decisions": len(result.decisions),
             "research_sizing_previews": len(result.previews),
+            **_research_counts(result, policy),
         },
         "safety": {
             "research_only": True,

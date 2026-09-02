@@ -435,8 +435,8 @@ table{{width:100%;border-collapse:collapse;margin-top:14px;font-variant-numeric:
 
 <section><h2>What should run each day</h2><div class="process-grid">
   <article><h3>19:20 ET · Queue</h3><p>Capture and validate the after-hours TradingView screen for the next NYSE session. Store the full export and its displayed count. Do no broker work.</p></article>
-  <article><h3>08:20 ET · Verify</h3><p>Combine the night queue with fresh premarket discovery, then enrich only broad move nominees through read-only IBKR. Strictly block prior ATR ≤4%, missing/unclean ATR, identity, halt, spread, and liquidity failures.</p></article>
-  <article><h3>After ATR · Explain</h3><p>Research causal news for at most 25 eligible names, recapture those bounded names for freshness, and write a review-only HTML report. No orders, sheets, uploads, deployments, or broker mutations.</p></article>
+  <article><h3>08:20 ET · Verify</h3><p>Combine the night queue with fresh premarket discovery, then pull adjusted daily bars directly from yfinance for every broad move nominee. Strictly require a clean, completed-session ATR(14) above 4% before spending the news budget.</p></article>
+  <article><h3>After ATR · Explain</h3><p>Research causal news for at most 25 eligible names, optionally add read-only IBKR execution data, and write a review-only HTML report. Missing IBKR data suppresses sizing but does not turn candidate research into a failed run.</p></article>
 </div></section>
 
 <section><h2>Expected candidate load</h2><p class="note">Counts are distinct ticker-date events in the strict historical proxy: positive ≥10% open gap, prior close ≥$3, prior ADDV ≥$5m, ex-post event RVOL ≥2x, prior 63d return ≤20%, first confirmed event in 126 sessions, and prior ATR(14)/close strictly above 4%.</p><div class="scroll"><table><thead><tr><th>Window</th><th>Period</th><th>Events</th><th>Mean / all periods</th><th>Active median [IQR]</th><th>P90 / all</th><th>Zero rate</th></tr></thead><tbody>{cadence_rows}</tbody></table></div>

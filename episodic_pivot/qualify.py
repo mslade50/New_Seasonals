@@ -7,6 +7,7 @@ from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 from .config import EPPolicy
+from .daily_prices import VERIFIED_PRIOR_ATR_PRICE_BASES
 from .schema import (
     Candidate,
     CatalystAssessment,
@@ -65,7 +66,7 @@ def prior_atr_blocker(snapshot, *, policy: EPPolicy) -> str | None:  # type: ign
         return "PRIOR_ATR_UNRESOLVED"
     if snapshot.prior_atr_pct <= policy.execution.min_prior_atr_pct:
         return "PRIOR_ATR_PCT_AT_OR_BELOW_FLOOR"
-    if snapshot.daily_price_basis != "IBKR_ADJUSTED_LAST":
+    if snapshot.daily_price_basis not in VERIFIED_PRIOR_ATR_PRICE_BASES:
         return "PRIOR_ATR_PRICE_BASIS_UNVERIFIED"
     return None
 
@@ -127,8 +128,6 @@ def qualify_candidate(
     atr_blocker = prior_atr_blocker(snap, policy=policy)
     if atr_blocker:
         blockers.append(atr_blocker)
-    if snap.daily_price_basis != "IBKR_ADJUSTED_LAST":
-        blockers.append("PRIOR_ATR_PRICE_BASIS_UNVERIFIED")
     if not isinstance(snap.contract_con_id, int) or snap.contract_con_id <= 0:
         blockers.append("UNRESOLVED_IB_CONTRACT")
     if snap.contract_identity_status != "UNIQUE_IBKR_MATCH":

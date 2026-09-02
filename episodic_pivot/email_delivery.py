@@ -351,6 +351,9 @@ def morning_payload(run_dir: Path) -> EmailPayload:
     candidates = int(counts.get("candidates", 0))
     decisions = int(counts.get("decisions", 0))
     previews = int(counts.get("research_sizing_previews", 0))
+    atr_qualified = int(counts.get("atr_qualified", candidates))
+    news_researched = int(counts.get("news_research_selected", candidates))
+    execution_verified = int(counts.get("execution_data_verified", 0))
     report_path = run_dir / "report.html"
     report_html = report_path.read_text(encoding="utf-8")
     if "Research only" not in report_html or "broker route NONE" not in report_html:
@@ -365,13 +368,15 @@ def morning_payload(run_dir: Path) -> EmailPayload:
     return EmailPayload(
         kind="morning",
         subject=(
-            f"[EP Shadow] Morning Research | {target_date} | "
-            f"{candidates} candidates, {previews} previews"
+            f"[EP Shadow] Morning Candidates | {target_date} | "
+            f"{news_researched} researched, {atr_qualified} ATR-qualified"
         ),
         html_body=report_html,
         plain_body=(
-            f"EP morning shadow report for {target_date}: {candidates} candidates, "
-            f"{decisions} decisions, {previews} non-executable previews. "
+            f"EP morning shadow report for {target_date}: {candidates} broad movers, "
+            f"{atr_qualified} ATR-qualified, {news_researched} news-researched, "
+            f"{execution_verified} with fresh execution verification, and "
+            f"{previews} non-executable previews across {decisions} decisions. "
             "The complete HTML report and audit files are attached."
         ),
         attachments=attachments,
@@ -383,6 +388,9 @@ def morning_payload(run_dir: Path) -> EmailPayload:
             "candidates": candidates,
             "decisions": decisions,
             "research_sizing_previews": previews,
+            "atr_qualified": atr_qualified,
+            "news_research_selected": news_researched,
+            "execution_data_verified": execution_verified,
         },
     )
 

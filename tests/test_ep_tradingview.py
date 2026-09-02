@@ -373,6 +373,7 @@ def test_ep_workflow_has_no_live_order_or_sheet_import_path():
         root / "scripts" / "import_tradingview_ep.py",
         root / "scripts" / "run_episodic_pivot_shadow.py",
         root / "scripts" / "capture_ep_premarket_ibkr.py",
+        root / "scripts" / "capture_ep_daily_yfinance.py",
     ]
     source = "\n".join(path.read_text(encoding="utf-8").lower() for path in paths)
     for forbidden in (

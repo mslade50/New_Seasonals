@@ -1,6 +1,6 @@
 # Episodic Pivot bot — shadow specification
 
-Status: implemented as a local, research-only shadow workflow. The active Codex heartbeat runs twice on weekdays at 08:20 and 19:20 ET and delivers the night queue, morning report, or a fail-closed alert by email. Production and order staging are intentionally unavailable.
+Status: implemented as a local, research-only shadow workflow. The active Codex heartbeat runs twice on weekdays at 08:20 and 19:20 ET. The night phase freezes an internal queue locally; only the focused morning report or morning fail-closed alert is delivered by email. Production and order staging are intentionally unavailable.
 
 ## Outcome and safety boundary
 
@@ -10,9 +10,10 @@ The process can:
 2. nominate unusual movers using Pradeep Bonde's current discovery floor;
 3. search Google and fetch the underlying source pages;
 4. separate verified primary evidence from secondary coverage, stale stories, adverse events, and unresolved movers;
-5. optionally enrich a candidate with a fresh, read-only IBKR snapshot;
-6. calculate a deliberately non-executable liquidity/slippage research preview only when every gate passes; and
-7. save a standalone HTML triage report plus hashed replay artifacts.
+5. calculate prior-session ATR and daily context from a fresh yfinance pull rather than the local price cache;
+6. optionally enrich a researched candidate with a fresh, read-only IBKR snapshot;
+7. calculate a deliberately non-executable liquidity/slippage research preview only when every gate passes; and
+8. save a standalone HTML triage report plus hashed replay artifacts.
 
 It cannot write to a broker, Google Sheets, R2, a live staging tab, or the private site. It is not in `STRATEGY_BOOK` or `daily_scan.py`. The policy constructor rejects `live_actions_enabled=True`. Every sizing record fixes `preview_only=true`, `executable=false`, `broker_route=NONE`, `order_submission_allowed=false`, and `production_eligible=false`; its schema is deliberately incompatible with the live order contract. The Codex heartbeat may create only local research artifacts and reports; it is not an activation path.
 
@@ -21,15 +22,15 @@ TradingView full CSV export (premarket or after-hours)
         ↓
 broad mover nomination
         ↓
-fresh read-only IBKR enrichment → strict prior ATR% gate
+fresh yfinance adjusted daily bars → strict prior ATR% gate
         ↓
 Google URL discovery → actual-page fetch → timestamp/source/excerpt hash
         ↓
 primary-source / causal-timing / trajectory-change triage
         ↓
-bounded fresh read-only quote recapture
+optional bounded read-only IBKR quote/liquidity recapture
         ↓
-hypothetical research sizing + standalone HTML report (never executable)
+focused morning report; hypothetical sizing only when IBKR gates pass (never executable)
 ```
 
 ## What the Bonde research supports
@@ -305,9 +306,28 @@ python scripts/import_tradingview_ep.py `
   --write-artifact
 ```
 
-After-hours captures map to the next actual NYSE session; Friday and pre–Good Friday exports therefore map through the weekend correctly. A header-only export with a displayed count of zero is a valid completed scan. Any count mismatch, duplicate symbol, malformed number, missing session-specific field, timezone-less capture, non-trading date, or out-of-window capture fails the whole import. TradingView rows are stamped `BROWSER_EXPORT`, `tradeable=false`, unknown halt state, and no bid/ask/VWAP/contract or ATR data. They can nominate research targets but can never create a sizing preview. The required daily order is TradingView discovery -> read-only IBKR enrichment -> prior ATR% gate -> news research.
+After-hours captures map to the next actual NYSE session; Friday and pre–Good Friday exports therefore map through the weekend correctly. A header-only export with a displayed count of zero is a valid completed scan. Any count mismatch, duplicate symbol, malformed number, missing session-specific field, timezone-less capture, non-trading date, or out-of-window capture fails the whole import. TradingView rows are stamped `BROWSER_EXPORT`, `tradeable=false`, unknown halt state, and no bid/ask/VWAP/contract or ATR data. They can nominate research targets but can never create a sizing preview. The required daily order is TradingView discovery -> fresh yfinance daily enrichment -> prior ATR% gate -> news research -> optional read-only IBKR execution enrichment.
 
-### News research (only after IBKR enrichment)
+### Fresh yfinance prior-ATR enrichment
+
+The morning flow pulls adjusted daily OHLCV directly from yfinance for every broad TradingView nomination. It never reads `data/master_prices.parquet` or another stored price database. A writable artifacts-only yfinance cookie/timezone metadata cache is configured because the library requires SQLite metadata; it contains no OHLCV and is never used in place of the fresh download. `repair=True` is explicit because Yahoo sometimes returns isolated missing daily bars; yfinance-reconstructed bars are counted on each snapshot and stamped `VERIFIED_WITH_YFINANCE_REPAIR` rather than silently treated as native observations. The event session is excluded by an exclusive `end` date and again by the metric function. Successful rows require at least 126 completed bars, the latest 15 dates to be consecutive NYSE sessions ending on the prior session, and a clean 15-bar ATR source window. Fourteen true ranges are averaged arithmetically and divided by the prior adjusted close without rounding. Exactly 4% does not pass.
+
+The adapter is dry by default and accepts both validated TradingView inputs so the newest observation per symbol wins. It applies the 2%/$0.90 broad move rule before download and has no 150-name cap:
+
+```powershell
+python scripts/capture_ep_daily_yfinance.py `
+  --snapshot artifacts/episodic_pivot/imports/2026-08-24-after-hours-HASH.json `
+  --snapshot artifacts/episodic_pivot/imports/2026-08-25-premarket-HASH.json
+
+python scripts/capture_ep_daily_yfinance.py `
+  --snapshot artifacts/episodic_pivot/imports/2026-08-24-after-hours-HASH.json `
+  --snapshot artifacts/episodic_pivot/imports/2026-08-25-premarket-HASH.json `
+  --capture
+```
+
+Multi-ticker `(Price, Ticker)` columns are normalized explicitly and dot-class symbols such as `BRK.B` map to yfinance's `BRK-B` without changing the research identity. Partial provider or symbol failures remain visible as ATR-unresolved candidates. They do not abort the morning, do not masquerade as low volatility, and do not consume news budget.
+
+### News research (after yfinance ATR qualification)
 
 The research runner is also dry by default: it validates inputs but makes no network request and writes nothing.
 
@@ -324,7 +344,7 @@ Credential-free Google News discovery:
 
 ```powershell
 python scripts/run_episodic_pivot_shadow.py `
-  --snapshot artifacts/episodic_pivot/ibkr_snapshot_YYYYMMDDTHHMMSSZ.json `
+  --snapshot artifacts/episodic_pivot/yfinance_snapshot_YYYYMMDDTHHMMSSZ.json `
   --news-mode google-news `
   --allow-network `
   --run-research
@@ -336,7 +356,7 @@ Preferred Google Programmable Search:
 $env:GOOGLE_CSE_API_KEY = '<local secret>'
 $env:GOOGLE_CSE_ID = '<local search engine id>'
 python scripts/run_episodic_pivot_shadow.py `
-  --snapshot artifacts/episodic_pivot/ibkr_snapshot_YYYYMMDDTHHMMSSZ.json `
+  --snapshot artifacts/episodic_pivot/yfinance_snapshot_YYYYMMDDTHHMMSSZ.json `
   --news-mode google-cse `
   --allow-network `
   --run-research
@@ -357,6 +377,7 @@ Verified replay after a network run refreshed the news evidence:
 
 ```powershell
 python scripts/run_episodic_pivot_shadow.py `
+  --snapshot artifacts/episodic_pivot/yfinance_snapshot_SOURCE.json `
   --snapshot artifacts/episodic_pivot/ibkr_snapshot_FRESH.json `
   --evidence artifacts/episodic_pivot/EP-RUN-SOURCE/evidence_by_symbol.json `
   --evidence-manifest artifacts/episodic_pivot/EP-RUN-SOURCE/manifest.json `
@@ -367,35 +388,33 @@ The source manifest must come from a network research run, its run directory mus
 
 Each run writes `manifest.json`, `candidates.json`, candidate-ID and symbol-keyed evidence files, `decisions.json`, `research_sizing_preview.json`, `research_sizing_preview.csv`, `report.md`, and a standalone `report.html`. The manifest hashes every artifact and records that publishing, staging, and broker contact did not occur. Rerunning identical offline inputs uses the same run ID. CSV cells are formula-escaped and HTML is escaped while JSON retains raw source text for audit.
 
-### Required targeted IBKR enrichment before EP treatment
+### Optional targeted IBKR execution enrichment after news research
 
-TradingView supplies broad discovery; IBKR supplies fresh executable-market facts only for the resulting bounded candidate list. The adapter is dry by default and imports `ib_insync` only after `--capture` is explicitly supplied:
+TradingView supplies broad discovery and yfinance supplies the prior daily ATR gate. IBKR is optional and supplies fresh executable-market facts only for the at-most-25 names selected for news research. The adapter is dry by default and imports `ib_insync` only after `--capture` is explicitly supplied:
 
 ```powershell
 python scripts/capture_ep_premarket_ibkr.py `
-  --symbols-from artifacts/episodic_pivot/imports/2026-08-24-after-hours-HASH.json `
-  --symbols-from artifacts/episodic_pivot/imports/2026-08-25-premarket-HASH.json `
+  --symbols-from artifacts/episodic_pivot/EP-RUN-ID/refresh_targets.json `
   --max-captured 150 `
   --port 7497
 
 python scripts/capture_ep_premarket_ibkr.py `
-  --symbols-from artifacts/episodic_pivot/imports/2026-08-24-after-hours-HASH.json `
-  --symbols-from artifacts/episodic_pivot/imports/2026-08-25-premarket-HASH.json `
+  --symbols-from artifacts/episodic_pivot/EP-RUN-ID/refresh_targets.json `
   --max-captured 150 `
   --port 7497 `
   --capture
 ```
 
-`--symbols-from` may be repeated. The loader validates that every import targets the same NYSE session, preserves the newest symbol observation, records every contributing screen ID, and applies the broad 2%/$0.90 move rule before enforcing the 150-name capture bound. A mixed-session input or more than 150 qualifying targets fails closed rather than silently truncating the queue.
+The hashed `refresh_targets.json` is produced only after the yfinance ATR gate and bounded news selection, so it is normally at most 25 rows. A mixed-session input or more than the explicit capture bound still fails closed rather than silently truncating the queue.
 
-Capture is restricted to 04:00–09:25 ET and connects with `readonly=True`. For each TradingView target it qualifies one USD stock contract, cross-checks the primary exchange, fetches `ADJUSTED_LAST` daily bars plus raw extended-hours trades, derives the first actual 5-minute trigger timestamp, requests a bounded live quote/halt watch, then cancels every subscription. [IBKR documents](https://interactivebrokers.github.io/tws-api/historical_bars.html) `TRADES` as split-adjusted but not dividend-adjusted, so it is not accepted for the daily ATR path; an unverified basis creates `PRIOR_ATR_PRICE_BASIS_UNVERIFIED`. The capture requires at least 126 completed daily bars and computes the same simple ATR(14) used by the historical census. All 15 source bars must be consecutive NYSE sessions and pass the invalid/half-double/>=50% basis checks. A sizing preview is blocked when `100 * ATR(14) / previous close <= 4`, and missing ATR is `PRIOR_ATR_UNRESOLVED`, not evidence of low volatility. It exposes no order API. If no target file is supplied, the older IBKR rank-limited scanner union remains available as a clearly labeled non-exhaustive fallback.
+Capture is restricted to 04:00–09:25 ET and connects with `readonly=True`. For each target it qualifies one USD stock contract, cross-checks the primary exchange, fetches `ADJUSTED_LAST` daily bars plus raw extended-hours trades, derives the first actual 5-minute trigger timestamp, requests a bounded live quote/halt watch, then cancels every subscription. The redundant adjusted daily calculation is retained as an execution-pass cross-check. It exposes no order API. If the connection or any execution-data request fails, the already-complete yfinance/news report remains the final deliverable; affected names simply have no sizing preview. If no target file is supplied, the older IBKR rank-limited scanner union remains available as a clearly labeled non-exhaustive fallback.
 
 ### 4. Automation-ready shadow cadence
 
-- **7:20 PM ET, Monday–Friday — night phase of `EP Night and Morning Shadow Process`:** use the signed-in Codex in-app browser to refresh the saved after-hours screen, verify its identity, required filter/column state, and displayed count, export the complete CSV, and import it with an exact timezone-aware capture time. The run stores a validated queue for the next NYSE session and emails the inline queue summary plus the normalized JSON attachment. It does not contact IBKR or news providers.
-- **8:20 AM ET, Monday–Friday — morning phase of `EP Night and Morning Shadow Process`:** skip non-session days; refresh and validate the saved premarket screen in the in-app browser; export and import the complete CSV; merge it with the uniquely matching prior-night queue; apply the broad local mover rule; and capture at most 150 targets through read-only IBKR.
-- **After the first morning capture:** block ATR-unresolved, unverified adjusted-basis, and prior ATR% <=4 names before the main network news pass. Research at most the configured 25 names, using Google Programmable Search when its local credentials exist and credential-free Google News otherwise.
-- **Before the final morning report:** consume the network run's hashed `refresh_targets.json`, recapture only that researched subset through read-only IBKR, and replay the verified evidence against the fresh snapshot. The complete HTML report is sent as the email body; `report.html`, `report.md`, `research_sizing_preview.csv`, and `manifest.json` are attached. These are review artifacts, not order files.
+- **7:20 PM ET, Monday–Friday — night phase of `EP Night and Morning Shadow Process`:** use the signed-in Codex in-app browser to refresh the saved after-hours screen, verify its identity, required filter/column state, and displayed count, export the complete CSV, and import it with an exact timezone-aware capture time. The run stores a validated queue locally for the next NYSE session. It does not contact IBKR or news providers, and it never emails the raw night queue. A night failure leaves no usable queue and is disclosed as degraded coverage in the next morning report instead of generating a separate night email.
+- **8:20 AM ET, Monday–Friday — morning phase of `EP Night and Morning Shadow Process`:** skip non-session days; refresh and validate the saved premarket screen in the in-app browser; export and import the complete CSV; merge it with the uniquely matching prior-night queue; apply the broad local mover rule; and use `capture_ep_daily_yfinance.py --capture` to fetch completed adjusted daily bars for every nominee without consulting the local price cache.
+- **After the yfinance capture:** block ATR-unresolved, unverified adjusted-basis, and prior ATR% <=4 names before the main network news pass. Research at most the configured 25 names, using Google Programmable Search when its local credentials exist and credential-free Google News otherwise.
+- **Before the final morning report:** optionally consume the network run's hashed `refresh_targets.json` through read-only IBKR and replay verified news against both the yfinance discovery snapshot and any successful fresher IBKR rows. If IBKR is unavailable or partial, keep the yfinance/news run as final, label execution data unverified, and suppress entry/sizing output. The complete focused HTML report is sent as the email body; `report.html`, `report.md`, `research_sizing_preview.csv`, and `manifest.json` are attached. These are review artifacts, not order files.
 
 The news-request budget is applied only after the ATR/basis gate. Low-ATR,
 ATR-unresolved, and basis-unverified movers remain visible in the audit decisions with
@@ -403,17 +422,11 @@ ATR-unresolved, and basis-unverified movers remain visible in the audit decision
 displace a >4% candidate. ATR-qualified names beyond the configured research cap
 remain visible as `NEWS_RESEARCH_NOT_SELECTED_BY_CAP`.
 
-The active thread-attached heartbeat is `EP Night and Morning Shadow Process` (`ep-after-hours-shadow-queue`). One recurrence carries both weekday phases. Email is the research-delivery channel; the Codex task retains only a minimal delivery status or failed-run notification and does not carry ticker or research content. The heartbeat does not run Git, commit, push, upload, publish, deploy, write Sheets, or access any broker order endpoint. The morning run may continue premarket-only when the prior-night queue is absent, but it must disclose that degraded coverage and may never substitute a stale queue. A missing TradingView login, saved-screen mismatch, missing required column, count mismatch, ambiguous download, mixed target date, IBKR connection/data failure, or capture outside its allowed session fails closed and triggers a failure email. A zero-result validated export is a successful empty scan and is still emailed.
+The active thread-attached heartbeat is `EP Night and Morning Shadow Process` (`ep-after-hours-shadow-queue`). One recurrence carries both weekday phases. Morning email is the sole research-delivery channel; the Codex task retains only a minimal operational status and does not carry ticker or research content. The heartbeat does not run Git, commit, push, upload, publish, deploy, write Sheets, or access any broker order endpoint. The morning run may continue premarket-only when the prior-night queue is absent, but it must disclose that degraded coverage and may never substitute a stale queue. A night-phase validation failure leaves no usable queue and sends no email. Missing login, saved-screen mismatch, missing required column, count mismatch, ambiguous download, mixed target date, report-integrity failure, or email-delivery failure are morning failures. Partial or total yfinance/Google/IBKR provider failure is degraded research or execution coverage: retain the discovery rows, send the normal focused morning report with warnings, and never substitute missing ATR with a low-volatility conclusion. A zero-result validated morning run is successful and is still emailed.
 
-Email delivery is dry-run by default and requires the explicit `--send` flag. Credentials are read from the explicitly supplied env file without being copied into the worktree. Recipients resolve in this order: `EP_RECIPIENTS`, `RECIPIENTS`, then the `EMAIL_USER` sender. Successful sends write a non-sensitive receipt containing the source digest and recipient count, but no address or password; a matching receipt prevents an accidental duplicate send. A successful receipt for a different artifact or recipient set requires an explicit reviewed `--resend`.
+Morning email delivery is dry-run by default and requires the explicit `--send` flag. Credentials are read from the explicitly supplied env file without being copied into the worktree. Recipients resolve in this order: `EP_RECIPIENTS`, `RECIPIENTS`, then the `EMAIL_USER` sender. Successful sends write a non-sensitive receipt containing the source digest and recipient count, but no address or password; a matching receipt prevents an accidental duplicate send. A successful receipt for a different artifact or recipient set requires an explicit reviewed `--resend`. The sender retains a `--kind night` mode for manual diagnostics, but the active automation does not invoke it.
 
 ```powershell
-python scripts/send_episodic_pivot_email.py `
-  --kind night `
-  --artifact artifacts/episodic_pivot/imports/2026-08-24-after-hours-HASH.json `
-  --env-file 'C:\Users\McKinley Slade\dev\New_Seasonals\.env' `
-  --send
-
 python scripts/send_episodic_pivot_email.py `
   --kind morning `
   --artifact artifacts/episodic_pivot/EP-RUN-ID `
