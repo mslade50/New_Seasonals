@@ -18,7 +18,6 @@ from scripts.capture_ep_premarket_ibkr import main as capture_main
 from scripts.import_tradingview_ep import main as import_main
 from scripts.run_episodic_pivot_shadow import main as shadow_main
 
-
 PREMARKET_AT = "2026-08-25T08:30:00-04:00"
 PREMARKET_HEADER = (
     "Symbol,Name,Exchange,Pre-market Price,Pre-market Change,"
@@ -142,7 +141,7 @@ def test_after_hours_and_premarket_share_episode_identity_and_merge_latest(tmp_p
     assert result.candidates[0].snapshot.last == pytest.approx(11.20)
 
 
-def test_after_hours_research_for_next_session_is_not_marked_expired(tmp_path):
+def test_after_hours_queue_cannot_pass_without_a_premarket_refresh(tmp_path):
     path = _csv(
         tmp_path,
         "Symbol,Name,Exchange,Post-market Price,Post-market Change,"
@@ -165,7 +164,8 @@ def test_after_hours_research_for_next_session_is_not_marked_expired(tmp_path):
         offline_documents={"ABC": []},
         offline_documents_verified=True,
     )
-    assert "ENTRY_WINDOW_EXPIRED" not in result.decisions[0].blockers
+    assert result.candidates == []
+    assert result.decisions == []
 
 
 def test_reported_percent_or_dollar_boundary_drives_nomination(tmp_path):
@@ -234,6 +234,148 @@ def test_count_mismatch_duplicate_malformed_and_empty_export_behavior(tmp_path):
     result = _import(empty, reported_result_count=0)
     assert result.snapshots == ()
     assert result.extracted_row_count == 0
+
+
+def test_live_screen_change_is_verified_when_post_download_count_matches(tmp_path):
+    path = _csv(
+        tmp_path,
+        PREMARKET_HEADER
+        + "NYSE:ABC,ABC Co,NYSE,10.90,0.90,9%,100K\n"
+        + "NYSE:XYZ,XYZ Co,NYSE,20.90,0.90,4.5%,110K\n",
+    )
+
+    result = _import(
+        path,
+        reported_result_count=1,
+        post_download_result_count=2,
+    )
+
+    assert result.extracted_row_count == 2
+    assert result.reported_result_count == 1
+    assert result.result_count_verified is True
+    assert result.result_count_verification == "EXACT_MATCH"
+    snapshot = result.snapshots[0]
+    assert snapshot.premarket_move_verification_status == "VERIFIED"
+    assert snapshot.premarket_move_verification_source == "TRADINGVIEW_BROWSER_EXPORT"
+    assert snapshot.premarket_move_verified_at == "2026-08-25T12:30:00Z"
+
+
+def test_live_screen_observation_swing_larger_than_one_row_is_ambiguous(tmp_path):
+    path = _csv(
+        tmp_path,
+        PREMARKET_HEADER
+        + "NYSE:ABC,ABC Co,NYSE,10.90,0.90,9%,100K\n"
+        + "NYSE:XYZ,XYZ Co,NYSE,20.90,0.90,4.5%,110K\n"
+        + "NYSE:LMN,LMN Co,NYSE,30.90,0.90,3%,120K\n",
+    )
+
+    with pytest.raises(
+        TradingViewImportError, match="ambiguous live result-count swing"
+    ):
+        _import(
+            path,
+            reported_result_count=1,
+            post_download_result_count=3,
+        )
+
+
+def test_export_count_matching_neither_observation_is_rejected(tmp_path):
+    path = _csv(
+        tmp_path,
+        PREMARKET_HEADER
+        + "NYSE:ABC,ABC Co,NYSE,10.90,0.90,9%,100K\n"
+        + "NYSE:XYZ,XYZ Co,NYSE,20.90,0.90,4.5%,110K\n",
+    )
+
+    with pytest.raises(TradingViewImportError, match="matched neither"):
+        _import(
+            path,
+            reported_result_count=1,
+            post_download_result_count=1,
+        )
+
+
+def test_post_download_exact_count_clears_a_live_screen_change(tmp_path):
+    path = _csv(
+        tmp_path,
+        PREMARKET_HEADER
+        + "NYSE:ABC,ABC Co,NYSE,10.90,0.90,9%,100K\n"
+        + "NYSE:XYZ,XYZ Co,NYSE,20.90,0.90,4.5%,110K\n",
+    )
+
+    result = _import(
+        path,
+        reported_result_count=1,
+        post_download_result_count=2,
+    )
+
+    assert result.result_count_verification == "EXACT_MATCH"
+    assert result.post_download_result_count == 2
+
+
+def test_post_download_count_alone_is_independently_verified(tmp_path):
+    path = _csv(
+        tmp_path,
+        PREMARKET_HEADER + "NYSE:ABC,ABC Co,NYSE,10.90,0.90,9%,100K\n",
+    )
+
+    result = _import(
+        path,
+        reported_result_count=None,
+        post_download_result_count=1,
+    )
+
+    assert result.result_count_verified is True
+    assert result.result_count_verification == "EXACT_MATCH"
+    assert result.reported_result_count is None
+    assert result.snapshots[0].premarket_move_verification_status == "UNVERIFIED"
+    assert result.snapshots[0].premarket_move_verified_at is None
+
+
+def test_wrong_saved_screen_is_rejected_before_normalization(tmp_path):
+    path = _csv(
+        tmp_path,
+        PREMARKET_HEADER + "NYSE:ABC,ABC Co,NYSE,10.90,0.90,9%,100K\n",
+    )
+
+    with pytest.raises(TradingViewImportError, match="saved screen does not match"):
+        _import(path, saved_screen_id="Hqgnyp7Y")
+
+
+def test_writing_production_import_requires_both_count_observations(tmp_path):
+    path = _csv(
+        tmp_path,
+        PREMARKET_HEADER + "NYSE:ABC,ABC Co,NYSE,10.90,0.90,9%,100K\n",
+    )
+
+    with pytest.raises(SystemExit, match="requires both"):
+        import_main(
+            [
+                "--input",
+                str(path),
+                "--session",
+                "premarket",
+                "--captured-at",
+                PREMARKET_AT,
+                "--screen-id",
+                "yftOvM3e",
+                "--reported-count",
+                "1",
+                "--write-artifact",
+                "--output",
+                str(tmp_path / "import.json"),
+            ]
+        )
+
+
+def test_live_screen_shrink_or_partial_export_still_fails_closed(tmp_path):
+    path = _csv(
+        tmp_path,
+        PREMARKET_HEADER + "NYSE:ABC,ABC Co,NYSE,10.90,0.90,9%,100K\n",
+    )
+
+    with pytest.raises(TradingViewImportError, match="incomplete export"):
+        _import(path, reported_result_count=2)
 
 
 @pytest.mark.parametrize(
@@ -328,11 +470,9 @@ def test_all_operator_clis_are_no_network_no_write_by_default(tmp_path):
     )
     assert not import_output.exists()
 
-    imported = _import(csv_path)
+    imported = _import(csv_path, post_download_result_count=1)
     snapshot_path = tmp_path / "snapshot.json"
-    snapshot_path.write_text(
-        json.dumps(imported.to_dict()), encoding="utf-8"
-    )
+    snapshot_path.write_text(json.dumps(imported.to_dict()), encoding="utf-8")
     report_root = tmp_path / "reports"
     assert (
         shadow_main(
@@ -364,6 +504,35 @@ def test_all_operator_clis_are_no_network_no_write_by_default(tmp_path):
         == 0
     )
     assert not capture_output.exists()
+
+
+def test_shadow_research_rejects_raw_discovery_without_yfinance_wrapper(tmp_path):
+    csv_path = _csv(
+        tmp_path,
+        PREMARKET_HEADER + "NYSE:ABC,ABC Co,NYSE,10.90,0.90,9%,100K\n",
+    )
+    imported = _import(
+        csv_path,
+        reported_result_count=1,
+        post_download_result_count=1,
+    )
+    snapshot_path = tmp_path / "tradingview.json"
+    snapshot_path.write_text(json.dumps(imported.to_dict()), encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="validated EP_YFINANCE"):
+        shadow_main(
+            [
+                "--snapshot",
+                str(snapshot_path),
+                "--as-of",
+                PREMARKET_AT,
+                "--target-session-date",
+                imported.target_session_date,
+                "--run-research",
+                "--output-root",
+                str(tmp_path / "reports"),
+            ]
+        )
 
 
 def test_ep_workflow_has_no_live_order_or_sheet_import_path():

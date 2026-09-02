@@ -85,6 +85,9 @@ class PremarketSnapshot:
     security_type: str = "STK"
     reported_change_pct: float | None = None
     reported_move_dollars: float | None = None
+    premarket_move_verification_status: str = "UNVERIFIED"
+    premarket_move_verification_source: str = ""
+    premarket_move_verified_at: str | None = None
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> PremarketSnapshot:
@@ -97,8 +100,10 @@ class PremarketSnapshot:
         if values.get("first_trigger_at"):
             values["first_trigger_at"] = iso_utc(values["first_trigger_at"])
         if values.get("daily_data_observed_at"):
-            values["daily_data_observed_at"] = iso_utc(
-                values["daily_data_observed_at"]
+            values["daily_data_observed_at"] = iso_utc(values["daily_data_observed_at"])
+        if values.get("premarket_move_verified_at"):
+            values["premarket_move_verified_at"] = iso_utc(
+                values["premarket_move_verified_at"]
             )
         return cls(**values)
 
@@ -337,3 +342,4 @@ class RunResult:
     documents_by_candidate: dict[str, list[NewsDocument]] = field(default_factory=dict)
     decisions: list[QualificationDecision] = field(default_factory=list)
     previews: list[ResearchSizingPreview] = field(default_factory=list)
+    warnings: tuple[str, ...] = ()

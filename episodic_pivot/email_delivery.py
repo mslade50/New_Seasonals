@@ -25,7 +25,12 @@ from typing import Any, Literal
 from .config import DEFAULT_POLICY
 from .premarket import nominate_candidates
 from .schema import PremarketSnapshot, parse_timestamp
-from .tradingview import target_session_date as tradingview_target_session_date
+from .tradingview import (
+    result_counts_are_verified,
+)
+from .tradingview import (
+    target_session_date as tradingview_target_session_date,
+)
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
@@ -162,15 +167,23 @@ def night_payload(import_path: Path) -> EmailPayload:
     if raw.get("schema_version") != 1:
         raise EmailDeliveryError("unsupported TradingView import schema")
     if raw.get("provider") != "TRADINGVIEW" or raw.get("session") != "after_hours":
-        raise EmailDeliveryError("night email requires a validated TradingView after-hours import")
+        raise EmailDeliveryError(
+            "night email requires a validated TradingView after-hours import"
+        )
     if raw.get("result_count_verified") is not True:
         raise EmailDeliveryError("TradingView displayed count was not verified")
     rows = raw.get("snapshots")
     if not isinstance(rows, list):
         raise EmailDeliveryError("TradingView import is missing snapshots")
     extracted = int(raw.get("extracted_row_count", -1))
-    reported = int(raw.get("reported_result_count", -1))
-    if extracted != len(rows) or extracted != reported:
+    reported = raw.get("reported_result_count")
+    if extracted != len(rows) or not result_counts_are_verified(
+        reported_result_count=reported,
+        post_download_result_count=raw.get("post_download_result_count"),
+        extracted_row_count=extracted,
+        verification_status=raw.get("result_count_verification"),
+        require_both_observations=True,
+    ):
         raise EmailDeliveryError("TradingView import count mismatch")
     target_date = str(raw.get("target_session_date") or "").strip()
     captured_at = str(raw.get("captured_at") or "").strip()
@@ -180,8 +193,16 @@ def night_payload(import_path: Path) -> EmailPayload:
     valid_hash = len(source_file_hash) == 64 and all(
         character in "0123456789abcdef" for character in source_file_hash
     )
-    if not target_date or not captured_at or not screen_id or not source_file or not valid_hash:
+    if (
+        not target_date
+        or not captured_at
+        or not screen_id
+        or not source_file
+        or not valid_hash
+    ):
         raise EmailDeliveryError("TradingView import identity is incomplete")
+    if screen_id != "Hqgnyp7Y":
+        raise EmailDeliveryError("TradingView after-hours screen identity is invalid")
     try:
         derived_target = tradingview_target_session_date(
             captured_at, session="after_hours"
@@ -189,7 +210,9 @@ def night_payload(import_path: Path) -> EmailPayload:
     except (TypeError, ValueError) as exc:
         raise EmailDeliveryError("TradingView capture time is invalid") from exc
     if derived_target.isoformat() != target_date:
-        raise EmailDeliveryError("TradingView target session date does not match capture time")
+        raise EmailDeliveryError(
+            "TradingView target session date does not match capture time"
+        )
 
     snapshots = [PremarketSnapshot.from_dict(item) for item in rows]
     captured_timestamp = parse_timestamp(captured_at)
@@ -203,7 +226,9 @@ def night_payload(import_path: Path) -> EmailPayload:
             or snapshot.extracted_row_count != extracted
             or parse_timestamp(snapshot.observed_at) != captured_timestamp
         ):
-            raise EmailDeliveryError("TradingView row identity does not match its import")
+            raise EmailDeliveryError(
+                "TradingView row identity does not match its import"
+            )
     as_of = max(
         (parse_timestamp(item.observed_at) for item in snapshots),
         default=parse_timestamp(captured_at),
@@ -238,7 +263,7 @@ def night_payload(import_path: Path) -> EmailPayload:
 </div>
 <p><b>Target session:</b> {html.escape(target_date)}<br><b>Captured:</b> {html.escape(captured_at)}<br><b>Saved screen:</b> {html.escape(screen_id)}</p>
 {empty}
-<table style="width:100%;border-collapse:collapse;background:#fff"><thead><tr><th style="text-align:left;padding:7px">Symbol</th><th style="text-align:right;padding:7px">Price</th><th style="text-align:right;padding:7px">Move</th><th style="text-align:right;padding:7px">$ move</th><th style="text-align:right;padding:7px">AH volume</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table>
+<table style="width:100%;border-collapse:collapse;background:#fff"><thead><tr><th style="text-align:left;padding:7px">Symbol</th><th style="text-align:right;padding:7px">Price</th><th style="text-align:right;padding:7px">Move</th><th style="text-align:right;padding:7px">$ move</th><th style="text-align:right;padding:7px">AH volume</th></tr></thead><tbody>{"".join(table_rows)}</tbody></table>
 <p style="color:#64748b;font-size:12px">Showing up to 50 broad nominees. The validated normalized import is attached.</p>"""
     source_hash = sha256_file(import_path)
     return EmailPayload(
@@ -271,7 +296,9 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
     manifest_path = run_dir / "manifest.json"
     manifest = _json_object(manifest_path)
     if manifest.get("schema_version") != 2 or manifest.get("run_id") != run_dir.name:
-        raise EmailDeliveryError("EP manifest identity does not match its run directory")
+        raise EmailDeliveryError(
+            "EP manifest identity does not match its run directory"
+        )
     safety = manifest.get("safety")
     if not isinstance(safety, dict):
         raise EmailDeliveryError("EP manifest is missing its safety record")
@@ -357,7 +384,9 @@ def morning_payload(run_dir: Path) -> EmailPayload:
     report_path = run_dir / "report.html"
     report_html = report_path.read_text(encoding="utf-8")
     if "Research only" not in report_html or "broker route NONE" not in report_html:
-        raise EmailDeliveryError("EP HTML report is missing its research-only sentinels")
+        raise EmailDeliveryError(
+            "EP HTML report is missing its research-only sentinels"
+        )
     attachments = (
         report_path,
         run_dir / "report.md",
@@ -413,7 +442,9 @@ def failure_payload(
         try:
             target = date.fromisoformat(target).isoformat()
         except ValueError as exc:
-            raise EmailDeliveryError("failure target session date must use YYYY-MM-DD") from exc
+            raise EmailDeliveryError(
+                "failure target session date must use YYYY-MM-DD"
+            ) from exc
     else:
         target = "unknown-session"
     canonical = json.dumps(
@@ -491,7 +522,9 @@ def _existing_delivery(
     try:
         receipt = _json_object(receipt_path)
     except (OSError, ValueError, json.JSONDecodeError, EmailDeliveryError) as exc:
-        raise EmailDeliveryError(f"invalid existing email receipt: {receipt_path}") from exc
+        raise EmailDeliveryError(
+            f"invalid existing email receipt: {receipt_path}"
+        ) from exc
     if receipt.get("status") != "SENT":
         raise EmailDeliveryError(
             f"existing email receipt is not a successful delivery: {receipt_path}"
