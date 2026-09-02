@@ -155,6 +155,23 @@ def test_insufficient_observed_bar_history_fails_ema_seed():
     assert result.reason == "ema_not_ready"
 
 
+def test_fewer_than_twenty_causal_observed_bars_fails_ema_seed():
+    frame = _valid_minutes()
+    local = frame.index.tz_convert(ET)
+    prior_day = local.date == pd.Timestamp("2026-08-28").date()
+    # Keep exactly 18 observed 15-minute bins before the setup session.  The
+    # first setup bar is therefore only observation 19 and must not receive an
+    # EMA value from future bars.
+    keep_prior = prior_day & (local < pd.Timestamp("2026-08-28 14:00", tz=ET))
+    frame = frame.loc[~prior_day | keep_prior]
+    bars = build_futures_rth15(frame)
+    setup_first = pd.Timestamp("2026-08-31 09:30", tz=ET)
+    assert bars.loc[setup_first, "ema20"] != bars.loc[setup_first, "ema20"]
+    result = _evaluate(frame)
+    assert not result.qualifies
+    assert result.reason == "ema_not_ready"
+
+
 def test_missing_older_prior_session_does_not_change_observed_bar_ema():
     frame = pd.concat(
         [

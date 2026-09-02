@@ -61,7 +61,11 @@ from .portfolio_guard import (
     reserve_portfolio_capacity,
     validate_portfolio_budget,
 )
-from .reservations import ReservationBook, validate_guard_manifest
+from .reservations import (
+    ReservationBook,
+    load_attested_external_guard,
+    validate_guard_manifest,
+)
 from .sizing import SizeRequest, SizeResult, risk_profile_from_env, size_batch
 from .storage import (
     StateStore,
@@ -580,10 +584,12 @@ class LegendSession:
             )
         return values
 
-    def _validate_deployment_guard(self, values: dict[str, str]) -> None:
+    def _validate_shared_guard_manifest(
+        self, values: dict[str, str]
+    ) -> dict[str, Any]:
         manifest_path = Path(values["LEGEND_ETF_GUARD_MANIFEST"])
         expected_hash = values["LEGEND_ETF_GUARD_MANIFEST_SHA256"].strip().lower()
-        validate_guard_manifest(
+        return validate_guard_manifest(
             manifest_path,
             expected_reservation_dir=Path(values["LEGEND_ETF_RESERVATION_DIR"]),
             expected_runtime_dir=self.store.state_path.parent,
@@ -591,11 +597,63 @@ class LegendSession:
             expected_executor_root=Path(values["LEGEND_ETF_EXECUTOR_ROOT"]),
             expected_sha256=expected_hash,
         )
+
+    def _validate_deployment_guard(self, values: dict[str, str]) -> dict[str, Any]:
+        manifest = self._validate_shared_guard_manifest(values)
+        expected_hash = values["LEGEND_ETF_GUARD_MANIFEST_SHA256"].strip().lower()
         validate_paper_proof(
             Path(values["LEGEND_ETF_PAPER_PROOF"]),
             expected_sha256=values["LEGEND_ETF_PAPER_PROOF_SHA256"],
             expected_manifest_sha256=expected_hash,
         )
+        return manifest
+
+    def _reconcile_attested_external_quarantines(
+        self, manifest: dict[str, Any]
+    ) -> None:
+        """Clear only broker-proved terminal external quarantines at startup."""
+
+        config = manifest.get("reservation_config")
+        if not isinstance(config, dict) or not str(config.get("path") or "").strip():
+            raise RuntimeError("external guard reservation config is unavailable")
+        config_path = Path(str(config["path"])).resolve()
+        guard = load_attested_external_guard(manifest)
+        uncleared: list[str] = []
+        for endpoint in self.endpoints:
+            connection = self.accounts.get(endpoint.label)
+            if connection is None or connection.ib is None:
+                raise RuntimeError(
+                    f"{endpoint.label}: external quarantine reconciliation lacks "
+                    "an account-owned broker connection"
+                )
+            results = guard.reconcile_all_external_quarantines(
+                connection.broker_snapshot_facade(),
+                account=endpoint.account,
+                config_path=config_path,
+            )
+            if not isinstance(results, dict) or any(
+                not isinstance(symbol, str) or not isinstance(cleared, bool)
+                for symbol, cleared in results.items()
+            ):
+                raise RuntimeError(
+                    f"{endpoint.label}: external quarantine reconciliation "
+                    "returned an invalid result"
+                )
+            for symbol, cleared in sorted(results.items()):
+                self.store.append_audit(
+                    "external_quarantine_reconciliation",
+                    account_label=endpoint.label,
+                    account=endpoint.account,
+                    symbol=symbol,
+                    terminal_cleared=cleared,
+                )
+                if not cleared:
+                    uncleared.append(f"{endpoint.label}/{symbol}")
+        if uncleared:
+            raise RuntimeError(
+                "external account-symbol quarantines are not broker-proved terminal: "
+                + ", ".join(uncleared)
+            )
 
     def _refresh_portfolio_budget(
         self, values: dict[str, str], endpoints: list[Endpoint]
@@ -1097,6 +1155,10 @@ class LegendSession:
         if self.correction_audit_completed:
             return {"ok": True, "live": True, "audited": True}
         values = self._read_live_runtime()
+        # The external reconciler is executable code. Validate its exact source
+        # tree, config, and Python environment before importing it. The separate
+        # paper proof remains an entry gate, not a read-only correction-audit gate.
+        manifest = self._validate_shared_guard_manifest(values)
         endpoints = endpoints_from_env(
             self.account_labels, environment=values
         )
@@ -1135,6 +1197,7 @@ class LegendSession:
                 )
         audit_error: Exception | None = None
         try:
+            self._reconcile_attested_external_quarantines(manifest)
             self._audit_recent_terminal_corrections()
         except Exception as exc:  # noqa: BLE001 - aggregate endpoint failures
             audit_error = exc

@@ -9,8 +9,8 @@ The local implementation is shadow-ready, but live activation is currently a
 - the dated live gate is disabled;
 - the Databento cost ceiling is $0.00, so no recurring spend is authorized;
 - no paper or live broker order has been sent by this rollout;
-- the existing shared IBKR executor has not yet been patched with the common
-  account-symbol reservation guard or the shared portfolio-budget publisher;
+- a guarded shared-executor patch exists only in the isolated review staging
+  tree; the live OneDrive executor has not been changed;
 - IBKR's exact OCA type-2/GAT behavior at 10:30 has not yet been proven in the
   PA paper account.
 
@@ -75,14 +75,16 @@ Legend's own caps are only one layer. Live preflight also requires one atomic
 shared equity-index portfolio budget for the exact account set. That artifact
 must:
 
-- use protocol `legend-equity-index-risk-budget-v2` and risk basis
+- use protocol `legend-equity-index-risk-budget-v3` and risk basis
   `stress_atr_bps`;
 - be generated for the entry date between 08:30 and 09:25 ET;
-- expire exactly at 09:31:20 ET;
+- expire at the next midnight ET, so the same atomic ledger covers later
+  mapped-ETF entries from the existing executor (Legend itself still has the
+  independent hard 09:31:20 entry deadline);
 - name the exact deployment-manifest SHA256; and
 - provide remaining long, short, and gross basis-point capacity per account.
 
-V2 is a mutable, machine-global reservation ledger rather than a frozen hash.
+V3 is a mutable, machine-global reservation ledger rather than a frozen hash.
 Immediately before the first entry mutation, Legend holds the shared OS lock
 and atomically debits the complete selected-account batch under one idempotent
 owner token. The lock stays held through the transmit phase. Reserved capacity
@@ -191,9 +193,43 @@ reviewed support modules `legend_reservation_guard.py` and
 All raw `.placeOrder`, `.cancelOrder`, and `.reqGlobalCancel` calls must live
 only in the central `legend_reservation_guard.py`; active executor modules call
 that wrapper. The inventory includes every active Python source, including
-`*_selftest.py` files that can mutate when invoked with a live flag. The
-`legend_portfolio_budget.py` support module must expose the V2 atomic capacity
-reservation function.
+`*_selftest.py` files that can mutate when invoked with a live flag, plus the
+reviewed `contract_reference.json`. The `legend_portfolio_budget.py` support
+module must expose the V3 atomic capacity reservation function.
+
+The deployment handshake is deliberately one-way. The manifest builder first
+writes `.legend_reservation_guard_required.json`, then the shared reservation
+configuration. Once the marker exists, every guarded executor must load the
+exact attested guard bytes and fail closed if the manifest, source hash,
+configuration, interpreter, required tests, or marker validation fails. Never
+remove the marker as a rollback; restore the reviewed backup as a unit.
+
+Every mutation uses an explicit broker account and positive `conId`. Fresh
+position snapshots and raw all-client open-order snapshots are taken twice for
+startup and periodic reconciliation; a missing, changing, or ambiguous identity
+blocks the action. Reconciliation itself requires the connection to expose the
+one configured managed account; an explicit account argument cannot make a
+wrong Gateway endpoint authoritative. Dollar-risk conversion requires exactly
+one account-bound NetLiquidation row. A new exit may not join an existing OCA
+group: IBKR stock orders have no atomic reduce-only guarantee if a sibling fills
+before the new order reaches the broker. Those group-bound close helpers fail
+before any broker mutation and preserve the original protection. The generic
+cancel, modify, flatten,
+trim-and-readd, and add-to-position executor commands are disabled because they
+cannot preserve these invariants. Mapped option execution is limited to a
+single long 1x option or a canonical 1:1 same-expiry, same-right vertical;
+direction and bounded loss come from the qualified broker contracts, not from
+the request payload. Scheduled dynamic market-option execution and one-leg
+option/FOP/BAG position closes are disabled. `close_only`, `pa_positions.py`,
+and `pa_flatten.py` may mutate only the guarded SPY/QQQ/IWM/DIA index clusters;
+general-stock use is deliberately rejected until it has an equivalent durable
+mutation lifecycle.
+
+The execution relay durably locks, appends, flushes, and fsyncs each command ID
+before a live subprocess can start. If the receipt cannot be read or written,
+the command is rejected before execution. Any nonterminal, negative, malformed,
+or missing child result is reported as unknown with `DO NOT RETRY`; it is never
+reported as executed.
 
 Only after those sources and support modules are patched and tested, produce a
 reviewed integration receipt containing the exact executor source-tree hash
@@ -207,9 +243,40 @@ root, resulting manifest path, and manifest SHA256 in `runtime.env`. Any source,
 interpreter, package, path, receipt, or reservation-directory drift then blocks
 a new live entry.
 
-This work has not yet been applied to the external live executor. That is a
-real-money boundary and requires explicit approval immediately before editing
-and validating it.
+The guarded patch has not been applied to the external live executor. That is
+a real-money boundary and requires explicit approval immediately before copying
+the frozen, audited files. Copying code does not create the marker, arm the live
+gate, install tasks, connect to IBKR, or authorize an order.
+
+The OLV book-cap path uses a durable two-phase lifecycle. It atomically records
+`PENDING` with the exact account, `conId`, OCA identities, attributable lot,
+discretionary baseline, and preassigned trim order ID before its first mutation.
+On restart it takes two stable broker snapshots and either proves the invariant,
+repairs the exact exit quantity, or cancels only the exact trim and enters a
+manual/critical state. A submitted trim remains pending until terminal broker
+state and the resulting exits are reconciled; journal presence alone never
+authorizes a skip. Both configured accounts must connect and pass read-only
+planning before either can submit. A cap trim is automatic only when the exact
+contract has one filled OLV lot and the total live position exactly equals that
+lot; overlap, a second lot (including one due to exit today), or any nonzero
+discretionary baseline is manual/no-mutation. If recovery finds the OLV lot
+flat with its exits still working, it validates the complete recorded OCA
+topology before mutation, then guarded-cancels every exact sibling separately
+and proves the group is gone. New trims stop at 15:58 ET, with a final clock
+assertion inside the guard immediately before the broker wire call. If that
+final check crosses the cutoff, the proved no-wire path immediately restores
+the original exit quantities before the executor may continue. After that,
+`--reconcile-only` may contain unresolved work through the 16:05 cutoff.
+Multiple OLV lots in one symbol, a working entry requiring resize, corrupt
+state, or an ambiguous identity fails closed for manual handling.
+
+The separate OLV pre-market exit runner also binds both endpoints to distinct
+configured accounts before either can mutate. Its legacy group-bound close is
+deliberately rejected by the active shared guard because a fresh OCA snapshot
+cannot make a new stock order atomic. The original bracket remains working and
+the runner reports a protected failure; do not enable this exit path until an
+in-place or broker-proven lifecycle has passed paper proof. A journal row never
+authorizes a blind retry.
 
 ## Scheduler
 

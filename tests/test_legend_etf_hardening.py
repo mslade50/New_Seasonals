@@ -44,6 +44,7 @@ from legend_etf.reservations import (
     CANDIDATE_PARITY_SESSION_COUNT,
     CANDIDATE_PIPELINE_FILES,
     CANDIDATE_RATIO_ATOL,
+    GUARD_REQUIRED_MARKER_NAME,
     INTEGRATION_RECEIPT_PROTOCOL,
     INTEGRATION_REVIEW_TOKEN,
     REQUIRED_INTEGRATION_TESTS,
@@ -52,6 +53,7 @@ from legend_etf.reservations import (
     discover_broker_mutation_files,
     discover_executor_python_files,
     file_sha256,
+    load_attested_external_guard,
     quarantine_path,
     source_tree_sha256,
     validate_candidate_parity_evidence,
@@ -399,6 +401,80 @@ def test_timed_out_blocking_request_discards_connection_before_repair():
     assert connection.ib is None
 
 
+def test_broker_snapshot_facade_exposes_only_fenced_reads_and_raw_echoes():
+    callback_calls: list[tuple[int, object, object, object]] = []
+    contract = SimpleNamespace(symbol="SPY", conId=1)
+    order = SimpleNamespace(orderId=17, account="U123", totalQuantity=5)
+    state = SimpleNamespace(status="Submitted")
+
+    def original_open_order(order_id, broker_contract, broker_order, order_state):
+        callback_calls.append(
+            (order_id, broker_contract, broker_order, order_state)
+        )
+
+    class SnapshotIB:
+        RequestTimeout = 5.0
+
+        def __init__(self):
+            self.wrapper = SimpleNamespace(openOrder=original_open_order)
+
+        def isConnected(self):
+            return True
+
+        def managedAccounts(self):
+            return ["U123", "U999"]
+
+        def reqPositions(self):
+            return ["positions"]
+
+        def reqAllOpenOrders(self):
+            self.wrapper.openOrder(17, contract, order, state)
+            return ["merged-cache-value"]
+
+        def sleep(self, _seconds):
+            return None
+
+    connection = IBKRConnection(
+        Endpoint("primary", "127.0.0.1", 7496, 155, "U123"), live=True
+    )
+    broker = SnapshotIB()
+    connection.ib = broker
+    facade = connection.broker_snapshot_facade()
+    for forbidden in ("placeOrder", "cancelOrder", "reqGlobalCancel", "wrapper"):
+        assert not hasattr(facade, forbidden)
+    assert facade.managedAccounts() == ["U123", "U999"]
+    assert facade.reqPositions() == ["positions"]
+    raw = facade.reqAllOpenOrdersRaw()
+    assert len(raw) == 1
+    assert raw[0].contract is not contract
+    assert raw[0].order is not order
+    assert raw[0].order.orderId == 17
+    assert raw[0].orderStatus.status == "Submitted"
+    assert broker.wrapper.openOrder is original_open_order
+    assert callback_calls == [(17, contract, order, state)]
+
+
+def test_broker_snapshot_facade_rejects_cache_without_decoder_echo():
+    class SnapshotIB:
+        RequestTimeout = 5.0
+
+        def __init__(self):
+            self.wrapper = SimpleNamespace(openOrder=lambda *_args: None)
+
+        def isConnected(self):
+            return True
+
+        def reqAllOpenOrders(self):
+            return [SimpleNamespace(order=SimpleNamespace(orderId=7))]
+
+    connection = IBKRConnection(
+        Endpoint("primary", "127.0.0.1", 7496, 155, "U123"), live=True
+    )
+    connection.ib = SnapshotIB()
+    with pytest.raises(RuntimeError, match="without raw broker echoes"):
+        connection.broker_snapshot_facade().reqAllOpenOrdersRaw()
+
+
 def test_durable_quarantine_survives_process_lock_and_same_owner_can_adopt(tmp_path):
     directory = tmp_path / "reservations"
     first = ReservationBook(directory)
@@ -535,10 +611,10 @@ def test_shared_portfolio_budget_is_exact_date_account_and_deployment_scoped(
 ):
     path = tmp_path / "portfolio_budget.json"
     payload = {
-        "protocol": "legend-equity-index-risk-budget-v2",
+        "protocol": "legend-equity-index-risk-budget-v3",
         "entry_date": "2026-09-01",
         "generated_at": "2026-09-01T08:45:00-04:00",
-        "expires_at": "2026-09-01T09:31:20-04:00",
+        "expires_at": "2026-09-02T00:00:00-04:00",
         "source_manifest_sha256": "a" * 64,
         "risk_basis": "stress_atr_bps",
         "accounts": {
@@ -556,7 +632,7 @@ def test_shared_portfolio_budget_is_exact_date_account_and_deployment_scoped(
         entry_date="2026-09-01",
         account_ids=["U123"],
         expected_manifest_sha256="a" * 64,
-        now=pd.Timestamp("2026-09-01 09:30", tz="America/New_York"),
+        now=pd.Timestamp("2026-09-01 15:55", tz="America/New_York"),
     )
     assert capacities["U123"].remaining_gross_bps == 25
     assert len(digest) == 64
@@ -574,7 +650,7 @@ def test_shared_portfolio_budget_is_exact_date_account_and_deployment_scoped(
             entry_date="2026-09-01",
             account_ids=["U123"],
             expected_manifest_sha256="a" * 64,
-            now=pd.Timestamp("2026-09-01 09:32", tz="America/New_York"),
+            now=pd.Timestamp("2026-09-02 00:00", tz="America/New_York"),
         )
 
 
@@ -582,10 +658,10 @@ def test_portfolio_capacity_is_atomically_debited_and_cannot_be_reused(tmp_path)
     path = tmp_path / "portfolio_budget.json"
     lock = tmp_path / "equity_index_cluster_budget.lock"
     payload = {
-        "protocol": "legend-equity-index-risk-budget-v2",
+        "protocol": "legend-equity-index-risk-budget-v3",
         "entry_date": "2026-09-01",
         "generated_at": "2026-09-01T08:45:00-04:00",
-        "expires_at": "2026-09-01T09:31:20-04:00",
+        "expires_at": "2026-09-02T00:00:00-04:00",
         "source_manifest_sha256": "a" * 64,
         "risk_basis": "stress_atr_bps",
         "accounts": {
@@ -931,6 +1007,122 @@ def test_next_session_terminal_correction_requarantines_without_flatten(tmp_path
     session.reservations.close()
 
 
+def test_attested_external_quarantine_reconciliation_requires_every_true_result(
+    tmp_path, monkeypatch
+):
+    session = LegendSession(
+        plan_path=tmp_path / "plan.json",
+        state_store=StateStore(tmp_path / "state.json", tmp_path / "audit.jsonl"),
+        account_labels=["primary"],
+        live_requested=True,
+    )
+    endpoint = Endpoint("primary", "127.0.0.1", 7496, 155, "U123")
+    facade = object()
+    connection = SimpleNamespace(
+        ib=object(), broker_snapshot_facade=lambda: facade
+    )
+    session.endpoints = [endpoint]
+    session.accounts = {"primary": connection}
+    config = tmp_path / "reservation.json"
+    config.write_text("{}\n", encoding="utf-8")
+    calls: list[tuple[object, str, Path]] = []
+
+    class Guard:
+        @staticmethod
+        def reconcile_all_external_quarantines(
+            broker, *, account, config_path
+        ):
+            calls.append((broker, account, config_path))
+            return {"SPY": False}
+
+    monkeypatch.setattr(
+        "legend_etf.session.load_attested_external_guard", lambda _manifest: Guard
+    )
+    with pytest.raises(RuntimeError, match="not broker-proved terminal"):
+        session._reconcile_attested_external_quarantines(
+            {"reservation_config": {"path": str(config)}}
+        )
+    assert calls == [(facade, "U123", config.resolve())]
+
+
+@pytest.mark.parametrize(
+    "result",
+    [None, {"SPY": "yes"}, {1: True}],
+)
+def test_attested_external_quarantine_reconciliation_rejects_invalid_results(
+    tmp_path, monkeypatch, result
+):
+    session = LegendSession(
+        plan_path=tmp_path / "plan.json",
+        state_store=StateStore(tmp_path / "state.json", tmp_path / "audit.jsonl"),
+        account_labels=["primary"],
+        live_requested=True,
+    )
+    endpoint = Endpoint("primary", "127.0.0.1", 7496, 155, "U123")
+    session.endpoints = [endpoint]
+    session.accounts = {
+        "primary": SimpleNamespace(
+            ib=object(), broker_snapshot_facade=lambda: object()
+        )
+    }
+    config = tmp_path / "reservation.json"
+    config.write_text("{}\n", encoding="utf-8")
+    guard = SimpleNamespace(
+        reconcile_all_external_quarantines=lambda *_args, **_kwargs: result
+    )
+    monkeypatch.setattr(
+        "legend_etf.session.load_attested_external_guard", lambda _manifest: guard
+    )
+    with pytest.raises(RuntimeError, match="invalid result"):
+        session._reconcile_attested_external_quarantines(
+            {"reservation_config": {"path": str(config)}}
+        )
+
+
+def test_correction_audit_reconciles_external_guard_before_residue_audit(
+    tmp_path, monkeypatch
+):
+    session = LegendSession(
+        plan_path=tmp_path / "plan.json",
+        state_store=StateStore(tmp_path / "state.json", tmp_path / "audit.jsonl"),
+        account_labels=["primary"],
+        live_requested=True,
+    )
+    endpoint = Endpoint("primary", "127.0.0.1", 7496, 155, "U123")
+    connection = SimpleNamespace(
+        endpoint=endpoint,
+        is_connected=lambda: True,
+    )
+    session.accounts = {"primary": connection}
+    values = {"LEGEND_ETF_GUARD_MANIFEST": "unused"}
+    manifest = {"reservation_config": {"path": str(tmp_path / "config.json")}}
+    monkeypatch.setattr(session, "_read_live_runtime", lambda: values)
+    monkeypatch.setattr(
+        session, "_validate_shared_guard_manifest", lambda _values: manifest
+    )
+    monkeypatch.setattr(
+        "legend_etf.session.endpoints_from_env",
+        lambda _labels, environment: [endpoint],
+    )
+    monkeypatch.setattr(
+        "legend_etf.session.validate_correction_audit_gate",
+        lambda **_kwargs: LiveGate(True, True, True, frozenset({"U123"})),
+    )
+    events: list[str] = []
+    monkeypatch.setattr(
+        session,
+        "_reconcile_attested_external_quarantines",
+        lambda _manifest: events.append("external_reconcile"),
+    )
+    monkeypatch.setattr(
+        session,
+        "_audit_recent_terminal_corrections",
+        lambda: events.append("residue_audit"),
+    )
+    assert session.audit_terminal_corrections()["audited"] is True
+    assert events == ["external_reconcile", "residue_audit"]
+
+
 def test_lock_loser_cannot_overwrite_live_lease(tmp_path, monkeypatch):
     store = StateStore(tmp_path / "state.json", tmp_path / "audit.jsonl")
     session = LegendSession(
@@ -960,6 +1152,49 @@ def test_selftest_named_live_mutator_is_in_guard_inventory(tmp_path):
     assert "div_adjust_selftest.py" in discover_broker_mutation_files(tmp_path)
 
 
+def test_attested_guard_loader_uses_exact_bytes_and_restores_budget_module(
+    tmp_path, monkeypatch
+):
+    executor = tmp_path / "executor"
+    executor.mkdir()
+    budget = executor / "legend_portfolio_budget.py"
+    guard_path = executor / "legend_reservation_guard.py"
+    budget.write_text("SENTINEL = 'attested-budget'\n", encoding="utf-8")
+    guard_path.write_text(
+        "from legend_portfolio_budget import SENTINEL\n"
+        "def reconcile_all_external_quarantines(*_args, **_kwargs):\n"
+        "    return {'SPY': SENTINEL == 'attested-budget'}\n",
+        encoding="utf-8",
+    )
+    tree_hash = "b" * 64
+    manifest = {
+        "executor_root": str(executor.resolve()),
+        "executor_source_tree_sha256": tree_hash,
+        "executors": [
+            {
+                "label": path.name,
+                "path": str(path.resolve()),
+                "sha256": file_sha256(path),
+            }
+            for path in (guard_path, budget)
+        ],
+    }
+    prior_budget = SimpleNamespace(SENTINEL="pre-existing-budget")
+    monkeypatch.setitem(sys.modules, "legend_portfolio_budget", prior_budget)
+    unique_name = f"_legend_attested_external_guard_{tree_hash[:16]}"
+    try:
+        loaded = load_attested_external_guard(manifest)
+        assert loaded.reconcile_all_external_quarantines() == {"SPY": True}
+        assert sys.modules["legend_portfolio_budget"] is prior_budget
+
+        guard_path.write_text("# changed after attestation\n", encoding="utf-8")
+        with pytest.raises(RuntimeError, match="changed before import"):
+            load_attested_external_guard(manifest)
+        assert sys.modules["legend_portfolio_budget"] is prior_budget
+    finally:
+        sys.modules.pop(unique_name, None)
+
+
 def test_manifest_builder_output_validates_end_to_end(tmp_path, monkeypatch):
     from scripts import build_legend_executor_guard_manifest as builder
 
@@ -975,16 +1210,17 @@ def test_manifest_builder_output_validates_end_to_end(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     (executor / "legend_portfolio_budget.py").write_text(
-        'LEGEND_PORTFOLIO_BUDGET_PROTOCOL = "legend-equity-index-risk-budget-v2"\n\n'
+        'LEGEND_PORTFOLIO_BUDGET_PROTOCOL = "legend-equity-index-risk-budget-v3"\n\n'
         "def reserve_equity_index_capacity():\n"
         "    return None\n",
         encoding="utf-8",
     )
+    (executor / "contract_reference.json").write_text("{}\n", encoding="utf-8")
     (executor / "executor.py").write_text(
         "from legend_reservation_guard import guarded_place_order\n",
         encoding="utf-8",
     )
-    tree_hash = source_tree_sha256(discover_executor_python_files(executor))
+    tree_hash = source_tree_sha256(builder.discover_executor_runtime_files(executor))
     receipt = tmp_path / "integration.json"
     atomic_write_json(
         receipt,
@@ -1041,6 +1277,21 @@ def test_manifest_builder_output_validates_end_to_end(tmp_path, monkeypatch):
         expected_sha256=file_sha256(manifest),
     )
     assert payload["executor_source_tree_sha256"] == tree_hash
+    marker = executor / GUARD_REQUIRED_MARKER_NAME
+    assert read_json(marker) == {
+        "protocol": "legend-account-symbol-lock-v1",
+        "executor_root": str(executor.resolve()),
+    }
+    atomic_write_json(marker, {"protocol": "changed"})
+    with pytest.raises(RuntimeError, match="required marker"):
+        validate_guard_manifest(
+            manifest,
+            expected_reservation_dir=reservations,
+            expected_runtime_dir=runtime,
+            expected_legend_root=root,
+            expected_executor_root=executor,
+            expected_sha256=file_sha256(manifest),
+        )
 
 
 def test_final_snapshot_retries_when_a_partial_fill_changes_virtual_quantity():

@@ -22,11 +22,12 @@ from legend_etf.config import STRATEGY_VERSION
 from legend_etf.reservations import (
     CRITICAL_RUNTIME_DISTRIBUTIONS,
     GUARD_MODULE_LABEL,
+    GUARD_REQUIRED_MARKER_NAME,
     PORTFOLIO_GUARD_MODULE_LABEL,
     PROTOCOL_VERSION,
     REQUIRED_LEGEND_RUNTIME_FILES,
     discover_broker_mutation_files,
-    discover_executor_python_files,
+    discover_executor_runtime_files,
     file_sha256,
     source_tree_sha256,
     validate_candidate_parity_evidence,
@@ -74,7 +75,7 @@ def main() -> int:
     parity_evidence = _absolute(args.candidate_parity_evidence)
     legend_root = _absolute(args.legend_root)
     executor_root = _absolute(args.executor_root)
-    sources = discover_executor_python_files(executor_root)
+    sources = discover_executor_runtime_files(executor_root)
     for label in (GUARD_MODULE_LABEL, PORTFOLIO_GUARD_MODULE_LABEL):
         support_path = executor_root / label
         if not support_path.is_file():
@@ -92,7 +93,7 @@ def main() -> int:
     budget_text = sources[PORTFOLIO_GUARD_MODULE_LABEL].read_text(encoding="utf-8")
     if (
         'LEGEND_PORTFOLIO_BUDGET_PROTOCOL = '
-        '"legend-equity-index-risk-budget-v2"'
+        '"legend-equity-index-risk-budget-v3"'
         not in budget_text
         or "def reserve_equity_index_capacity" not in budget_text
     ):
@@ -115,6 +116,16 @@ def main() -> int:
         "executor_source_tree_sha256": tree_hash,
         "executor_root": str(executor_root),
     }
+    required_marker = executor_root / GUARD_REQUIRED_MARKER_NAME
+    # Marker first: a crash between these writes blocks mapped mutations instead
+    # of silently returning to the pre-activation raw path.
+    atomic_write_json(
+        required_marker,
+        {
+            "protocol": PROTOCOL_VERSION,
+            "executor_root": str(executor_root),
+        },
+    )
     atomic_write_json(config_path, config)
     manifest = {
         "protocol": PROTOCOL_VERSION,
@@ -126,6 +137,10 @@ def main() -> int:
         "reservation_config": {
             "path": str(config_path),
             "sha256": file_sha256(config_path),
+        },
+        "guard_required_marker": {
+            "path": str(required_marker),
+            "sha256": file_sha256(required_marker),
         },
         "executors": [
             {

@@ -16,7 +16,7 @@ import pandas as pd
 from .config import NY_TZ
 from .storage import atomic_write_json, exclusive_file_lock, utc_now_iso
 
-PORTFOLIO_BUDGET_PROTOCOL = "legend-equity-index-risk-budget-v2"
+PORTFOLIO_BUDGET_PROTOCOL = "legend-equity-index-risk-budget-v3"
 PORTFOLIO_LOCK_NAME = "equity_index_cluster_budget.lock"
 
 
@@ -138,13 +138,13 @@ def _validate_payload(
         <= pd.Timestamp(f"{entry_date} 09:25", tz=NY_TZ)
     ):
         raise RuntimeError("portfolio budget must be finalized from 08:30-09:25 ET")
-    expected_expiry = pd.Timestamp(f"{entry_date} 09:31:20", tz=NY_TZ)
+    expected_expiry = pd.Timestamp(entry_date, tz=NY_TZ) + pd.Timedelta(days=1)
     if expires.tz_convert(NY_TZ) != expected_expiry:
-        raise RuntimeError("portfolio budget expiry must be exactly 09:31:20 ET")
+        raise RuntimeError("portfolio budget expiry must be next midnight ET")
     wall_clock = pd.Timestamp.now(tz=NY_TZ) if now is None else pd.Timestamp(now)
     if wall_clock.tz is None:
         raise ValueError("portfolio budget validation clock must be timezone-aware")
-    if wall_clock.tz_convert(NY_TZ) > expected_expiry:
+    if wall_clock.tz_convert(NY_TZ) >= expected_expiry:
         raise RuntimeError("portfolio budget expired before entry transmission")
     accounts = payload["accounts"]
     if not isinstance(accounts, dict) or set(accounts) != set(account_ids):

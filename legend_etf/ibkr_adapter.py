@@ -8,12 +8,15 @@ independent, dated Legend gate passes.
 from __future__ import annotations
 
 import asyncio
+import copy
 import math
 import os
+import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
+from types import SimpleNamespace
 from typing import Any
 
 import pandas as pd
@@ -35,6 +38,7 @@ ACKNOWLEDGED_STATUSES = {
     "Cancelled",
     "Filled",
 }
+_RAW_OPEN_ORDER_LOCK = threading.RLock()
 
 
 class PreTransmitCheckBlocked(RuntimeError):
@@ -469,6 +473,90 @@ class IBKRConnection:
                 ib.RequestTimeout = prior_timeout
             elif hasattr(ib, "RequestTimeout"):
                 delattr(ib, "RequestTimeout")
+
+    def broker_snapshot_facade(self) -> Any:
+        """Expose only timeout-fenced, read-only broker snapshot operations."""
+
+        connection = self
+
+        class ReadOnlyBrokerSnapshot:
+            def managedAccounts(self) -> list[str]:
+                ib = connection._require()
+                accounts = [
+                    str(account).strip()
+                    for account in ib.managedAccounts()
+                    if str(account).strip()
+                ]
+                if connection.endpoint.account not in accounts:
+                    raise RuntimeError(
+                        "configured account disappeared from the broker session"
+                    )
+                return accounts
+
+            def reqPositions(self) -> Any:
+                ib = connection._require()
+                return connection._blocking_request(ib.reqPositions)
+
+            def reqAllOpenOrders(self) -> Any:
+                ib = connection._require()
+                return connection._blocking_request(ib.reqAllOpenOrders)
+
+            def reqAllOpenOrdersRaw(self) -> list[Any]:
+                """Capture full decoder echoes without exposing the live wrapper."""
+
+                ib = connection._require()
+                wrapper = ib.wrapper
+                with _RAW_OPEN_ORDER_LOCK:
+                    original = wrapper.openOrder
+                    captured: list[Any] = []
+
+                    def capture(
+                        order_id: int,
+                        contract: Any,
+                        order: Any,
+                        order_state: Any,
+                    ) -> Any:
+                        captured.append(
+                            SimpleNamespace(
+                                contract=copy.deepcopy(contract),
+                                order=copy.deepcopy(order),
+                                orderStatus=SimpleNamespace(
+                                    orderId=order_id,
+                                    status=str(
+                                        getattr(order_state, "status", "") or ""
+                                    ),
+                                ),
+                            )
+                        )
+                        return original(order_id, contract, order, order_state)
+
+                    had_override = "openOrder" in getattr(wrapper, "__dict__", {})
+                    prior_override = getattr(wrapper, "__dict__", {}).get("openOrder")
+                    try:
+                        wrapper.openOrder = capture
+                        returned = list(
+                            connection._blocking_request(ib.reqAllOpenOrders)
+                        )
+                    finally:
+                        if had_override:
+                            wrapper.openOrder = prior_override
+                        else:
+                            try:
+                                delattr(wrapper, "openOrder")
+                            except AttributeError:
+                                pass
+                if captured:
+                    return captured
+                if returned:
+                    raise RuntimeError(
+                        "all-client open orders returned without raw broker echoes"
+                    )
+                return []
+
+            def sleep(self, seconds: float) -> None:
+                connection._require().sleep(seconds)
+
+        return ReadOnlyBrokerSnapshot()
 
     def stock(self, symbol: str) -> Any:
         from ib_insync import Stock

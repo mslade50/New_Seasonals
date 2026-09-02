@@ -11,6 +11,7 @@ import platform
 import re
 import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pandas as pd
@@ -27,6 +28,8 @@ from .storage import (
 PROTOCOL_VERSION = "legend-account-symbol-lock-v1"
 GUARD_MODULE_LABEL = "legend_reservation_guard.py"
 PORTFOLIO_GUARD_MODULE_LABEL = "legend_portfolio_budget.py"
+EXECUTOR_RUNTIME_INPUT_LABELS = frozenset({"contract_reference.json"})
+GUARD_REQUIRED_MARKER_NAME = ".legend_reservation_guard_required.json"
 INTEGRATION_RECEIPT_PROTOCOL = "legend-shared-executor-integration-v1"
 INTEGRATION_REVIEW_TOKEN = "I_REVIEWED_SHARED_EXECUTOR_INTEGRATION_TESTS"
 CANDIDATE_PARITY_PROTOCOL = "legend-futures-candidate-parity-v1"
@@ -47,6 +50,81 @@ REQUIRED_INTEGRATION_TESTS = frozenset(
         "corrupt_or_unknown_instrument_blocks",
         "symbol_quarantine_blocks_foreign_mutation",
         "paper_order_ref_and_oca_time_exit",
+        "external_quarantine_clears_only_after_broker_is_empty",
+        "reconciliation_uses_all_clients_and_whole_cluster",
+        "reconciliation_blocks_blank_account_position_on_multi_account_session",
+        "reconciliation_requires_exact_managed_endpoint",
+        "ambiguous_intent_needs_reconciliation_and_new_signal",
+        "ambiguous_exit_blocks_changed_retry_until_reconciliation",
+        "entry_modify_cannot_bypass_capacity_by_increasing_quantity",
+        "modify_identity_requires_active_exact_contract_and_current_client",
+        "child_without_guarded_parent_is_blocked",
+        "known_child_can_be_modified_after_parent_fills",
+        "standalone_stop_weakening_requires_and_debits_full_risk",
+        "attached_stop_weakening_requires_risk_after_parent_fill",
+        "oca_children_can_be_repaired_sequentially_after_partial_fill",
+        "broker_rewritten_oca_child_keeps_immutable_guard_provenance",
+        "late_perm_id_cannot_promote_reused_client_order_provenance",
+        "non_oca_partial_repair_that_remains_overfilled_is_blocked",
+        "signal_id_is_bound_to_one_immutable_mutation",
+        "signal_id_cannot_be_reused_across_mutation_kinds",
+        "blank_tif_is_blocked_even_before_guard_activation",
+        "required_marker_makes_missing_config_fail_closed",
+        "capacity_debit_survives_crash_before_intent_and_retry_cannot_grow",
+        "cancel_return_is_unresolved_and_retry_requires_age_and_same_live_order",
+        "cancel_to_exit_handoff_requires_target_absent_twice",
+        "oca_cancel_handoff_tracks_every_sibling_and_places_close",
+        "oca_cancel_handoff_blocks_close_while_any_sibling_remains",
+        "oca_cancel_group_cannot_cross_accounts",
+        "new_group_bound_exit_is_disabled_pre_wire",
+        "group_bound_exit_requires_full_consistent_oca_commitment",
+        "group_bound_market_exit_requires_complete_broker_oca_group",
+        "cancel_handoff_does_not_ignore_blank_account_target_on_multi_account",
+        "ambiguous_modify_blocks_later_modify",
+        "exit_modify_rejects_added_broker_condition",
+        "exit_modify_cannot_change_order_id_while_reusing_perm_id",
+        "known_protective_cannot_bypass_modify_checks",
+        "known_entry_parent_requires_validated_modify_and_full_risk",
+        "entry_parent_cannot_shrink_below_attached_exit_quantity",
+        "guarded_entry_cannot_be_relabelled_as_exit_by_other_sleeve_position",
+        "raw_legend_reference_blocks_forged_external_modify",
+        "cancel_uses_exact_raw_identity_and_blocks_forged_legend_reference",
+        "unacknowledged_exit_stays_quarantined_and_blocks_second_exit",
+        "terminal_negative_place_status_never_acknowledges_mutation",
+        "exit_modify_rebuilds_wire_order_from_full_raw_broker_echo",
+        "transmit_release_requires_fresh_true_broker_echo",
+        "fresh_snapshot_uses_full_raw_ib_insync_echo",
+        "raw_question_mark_echo_does_not_break_guarded_parent_provenance",
+        "risk_usd_uses_fresh_exact_account_nlv",
+        "risk_usd_rejects_ambiguous_account_nlv",
+        "blank_account_working_exit_blocks_multi_account_exit_proof",
+        "mapped_and_unmapped_equity_index_futures_fail_closed",
+        "pa_positions_group_binds_close_without_cancel_first",
+        "pa_flatten_group_binds_close_without_cancel_first",
+        "pa_partial_oca_close_is_rejected",
+        "pa_close_helpers_are_mapped_cluster_only",
+        "olv_pending_is_durable_before_exit_shrink",
+        "olv_submitted_trim_remains_pending",
+        "olv_terminal_full_partial_zero_fill_reconciles_exact_exits",
+        "olv_prior_day_and_corrupt_journal_fail_closed",
+        "olv_both_accounts_prepare_before_first_submission",
+        "olv_recovery_rejects_blank_account_orders_and_positions",
+        "olv_cap_requires_zero_baseline_single_contract_lot",
+        "olv_flat_recovery_cancels_each_oca_sibling",
+        "olv_trim_rechecks_hard_cutoff_at_broker_boundary",
+        "olv_cutoff_abort_restores_exits_before_next_trim",
+        "olv_exit_intent_is_prepared_before_group_bound_close",
+        "olv_exit_journal_never_authorizes_blind_retry",
+        "executor_unsafe_cancel_replace_flows_disabled",
+        "executor_command_receipt_is_durable_before_live_spawn",
+        "close_only_is_mapped_and_rejects_existing_working_orders",
+        "option_ratio_and_multileg_structures_fail_closed",
+        "option_direction_comes_from_qualified_contracts",
+        "scheduled_option_market_path_is_disabled",
+        "option_position_single_leg_closes_are_disabled",
+        "broker_indeterminate_results_never_report_executed",
+        "book_snapshot_is_exact_account_scoped",
+        "existing_position_commands_require_exact_account_and_conid",
     }
 )
 GUARDED_MUTATION_FUNCTIONS = {
@@ -196,6 +274,23 @@ def discover_executor_python_files(root: Path) -> dict[str, Path]:
         except ValueError as exc:
             raise RuntimeError(f"executor source escapes configured root: {source}") from exc
         discovered[relative.as_posix()] = resolved
+    return discovered
+
+
+def discover_executor_runtime_files(root: Path) -> dict[str, Path]:
+    """Return executable Python plus reviewed data that changes broker orders."""
+
+    base = Path(root).expanduser().resolve()
+    discovered = discover_executor_python_files(base)
+    for label in sorted(EXECUTOR_RUNTIME_INPUT_LABELS):
+        source = (base / Path(label)).resolve()
+        try:
+            source.relative_to(base)
+        except ValueError as exc:  # pragma: no cover - constant labels are bounded
+            raise RuntimeError(f"executor input escapes configured root: {label}") from exc
+        if not source.is_file():
+            raise FileNotFoundError(f"executor runtime input is missing: {source}")
+        discovered[label] = source
     return discovered
 
 
@@ -608,7 +703,26 @@ def validate_guard_manifest(
         or _normalized(Path(config_executor_root)) != _normalized(executor_root)
     ):
         raise RuntimeError("shared executor reservation config does not match manifest")
-    sources = discover_executor_python_files(executor_root)
+    marker = manifest.get("guard_required_marker")
+    if not isinstance(marker, dict) or set(marker) != {"path", "sha256"}:
+        raise RuntimeError("shared executor manifest has no required-marker attestation")
+    marker_path = Path(str(marker.get("path") or ""))
+    expected_marker_path = (executor_root / GUARD_REQUIRED_MARKER_NAME).resolve()
+    marker_hash = str(marker.get("sha256") or "").strip().lower()
+    if (
+        _normalized(marker_path) != _normalized(expected_marker_path)
+        or not marker_path.is_file()
+        or len(marker_hash) != 64
+        or file_sha256(marker_path) != marker_hash
+    ):
+        raise RuntimeError("shared executor required marker is missing or changed")
+    marker_payload, _ = _read_json_once(marker_path)
+    if marker_payload != {
+        "protocol": PROTOCOL_VERSION,
+        "executor_root": str(executor_root.resolve()),
+    }:
+        raise RuntimeError("shared executor required marker identity is invalid")
+    sources = discover_executor_runtime_files(executor_root)
     support_labels = (GUARD_MODULE_LABEL, PORTFOLIO_GUARD_MODULE_LABEL)
     support_sources = {
         label: (executor_root / label).resolve() for label in support_labels
@@ -634,7 +748,7 @@ def validate_guard_manifest(
     )
     if (
         'LEGEND_PORTFOLIO_BUDGET_PROTOCOL = '
-        '"legend-equity-index-risk-budget-v2"'
+        '"legend-equity-index-risk-budget-v3"'
         not in budget_text
         or "def reserve_equity_index_capacity" not in budget_text
     ):
@@ -775,6 +889,80 @@ def validate_guard_manifest(
                 f"Legend critical package changed: {distribution} {actual} != {expected}"
             )
     return manifest
+
+
+def load_attested_external_guard(manifest: dict[str, Any]) -> Any:
+    """Load the already-validated external guard without path ambiguity.
+
+    The external guard has a sibling top-level import of
+    ``legend_portfolio_budget``.  Load that exact attested file under its
+    expected name only for the duration of module initialization, then restore
+    any prior module binding.  This prevents ``sys.path`` order from selecting
+    a different live mutation policy.
+    """
+
+    executor_root = Path(str(manifest.get("executor_root") or "")).resolve()
+    entries = manifest.get("executors")
+    if not executor_root.is_dir() or not isinstance(entries, list):
+        raise RuntimeError("validated external guard manifest is incomplete")
+    by_label = {
+        str(entry.get("label") or "").replace("\\", "/"): entry
+        for entry in entries
+        if isinstance(entry, dict)
+    }
+    guard_entry = by_label.get(GUARD_MODULE_LABEL)
+    budget_entry = by_label.get(PORTFOLIO_GUARD_MODULE_LABEL)
+    guard_path = Path(str((guard_entry or {}).get("path") or "")).resolve()
+    budget_path = Path(str((budget_entry or {}).get("path") or "")).resolve()
+    if (
+        guard_path != (executor_root / GUARD_MODULE_LABEL).resolve()
+        or budget_path != (executor_root / PORTFOLIO_GUARD_MODULE_LABEL).resolve()
+    ):
+        raise RuntimeError("validated external guard module paths are inconsistent")
+
+    def load_module(name: str, source: Path, entry: dict[str, Any]) -> Any:
+        try:
+            raw = source.read_bytes()
+        except OSError as exc:
+            raise RuntimeError(
+                f"could not read attested executor module: {source}"
+            ) from exc
+        expected = str(entry.get("sha256") or "").strip().lower()
+        if len(expected) != 64 or hashlib.sha256(raw).hexdigest() != expected:
+            raise RuntimeError(
+                f"attested executor module changed before import: {source}"
+            )
+        module = ModuleType(name)
+        module.__file__ = str(source)
+        module.__package__ = ""
+        sys.modules[name] = module
+        try:
+            exec(compile(raw, str(source), "exec"), module.__dict__)  # noqa: S102
+        except BaseException:
+            if sys.modules.get(name) is module:
+                sys.modules.pop(name, None)
+            raise
+        return module
+
+    canonical_budget_name = "legend_portfolio_budget"
+    prior_budget = sys.modules.get(canonical_budget_name)
+    unique_guard_name = (
+        "_legend_attested_external_guard_"
+        + str(manifest.get("executor_source_tree_sha256") or "")[:16]
+    )
+    try:
+        load_module(canonical_budget_name, budget_path, budget_entry)
+        guard = load_module(unique_guard_name, guard_path, guard_entry)
+    finally:
+        if prior_budget is None:
+            sys.modules.pop(canonical_budget_name, None)
+        else:
+            sys.modules[canonical_budget_name] = prior_budget
+    reconcile = getattr(guard, "reconcile_all_external_quarantines", None)
+    if not callable(reconcile):
+        sys.modules.pop(unique_guard_name, None)
+        raise TypeError("attested external guard has no reconciliation entry point")
+    return guard
 
 
 class ReservationBook:
