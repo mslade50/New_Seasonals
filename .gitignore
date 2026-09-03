@@ -165,3 +165,6 @@ content/queue/
 
 # Repo health check tripwire state - machine-local, advanced every run
 data/health_check_state.json
+
+# local parquet backups (e.g. master_prices.parquet.bak_20260826)
+*.bak_*
