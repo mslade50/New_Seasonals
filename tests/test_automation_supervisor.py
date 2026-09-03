@@ -381,6 +381,47 @@ def test_success_and_operator_resolution_are_monotonic_terminal_states():
         )
 
 
+def test_expired_pre_side_effect_receipt_is_operator_resolvable(monkeypatch):
+    receipt = sup.dataclasses.replace(
+        _receipt(
+            "scan_am",
+            "running",
+            pipeline="premarket",
+            phase="local_pre_side_effect",
+            lease_expires_at_utc="2026-09-03T10:59:59+00:00",
+        ),
+        run_date_et="2026-09-03",
+    )
+    store = sup.InMemoryReceiptStore()
+    assert store.claim(receipt)
+    monkeypatch.setattr(sup, "_make_runtime", lambda args, controller_only: (object(), store))
+
+    rc = sup.main(
+        [
+            "resolve",
+            "--pipeline",
+            "premarket",
+            "--job",
+            "scan_am",
+            "--date",
+            "2026-09-03",
+            "--cutover-date-et",
+            "2026-09-03",
+            "--disposition",
+            "success",
+            "--reason",
+            "verified recovery run",
+        ]
+    )
+
+    assert rc == 0
+    resolved = store.latest("2026-09-03", "scan_am")
+    assert resolved.status == "success"
+    assert resolved.source == "operator"
+    assert resolved.phase == "manual_resolved"
+    assert resolved.detail == "verified recovery run"
+
+
 def test_local_success_sets_strict_child_env_and_success_receipt(tmp_path):
     job = sup.JobSpec(
         id="component",
@@ -512,6 +553,53 @@ def test_failure_before_unsafe_side_effect_can_dispatch_fallback(tmp_path):
     assert outcome.status == "success"
     assert len(process.stream_calls) == 1
     assert len(dispatcher.calls) == 1
+
+
+def test_unconfirmed_side_effect_boundary_fails_closed_before_child_launch(tmp_path):
+    class BoundaryFailingReceiptStore(sup.InMemoryReceiptStore):
+        def transition(self, receipt, *, update_latest):
+            if receipt.phase == "local_side_effect":
+                raise sup.AutomationError("synthetic R2 boundary failure")
+            return super().transition(receipt, update_latest=update_latest)
+
+    job = sup.JobSpec(
+        id="unsafe",
+        description="unsafe",
+        commands=(
+            sup.CommandSpec(
+                "write external state", ("{python}", "unsafe.py"), side_effecting=True
+            ),
+        ),
+        workflow=sup.WorkflowSpec("unsafe.yml"),
+    )
+    pipeline = sup.PipelineSpec(
+        "test", "test", "weekdays", dt.time(1), dt.time(2), dt.time(3), (job,)
+    )
+    process = FakeProcess()
+    dispatcher = FakeDispatcher()
+    receipts = BoundaryFailingReceiptStore()
+    supervisor = _supervisor(tmp_path, pipeline, process, dispatcher, receipts=receipts)
+
+    log_path = tmp_path / "run.log"
+    with sup.RunLogger(log_path, echo=False) as logger:
+        outcome = supervisor.run_job(
+            pipeline,
+            job,
+            run_date="2026-08-27",
+            logger=logger,
+            allow_fallback=True,
+        )
+
+    assert outcome.status == "failure"
+    assert "side-effect boundary not confirmed" in outcome.detail
+    assert not process.stream_calls
+    assert not dispatcher.calls
+    latest = receipts.latest("2026-08-27", "unsafe")
+    assert latest.status == "running"
+    assert latest.phase == "local_pre_side_effect"
+    log = log_path.read_text(encoding="utf-8")
+    assert "child process was not started" in log
+    assert "synthetic R2 boundary failure" in log
 
 
 def test_rerun_safe_side_effect_failure_can_dispatch_fallback(tmp_path):
@@ -694,6 +782,62 @@ def test_github_only_controller_dispatches_missing_and_honors_dependencies(tmp_p
     assert [row[0].workflow for row in dispatcher.calls] == ["first.yml", "second.yml"]
     assert dispatcher.calls[0][1] != dispatcher.calls[1][1]
     assert not process.stream_calls
+
+
+def test_targeted_github_recovery_runs_only_job_prerequisite_closure(tmp_path):
+    prerequisite = sup.JobSpec(
+        id="prerequisite",
+        description="prerequisite",
+        commands=(sup.CommandSpec("prerequisite", ("{python}", "pre.py")),),
+        workflow=sup.WorkflowSpec("prerequisite.yml"),
+    )
+    unrelated = sup.JobSpec(
+        id="unrelated",
+        description="unrelated",
+        commands=(sup.CommandSpec("unrelated", ("{python}", "other.py")),),
+        workflow=sup.WorkflowSpec("unrelated.yml"),
+    )
+    target = sup.JobSpec(
+        id="target",
+        description="target",
+        commands=(sup.CommandSpec("target", ("{python}", "target.py")),),
+        workflow=sup.WorkflowSpec("target.yml"),
+        depends_on=("prerequisite",),
+    )
+    downstream = sup.JobSpec(
+        id="downstream",
+        description="downstream",
+        workflow=sup.WorkflowSpec("downstream.yml"),
+        dispatch_only=True,
+        depends_on=("target",),
+    )
+    pipeline = sup.PipelineSpec(
+        "test",
+        "test",
+        "weekdays",
+        dt.time(1),
+        dt.time(2),
+        dt.time(3),
+        (prerequisite, unrelated, target, downstream),
+    )
+    dispatcher = FakeDispatcher()
+    supervisor = _supervisor(tmp_path, pipeline, FakeProcess(), dispatcher)
+
+    with _logger(tmp_path) as logger:
+        outcomes = supervisor.run_pipeline(
+            "test",
+            run_date="2026-08-27",
+            allow_fallback=True,
+            github_only=True,
+            only_jobs={"target"},
+            logger=logger,
+        )
+
+    assert [row.job_id for row in outcomes] == ["prerequisite", "target"]
+    assert [row[0].workflow for row in dispatcher.calls] == [
+        "prerequisite.yml",
+        "target.yml",
+    ]
 
 
 def test_github_only_discretionary_holiday_is_terminal_not_applicable(tmp_path):

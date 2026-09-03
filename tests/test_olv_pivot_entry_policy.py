@@ -3,6 +3,8 @@
 import copy
 import os
 import sys
+import types
+from email import message_from_string
 
 import numpy as np
 import pandas as pd
@@ -611,3 +613,353 @@ def test_live_order_staging_consumes_numeric_offset():
     price, needs_open = order_staging.calculate_limit_price(row, 0.0)
     assert needs_open is False
     assert price == pytest.approx(round(100.123456 - 0.75 * 2.345678, 2))
+
+
+def _olv_email_signal(**overrides):
+    signal = {
+        "Strategy_ID": "test-olv-pivot",
+        "Strategy_Name": "Oversold Low Volume",
+        "Ticker": "TEST",
+        "Action": "BUY",
+        "Shares": 100,
+        "Risk_Amt": 293.0,
+        "Notional": 10012.0,
+        "Entry": 100.12,
+        "ATR": 2.345678,
+        "Stop": 97.19,
+        "Target": 105.98,
+        "Time Exit": pd.Timestamp("2026-09-15").date(),
+        "Days_To_Exit": 10,
+        "Entry_Type": "Limit Order -0.25 ATR (Persistent)",
+        "Entry_Type_Short": "LMT $98.36 GTC",
+        "Limit_Price": 98.36,
+        "Entry_Offset_ATR": 0.75,
+        "Fill_Window_Days": 3,
+        "Pivot_Nearest_Type": "High",
+        "Pivot_Level": 89.00,
+        "Pivot_Date": "2026-05-01",
+        "Pivot_Source_Age_Bars": 200,
+        "Pivot_High_Source_Age_Bars": 200,
+        "Pivot_Low_Source_Age_Bars": 110,
+        "Pivot_High_Expired": False,
+        "Pivot_Low_Expired": False,
+        "Pivot_Max_Source_Age_Bars": 252,
+        "Pivot_Distance_ATR": 4.74,
+        "Pivot_Matched_Rule": "above_high_4_5",
+        "Rank_252D": 64.0,
+        "Setup_Type": "MeanReversion",
+        "Setup_Timeframe": "Position",
+        "Setup_Thesis": "LEGACY THESIS MUST NOT RENDER",
+        "Setup_Filters": ["LEGACY FILTER MUST NOT RENDER"],
+        "Live_Filters": [
+            ("2D rank < 25th %ile", "12.0", False),
+            ("5D rank < 33th %ile", "18.0", False),
+            ("21D rank < 15th %ile (3d consecutive)", "8.0", False),
+            ("252D rank between 50-90th %ile", "64.0", False),
+            ("10D vol rank < 15th %ile", "7", False),
+            ("Market > 200 SMA", "PASS", True),
+        ],
+        "Use_Stop": True,
+        "Use_Target": True,
+        "Exit_Primary": "LEGACY EXIT HEADLINE MUST NOT RENDER",
+        "Exit_Notes": "LEGACY EXIT NOTES MUST NOT RENDER",
+        "Sizing_Variable": "",
+        "Sizing_Notes": (
+            "Standard (1.0x) | Pivot40 High 4.74ATR: entry -0.75ATR | "
+            "Risk: 52.5bps ($293)"
+        ),
+        "Stats": "WR: 60% | PF: 2.0 | Exp: 0.5r",
+        "Earnings_Cov": "",
+    }
+    signal.update(overrides)
+    return signal
+
+
+def test_olv_email_brief_states_distance_age_and_entry_effect():
+    signal = _olv_email_signal()
+    brief = daily_scan.build_olv_email_brief(signal)
+    combined = " ".join(brief.values())
+
+    assert "2D 12.0 (<25)" in brief["why"]
+    assert "21D 8.0 (<15 for at least 3 sessions)" in brief["why"]
+    assert "10D volume rank 7 (<15)" in brief["why"]
+    assert "252D 64.0 (50\u201390)" in brief["why"]
+    assert "$11.12 / 4.74 ATR above" in brief["pivot"]
+    assert "pivot high at $89.00" in brief["pivot"]
+    assert (
+        "May 1, 2026; 200 sessions old; expires after 252"
+        in brief["pivot"]
+    )
+    assert "Stage $98.36 buy limit" in brief["action"]
+    assert "close \u22120.75 ATR" in brief["action"]
+    assert "$1.17 below the standard close \u22120.25 ATR limit" in brief["action"]
+    assert "Shares and risk budget stay unchanged" in brief["action"]
+    assert "the lower limit reduces notional" in brief["action"]
+    assert "above_high_4_5" not in combined
+    assert "Pivot40" not in combined
+    assert len(combined.split()) < 140
+
+
+@pytest.mark.parametrize(
+    "distance_atr, offset_atr, limit_price, expected_action",
+    [
+        (
+            2.5,
+            0.50,
+            100.12 - 0.50 * 2.345678,
+            "close \u22120.5 ATR), $0.58 below the standard",
+        ),
+        (
+            3.5,
+            0.25,
+            100.12 - 0.25 * 2.345678,
+            "standard $99.53 buy limit",
+        ),
+    ],
+)
+def test_olv_email_explains_other_pivot_entry_bands(
+        distance_atr, offset_atr, limit_price, expected_action):
+    brief = daily_scan.build_olv_email_brief(
+        _olv_email_signal(
+            Pivot_Distance_ATR=distance_atr,
+            Pivot_Level=100.12 - distance_atr * 2.345678,
+            Entry_Offset_ATR=offset_atr,
+            Limit_Price=limit_price,
+        )
+    )
+
+    assert f"{distance_atr:.2f} ATR above" in brief["pivot"]
+    assert expected_action in brief["action"]
+
+
+def test_olv_email_reports_when_close_is_below_pivot():
+    brief = daily_scan.build_olv_email_brief(
+        _olv_email_signal(
+            Pivot_Distance_ATR=-1.25,
+            Pivot_Level=100.12 + 1.25 * 2.345678,
+            Entry_Offset_ATR=0.25,
+            Limit_Price=100.12 - 0.25 * 2.345678,
+        )
+    )
+
+    assert "$2.93 / 1.25 ATR below" in brief["pivot"]
+    assert "-1.25 ATR" not in brief["pivot"]
+
+
+def test_olv_email_brief_makes_default_and_expired_levels_explicit():
+    signal = _olv_email_signal(
+        Limit_Price=99.53,
+        Entry_Offset_ATR=0.25,
+        Pivot_Nearest_Type="Low",
+        Pivot_Level=97.00,
+        Pivot_Date="2026-07-01",
+        Pivot_Source_Age_Bars=44,
+        Pivot_Distance_ATR=(100.12 - 97.00) / 2.345678,
+        Pivot_High_Expired=True,
+        Pivot_High_Source_Age_Bars=253,
+        Pivot_Matched_Rule="default",
+    )
+    brief = daily_scan.build_olv_email_brief(signal)
+
+    assert "closing-pivot low at $97.00" in brief["pivot"]
+    assert (
+        "Ignored stale high (253 sessions old) beyond the 252-session cap"
+        in brief["pivot"]
+    )
+    assert "Stage the standard $99.53 buy limit" in brief["action"]
+    assert "pivot did not alter the entry" in brief["action"].lower()
+    assert "shares and risk budget are unchanged" in brief["action"].lower()
+
+
+def test_olv_email_brief_handles_no_surviving_pivot():
+    brief = daily_scan.build_olv_email_brief(
+        _olv_email_signal(
+            Limit_Price=99.53,
+            Entry_Offset_ATR=0.25,
+            Pivot_Nearest_Type="",
+            Pivot_Level="",
+            Pivot_Date="",
+            Pivot_Source_Age_Bars="",
+            Pivot_Distance_ATR="",
+            Pivot_High_Expired=True,
+            Pivot_Low_Expired=True,
+            Pivot_High_Source_Age_Bars=300,
+            Pivot_Low_Source_Age_Bars=270,
+            Pivot_Matched_Rule="default",
+        )
+    )
+    assert "No valid 40/40 closing pivot within 252 sessions" in brief["pivot"]
+    assert "high (300 sessions old)" in brief["pivot"]
+    assert "low (270 sessions old)" in brief["pivot"]
+    assert "standard $99.53 buy limit" in brief["action"]
+
+
+def test_olv_email_uses_actual_staged_action_not_proposed_rule():
+    """A disabled policy may retain its proposed rule in audit fields."""
+    signal = _olv_email_signal(
+        Limit_Price=99.53,
+        Entry_Offset_ATR="",
+        Pivot_Matched_Rule="above_high_gt5",
+    )
+    brief = daily_scan.build_olv_email_brief(signal)
+
+    assert "Stage the standard $99.53 buy limit" in brief["action"]
+    assert "No order" not in brief["action"]
+    assert daily_scan.format_signal_email_entry(signal) == (
+        "Persistent limit @ $99.53 (signal close \u2212 0.25 ATR)"
+    )
+
+
+def test_dynamic_email_entry_uses_effective_limit_not_static_label_or_close():
+    entry = daily_scan.format_signal_email_entry(_olv_email_signal())
+    assert entry == "Persistent limit @ $98.36 (signal close \u2212 0.75 ATR)"
+    assert "$100.12" not in entry
+    assert "-0.25 ATR" not in entry
+
+
+@pytest.mark.parametrize(
+    "signal, expected",
+    [
+        (
+            {"Entry_Type": "Limit (Open - 0.5 ATR)", "Entry": 100.0},
+            "Limit (Open - 0.5 ATR)",
+        ),
+        (
+            {"Entry_Type": "Signal Close", "Entry": 100.0},
+            "Signal Close @ $100.00",
+        ),
+        (
+            {
+                "Entry_Type": "Limit at T+1 Close",
+                "Entry": 100.0,
+                "Limit_Price": 99.0,
+            },
+            "Limit at T+1 Close @ $100.00",
+        ),
+        (
+            {
+                "Strategy_Name": "Some Other Strategy",
+                "Entry_Type": "Limit Order -0.25 ATR (Persistent)",
+                "Entry": 100.0,
+                "Limit_Price": 99.0,
+                "Entry_Offset_ATR": 0.75,
+            },
+            "Limit Order -0.25 ATR (Persistent) @ $100.00",
+        ),
+    ],
+)
+def test_email_entry_formatter_preserves_non_dynamic_behavior(signal, expected):
+    assert daily_scan.format_signal_email_entry(signal) == expected
+
+
+class _CaptureSMTP:
+    def __init__(self, *args, **kwargs):
+        self.message = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def starttls(self):
+        return None
+
+    def login(self, *_args):
+        return None
+
+    def sendmail(self, _sender, _receiver, message):
+        self.message = message
+
+
+def test_olv_email_card_is_concise_and_uses_live_pivot_fields(monkeypatch):
+    smtp = _CaptureSMTP()
+    monkeypatch.setenv("EMAIL_USER", "sender@example.invalid")
+    monkeypatch.setenv("EMAIL_PASS", "not-a-real-password")
+    monkeypatch.setattr(daily_scan.smtplib, "SMTP", lambda *_a, **_k: smtp)
+    monkeypatch.setitem(
+        sys.modules,
+        "event_sleeve",
+        types.SimpleNamespace(sleeve_status_cards=lambda: []),
+    )
+
+    raw_limit = 100.123456 - 0.75 * 2.345678
+    signal = _olv_email_signal(
+        Entry=100.123456,
+        Limit_Price=raw_limit,
+        Shares=1_000,
+        Notional=100_123.456,
+        Risk_Amt=2_930.0,
+    )
+    assert daily_scan.send_email_summary([signal]) is True
+    message = message_from_string(smtp.message)
+    part = message.get_payload()[0]
+    body = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
+
+    for label in ("SIGNAL:", "WHY:", "PIVOT:", "ACTION:", "PURPOSE:"):
+        assert body.count(label) == 1
+    assert "Persistent limit @ $98.36" in body
+    assert "LMT $98.36 GTC" in body
+    assert "$1.18 below the standard" in body
+    assert "$98,360 notional" in body
+    assert "+$98,360 Net Exposure" in body
+    assert "$100,123 notional" not in body
+    assert "+$100,123 Net Exposure" not in body
+    assert "$11.12 / 4.74 ATR above" in body
+    assert "Shares and risk budget stay unchanged" in body
+    assert "the lower limit reduces notional" in body
+    assert "First of: +2.5 ATR target, or day 10" in body
+    assert "no resting stop" in body
+
+    assert "LEGACY THESIS MUST NOT RENDER" not in body
+    assert "LEGACY FILTER MUST NOT RENDER" not in body
+    assert "LEGACY EXIT HEADLINE MUST NOT RENDER" not in body
+    assert "LEGACY EXIT NOTES MUST NOT RENDER" not in body
+    assert "Pivot40" not in body
+    assert "above_high_4_5" not in body
+    assert "Stop: $" not in body
+    assert "Target: $" not in body
+    assert "@ $100.12" not in body
+
+
+def test_non_olv_email_card_retains_legacy_detail(monkeypatch):
+    smtp = _CaptureSMTP()
+    monkeypatch.setenv("EMAIL_USER", "sender@example.invalid")
+    monkeypatch.setenv("EMAIL_PASS", "not-a-real-password")
+    monkeypatch.setattr(daily_scan.smtplib, "SMTP", lambda *_a, **_k: smtp)
+    monkeypatch.setitem(
+        sys.modules,
+        "event_sleeve",
+        types.SimpleNamespace(sleeve_status_cards=lambda: []),
+    )
+    signal = _olv_email_signal(
+        Strategy_ID="generic-test",
+        Strategy_Name="Generic Strategy",
+        Entry_Type="Signal Close",
+        Entry_Type_Short="MOC",
+        Entry_Offset_ATR="",
+        Limit_Price=None,
+        Setup_Thesis="GENERIC THESIS",
+        Live_Filters=[("Generic live filter", "42", False)],
+        Exit_Primary="Stop, target, or day 10",
+        Exit_Notes="GENERIC EXIT NOTES",
+        Sizing_Notes="Special 1.2x sizing",
+    )
+
+    assert daily_scan.send_email_summary([signal]) is True
+    message = message_from_string(smtp.message)
+    part = message.get_payload()[0]
+    body = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
+
+    assert "GENERIC THESIS" in body
+    assert "Generic live filter" in body
+    assert "42" in body
+    assert "[SIZING] Sizing: Special 1.2x sizing" in body
+    assert "[RUN] GENERIC EXIT NOTES" in body
+    assert "Stop: $97.19 | Target: $105.98" in body
+    assert "Signal Close @ $100.12" in body
+    assert "$10,012 notional" in body
+    assert "+$10,012 Net Exposure" in body
+    assert "SIGNAL:" not in body
+    assert "PIVOT:" not in body
+    assert "PURPOSE:" not in body

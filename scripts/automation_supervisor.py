@@ -2200,7 +2200,6 @@ class AutomationSupervisor:
                     # Sheets, SMTP, orders, or other non-idempotent state.
                     # A crash from this point onward requires human review;
                     # neither immediate nor hourly fallback may run it twice.
-                    indeterminate_marked = True
                     marker = self._receipt(
                         pipeline=pipeline,
                         job=job,
@@ -2212,7 +2211,28 @@ class AutomationSupervisor:
                         detail=f"side-effecting step started: {command.label}",
                         phase="local_side_effect",
                     )
-                    self.receipts.transition(marker, update_latest=True)
+                    logger.line(
+                        f"guard: persist side-effect boundary for {job.id}: {command.label}"
+                    )
+                    try:
+                        self.receipts.transition(marker, update_latest=True)
+                    except Exception as marker_exc:  # noqa: BLE001 - fail closed at the gate
+                        # The child process has not started. Do not guess whether
+                        # a failed/ambiguous R2 request reached the durable latest
+                        # marker, and do not dispatch a second writer here.
+                        logger.line(
+                            f"ERROR: side-effect boundary for {job.id} was not confirmed; "
+                            f"child process was not started and automatic fallback was "
+                            f"suppressed: {type(marker_exc).__name__}: {marker_exc}"
+                        )
+                        return JobOutcome(
+                            job.id,
+                            "failure",
+                            "local",
+                            f"side-effect boundary not confirmed: {marker_exc}",
+                        )
+                    indeterminate_marked = True
+                    logger.line(f"guard: side-effect boundary durable for {job.id}")
                 logger.line(f"step: {command.label}")
                 rc = self.process.stream(
                     self._resolve_command(command),
@@ -2258,12 +2278,25 @@ class AutomationSupervisor:
                     detail=f"{type(exc).__name__}: {exc}",
                     phase="manual_review",
                 )
-                self.receipts.transition(attention, update_latest=True)
+                try:
+                    self.receipts.transition(attention, update_latest=True)
+                except Exception as receipt_exc:  # noqa: BLE001 - preserve local evidence
+                    logger.line(
+                        f"ERROR: local {job.id} failed after the durable side-effect "
+                        f"boundary ({type(exc).__name__}: {exc}); unable to persist the "
+                        f"manual-review detail: {type(receipt_exc).__name__}: {receipt_exc}; "
+                        "automatic fallback suppressed"
+                    )
+                    return JobOutcome(job.id, "indeterminate", "local", str(exc))
                 logger.line(
                     f"ERROR: local {job.id} is indeterminate after side effects: {exc}; "
                     "automatic fallback suppressed"
                 )
                 return JobOutcome(job.id, "indeterminate", "local", str(exc))
+            logger.line(
+                f"ERROR: local {job.id} failed before side effects: "
+                f"{type(exc).__name__}: {exc}"
+            )
             local_failure = self._receipt(
                 pipeline=pipeline,
                 job=job,
@@ -2275,8 +2308,15 @@ class AutomationSupervisor:
                 detail=f"{type(exc).__name__}: {exc}",
                 phase="retryable",
             )
-            self.receipts.transition(local_failure, update_latest=False)
-            logger.line(f"ERROR: local {job.id} failed: {exc}")
+            try:
+                self.receipts.transition(local_failure, update_latest=False)
+            except Exception as receipt_exc:  # noqa: BLE001 - control plane is unavailable
+                logger.line(
+                    f"ERROR: unable to persist the retryable failure for {job.id}: "
+                    f"{type(receipt_exc).__name__}: {receipt_exc}; automatic fallback "
+                    "suppressed"
+                )
+                return JobOutcome(job.id, "failure", "local", str(exc))
             if allow_fallback and job.workflow is not None:
                 logger.line(f"immediate GitHub fallback for {job.id}")
                 return self._run_github(
@@ -2297,11 +2337,34 @@ class AutomationSupervisor:
         run_date: str,
         allow_fallback: bool,
         github_only: bool = False,
+        only_jobs: set[str] | None = None,
         logger: RunLogger,
     ) -> list[JobOutcome]:
         pipeline = self.catalog[pipeline_id]
+        selected: set[str] | None = None
+        if only_jobs is not None:
+            jobs_by_id = {job.id: job for job in pipeline.jobs}
+            unknown = only_jobs - jobs_by_id.keys()
+            if unknown:
+                raise AutomationError(
+                    f"unknown job(s) for {pipeline_id}: {', '.join(sorted(unknown))}"
+                )
+            selected = set()
+
+            def include_with_dependencies(job_id: str) -> None:
+                if job_id in selected:
+                    return
+                selected.add(job_id)
+                for dependency in jobs_by_id[job_id].depends_on:
+                    include_with_dependencies(dependency)
+
+            for requested in only_jobs:
+                include_with_dependencies(requested)
+
         outcomes: dict[str, JobOutcome] = {}
         for job in pipeline.jobs:
+            if selected is not None and job.id not in selected:
+                continue
             unsatisfied = [dep for dep in job.depends_on if not outcomes.get(dep, JobOutcome(dep, "failure")).satisfied]
             if unsatisfied:
                 detail = f"unsatisfied dependencies: {', '.join(unsatisfied)}"
@@ -2533,6 +2596,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="limit the receipt check to one pipeline (default: all)",
     )
     fallback.add_argument("--date", help="ET receipt date override (YYYY-MM-DD)")
+    fallback.add_argument(
+        "--job",
+        help="dispatch only this job and its prerequisite closure (requires one pipeline)",
+    )
 
     status = sub.add_parser("status", help="show latest R2 receipts")
     _add_runtime_arguments(status, config_required=False)
@@ -2549,7 +2616,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     resolve = sub.add_parser(
         "resolve",
-        help="explicitly resolve an indeterminate receipt after operator review",
+        help=(
+            "explicitly resolve an indeterminate or expired pre-side-effect "
+            "receipt after operator review"
+        ),
     )
     _add_runtime_arguments(resolve, config_required=False)
     resolve.add_argument("--pipeline", choices=sorted(CATALOG), required=True)
@@ -2598,6 +2668,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"cutover {cutover_day}."
             )
             return 0
+    if args.command == "fallback-due" and args.job:
+        if not args.pipeline or args.pipeline == "all":
+            raise AutomationError("--job requires --pipeline with one concrete pipeline")
+        known_jobs = {job.id for job in CATALOG[args.pipeline].jobs}
+        if args.job not in known_jobs:
+            raise AutomationError(
+                f"job {args.job!r} is not in pipeline {args.pipeline!r}"
+            )
     if args.command == "run-pipeline":
         pipeline = CATALOG[args.pipeline]
         now_et = now.astimezone(ET)
@@ -2673,10 +2751,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"job {args.job!r} is not in pipeline {args.pipeline!r}"
             )
         current = receipts.latest(run_date, args.job)
-        if current is None or current.status != "indeterminate":
+        expired_pre_effect = bool(
+            current
+            and current.status == "running"
+            and current.phase == "local_pre_side_effect"
+            and current.lease_expired(now)
+        )
+        if current is None or (
+            current.status != "indeterminate" and not expired_pre_effect
+        ):
             state = current.status if current else "missing"
             raise AutomationError(
-                f"only an indeterminate receipt can be resolved; current={state}"
+                "only an indeterminate receipt or an expired local_pre_side_effect "
+                f"receipt can be resolved; current={state}"
             )
         resolved = dataclasses.replace(
             current,
@@ -2722,6 +2809,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     run_date=run_date,
                     allow_fallback=not getattr(args, "no_fallback", False),
                     github_only=args.command == "fallback-due",
+                    only_jobs=(
+                        {args.job}
+                        if args.command == "fallback-due" and args.job
+                        else None
+                    ),
                     logger=logger,
                 )
                 failures += sum(

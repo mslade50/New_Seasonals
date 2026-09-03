@@ -9,6 +9,7 @@ import pytz
 import sys
 import os
 import json
+import html as html_lib
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -272,11 +273,374 @@ def get_google_client():
         return None
 
 
+def _email_finite_float(value):
+    """Return a finite float for display math, otherwise ``None``."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if np.isfinite(parsed) else None
+
+
+def _email_truthy(value):
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return bool(value)
+
+
+def _live_filter_value(signal, prefix, fallback="n/a"):
+    """Read a live-filter value without coupling copy to tuple length."""
+    live_filters = signal.get("Live_Filters") or []
+    if isinstance(live_filters, str):
+        try:
+            live_filters = json.loads(live_filters)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            live_filters = []
+    for item in live_filters:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        if str(item[0]).startswith(prefix):
+            value = str(item[1]).strip()
+            return value or fallback
+    return fallback
+
+
+def _olv_strategy_config():
+    """Return the live OLV strategy block that produced the email row."""
+    return next(
+        (strategy for strategy in STRATEGY_BOOK
+         if strategy.get("name") == "Oversold Low Volume"),
+        {},
+    )
+
+
+def _olv_trigger_summary(signal):
+    """Summarize OLV's live readings against its configured thresholds."""
+    settings = _olv_strategy_config().get("settings", {})
+    ranks = []
+    for perf_filter in settings.get("perf_filters", []):
+        window = int(perf_filter["window"])
+        fallback = "n/a"
+        if window == 252:
+            rank_252d = _email_finite_float(signal.get("Rank_252D"))
+            if rank_252d is not None:
+                fallback = f"{rank_252d:.1f}"
+        value = _live_filter_value(signal, f"{window}D rank ", fallback)
+        logic = perf_filter.get("logic")
+        threshold = float(perf_filter.get("thresh", 0))
+        if logic == "Between":
+            threshold_max = float(perf_filter.get("thresh_max", 100))
+            rule = f"{threshold:g}\u2013{threshold_max:g}"
+        else:
+            rule = f"{logic}{threshold:g}"
+        consecutive = int(perf_filter.get("consecutive", 1))
+        if consecutive > 1:
+            rule += f" for at least {consecutive} sessions"
+        ranks.append(f"{window}D {value} ({rule})")
+
+    volume = ""
+    if settings.get("use_vol_rank"):
+        value = _live_filter_value(signal, "10D vol rank ")
+        logic = settings.get("vol_rank_logic", "<")
+        threshold = float(settings.get("vol_rank_thresh", 0))
+        volume = f"10D volume rank {value} ({logic}{threshold:g})"
+
+    trend = str(settings.get("trend_filter") or "").replace("Market", "SPY")
+    clauses = []
+    if ranks:
+        clauses.append(f"Ranks: {', '.join(ranks)}")
+    if volume:
+        clauses.append(volume)
+    if trend and trend != "None":
+        clauses.append(trend)
+    return ". ".join(clauses) + "."
+
+
+def _olv_email_offset_atr(signal):
+    """Return OLV's actual staged offset, including policy-off fallback."""
+    offset = _email_finite_float(signal.get("Entry_Offset_ATR"))
+    if offset is not None:
+        return offset
+
+    pivot_policy = (
+        _olv_strategy_config().get("execution", {}).get(
+            "pivot_entry_policy", {})
+    )
+    default_offset = _email_finite_float(
+        pivot_policy.get("default_offset_atr"))
+    if default_offset is not None:
+        return default_offset
+
+    close = _email_finite_float(signal.get("Entry"))
+    atr = _email_finite_float(signal.get("ATR"))
+    limit_price = _email_finite_float(signal.get("Limit_Price"))
+    if close is None or atr is None or atr <= 0 or limit_price is None:
+        return None
+    derived = (close - limit_price) / atr
+    return derived if derived >= 0 else None
+
+
+def _email_effective_notional(signal):
+    """Return the dollars represented by the entry shown in the email."""
+    notional = _email_finite_float(signal.get("Notional")) or 0.0
+    if signal.get("Strategy_Name") != "Oversold Low Volume":
+        return notional
+
+    limit_price = _email_finite_float(signal.get("Limit_Price"))
+    shares = _email_finite_float(signal.get("Shares"))
+    if limit_price is None or limit_price <= 0 or shares is None:
+        return notional
+    # order_staging resolves REL_CLOSE orders to a penny before submission.
+    return round(limit_price, 2) * shares
+
+
+def format_signal_email_entry(signal):
+    """Render the effective entry instruction used by a detailed email card.
+
+    OLV's dynamic numeric offset is authoritative: its static strategy label
+    remains ``-0.25 ATR`` even when the pivot policy moves the row-specific
+    limit to -0.50 or -0.75 ATR. Other strategies retain their prior display.
+    """
+    entry_type = str(signal.get("Entry_Type", "Signal Close"))
+    entry = _email_finite_float(signal.get("Entry"))
+    limit_price = _email_finite_float(signal.get("Limit_Price"))
+
+    is_olv = signal.get("Strategy_Name") == "Oversold Low Volume"
+    if is_olv and limit_price is not None and limit_price > 0:
+        offset_atr = _olv_email_offset_atr(signal)
+        label = "Persistent limit" if (
+            "Persistent" in entry_type or "GTC" in entry_type
+        ) else "Limit"
+        if offset_atr is None:
+            return f"{label} @ ${limit_price:.2f}"
+        return (
+            f"{label} @ ${limit_price:.2f} "
+            f"(signal close \u2212 {offset_atr:g} ATR)"
+        )
+
+    if "Open" in entry_type and "Limit" in entry_type:
+        return entry_type
+    if "Signal Close" in entry_type or "T+1 Close" in entry_type:
+        return f"{entry_type} @ ${entry:.2f}" if entry is not None else entry_type
+    if limit_price is not None and limit_price > 0 and "Close" in entry_type:
+        return f"{entry_type} @ ${limit_price:.2f}"
+    return f"{entry_type} @ ${entry:.2f}" if entry is not None else entry_type
+
+
+def build_olv_email_brief(signal):
+    """Build concise, live OLV copy from the exact staged-row decision."""
+    if signal.get("Strategy_Name") != "Oversold Low Volume":
+        return None
+
+    olv_execution = _olv_strategy_config().get("execution", {})
+    pivot_policy = olv_execution.get("pivot_entry_policy", {})
+    why = _olv_trigger_summary(signal)
+
+    close = _email_finite_float(signal.get("Entry"))
+    atr = _email_finite_float(signal.get("ATR"))
+    pivot_level = _email_finite_float(signal.get("Pivot_Level"))
+    pivot_distance = _email_finite_float(signal.get("Pivot_Distance_ATR"))
+    pivot_age = _email_finite_float(signal.get("Pivot_Source_Age_Bars"))
+    max_age = _email_finite_float(signal.get("Pivot_Max_Source_Age_Bars"))
+    if max_age is None:
+        max_age = _email_finite_float(pivot_policy.get("max_source_age_bars"))
+    pivot_type = str(signal.get("Pivot_Nearest_Type") or "").strip().lower()
+    pivot_date = str(signal.get("Pivot_Date") or "").strip()
+
+    if pivot_type in {"high", "low"} and pivot_level is not None:
+        signed_gap = (
+            close - pivot_level
+            if close is not None
+            else (pivot_distance * atr if pivot_distance is not None and atr is not None else None)
+        )
+        signed_direction = pivot_distance if pivot_distance is not None else signed_gap
+        if signed_direction is None or abs(signed_direction) < 1e-12:
+            relation = "at"
+        elif signed_direction > 0:
+            relation = "above"
+        else:
+            relation = "below"
+
+        distance_parts = []
+        if signed_gap is not None:
+            distance_parts.append(f"${abs(signed_gap):.2f}")
+        if pivot_distance is not None:
+            distance_parts.append(f"{abs(pivot_distance):.2f} ATR")
+        distance_text = " / ".join(distance_parts) or "an unknown distance"
+        close_text = f"Close ${close:.2f}" if close is not None else "The close"
+        metadata = []
+        if pivot_date:
+            try:
+                date_value = pd.Timestamp(pivot_date)
+                metadata.append(f"{date_value.strftime('%b')} {date_value.day}, {date_value.year}")
+            except (TypeError, ValueError):
+                metadata.append(pivot_date)
+        if pivot_age is not None:
+            age_text = f"{pivot_age:g} sessions old"
+            if max_age is not None:
+                age_text += f"; expires after {max_age:g}"
+            metadata.append(age_text)
+        metadata_text = f" ({'; '.join(metadata)})" if metadata else ""
+        left_bars = int(pivot_policy.get("left_bars", 40))
+        right_bars = int(pivot_policy.get("right_bars", 40))
+        pivot = (
+            f"{close_text} is {distance_text} {relation} the nearest valid "
+            f"{left_bars}/{right_bars} closing-pivot {pivot_type} at "
+            f"${pivot_level:.2f}{metadata_text}."
+        )
+    else:
+        left_bars = int(pivot_policy.get("left_bars", 40))
+        right_bars = int(pivot_policy.get("right_bars", 40))
+        cap_text = f" within {max_age:g} sessions" if max_age is not None else ""
+        pivot = f"No valid {left_bars}/{right_bars} closing pivot{cap_text}."
+
+    expired_sides = []
+    for side, flag_key, age_key in (
+        ("high", "Pivot_High_Expired", "Pivot_High_Source_Age_Bars"),
+        ("low", "Pivot_Low_Expired", "Pivot_Low_Source_Age_Bars"),
+    ):
+        if not _email_truthy(signal.get(flag_key)):
+            continue
+        side_age = _email_finite_float(signal.get(age_key))
+        expired_sides.append(
+            f"{side} ({side_age:g} sessions old)" if side_age is not None else side
+        )
+    if expired_sides:
+        cap = f"{max_age:g}" if max_age is not None else "the age cap"
+        pivot += (
+            f" Ignored stale {' and '.join(expired_sides)} beyond the "
+            f"{cap}-session cap."
+        )
+
+    offset_atr = _olv_email_offset_atr(signal)
+    limit_price = _email_finite_float(signal.get("Limit_Price"))
+    fill_window = _email_finite_float(signal.get("Fill_Window_Days"))
+    if fill_window is None:
+        fill_window = _email_finite_float(
+            olv_execution.get("fill_window_days")) or 3.0
+    default_offset = _email_finite_float(
+        pivot_policy.get("default_offset_atr")) or 0.25
+    if offset_atr is not None and limit_price is not None:
+        if abs(offset_atr - default_offset) < 1e-12:
+            action = (
+                f"Stage the standard ${limit_price:.2f} buy limit "
+                f"(close \u2212{default_offset:g} ATR), active "
+                f"T+1\u2013T+{fill_window:g}. "
+                "The pivot did not alter the entry; shares and risk budget "
+                "are unchanged."
+            )
+        else:
+            standard_limit = (
+                round(close - default_offset * atr, 2)
+                if close is not None and atr is not None
+                else None
+            )
+            improvement = (
+                standard_limit - round(limit_price, 2)
+                if standard_limit is not None
+                else None
+            )
+            improvement_text = (
+                f" ${abs(improvement):.2f} below the standard close "
+                f"\u2212{default_offset:g} ATR limit"
+                if improvement is not None and improvement > 0
+                else ""
+            )
+            if improvement_text:
+                action = (
+                    f"Stage ${limit_price:.2f} buy limit "
+                    f"(close \u2212{offset_atr:g} ATR),{improvement_text}; active "
+                    f"T+1\u2013T+{fill_window:g}. Shares and risk budget stay "
+                    "unchanged; the lower limit reduces notional."
+                )
+            else:
+                action = (
+                    f"Stage ${limit_price:.2f} buy limit "
+                    f"(close \u2212{offset_atr:g} ATR vs "
+                    f"\u2212{default_offset:g} default), active "
+                    f"T+1\u2013T+{fill_window:g}. Shares and risk budget stay "
+                    "unchanged; the lower limit reduces notional."
+                )
+    elif offset_atr is not None:
+        action = (
+            f"Use a close \u2212{offset_atr:g} ATR buy limit, active "
+            f"T+1\u2013T+{fill_window:g}. Shares and risk budget stay unchanged."
+        )
+    else:
+        action = (
+            f"Use the standard close \u2212{default_offset:g} ATR buy limit."
+        )
+
+    return {
+        "signal": (
+            "OLV buy: oversold pullback on unusually low volume in an "
+            "established uptrend."
+        ),
+        "why": why,
+        "pivot": pivot,
+        "action": action,
+        "purpose": (
+            "Buy low-volume weakness in a longer-term winner; avoid chasing "
+            "when price is stretched above an old pivot high."
+        ),
+    }
+
+
+def render_signal_email_explanation(signal, filters_html):
+    """Render concise OLV copy or the legacy generic explanation block."""
+    brief = build_olv_email_brief(signal)
+    if brief is not None:
+        labels = (
+            ("SIGNAL", "signal"),
+            ("WHY", "why"),
+            ("PIVOT", "pivot"),
+            ("ACTION", "action"),
+            ("PURPOSE", "purpose"),
+        )
+        rows = "".join(
+            "<div style='margin: 5px 0; line-height: 1.4;'>"
+            f"<strong>{label}:</strong> {html_lib.escape(brief[key])}</div>"
+            for label, key in labels
+        )
+        return (
+            "<div style='margin: 0; padding: 12px 15px; background: #f9f9f9; "
+            "border-left: 3px solid #2196f3; color: #444; font-size: 13px;'>"
+            f"{rows}</div>"
+        )
+
+    thesis = signal.get("Setup_Thesis", "")
+    thesis_html = (
+        "<div style='font-style: italic; color: #555; margin: 10px 0; "
+        "padding: 10px; background: #f9f9f9; border-left: 3px solid #2196f3;'>"
+        f"{thesis}</div>"
+        if thesis else ""
+    )
+    return f"""
+        {thesis_html}
+        <div style="padding: 15px;">
+            <div style="font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">
+                [TARGET] WHY IT FLAGGED:
+            </div>
+            <ul style="margin: 0; padding-left: 20px; font-size: 13px;">
+                {filters_html}
+            </ul>
+        </div>
+    """
+
+
 def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                        pc_state=None):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
-    Card-based layout showing full signal criteria with LIVE values.
+    Card-based layout showing live signal criteria. OLV cards use a concise
+    signal / trigger / pivot / action / purpose explanation.
 
     The Risk Dial header and the Exposure Leg block were removed 2026-07-16
     (per McKinley): the dial state lives on the site risk tab's Sizing State
@@ -424,6 +788,8 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
         signal_cards = []
         
         for sig in _primary_signals:
+            is_olv = sig.get('Strategy_Name') == "Oversold Low Volume"
+
             # Check if this signal has a companion order
             _companion = _companion_map.get(sig['Ticker']) if not sig.get('_is_companion', False) else None
             
@@ -468,6 +834,31 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                     use_stop = False
                 if 'target' not in exit_primary.lower():
                     use_target = False
+
+            # OLV's downside exit is evaluated after the close and sent for the
+            # next open; there is no resting dollar stop. Its live target is
+            # anchored to the resolved limit, not the signal close carried in
+            # the generic Stop/Target fields, so keep this section accurate and
+            # compact instead of printing stale absolute prices.
+            if is_olv:
+                use_stop = False
+                use_target = False
+                _olv_execution = _olv_strategy_config().get("execution", {})
+                _target_atr = _email_finite_float(
+                    _olv_execution.get("tgt_atr"))
+                _hold_days = _email_finite_float(sig.get("Days_To_Exit"))
+                if _hold_days is None:
+                    _hold_days = _email_finite_float(
+                        _olv_execution.get("hold_days"))
+                _olv_exit_terms = []
+                if _target_atr is not None:
+                    _olv_exit_terms.append(f"+{_target_atr:g} ATR target")
+                if _hold_days is not None:
+                    _olv_exit_terms.append(f"day {_hold_days:g}")
+                _olv_exit_terms.append(
+                    "volume-confirmed downside exit next open "
+                    "(no resting stop)")
+                exit_primary = "First of: " + ", or ".join(_olv_exit_terms)
             
             exit_parts = []
             if use_stop:
@@ -492,10 +883,17 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                 notes_parts.append(f"[STATS] {sizing_var}")
             # Surface the multiplier chain (ATR sznl 1.5x, Frag, Ladder rung, etc.)
             # so we can see at-a-glance why the staged risk isn't just base 1.0x.
-            if sizing_notes and sizing_notes != "Standard (1.0x)" and "Standard (1.0x) |" not in sizing_notes:
+            # OLV gets a dedicated entry-effect line sourced from its Pivot_*
+            # audit fields; its raw diagnostic chain is intentionally omitted.
+            if (not is_olv and sizing_notes
+                    and sizing_notes != "Standard (1.0x)"
+                    and "Standard (1.0x) |" not in sizing_notes):
                 notes_parts.append(f"[SIZING] Sizing: {sizing_notes}")
-            if exit_notes:
+            if exit_notes and not is_olv:
                 notes_parts.append(f"[RUN] {exit_notes}")
+            if is_olv and sig.get('Earnings_Cov') == 'MISSING':
+                notes_parts.append(
+                    "[WARN] Earnings date unavailable — verify before fill")
             
             # Companion order info
             if _companion:
@@ -507,34 +905,19 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                 notes_html = "<div style='font-size: 12px; color: #ff9800; margin-top: 8px;'>" + "<br>".join(notes_parts) + "</div>"
             else:
                 notes_html = ""
+
+            explanation_html = render_signal_email_explanation(
+                sig, filters_html)
+            entry_display = format_signal_email_entry(sig)
             
-            # Thesis
-            thesis = sig.get('Setup_Thesis', '')
-            thesis_html = f"<div style='font-style: italic; color: #555; margin: 10px 0; padding: 10px; background: #f9f9f9; border-left: 3px solid #2196f3;'>{thesis}</div>" if thesis else ""
-            
-            # Entry type display - don't show price for Open-based limits
-            entry_type = sig.get('Entry_Type', 'Signal Close')
-            limit_price = sig.get('Limit_Price')
-            
-            # Determine if we know the entry price
-            is_open_based = "Open" in entry_type and "Limit" in entry_type
-            
-            if is_open_based:
-                # Open-based limit - we don't know T+1 Open yet
-                entry_display = entry_type  # Just show the entry type, no price
-            elif "Signal Close" in entry_type or "T+1 Close" in entry_type:
-                # We know the price
-                entry_display = f"{entry_type} @ ${sig['Entry']:.2f}"
-            elif limit_price and "Close" in entry_type:
-                # Close-based limit with known price
-                entry_display = f"{entry_type} @ ${limit_price:.2f}"
-            else:
-                # Default: show entry price if known
-                entry_display = f"{entry_type} @ ${sig['Entry']:.2f}"
-            
-            # Notional and days
-            notional = sig.get('Notional', 0)
+            # OLV's generic Notional field is shares * signal close; show the
+            # dollars represented by the actual staged limit instead.
+            notional = _email_effective_notional(sig)
             days_to_exit = sig.get('Days_To_Exit', 0)
+            exit_heading = (
+                exit_primary if is_olv
+                else sig.get('Exit_Primary', f'{days_to_exit}-day time stop')
+            )
             
             card_html = f"""
             <div style="border: 1px solid #ddd; border-radius: 8px; margin-bottom: 20px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -568,24 +951,14 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                     </div>
                 </div>
                 
-                <!-- Thesis -->
-                {thesis_html}
+                <!-- Signal explanation -->
+                {explanation_html}
                 
-                <!-- Why It Flagged -->
-                <div style="padding: 15px;">
-                    <div style="font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">
-                        [TARGET] WHY IT FLAGGED:
-                    </div>
-                    <ul style="margin: 0; padding-left: 20px; font-size: 13px;">
-                        {filters_html}
-                    </ul>
-                </div>
-                
-                <!-- Exit Plan -->
-                <div style="padding: 15px; background: #f5f5f5; border-top: 1px solid #eee;">
-                    <div style="font-weight: bold; color: #333; font-size: 13px;">
-                        [EXIT] EXIT: {sig.get('Exit_Primary', f'{days_to_exit}-day time stop')}
-                    </div>
+                    <!-- Exit Plan -->
+                    <div style="padding: 15px; background: #f5f5f5; border-top: 1px solid #eee;">
+                        <div style="font-weight: bold; color: #333; font-size: 13px;">
+                        [EXIT] EXIT: {exit_heading}
+                        </div>
                     {exit_prices_html}
                     {notes_html}
                 </div>
@@ -634,8 +1007,12 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
         
         # Total risk summary - NET notional (long - short)
         total_risk = sum(s.get('Risk_Amt', 0) for s in email_signals)
-        long_notional = sum(s.get('Notional', 0) for s in email_signals if s['Action'] == 'BUY')
-        short_notional = sum(s.get('Notional', 0) for s in email_signals if s['Action'] != 'BUY')
+        long_notional = sum(
+            _email_effective_notional(s)
+            for s in email_signals if s['Action'] == 'BUY')
+        short_notional = sum(
+            _email_effective_notional(s)
+            for s in email_signals if s['Action'] != 'BUY')
         net_notional = long_notional - short_notional
         long_count = len({(s['Ticker'], s.get('_parent_strategy', s.get('Strategy_Name'))) for s in email_signals if s['Action'] == 'BUY'})
         short_count = signal_count - long_count

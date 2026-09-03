@@ -52,6 +52,10 @@ def test_runner_calls_only_the_pinned_supervisor_contract():
     assert "automation_supervisor.py" in RUNNER
     assert "run-pipeline --pipeline $Pipeline --config-root $ConfigRoot --ref" in RUNNER
     assert "health --config-root $ConfigRoot --ref" in RUNNER
+    assert (
+        "fallback-due --pipeline premarket --job scan_am --config-root $ConfigRoot --ref"
+        in RUNNER
+    )
     assert "fallback_ref" in RUNNER
     assert "LOCAL_AUTOMATION_PRIMARY" in RUNNER
     assert "LOCAL_AUTOMATION_RUN_TOKEN" in RUNNER
