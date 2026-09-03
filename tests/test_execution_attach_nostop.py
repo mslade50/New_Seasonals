@@ -242,19 +242,23 @@ def _fake_bars(n=30, base=100.0, rng=2.0):
 
 
 class _FakeIB:
-    def __init__(self, bars, nlv):
-        self._bars, self._nlv = bars, nlv
+    def __init__(self, bars, nlv, account="DU_TEST"):
+        self._bars, self._nlv, self._account = bars, nlv, account
     def reqHistoricalData(self, *a, **k):
         return self._bars
     def accountSummary(self, *a, **k):
-        return [SimpleNamespace(tag="NetLiquidation", value=str(self._nlv))]
+        # _nlv pins ONE exact account (2026-09-02), so the row has to carry it.
+        return [SimpleNamespace(account=self._account, tag="NetLiquidation",
+                                value=str(self._nlv))]
 
 
 def test_atr_and_nlv_helpers(executor):
     ib = _FakeIB(_fake_bars(), 100000)
     atr, last = executor._atr_estimate(ib, None, "STK")
     assert atr and atr > 0 and last > 0
-    assert executor._nlv(ib) == 100000.0
+    assert executor._nlv(ib, "DU_TEST") == 100000.0
+    assert executor._nlv(ib, "OTHER") is None      # never borrows another account's NLV
+    assert executor._nlv(ib, "") is None
     # too little history -> no estimate
     atr, last = executor._atr_estimate(_FakeIB(_fake_bars(5), 1), None, "STK")
     assert atr is None and last is None

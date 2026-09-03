@@ -15,7 +15,7 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
 
 ```json
 { "id": "uuid",                       // idempotency key — agent dedups
-  "type": "entry_bracket | scheduled_option | scheduled_option_cancel | exit_attach | close_only | flatten | cancel | modify",
+  "type": "entry_bracket | scheduled_option | scheduled_option_cancel | exit_attach | close_only | close_resize | flatten | cancel | modify",
   "account": "primary | pa",          // routes to TWS 7496 / PA Gateway 4001
   "dry_run": true,                    // agent validates + logs, transmits nothing
   "created_at": "iso", "expires_at": "iso",   // agent refuses if expired
@@ -169,6 +169,14 @@ captures the working exit legs before cancelling and re-attaches them sized to
 quantity. A FULL LMT close cancels all exits and rests unprotected until it fills
 (the preview + result say so).
 
+**Cancel-first is the known cost.** Between the confirmed cancel and the fill the
+position carries no protection, and a partial close whose re-attach fails leaves
+the remainder naked; both are reported loudly, never silently tolerated. flatten
+was lifecycle-disabled in both gates from 2026-08 and re-enabled 2026-09-03 at
+McKinley's explicit request, for the case the safer paths cannot express: a FULL
+close of a protected position, where the exits have to be cancelled rather than
+resized. For a PARTIAL close prefer `close_resize` below, which never cancels.
+
 ### `close_only`  (Close… ticket — working orders are never touched)
 ```json
 { "symbol":"USO","sec_type":"STK","currency":"USD","con_id":123,"expiry":null,
@@ -183,6 +191,52 @@ if its action would add to the live position or if its resolved quantity exceeds
 the live holding. The executor re-reads both immediately before transmission.
 Existing exits may therefore over-cover the remainder until manually modified;
 the site confirmation and execution result state that explicitly.
+
+**BARE POSITIONS ONLY.** It refuses when any order is working on the exact
+account/contract: a resting exit the same size as the close could fill beside it
+and reverse the position. Use `close_resize` (partial) or `flatten` (full) on a
+protected position.
+
+**Any STK / CASH / FUT symbol** since 2026-09-03. It was previously whitelisted
+to the SPY/QQQ/IWM/DIA equity-index clusters, a holdover from the Legend
+reservation-guard rollout rather than a property of the close — `guarded_place_order`
+handles non-cluster symbols on every other path. `_cluster_symbol` is still
+called so its validation of mapped equity-index futures (exchange + expiry
+present) keeps firing; only the "not a cluster symbol" rejection is gone.
+
+### `close_resize`  (partial close of a PROTECTED position — exits shrink FIRST)
+```json
+{ "symbol":"UNH","sec_type":"STK","currency":"USD","con_id":42,"expiry":null,
+  "action":"SELL",             // must be opposite the live position
+  "qty":70,                     // or "fraction": 0.5; MUST resolve below held
+  "order_type":"MKT|LMT","limit":null,"tif":"DAY|GTC",
+  "outside_rth":false }
+```
+Added 2026-09-03. The ordering is the entire product: every working closing exit
+is modified DOWN to `held − close_qty` **before** the close is placed, so at
+every instant `working exits + working close <= live position`. The remainder is
+never unprotected and no two resting orders can fill together and reverse the
+position — the invariant `flatten`'s cancel-first sequence cannot hold. Same
+lifecycle `olv_book_cap.py` uses to trim the OLV sub-book (modify the TARGET /
+TIME legs down as the owning clientId, then place the trim).
+
+- **Nothing is ever cancelled.** Legs are modified through the clientId that
+  PLACED them (TWS binds a persisted bracket to its placing client), grouped and
+  reconnected exactly like `_cancel_via_owners`.
+- **PARTIAL only.** A full close would need the exits resized to zero, which is
+  not a modify — use `flatten`. Rejected in the ticket, in the agent's
+  validation and in the live gate.
+- **Legs of an UNFILLED entry bracket are left alone** (`_split_pending_entry_legs`):
+  a closing leg whose parent order is still working sizes the pending entry, not
+  the position. With no protective exits left after that split the close is
+  placed directly, which is the one thing `close_only` cannot do while an
+  unrelated entry is working on the same contract. This is the exact shape the
+  2026-09-03 UNH position was in.
+- **Abort/restore.** A capture error, a bracket that does not cover the held
+  size, a failed resize, or an unconfirmed resize all abort with nothing closed;
+  a resize that landed but a close that then died puts the exit quantities back.
+- Requires an exact `con_id`; the ticket resolves one from the book when the
+  symbol names exactly one position, and refuses to guess when it names two.
 
 ### `cancel`
 ```json

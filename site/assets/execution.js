@@ -241,7 +241,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. Three ways to close, differing only in what happens to the <b>working orders</b>: <b>Close only</b> touches none of them and so requires a bare position (a resting exit the same size as the close could fill alongside it and reverse you); <b>Close + shrink exits</b> is the partial close for a position that already has exits &mdash; it modifies them down to the remainder <i>first</i>, then sells, so the remainder is never unprotected and nothing is ever cancelled; <b>Flatten</b> cancels the working orders and then closes, which is the only way to close a protected position in <i>full</i> (an exit cannot be resized to zero) and the only one that leaves the position unprotected between the cancel and the fill. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -249,7 +249,8 @@ function shell() {
           <option value="scheduled_option">scheduled option buy</option>
           <option value="exit_attach">attach exits</option>
           <option value="close_only">close only (leave orders)</option>
-          <option value="flatten">flatten</option>
+          <option value="close_resize">close + shrink exits (partial)</option>
+          <option value="flatten">flatten (cancel orders first)</option>
           <option value="echo">echo (ping)</option>
         </select>
         <span class="cap">Account: <b id="ticketAcct">primary</b></span>
@@ -351,9 +352,12 @@ function deriveExecMode(book, status, now = Date.now()) {
 }
 function execMode() { return deriveExecMode(state.book, state.status); }
 const MUTATING_COMMANDS = new Set([
-  "entry_bracket", "close_only", "flatten", "cancel", "modify", "trim_readd", "add_to_position",
-  "exit_attach", "scheduled_option", "scheduled_option_cancel",
+  "entry_bracket", "close_only", "close_resize", "flatten", "cancel", "modify", "trim_readd",
+  "add_to_position", "exit_attach", "scheduled_option", "scheduled_option_cancel",
 ]);
+// Every close ticket shares one set of fields (shares / percent / MKT|LMT /
+// outside RTH / TIF); only what happens to the WORKING orders differs.
+const CLOSE_COMMANDS = new Set(["close_only", "close_resize", "flatten"]);
 function mutationBlocked(type) {
   return execMode() === "unknown" && (!type || MUTATING_COMMANDS.has(type));
 }
@@ -1106,8 +1110,8 @@ function renderPositions() {
           <button class="btn xs ghost" data-mutation${hasProtection ? "" : noProtection} onclick='execAddToPosition(${posJson(p)},1)'>Add 1x</button>
           ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`
         : `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
-          <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.25)'>Trim&frac14;</button>
-          <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
+          <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.25)'>Trim&frac14;</button>
+          <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.5)'>Trim&frac12;</button>
           ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
     const priceDigits = p.sec_type === "CASH" ? 5 : 2;
     return `<tr>
@@ -1429,9 +1433,31 @@ function execToggleReadd(pos) {
   set("positions", renderPositions());
   syncMutationControls();
 }
+/* Partial close from a position row. Picks the SAFE command for the position's
+   shape rather than always reaching for flatten: a position carrying working
+   exits goes through close_resize (exits shrink to the remainder before the
+   sell, so it is never unprotected), a bare one through close_only. Neither
+   cancels anything. */
+function execPartialClose(pos, fraction) {
+  if (rejectUnknownMutation()) return;
+  const held = Math.abs(Number(pos.position));
+  const qty = fastActionQty(pos.position, fraction);
+  if (!(qty > 0 && qty < held)) { alert("This position is too small for a partial close."); return; }
+  const protectedPos = hasAnyClosingOrder(pos);
+  const type = protectedPos ? "close_resize" : "close_only";
+  const close = Number(pos.position) > 0 ? "SELL" : "BUY";
+  const rem = held - qty;
+  const tail = protectedPos
+    ? `Its working exits shrink to ${rem} BEFORE the close is placed — nothing is cancelled.`
+    : "It has no working orders to touch.";
+  if (!confirm(`${actionLead("close")} ${close} ${qty} of ${held} ${pos.symbol} MKT on ${state.account}? ${tail}`)) return;
+  sendCommand(type, { ...positionIdentity(pos), action: close, qty, order_type: "MKT", tif: "DAY" });
+}
+window.execPartialClose = execPartialClose;
+
 function execTrim(pos, fraction = 0.5) {
   if (readdRows.get(positionKey(pos)) !== true) {
-    execFlatten(pos, fraction);
+    execPartialClose(pos, fraction);
     return;
   }
   if (rejectUnknownMutation()) return;
@@ -1622,10 +1648,13 @@ function syncFields() {
       updateReadout();
     });
     syncScheduledExpiryFields();
-  } else if (t === "flatten" || t === "close_only") {
+  } else if (CLOSE_COMMANDS.has(t)) {
     // Close ticket: shares (takes precedence) or any percentage; MKT (RTH,
-    // fill-gated) or LMT (resting close — required for outside-RTH). close_only
-    // deliberately leaves every working order untouched.
+    // fill-gated) or LMT (resting close — required for outside-RTH). The three
+    // close types share these fields and differ only in what they do to the
+    // working orders: close_only leaves them untouched (bare positions only),
+    // close_resize shrinks the exits to the remainder BEFORE selling, flatten
+    // cancels them first.
     f.innerHTML = `<label class="cap">Symbol</label>${inp("f_symbol", "USO", 90)}
       <label class="cap">Shares</label>${inp("fl_qty", "blank = percent", 110)}
       <label class="cap">or Percent</label>${inp("fl_pct", "100", 65)}
@@ -1902,6 +1931,15 @@ function flattenWarnings() {
     if (!(lim > 0)) warns.push("LMT close needs a limit price");
   }
   if (rth && typ !== "LMT") warns.push("outside-RTH close must be LMT");
+  // close_resize shrinks the working exits to the remainder, and an exit cannot
+  // be resized to zero — a full close has to cancel them, which is flatten.
+  const cmdType = document.getElementById("cmdType");
+  if (cmdType && cmdType.value === "close_resize" && held != null) {
+    const n = qn != null ? qn : Math.round(held * Number(numOrNull("fl_pct") || 0) / 100);
+    if (n >= held) {
+      warns.push("close + shrink exits is a PARTIAL close — use flatten to close the whole position");
+    }
+  }
   return warns;
 }
 // The exit_attach ticket's position: symbol match, narrowed by the Protect…
@@ -2058,7 +2096,7 @@ function updateReadout() {
     if (ts) parts.push(`Time <b>MKT ${ts} 15:59 ET</b>`);
     parts.push(`OCA group &middot; GTC`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;&middot;&nbsp; ")}</span>`;
-  } else if (t === "flatten" || t === "close_only") {
+  } else if (CLOSE_COMMANDS.has(t)) {
     const warns = flattenWarnings();
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
     const sym = String(val("f_symbol") || "").toUpperCase();
@@ -2083,8 +2121,12 @@ function updateReadout() {
     parts.push(`TIF <b>${val("fl_tif") || "DAY"}</b>`);
     if (t === "close_only") {
       parts.push(`<b style="color:#ffc14d">all working orders remain unchanged</b>`);
-    } else if (rem > 0) parts.push(`working stop/target resize to <b>${rem}</b>`);
+    } else if (t === "close_resize") {
+      // Say the ordering out loud — it is the only reason to pick this type.
+      parts.push(`working exits shrink to <b>${rem}</b> <b style="color:#3ddb8f">before</b> the close`);
+    } else if (rem > 0) parts.push(`<b style="color:#ffc14d">exits cancelled first</b>, re-attached at <b>${rem}</b> after`);
     else if (typ === "LMT") parts.push(`<b style="color:#ffc14d">all exits cancelled — unprotected while the close rests</b>`);
+    else parts.push(`<b style="color:#ffc14d">exits cancelled first — unprotected until the close fills</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
   } else {
     el.innerHTML = "";
@@ -2111,7 +2153,7 @@ function ticketPayload(t) {
       expiry: mode === "specific" ? val("so_expiry") : null,
     };
   }
-  if (t === "flatten" || t === "close_only") {
+  if (CLOSE_COMMANDS.has(t)) {
     const qn = numOrNull("fl_qty");
     const typ = val("fl_type") || "MKT";
     const p = { symbol: val("f_symbol"), order_type: typ,
@@ -2122,8 +2164,19 @@ function ticketPayload(t) {
         && String(identity.symbol).toUpperCase() === String(p.symbol).toUpperCase()) {
       Object.assign(p, identity);
       delete p.account;
+    } else {
+      // Symbol typed straight into the ticket rather than prefilled by "Close…".
+      // close_only / close_resize bind to an exact con_id, so resolve it from the
+      // book — but ONLY when the symbol names exactly one position. Two matches
+      // is a futures roll; guessing there would close the wrong contract month.
+      const ab = acctBook();
+      const hits = ((ab && ab.positions) || []).filter((x) => x.position
+        && String(x.symbol).toUpperCase() === String(p.symbol || "").toUpperCase());
+      if (hits.length === 1) Object.assign(p, positionIdentity(hits[0]));
     }
-    if (t === "close_only") {
+    // close_only and close_resize both re-check the direction agent-side, so the
+    // ticket has to state which side it believes closes the position.
+    if (t === "close_only" || t === "close_resize") {
       const ab = acctBook();
       const pos = ((ab && ab.positions) || []).find((x) => x.position
         && String(x.symbol).toUpperCase() === String(p.symbol).toUpperCase()
@@ -2185,7 +2238,7 @@ function sendTicket() {
     const warns = attachWarnings();
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
-  if (t === "flatten" || t === "close_only") {
+  if (CLOSE_COMMANDS.has(t)) {
     const warns = flattenWarnings();
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
@@ -2216,8 +2269,12 @@ function sendTicket() {
         ? `attach exits to ${p.symbol} (${[p.stop != null ? "stop " + p.stop : "", p.target != null ? "target " + p.target : "", p.time_stop ? "time " + p.time_stop : ""].filter(Boolean).join(", ")}) — full held size, OCA GTC`
         : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +
           `${p.order_type === "LMT" ? " @ " + p.limit : ""}${p.outside_rth ? " OUTSIDE RTH" : ""} (${p.tif})` +
-          `${t === "close_only" ? " — ALL WORKING ORDERS STAY UNCHANGED" : p.qty != null || p.fraction < 1 ? " — remaining exits auto-resize" : ""}`;
-    const verb = t === "entry_bracket" ? "place" : t === "exit_attach" ? "attach" : t === "close_only" ? "close only" : "flatten";
+          `${t === "close_only" ? " — ALL WORKING ORDERS STAY UNCHANGED"
+            : t === "close_resize" ? " — working exits SHRINK to the remainder FIRST, then the close goes out"
+            : " — working orders are CANCELLED FIRST; the position is unprotected until the close fills" +
+              (p.qty != null || p.fraction < 1 ? ", then exits are re-attached on the remainder" : "")}`;
+    const verb = t === "entry_bracket" ? "place" : t === "exit_attach" ? "attach"
+      : t === "close_only" ? "close only" : t === "close_resize" ? "close (shrink exits first)" : "flatten";
     if (!confirm(`${actionLead(verb)} ${summary} on ${state.account}?`)) return;
   }
   if (t === "entry_bracket" && p.sec_type === "FUT" && state.account === "primary" && p.stop != null) {

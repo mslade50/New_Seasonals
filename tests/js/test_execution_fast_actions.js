@@ -121,10 +121,19 @@ vm.runInContext(`
   lastCommand = null;
   execTrim(${JSON.stringify(position)}, 0.25);
 `, context);
+// Re-add off: the trim buttons take the SAFE partial close, not flatten.
+// This position carries working exits, so it routes to close_resize, which
+// shrinks them to the remainder before selling and cancels nothing. (Before
+// 2026-09-03 this sent `flatten`, whose cancel-first order leaves the
+// remainder unprotected between the cancel and the fill.)
 const plainQuarter = JSON.parse(vm.runInContext("JSON.stringify({ lastConfirm, lastCommand })", context));
-assert.match(plainQuarter.lastConfirm, /flatten 25% of SMH/);
-assert.strictEqual(plainQuarter.lastCommand.type, "flatten");
-assert.strictEqual(plainQuarter.lastCommand.payload.fraction, 0.25);
+assert.match(plainQuarter.lastConfirm, /SELL 25 of 100 SMH MKT/);
+assert.match(plainQuarter.lastConfirm, /shrink to 75 BEFORE the close/);
+assert.strictEqual(plainQuarter.lastCommand.type, "close_resize");
+assert.strictEqual(plainQuarter.lastCommand.payload.qty, 25);
+assert.strictEqual(plainQuarter.lastCommand.payload.action, "SELL");
+assert.strictEqual(plainQuarter.lastCommand.payload.con_id, 12345);
+assert.strictEqual(plainQuarter.lastCommand.payload.fraction, undefined);
 
 vm.runInContext("state.book = null; state.status = { online: false };", context);
 assert.strictEqual(vm.runInContext("mutationBlocked('trim_readd')", context), true);

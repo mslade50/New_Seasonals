@@ -247,8 +247,13 @@ def test_partial_close_cancels_and_resizes_time_stop_only(executor, capsys):
         def positions(self):
             return [position] if position.position else []
 
+        def managedAccounts(self):
+            return ["DU_TEST"]
+
         def reqAllOpenOrders(self):
-            return None
+            # The reservation guard refreshes through this and does list() on
+            # the result, so it must return the trades, not None.
+            return self.trades
 
         def openTrades(self):
             return self.trades
@@ -288,6 +293,8 @@ def test_partial_close_cancels_and_resizes_time_stop_only(executor, capsys):
             "expected_position": 100,
             "fraction": 0.5,
             "order_type": "MKT",
+            "_broker_account": "DU_TEST",
+            "_command_id": "flatten-partial-timestop",
         },
         "127.0.0.1",
         7496,
@@ -333,11 +340,18 @@ def test_close_only_uses_closing_side_and_never_touches_orders(
         def qualifyContracts(self, *_contracts):
             return None
 
+        def managedAccounts(self):
+            return ["DU_TEST"]
+
+        # close_only READS the working orders (2026-09-02) to enforce its
+        # bare-position rule — a resting exit the same size as the close could
+        # fill beside it and reverse the position. What it must never do is
+        # change one, so cancel/modify stay fatal here.
         def reqAllOpenOrders(self):
-            raise AssertionError("close_only must not inspect working orders")
+            return []
 
         def openTrades(self):
-            raise AssertionError("close_only must not inspect working orders")
+            return []
 
         def cancelOrder(self, _order):
             raise AssertionError("close_only must not cancel working orders")
@@ -362,6 +376,7 @@ def test_close_only_uses_closing_side_and_never_touches_orders(
     ib = FakeIB()
     result = executor._do_close_only(ib, {
         "symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+        "_broker_account": "DU_TEST", "_command_id": "close-only-side",
         "qty": 10, "action": requested_action, "order_type": "MKT",
     })
     payload = capsys.readouterr().out
@@ -394,6 +409,15 @@ def test_close_only_rejects_add_side_and_oversize(executor, capsys):
         def qualifyContracts(self, *_contracts):
             return None
 
+        def managedAccounts(self):
+            return ["DU_TEST"]
+
+        def reqAllOpenOrders(self):
+            return []
+
+        def openTrades(self):
+            return []
+
         def placeOrder(self, contract, order):
             self.placed.append((contract, order))
             raise AssertionError("rejected close must not place an order")
@@ -401,11 +425,13 @@ def test_close_only_rejects_add_side_and_oversize(executor, capsys):
     ib = FakeIB()
     executor._do_close_only(ib, {
         "symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+        "_broker_account": "DU_TEST", "_command_id": "close-only-wrong-side",
         "qty": 10, "action": "BUY", "order_type": "MKT",
     })
     wrong_side = capsys.readouterr().out
     executor._do_close_only(ib, {
         "symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+        "_broker_account": "DU_TEST", "_command_id": "close-only-oversize",
         "qty": 26, "action": "SELL", "order_type": "MKT",
     })
     oversize = capsys.readouterr().out
