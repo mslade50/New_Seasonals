@@ -137,12 +137,26 @@ try {
 
     Write-Output "Starting local automation pipeline '$Pipeline' from pinned commit $($head.Substring(0, 12))."
     if ($Pipeline -eq 'health') {
+        # GitHub's scheduled fallback controller can be delayed or skipped. The
+        # weekday 07:30 ET local health task is a second, receipt-gated recovery
+        # probe for the AM scanner only. Prerequisites are checked through their
+        # receipts; event staging, site deploys, and broker/order tasks are not in
+        # this targeted job closure.
+        & $pythonExecutable -u $supervisor fallback-due --pipeline premarket --job scan_am --config-root $ConfigRoot --ref ([string]$marker.fallback_ref)
+        $recoveryExitCode = $LASTEXITCODE
         & $pythonExecutable -u $supervisor health --config-root $ConfigRoot --ref ([string]$marker.fallback_ref)
+        $healthExitCode = $LASTEXITCODE
+        if ($recoveryExitCode -ne 0 -or $healthExitCode -ne 0) {
+            $exitCode = 1
+        }
+        else {
+            $exitCode = 0
+        }
     }
     else {
         & $pythonExecutable -u $supervisor run-pipeline --pipeline $Pipeline --config-root $ConfigRoot --ref ([string]$marker.fallback_ref)
+        $exitCode = $LASTEXITCODE
     }
-    $exitCode = $LASTEXITCODE
 }
 finally {
     Restore-ProcessEnvironment -Name 'LOCAL_AUTOMATION_PRIMARY' -Value $previousPrimary
