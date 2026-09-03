@@ -1469,6 +1469,19 @@ trade in a weekend vintage of unknown origin). Mitigations, all in place:
 - Blocked-signal notes name every contributing exit (ticker, date, R) so a
   block stays auditable after its vintage is overwritten.
 
+**The ledger replays TODAY's config over ALL history, so its SIZE column is
+not what live traded before the most recent sizing change** (2026-09-03,
+measured against the primary account's IBKR statement). Concrete instance:
+every OLV position entered on or after 2026-07-29 matches live share-for-share
+(ratio 1.000), and every earlier one is 1.15x-2.85x SMALLER in the ledger than
+live was, because the ledger applies the signal-recency ladder (0.5/0.7/1.0,
+shipped 2026-07-30) to a period that had no ladder at all; 1/0.5 = 2.0 is the
+observed ratio on several. R is per-share-normalised so per-trade R is
+unaffected, but **any ledger-based NOTIONAL or EXPOSURE claim about a period
+before its rules shipped understates live** — which is why the June-2026 OLV
+stack was bigger in reality than the ledger-based drawdown work showed.
+Evidence: `scratch/live_vs_ledger_2026/`.
+
 ## OLV Book Cap — EOD pro-rata trim to <= 100% NAV (2026-08-24, live-only) — DISABLED 2026-08-25
 
 **Status: built, dry-run verified, never fired live.** Task Scheduler entry
@@ -1640,10 +1653,30 @@ GitHub workflow backup: the ring sits behind the broker's read token).
 folds them into per-day keys and DROPS them after `retention_days` (14). So
 before this job the ring was the only accumulating copy of actual fills and a
 row older than 14 days existed nowhere machine-readable — only in IBKR's own
-Flex/activity statements. Found 2026-09-02 by the sizing due diligence, which
-also established that live execution matches the ledger inside noise (entry
-slip median -0.09 bps, shares 0.97x on 18 matched legs); the live-vs-ledger
-gap is DISCRETION, not fills.
+Flex/activity statements. Found 2026-09-02 by the sizing due diligence.
+
+**Execution is free, measured 2026-09-03** on the primary account's Jan-Sep
+statement (`scratch/live_vs_ledger_2026/`): 69 matched positions from June
+onward give live/ledger avgR 0.982, paired diff -0.004R (CI95 -0.046 to
++0.042), entry slippage 0.0 bps at the median, share counts exact. So
+`live R = ledger R x 0.60` is NOT supported as an execution claim; any haircut
+prices edge decay and discretionary override, not fills. That measures a
+different thing from the ring-based 18-leg figure (ratio 0.72), which scored
+the position's REALISED outcome including hand trims — the gap between the two
+IS the discretion.
+
+**The systematic book only went live in the primary account around June 2026.**
+Ledger-position-to-live-entry match rate by month: Jan 3%, Feb 11%, Mar 0%,
+Apr 4%, May 42%, Jun 77%, Jul 95%, Aug 100%, against a statement carrying
+99-187 stock orders EVERY month. Jan-Apr activity in that account was not the
+book. **No live-vs-ledger claim before June 2026 is meaningful**, and the 67
+OVS ledger positions with no live counterpart sit there — they are not a
+2-path gate divergence.
+
+Order reference: IBKR exposes it on SINGLE-DAY activity flex queries only, so a
+multi-month pull cannot carry it and statement matching is keyless on
+symbol + session + side. No order placed before 2026-07-02 carries one anyway
+(tagging entered `eq_order_entry.py` between the 07-01 and 07-02 backups).
 
 Contract:
 - **Upsert by `exec_id`, never append.** Commission reports lag the fill, and
