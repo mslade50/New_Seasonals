@@ -1,0 +1,211 @@
+{
+ "Primary (TWS)": {
+  "n_legs": 20,
+  "n_matched": 18,
+  "n_broker_entry": 15,
+  "unmatched": [
+   {
+    "sym": "SPG",
+    "strat": "Oversold Low Volume",
+    "signal_date": "2026-08-27"
+   },
+   {
+    "sym": "SPG",
+    "strat": "Oversold Low Volume",
+    "signal_date": "2026-08-28"
+   }
+  ],
+  "n_fully_closed_live": 6,
+  "n_ledger_open_at_last_bar": 16,
+  "live_avgR": -0.23569028601417644,
+  "ledger_avgR": -0.325119582470544,
+  "live_sumR": -4.242425148255176,
+  "ledger_sumR": -5.8521524844697925,
+  "paired_diff_mean": 0.08942929645636759,
+  "paired_diff_median": 0.006251965139712462,
+  "entry_slip_bps_mean": -0.5074557922704303,
+  "entry_slip_bps_median": -0.0946094385118057,
+  "entry_slip_bps_broker_only_mean": -8.968207022936731,
+  "shares_ratio_mean": 0.9722021949851798,
+  "commission_R_mean": 0.001689519642590073,
+  "exit_type_table": {
+   "manual/untagged": {
+    "Target": 1,
+    "Time": 1
+   },
+   "manual/untagged+tagged_time_or_target_leg": {
+    "Target": 0,
+    "Time": 2
+   },
+   "olv_vol_confirm_exit": {
+    "Target": 0,
+    "Time": 1
+   },
+   "open@mark": {
+    "Target": 0,
+    "Time": 10
+   },
+   "tagged_time_or_target_leg": {
+    "Target": 0,
+    "Time": 3
+   }
+  },
+  "by_strategy": {
+   "LT Trend ST OS": {
+    "N": 1,
+    "live_avgR": 0.16955259259259334,
+    "ledger_avgR": 0.15186159731153512
+   },
+   "Oversold Low Volume": {
+    "N": 17,
+    "live_avgR": -0.25952810240281,
+    "ledger_avgR": -0.35317729892831334
+   }
+  },
+  "ratio_point": 0.7249341433794751,
+  "ratio_ci95_symcluster": [
+   -0.7704767280666892,
+   2.3454669980646368
+  ],
+  "paired_diff_ci95_symcluster": [
+   -0.15424054905681522,
+   0.3236468406187574
+  ],
+  "decomp": {
+   "ledger": -0.325119582470544,
+   "live_entry_ledger_exit": -0.32980697157729083,
+   "live_entry_live_exit": -0.23569028601417644,
+   "note": "entry effect = second minus first; exit/discretion effect = third minus second"
+  },
+  "closed_both": {
+   "N": 6,
+   "live_avgR": -0.4463853464348704,
+   "ledger_avgR": -0.6055549869799552
+  }
+ },
+ "PA (Gateway)": {
+  "n_legs": 17,
+  "n_matched": 15,
+  "n_broker_entry": 15,
+  "unmatched": [
+   {
+    "sym": "SPG",
+    "strat": "Oversold Low Volume",
+    "signal_date": "2026-08-27"
+   },
+   {
+    "sym": "SPG",
+    "strat": "Oversold Low Volume",
+    "signal_date": "2026-08-28"
+   }
+  ],
+  "n_fully_closed_live": 14,
+  "n_ledger_open_at_last_bar": 13,
+  "live_avgR": 0.40932362781122106,
+  "ledger_avgR": -0.0808441936178687,
+  "live_sumR": 6.139854417168316,
+  "ledger_sumR": -1.2126629042680304,
+  "paired_diff_mean": 0.49016782142908966,
+  "paired_diff_median": 0.45969808202392326,
+  "entry_slip_bps_mean": -10.029957910176948,
+  "entry_slip_bps_median": -0.07357137136621006,
+  "entry_slip_bps_broker_only_mean": -10.029957910176948,
+  "shares_ratio_mean": 0.10887166961334514,
+  "commission_R_mean": 0.005264464213909051,
+  "exit_type_table": {
+   "manual/untagged": {
+    "Target": 1,
+    "Time": 13
+   },
+   "tagged_time_or_target_leg": {
+    "Target": 0,
+    "Time": 1
+   }
+  },
+  "by_strategy": {
+   "LT Trend ST OS": {
+    "N": 1,
+    "live_avgR": 0.18194222222221812,
+    "ledger_avgR": 0.15186159731153512
+   },
+   "Oversold Low Volume": {
+    "N": 14,
+    "live_avgR": 0.4255651567818641,
+    "ledger_avgR": -0.09746603582711182
+   }
+  },
+  "ratio_point": -5.0631172072294595,
+  "ratio_ci95_symcluster": [
+   -23.61032300802401,
+   24.557186887801375
+  ],
+  "paired_diff_ci95_symcluster": [
+   0.08283173493672161,
+   0.9039004277204725
+  ],
+  "decomp": {
+   "ledger": -0.0808441936178687,
+   "live_entry_ledger_exit": -0.05810019002629527,
+   "live_entry_live_exit": 0.40932362781122106,
+   "note": "entry effect = second minus first; exit/discretion effect = third minus second"
+  },
+  "closed_both": {
+   "N": 14,
+   "live_avgR": 0.358299397636809,
+   "ledger_avgR": -0.17437217809017977
+  }
+ },
+ "fill_rate_window": {
+  "per_strategy": {
+   "LT Trend ST OS": {
+    "staged": 2,
+    "staged_gt0": 2,
+    "sheets": 1,
+    "ledger": 1,
+    "broker": 1
+   },
+   "Overbot Vol Spike": {
+    "staged": 53,
+    "staged_gt0": 53,
+    "sheets": 8,
+    "ledger": 0,
+    "broker": 0
+   },
+   "Oversold Low Volume": {
+    "staged": 26,
+    "staged_gt0": 26,
+    "sheets": 16,
+    "ledger": 14,
+    "broker": 16
+   },
+   "SPY QQQ MonFri Reversion": {
+    "staged": 2,
+    "staged_gt0": 0,
+    "sheets": 1,
+    "ledger": 0,
+    "broker": 0
+   },
+   "Weak Close Decent Sznls": {
+    "staged": 1,
+    "staged_gt0": 0,
+    "sheets": 1,
+    "ledger": 0,
+    "broker": 0
+   }
+  },
+  "totals": {
+   "staged": 84,
+   "staged_gt0": 81,
+   "sheets": 27,
+   "ledger": 15,
+   "broker": 17
+  },
+  "agreement": {
+   "sheets_vs_broker": 0.8809523809523809,
+   "ledger_vs_broker": 0.9761904761904762,
+   "sheets_FILLED_but_no_broker_fill": 10,
+   "ledger_fill_but_no_broker_fill": 0,
+   "broker_fill_not_in_ledger": 2
+  }
+ }
+}

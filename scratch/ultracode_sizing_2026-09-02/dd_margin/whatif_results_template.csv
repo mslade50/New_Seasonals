@@ -1,0 +1,18 @@
+book_date,multiple,rn_file,rn_nlv,rn_maintenance_margin,rn_initial_margin,initial_over_maint,largest_symbol,largest_nominal_margin_interval_pct,lev3x_short_nominal_margin_interval_pct,exposure_fee_projected_per_day,reference_margin_type,notes
+2023-02-03,1.00,whatif_books/2023-02-03_rn_import_x1.00.csv,,,,,RETL,,,,PMRGN,
+2023-02-03,1.25,whatif_books/2023-02-03_rn_import_x1.25.csv,,,,,RETL,,,,PMRGN,
+2023-02-03,1.50,whatif_books/2023-02-03_rn_import_x1.50.csv,,,,,RETL,,,,PMRGN,
+2023-02-03,1.00,whatif_books/2023-02-03_rn_import_x1.00.csv,,,,,RETL,,,,STKNOPT,rules-based reference for the 45 vs 90 question
+2013-11-04,1.00,whatif_books/2013-11-04_rn_import_x1.00.csv,,,,,XLF,,n/a,,PMRGN,
+2013-11-04,1.25,whatif_books/2013-11-04_rn_import_x1.25.csv,,,,,XLF,,n/a,,PMRGN,
+2013-11-04,1.50,whatif_books/2013-11-04_rn_import_x1.50.csv,,,,,XLF,,n/a,,PMRGN,
+2016-06-14,1.00,whatif_books/2016-06-14_rn_import_x1.00.csv,,,,,SPY,,n/a,,PMRGN,
+2016-06-14,1.25,whatif_books/2016-06-14_rn_import_x1.25.csv,,,,,SPY,,n/a,,PMRGN,
+2016-06-14,1.50,whatif_books/2016-06-14_rn_import_x1.50.csv,,,,,SPY,,n/a,,PMRGN,
+2019-06-26,1.00,whatif_books/2019-06-26_rn_import_x1.00.csv,,,,,DIA,,n/a,,PMRGN,
+2019-06-26,1.25,whatif_books/2019-06-26_rn_import_x1.25.csv,,,,,DIA,,n/a,,PMRGN,
+2019-06-26,1.50,whatif_books/2019-06-26_rn_import_x1.50.csv,,,,,DIA,,n/a,,PMRGN,
+2026-09-01,1.00,whatif_books/2026-09-01_rn_import_x1.00.csv,,,,,D,,n/a,,PMRGN,ledger book
+2026-09-02,live,copy of current portfolio,,,,,D,,n/a,,PMRGN,actual live book incl. MES/DX futures and options; also record Account window Excess Liquidity
+concentration_probe,XLF 1000sh,edit 2013-11-04 x1.00,,,,,XLF,,n/a,,PMRGN,note notional/NLV where the rate jumps to 30%
+concentration_probe,XLF 6000sh,edit 2013-11-04 x1.00,,,,,XLF,,n/a,,PMRGN,

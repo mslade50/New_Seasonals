@@ -1,0 +1,447 @@
+{
+ "shipped": {
+  "3x ETF Overbot Fade": {
+   "w": 1.5354,
+   "mult": 1.2677
+  },
+  "52wh Breakout": {
+   "w": 0.3577,
+   "mult": 0.7
+  },
+  "ATR Extended Gap Up": {
+   "w": 1.204,
+   "mult": 1.102
+  },
+  "Indices Oversold Bounce": {
+   "w": 0.7759,
+   "mult": 0.888
+  },
+  "LT Trend ST OS": {
+   "w": 1.0701,
+   "mult": 1.035
+  },
+  "Monday Dip": {
+   "w": 1.1778,
+   "mult": 1.0889
+  },
+  "Overbot Vol Spike": {
+   "w": 0.9107,
+   "mult": 0.9553
+  },
+  "Oversold Low Volume": {
+   "w": 1.3358,
+   "mult": 1.1679
+  },
+  "SPY QQQ MonFri Reversion": {
+   "w": 1.6237,
+   "mult": 1.3
+  },
+  "Sector BO": {
+   "w": 0.7422,
+   "mult": 0.8711
+  },
+  "St OS Sznl": {
+   "w": 0.7679,
+   "mult": 0.8839
+  },
+  "Weak Close Decent Sznls": {
+   "w": 0.4989,
+   "mult": 0.7494
+  }
+ },
+ "block_bootstrap": {
+  "52wh Breakout": {
+   "mult_ship": 0.7,
+   "boot_mean": 0.7073,
+   "boot_sd": 0.017,
+   "p5": 0.7,
+   "p95": 0.7455,
+   "P(mult>1)": 0.0,
+   "P(at_clip_floor)": 0.71,
+   "P(at_clip_cap)": 0.0,
+   "sign_flip_vs_ship": 0.0,
+   "P(|mult-ship|>0.15)": 0.0
+  },
+  "Weak Close Decent Sznls": {
+   "mult_ship": 0.7494,
+   "boot_mean": 0.757,
+   "boot_sd": 0.0545,
+   "p5": 0.7,
+   "p95": 0.859,
+   "P(mult>1)": 0.0,
+   "P(at_clip_floor)": 0.245,
+   "P(at_clip_cap)": 0.0,
+   "sign_flip_vs_ship": 0.0,
+   "P(|mult-ship|>0.15)": 0.0125
+  },
+  "Sector BO": {
+   "mult_ship": 0.8711,
+   "boot_mean": 0.8625,
+   "boot_sd": 0.0959,
+   "p5": 0.715,
+   "p95": 1.0269,
+   "P(mult>1)": 0.085,
+   "P(at_clip_floor)": 0.0325,
+   "P(at_clip_cap)": 0.0025,
+   "sign_flip_vs_ship": 0.085,
+   "P(|mult-ship|>0.15)": 0.1225
+  },
+  "St OS Sznl": {
+   "mult_ship": 0.8839,
+   "boot_mean": 0.9048,
+   "boot_sd": 0.1607,
+   "p5": 0.7,
+   "p95": 1.2236,
+   "P(mult>1)": 0.25,
+   "P(at_clip_floor)": 0.12,
+   "P(at_clip_cap)": 0.0275,
+   "sign_flip_vs_ship": 0.25,
+   "P(|mult-ship|>0.15)": 0.395
+  },
+  "Indices Oversold Bounce": {
+   "mult_ship": 0.888,
+   "boot_mean": 0.888,
+   "boot_sd": 0.1147,
+   "p5": 0.7017,
+   "p95": 1.0801,
+   "P(mult>1)": 0.165,
+   "P(at_clip_floor)": 0.05,
+   "P(at_clip_cap)": 0.0025,
+   "sign_flip_vs_ship": 0.165,
+   "P(|mult-ship|>0.15)": 0.21
+  },
+  "Overbot Vol Spike": {
+   "mult_ship": 0.9553,
+   "boot_mean": 0.9549,
+   "boot_sd": 0.0862,
+   "p5": 0.821,
+   "p95": 1.1048,
+   "P(mult>1)": 0.2975,
+   "P(at_clip_floor)": 0.0,
+   "P(at_clip_cap)": 0.0025,
+   "sign_flip_vs_ship": 0.2975,
+   "P(|mult-ship|>0.15)": 0.0775
+  },
+  "LT Trend ST OS": {
+   "mult_ship": 1.035,
+   "boot_mean": 1.0239,
+   "boot_sd": 0.1066,
+   "p5": 0.8433,
+   "p95": 1.2068,
+   "P(mult>1)": 0.5875,
+   "P(at_clip_floor)": 0.0,
+   "P(at_clip_cap)": 0.005,
+   "sign_flip_vs_ship": 0.4125,
+   "P(|mult-ship|>0.15)": 0.1725
+  },
+  "Monday Dip": {
+   "mult_ship": 1.0889,
+   "boot_mean": 1.0723,
+   "boot_sd": 0.1704,
+   "p5": 0.7503,
+   "p95": 1.3,
+   "P(mult>1)": 0.665,
+   "P(at_clip_floor)": 0.0375,
+   "P(at_clip_cap)": 0.135,
+   "sign_flip_vs_ship": 0.335,
+   "P(|mult-ship|>0.15)": 0.42
+  },
+  "ATR Extended Gap Up": {
+   "mult_ship": 1.102,
+   "boot_mean": 1.091,
+   "boot_sd": 0.1035,
+   "p5": 0.9359,
+   "p95": 1.3,
+   "P(mult>1)": 0.825,
+   "P(at_clip_floor)": 0.0,
+   "P(at_clip_cap)": 0.0525,
+   "sign_flip_vs_ship": 0.175,
+   "P(|mult-ship|>0.15)": 0.1775
+  },
+  "Oversold Low Volume": {
+   "mult_ship": 1.1679,
+   "boot_mean": 1.1678,
+   "boot_sd": 0.104,
+   "p5": 1.0039,
+   "p95": 1.3,
+   "P(mult>1)": 0.9525,
+   "P(at_clip_floor)": 0.0,
+   "P(at_clip_cap)": 0.2075,
+   "sign_flip_vs_ship": 0.0475,
+   "P(|mult-ship|>0.15)": 0.0725
+  },
+  "3x ETF Overbot Fade": {
+   "mult_ship": 1.2677,
+   "boot_mean": 1.2166,
+   "boot_sd": 0.0928,
+   "p5": 1.0492,
+   "p95": 1.3,
+   "P(mult>1)": 0.975,
+   "P(at_clip_floor)": 0.0,
+   "P(at_clip_cap)": 0.405,
+   "sign_flip_vs_ship": 0.025,
+   "P(|mult-ship|>0.15)": 0.18
+  },
+  "SPY QQQ MonFri Reversion": {
+   "mult_ship": 1.3,
+   "boot_mean": 1.2469,
+   "boot_sd": 0.0704,
+   "p5": 1.0956,
+   "p95": 1.3,
+   "P(mult>1)": 0.995,
+   "P(at_clip_floor)": 0.0,
+   "P(at_clip_cap)": 0.4575,
+   "sign_flip_vs_ship": 0.005,
+   "P(|mult-ship|>0.15)": 0.13
+  }
+ },
+ "year_jackknife": {
+  "3x ETF Overbot Fade": {
+   "ship": "1.2677",
+   "jk_min": "1.2331",
+   "jk_max": "1.3",
+   "jk_range": "0.0669",
+   "year_of_min": "2021",
+   "year_of_max": "2022"
+  },
+  "52wh Breakout": {
+   "ship": "0.7",
+   "jk_min": "0.7",
+   "jk_max": "0.7325",
+   "jk_range": "0.0325",
+   "year_of_min": "2006",
+   "year_of_max": "2014"
+  },
+  "ATR Extended Gap Up": {
+   "ship": "1.102",
+   "jk_min": "1.0761",
+   "jk_max": "1.1613",
+   "jk_range": "0.0851",
+   "year_of_min": "2016",
+   "year_of_max": "2024"
+  },
+  "Indices Oversold Bounce": {
+   "ship": "0.888",
+   "jk_min": "0.8352",
+   "jk_max": "0.9815",
+   "jk_range": "0.1463",
+   "year_of_min": "2008",
+   "year_of_max": "2015"
+  },
+  "LT Trend ST OS": {
+   "ship": "1.035",
+   "jk_min": "0.9833",
+   "jk_max": "1.0989",
+   "jk_range": "0.1156",
+   "year_of_min": "2015",
+   "year_of_max": "2018"
+  },
+  "Monday Dip": {
+   "ship": "1.0889",
+   "jk_min": "1.008",
+   "jk_max": "1.173",
+   "jk_range": "0.165",
+   "year_of_min": "2024",
+   "year_of_max": "2016"
+  },
+  "Overbot Vol Spike": {
+   "ship": "0.9553",
+   "jk_min": "0.9331",
+   "jk_max": "0.9974",
+   "jk_range": "0.0643",
+   "year_of_min": "2008",
+   "year_of_max": "2021"
+  },
+  "Oversold Low Volume": {
+   "ship": "1.1679",
+   "jk_min": "1.1094",
+   "jk_max": "1.2802",
+   "jk_range": "0.1708",
+   "year_of_min": "2018",
+   "year_of_max": "2025"
+  },
+  "SPY QQQ MonFri Reversion": {
+   "ship": "1.3",
+   "jk_min": "1.2286",
+   "jk_max": "1.3",
+   "jk_range": "0.0714",
+   "year_of_min": "2015",
+   "year_of_max": "2006"
+  },
+  "Sector BO": {
+   "ship": "0.8711",
+   "jk_min": "0.8307",
+   "jk_max": "0.9637",
+   "jk_range": "0.133",
+   "year_of_min": "2020",
+   "year_of_max": "2015"
+  },
+  "St OS Sznl": {
+   "ship": "0.8839",
+   "jk_min": "0.8318",
+   "jk_max": "1.0002",
+   "jk_range": "0.1684",
+   "year_of_min": "2016",
+   "year_of_max": "2024"
+  },
+  "Weak Close Decent Sznls": {
+   "ship": "0.7494",
+   "jk_min": "0.7209",
+   "jk_max": "0.7797",
+   "jk_range": "0.0587",
+   "year_of_min": "2023",
+   "year_of_max": "2019"
+  }
+ },
+ "most_influential_years": {
+  "2015": 0.492,
+  "2025": 0.404,
+  "2024": 0.353,
+  "2021": 0.334,
+  "2008": 0.258
+ },
+ "walkforward_raw": {
+  "equal": {
+   "ann": 24.1585,
+   "vol": 11.7964,
+   "sharpe": 2.048,
+   "maxdd": -12.1465,
+   "years_better_vs_equal": 0,
+   "worst_year_vs_equal_pct": 0.0
+  },
+  "keep_0.7_1.3": {
+   "ann": 24.4807,
+   "vol": 11.361,
+   "sharpe": 2.1548,
+   "maxdd": -10.3466,
+   "years_better_vs_equal": 7,
+   "worst_year_vs_equal_pct": -14.2407
+  },
+  "nokeep_0.7_1.3": {
+   "ann": 24.2421,
+   "vol": 11.3602,
+   "sharpe": 2.134,
+   "maxdd": -10.9262,
+   "years_better_vs_equal": 7,
+   "worst_year_vs_equal_pct": -18.8604
+  },
+  "keep_0.7_1.3_volmatch": {
+   "ann": 27.4139,
+   "vol": 12.7854,
+   "sharpe": 2.1442,
+   "maxdd": -11.4449,
+   "years_better_vs_equal": 11,
+   "worst_year_vs_equal_pct": -4.0418
+  }
+ },
+ "walkforward_years": [
+  {
+   "year": 2014,
+   "equal": 7.69,
+   "keep_0.7_1.3": 6.85,
+   "nokeep_0.7_1.3": 6.24,
+   "keep_0.7_1.3_volmatch": 7.58
+  },
+  {
+   "year": 2015,
+   "equal": 3.29,
+   "keep_0.7_1.3": 8.54,
+   "nokeep_0.7_1.3": 7.16,
+   "keep_0.7_1.3_volmatch": 9.97
+  },
+  {
+   "year": 2016,
+   "equal": 10.89,
+   "keep_0.7_1.3": 15.3,
+   "nokeep_0.7_1.3": 15.1,
+   "keep_0.7_1.3_volmatch": 18.13
+  },
+  {
+   "year": 2017,
+   "equal": 16.12,
+   "keep_0.7_1.3": 13.82,
+   "nokeep_0.7_1.3": 13.74,
+   "keep_0.7_1.3_volmatch": 16.16
+  },
+  {
+   "year": 2018,
+   "equal": 20.25,
+   "keep_0.7_1.3": 21.54,
+   "nokeep_0.7_1.3": 21.69,
+   "keep_0.7_1.3_volmatch": 24.95
+  },
+  {
+   "year": 2019,
+   "equal": 21.63,
+   "keep_0.7_1.3": 22.43,
+   "nokeep_0.7_1.3": 21.56,
+   "keep_0.7_1.3_volmatch": 25.76
+  },
+  {
+   "year": 2020,
+   "equal": 25.47,
+   "keep_0.7_1.3": 22.87,
+   "nokeep_0.7_1.3": 22.28,
+   "keep_0.7_1.3_volmatch": 26.16
+  },
+  {
+   "year": 2021,
+   "equal": 54.64,
+   "keep_0.7_1.3": 57.38,
+   "nokeep_0.7_1.3": 56.92,
+   "keep_0.7_1.3_volmatch": 65.31
+  },
+  {
+   "year": 2022,
+   "equal": 18.17,
+   "keep_0.7_1.3": 17.59,
+   "nokeep_0.7_1.3": 17.42,
+   "keep_0.7_1.3_volmatch": 19.32
+  },
+  {
+   "year": 2023,
+   "equal": 35.96,
+   "keep_0.7_1.3": 31.52,
+   "nokeep_0.7_1.3": 31.98,
+   "keep_0.7_1.3_volmatch": 34.51
+  },
+  {
+   "year": 2024,
+   "equal": 22.03,
+   "keep_0.7_1.3": 22.17,
+   "nokeep_0.7_1.3": 22.06,
+   "keep_0.7_1.3_volmatch": 24.24
+  },
+  {
+   "year": 2025,
+   "equal": 53.6,
+   "keep_0.7_1.3": 53.37,
+   "nokeep_0.7_1.3": 53.69,
+   "keep_0.7_1.3_volmatch": 57.73
+  },
+  {
+   "year": 2026,
+   "equal": 25.47,
+   "keep_0.7_1.3": 26.03,
+   "nokeep_0.7_1.3": 26.45,
+   "keep_0.7_1.3_volmatch": 27.85
+  }
+ ],
+ "wf_gain_by_year_volmatched": {
+  "2014": -0.106,
+  "2015": 6.684,
+  "2016": 7.241,
+  "2017": 0.047,
+  "2018": 4.703,
+  "2019": 4.134,
+  "2020": 0.685,
+  "2021": 10.668,
+  "2022": 1.152,
+  "2023": -1.453,
+  "2024": 2.205,
+  "2025": 4.131,
+  "2026": 2.383
+ },
+ "wf_gain_ex_2015_2016_2021": 17.88127528691505,
+ "wf_gain_total": 42.475208874449194
+}

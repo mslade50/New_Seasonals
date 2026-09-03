@@ -1,0 +1,12 @@
+symbol,position,gross_shares,notional,price,klass,strategies,tiers,long_notional,short_notional,pct_nav
+D,3706,3706,242543.9850,65.6231,single,Oversold Low Volume,Liquid,242543.9850,0.0000,0.3234
+LUV,4914,4914,205073.8269,41.9942,single,Oversold Low Volume,Liquid,205073.8269,0.0000,0.2734
+UNH,396,396,153019.8790,386.4462,single,Oversold Low Volume,Liquid,153019.8790,0.0000,0.2040
+POWI,1266,1266,68900.6652,54.4269,single,Oversold Low Volume,Overflow,68900.6652,0.0000,0.0919
+CINF,322,322,53972.5493,167.6166,single,Oversold Low Volume,Overflow,53972.5493,0.0000,0.0720
+WERN,889,889,33180.8132,37.3237,single,Oversold Low Volume,Overflow,33180.8132,0.0000,0.0442
+WWD,96,96,32673.5216,340.3492,single,Oversold Low Volume,Overflow,32673.5216,0.0000,0.0436
+CMI,54,54,31455.4939,582.5091,single,Oversold Low Volume,Overflow,31455.4939,0.0000,0.0419
+ON,313,313,22947.0917,73.3134,single,Oversold Low Volume,Overflow,22947.0917,0.0000,0.0306
+CRS,47,47,22853.1388,486.2370,single,Oversold Low Volume,Overflow,22853.1388,0.0000,0.0305
+MOD,94,94,17650.8001,187.7745,single,Oversold Low Volume,Overflow,17650.8001,0.0000,0.0235

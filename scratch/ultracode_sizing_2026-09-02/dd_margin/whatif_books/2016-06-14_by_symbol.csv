@@ -1,0 +1,11 @@
+symbol,position,gross_shares,notional,price,klass,strategies,tiers,long_notional,short_notional,pct_nav
+SPY,2872,2872,506539.9990,176.3719,broad_idx,SPY QQQ MonFri Reversion,Liquid,506539.9990,0.0000,0.6754
+QQQ,4399,4399,440584.0883,100.1555,broad_idx,SPY QQQ MonFri Reversion,Liquid,440584.0883,0.0000,0.5874
+DIA,2998,2998,436240.7885,145.5106,broad_idx,Monday Dip,Liquid,436240.7885,0.0000,0.5817
+IHI,19981,19981,423457.0528,21.1930,sector_etf,Weak Close Decent Sznls,Liquid,423457.0528,0.0000,0.5646
+XLV,6475,6475,388251.6390,59.9616,sector_etf,Weak Close Decent Sznls,Liquid,388251.6390,0.0000,0.5177
+SMH,11694,11694,299305.0762,25.5948,sector_etf,Monday Dip,Liquid,299305.0762,0.0000,0.3991
+IWM,2772,2772,278036.4863,100.3018,smallcap_idx,Monday Dip,Liquid,278036.4863,0.0000,0.3707
+XLB,10862,10862,208447.3418,19.1905,sector_etf,Weak Close Decent Sznls,Liquid,208447.3418,0.0000,0.2779
+HAS,1517,1517,94194.6944,62.0927,single,52wh Breakout,Overflow,94194.6944,0.0000,0.1256
+DLTR,679,679,59511.3202,87.6455,single,52wh Breakout,Overflow,59511.3202,0.0000,0.0793

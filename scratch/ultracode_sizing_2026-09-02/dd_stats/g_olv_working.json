@@ -1,0 +1,77 @@
+{
+ "rung_dist": {
+  "filled": {
+   "0.5": 70,
+   "0.7": 100,
+   "1.0": 145
+  },
+  "live": {
+   "0.5": 64,
+   "0.7": 88,
+   "1.0": 163
+  },
+  "mean_filled": 0.7936507936507937,
+  "mean_live": 0.8146031746031747,
+  "mean_current": 0.638095238095238,
+  "legs_raised": 22
+ },
+ "by_live_depth": [
+  {
+   "depth_live": "0",
+   "N": "78",
+   "avgR": "0.4554",
+   "n_working_mean": "0.0"
+  },
+  {
+   "depth_live": "1-2",
+   "N": "86",
+   "avgR": "0.6482",
+   "n_working_mean": "0.2093"
+  },
+  {
+   "depth_live": "3-5",
+   "N": "54",
+   "avgR": "0.7781",
+   "n_working_mean": "1.0741"
+  },
+  {
+   "depth_live": "6+",
+   "N": "97",
+   "avgR": "1.0947",
+   "n_working_mean": "2.9691"
+  }
+ ],
+ "by_working": [
+  {
+   "n_working": "0",
+   "N": "175",
+   "avgR": "0.6732"
+  },
+  {
+   "n_working": "1-2",
+   "N": "75",
+   "avgR": "0.674"
+  },
+  {
+   "n_working": "3+",
+   "N": "65",
+   "avgR": "1.0941"
+  }
+ ],
+ "raised_legs": {
+  "N": 22,
+  "avgR": 0.49690194600943527
+ },
+ "replay_filled-only depth": {
+  "gain_pct": 3.8390066081092864,
+  "years_better": 8,
+  "years": 20,
+  "raw_risk_ratio": 1.2502860924918628
+ },
+ "replay_filled+working depth": {
+  "gain_pct": 3.654022024024301,
+  "years_better": 9,
+  "years": 20,
+  "raw_risk_ratio": 1.286658562064141
+ }
+}

@@ -1,0 +1,9 @@
+symbol,position,gross_shares,notional,price,klass,strategies,tiers,long_notional,short_notional,pct_nav
+DIA,3793,3793,890129.3297,234.7672,broad_idx,Monday Dip; Weak Close Decent Sznls,Liquid,890129.3297,0.0000,1.1868
+SPY,2103,2103,554224.0260,263.5397,broad_idx,Weak Close Decent Sznls,Liquid,554224.0260,0.0000,0.7390
+IYR,7140,7140,531779.3992,74.4789,sector_etf,Weak Close Decent Sznls,Liquid,531779.3992,0.0000,0.7090
+GLD,-3559,3559,475903.1364,133.7182,sector_etf,Overbot Vol Spike,Liquid,0.0000,475903.1364,0.6345
+DE,-1612,1612,244542.4248,151.7013,single,Overbot Vol Spike,Liquid,0.0000,244542.4248,0.3261
+BRO,5125,5125,153243.3783,29.9011,single,52wh Breakout,Overflow,153243.3783,0.0000,0.2043
+DIS,823,823,102822.2538,124.9359,single,52wh Breakout,Liquid,102822.2538,0.0000,0.1371
+LULU,354,354,58732.1413,165.9100,single,52wh Breakout,Overflow,58732.1413,0.0000,0.0783

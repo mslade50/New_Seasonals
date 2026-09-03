@@ -1,0 +1,2119 @@
+{
+ "study_C_grm1.5 (replica)": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 27.23,
+    "ann_vol_pct": 12.12,
+    "sharpe": 2.169,
+    "maxdd_pct": -10.0,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.86,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -7.61,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -8.45,
+    "cvar1_pct": -2.542
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 31.4,
+    "ann_vol_pct": 12.81,
+    "sharpe": 2.366,
+    "maxdd_pct": -10.0,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.86,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -6.3,
+    "worst21_end": "2024-04-19",
+    "worst63_pct": -8.45,
+    "cvar1_pct": -2.578
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 40.19,
+    "ann_vol_pct": 14.03,
+    "sharpe": 2.765,
+    "maxdd_pct": -7.84,
+    "maxdd_trough": "2026-07-01",
+    "worst_day_pct": -4.76,
+    "worst_day": "2018-02-05",
+    "worst21_pct": -6.3,
+    "worst21_end": "2024-04-19",
+    "worst63_pct": -3.56,
+    "cvar1_pct": -2.582
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -7.84,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -67.6
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.3
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-06",
+    "depth_pct": -7.47,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -27.7
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -24.8
+     ],
+     [
+      "Indices Oversold Bounce",
+      -9.5
+     ]
+    ]
+   },
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -6.94,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -44.3
+     ],
+     [
+      "52wh Breakout",
+      -4.8
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -2.9
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-08-03",
+    "depth_pct": -6.53,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -18.5
+     ],
+     [
+      "Oversold Low Volume",
+      -12.9
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -9.3
+     ]
+    ]
+   },
+   {
+    "peak": "2018-09-14",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -6.35,
+    "days_to_trough": 19,
+    "top3": [
+     [
+      "LT Trend ST OS",
+      -21.1
+     ],
+     [
+      "52wh Breakout",
+      -20.0
+     ],
+     [
+      "Sector BO",
+      -5.9
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 1.0075,
+  "pnl_per_risk": 0.491,
+  "olv_ratio_p95": 1.683,
+  "olv_ratio_max": 1.683,
+  "guard": null
+ },
+ "ship_ratioclip_1.5eq": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 25.38,
+    "ann_vol_pct": 11.45,
+    "sharpe": 2.141,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -8.54,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.42
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 29.19,
+    "ann_vol_pct": 12.07,
+    "sharpe": 2.336,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -6.98,
+    "worst21_end": "2014-02-14",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.454
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 36.79,
+    "ann_vol_pct": 13.02,
+    "sharpe": 2.73,
+    "maxdd_pct": -7.13,
+    "maxdd_trough": "2026-07-01",
+    "worst_day_pct": -4.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -5.53,
+    "worst21_end": "2018-10-11",
+    "worst63_pct": -3.23,
+    "cvar1_pct": -2.403
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -7.13,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -60.4
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.3
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -6.83,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -43.9
+     ],
+     [
+      "52wh Breakout",
+      -4.6
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -2.7
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-06",
+    "depth_pct": -6.82,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -26.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.9
+     ],
+     [
+      "Indices Oversold Bounce",
+      -9.8
+     ]
+    ]
+   },
+   {
+    "peak": "2018-09-14",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -6.06,
+    "days_to_trough": 19,
+    "top3": [
+     [
+      "52wh Breakout",
+      -19.2
+     ],
+     [
+      "LT Trend ST OS",
+      -19.2
+     ],
+     [
+      "Sector BO",
+      -6.1
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-07-30",
+    "depth_pct": -5.85,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -15.8
+     ],
+     [
+      "Oversold Low Volume",
+      -11.6
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -8.3
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 0.9741,
+  "pnl_per_risk": 0.4749,
+  "olv_ratio_p95": 1.5,
+  "olv_ratio_max": 1.5,
+  "guard": {
+   "days_over_60": 24,
+   "days_over_70": 13,
+   "days_over_85": 1,
+   "max": 0.958,
+   "max_date": "2023-02-06",
+   "p99": 0.477
+  }
+ },
+ "ship_depthmax0.7_1.875": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 29.71,
+    "ann_vol_pct": 13.47,
+    "sharpe": 2.131,
+    "maxdd_pct": -11.67,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -6.82,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -9.72,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -10.31,
+    "cvar1_pct": -2.866
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 34.13,
+    "ann_vol_pct": 14.22,
+    "sharpe": 2.318,
+    "maxdd_pct": -11.67,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -6.82,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -7.67,
+    "worst21_end": "2014-10-16",
+    "worst63_pct": -10.31,
+    "cvar1_pct": -2.93
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 42.92,
+    "ann_vol_pct": 15.31,
+    "sharpe": 2.707,
+    "maxdd_pct": -8.9,
+    "maxdd_trough": "2026-07-01",
+    "worst_day_pct": -5.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -6.15,
+    "worst21_end": "2026-07-03",
+    "worst63_pct": -3.69,
+    "cvar1_pct": -2.892
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -8.9,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -74.8
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.4
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -8.29,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -54.1
+     ],
+     [
+      "52wh Breakout",
+      -4.7
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -3.4
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-03",
+    "depth_pct": -7.79,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -26.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -24.8
+     ],
+     [
+      "Indices Oversold Bounce",
+      -12.2
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-07-30",
+    "depth_pct": -7.15,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.8
+     ],
+     [
+      "Oversold Low Volume",
+      -13.3
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -10.4
+     ]
+    ]
+   },
+   {
+    "peak": "2018-04-17",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -6.66,
+    "days_to_trough": 127,
+    "top3": [
+     [
+      "LT Trend ST OS",
+      -22.8
+     ],
+     [
+      "Sector BO",
+      -12.9
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -9.8
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 1.1501,
+  "pnl_per_risk": 0.4719,
+  "olv_ratio_p95": 2.355,
+  "olv_ratio_max": 2.826,
+  "guard": {
+   "days_over_60": 53,
+   "days_over_70": 24,
+   "days_over_85": 5,
+   "max": 0.977,
+   "max_date": "2014-09-09",
+   "p99": 0.559
+  }
+ },
+ "ship_depthmax0.7_1.5eq": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 25.53,
+    "ann_vol_pct": 11.5,
+    "sharpe": 2.143,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -8.54,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.441
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 29.38,
+    "ann_vol_pct": 12.14,
+    "sharpe": 2.338,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -6.98,
+    "worst21_end": "2014-02-14",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.48
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 37.07,
+    "ann_vol_pct": 13.11,
+    "sharpe": 2.731,
+    "maxdd_pct": -7.95,
+    "maxdd_trough": "2026-07-01",
+    "worst_day_pct": -4.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -5.53,
+    "worst21_end": "2018-10-11",
+    "worst63_pct": -3.28,
+    "cvar1_pct": -2.449
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -7.95,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -66.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.3
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -6.83,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -43.9
+     ],
+     [
+      "52wh Breakout",
+      -4.6
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -2.7
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-06",
+    "depth_pct": -6.83,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -26.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.9
+     ],
+     [
+      "Indices Oversold Bounce",
+      -9.8
+     ]
+    ]
+   },
+   {
+    "peak": "2018-09-14",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -6.06,
+    "days_to_trough": 19,
+    "top3": [
+     [
+      "52wh Breakout",
+      -19.2
+     ],
+     [
+      "LT Trend ST OS",
+      -19.2
+     ],
+     [
+      "Sector BO",
+      -6.1
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-07-30",
+    "depth_pct": -5.88,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -15.8
+     ],
+     [
+      "Oversold Low Volume",
+      -11.9
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -8.3
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 0.9786,
+  "pnl_per_risk": 0.4754,
+  "olv_ratio_p95": 2.054,
+  "olv_ratio_max": 2.261,
+  "guard": {
+   "days_over_60": 25,
+   "days_over_70": 13,
+   "days_over_85": 1,
+   "max": 0.958,
+   "max_date": "2023-02-06",
+   "p99": 0.479
+  }
+ },
+ "ship_absclip1.0_1.875": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 29.4,
+    "ann_vol_pct": 13.33,
+    "sharpe": 2.13,
+    "maxdd_pct": -11.67,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -6.82,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -9.72,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -10.31,
+    "cvar1_pct": -2.849
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 33.72,
+    "ann_vol_pct": 14.05,
+    "sharpe": 2.318,
+    "maxdd_pct": -11.67,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -6.82,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -7.67,
+    "worst21_end": "2014-10-16",
+    "worst63_pct": -10.31,
+    "cvar1_pct": -2.908
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 42.42,
+    "ann_vol_pct": 15.09,
+    "sharpe": 2.714,
+    "maxdd_pct": -8.29,
+    "maxdd_trough": "2021-01-27",
+    "worst_day_pct": -5.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -6.05,
+    "worst21_end": "2024-04-19",
+    "worst63_pct": -3.57,
+    "cvar1_pct": -2.857
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -8.29,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -54.1
+     ],
+     [
+      "52wh Breakout",
+      -4.7
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -3.4
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-03",
+    "depth_pct": -7.79,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -26.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -24.8
+     ],
+     [
+      "Indices Oversold Bounce",
+      -12.2
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-07-31",
+    "depth_pct": -7.3,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.8
+     ],
+     [
+      "Oversold Low Volume",
+      -14.4
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -10.4
+     ]
+    ]
+   },
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -7.22,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -62.2
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.4
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2018-04-17",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -6.69,
+    "days_to_trough": 127,
+    "top3": [
+     [
+      "LT Trend ST OS",
+      -22.8
+     ],
+     [
+      "Sector BO",
+      -12.9
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -9.8
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 1.1449,
+  "pnl_per_risk": 0.4693,
+  "olv_ratio_p95": 2.355,
+  "olv_ratio_max": 2.501,
+  "guard": {
+   "days_over_60": 52,
+   "days_over_70": 24,
+   "days_over_85": 5,
+   "max": 0.977,
+   "max_date": "2014-09-09",
+   "p99": 0.559
+  }
+ },
+ "ship_absclip1.0_1.5eq": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 25.26,
+    "ann_vol_pct": 11.39,
+    "sharpe": 2.142,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -8.54,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.426
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 29.02,
+    "ann_vol_pct": 12.0,
+    "sharpe": 2.337,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -6.98,
+    "worst21_end": "2014-02-14",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.462
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 36.63,
+    "ann_vol_pct": 12.92,
+    "sharpe": 2.738,
+    "maxdd_pct": -6.83,
+    "maxdd_trough": "2021-01-27",
+    "worst_day_pct": -4.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -5.53,
+    "worst21_end": "2018-10-11",
+    "worst63_pct": -3.18,
+    "cvar1_pct": -2.415
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -6.83,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -43.9
+     ],
+     [
+      "52wh Breakout",
+      -4.6
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -2.7
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-06",
+    "depth_pct": -6.83,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -26.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.9
+     ],
+     [
+      "Indices Oversold Bounce",
+      -9.8
+     ]
+    ]
+   },
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -6.51,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -55.7
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.3
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2018-09-14",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -6.06,
+    "days_to_trough": 19,
+    "top3": [
+     [
+      "52wh Breakout",
+      -19.2
+     ],
+     [
+      "LT Trend ST OS",
+      -19.2
+     ],
+     [
+      "Sector BO",
+      -6.1
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-07-31",
+    "depth_pct": -6.02,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -15.8
+     ],
+     [
+      "Oversold Low Volume",
+      -12.9
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -8.3
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 0.974,
+  "pnl_per_risk": 0.4728,
+  "olv_ratio_p95": 2.0,
+  "olv_ratio_max": 2.001,
+  "guard": {
+   "days_over_60": 25,
+   "days_over_70": 13,
+   "days_over_85": 1,
+   "max": 0.958,
+   "max_date": "2023-02-06",
+   "p99": 0.479
+  }
+ },
+ "ship_OLVlevers_off_1.875": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 28.71,
+    "ann_vol_pct": 13.16,
+    "sharpe": 2.107,
+    "maxdd_pct": -11.67,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -6.82,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -9.72,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -10.31,
+    "cvar1_pct": -2.815
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 32.89,
+    "ann_vol_pct": 13.85,
+    "sharpe": 2.294,
+    "maxdd_pct": -11.67,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -6.82,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -7.67,
+    "worst21_end": "2014-10-16",
+    "worst63_pct": -10.31,
+    "cvar1_pct": -2.869
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 41.25,
+    "ann_vol_pct": 14.84,
+    "sharpe": 2.685,
+    "maxdd_pct": -8.29,
+    "maxdd_trough": "2021-01-27",
+    "worst_day_pct": -5.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -6.1,
+    "worst21_end": "2024-04-19",
+    "worst63_pct": -3.79,
+    "cvar1_pct": -2.79
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -8.29,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -54.1
+     ],
+     [
+      "52wh Breakout",
+      -4.7
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -3.4
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-06",
+    "depth_pct": -7.84,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -26.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -24.8
+     ],
+     [
+      "Indices Oversold Bounce",
+      -12.2
+     ]
+    ]
+   },
+   {
+    "peak": "2018-04-17",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -7.07,
+    "days_to_trough": 127,
+    "top3": [
+     [
+      "LT Trend ST OS",
+      -22.8
+     ],
+     [
+      "Sector BO",
+      -12.9
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -9.8
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-07-30",
+    "depth_pct": -6.72,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.8
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -10.4
+     ],
+     [
+      "Oversold Low Volume",
+      -10.1
+     ]
+    ]
+   },
+   {
+    "peak": "2026-06-23",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -6.64,
+    "days_to_trough": 6,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -40.4
+     ],
+     [
+      "Overbot Vol Spike",
+      -8.0
+     ],
+     [
+      "LT Trend ST OS",
+      -1.4
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 1.1285,
+  "pnl_per_risk": 0.4653,
+  "olv_ratio_p95": 1.5,
+  "olv_ratio_max": 1.605,
+  "guard": {
+   "days_over_60": 49,
+   "days_over_70": 21,
+   "days_over_85": 5,
+   "max": 0.977,
+   "max_date": "2014-09-09",
+   "p99": 0.555
+  }
+ },
+ "ship_OLVlevers_off_1.5eq": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 24.65,
+    "ann_vol_pct": 11.23,
+    "sharpe": 2.12,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -8.54,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.391
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 28.29,
+    "ann_vol_pct": 11.81,
+    "sharpe": 2.315,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -6.98,
+    "worst21_end": "2014-02-14",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.421
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 35.59,
+    "ann_vol_pct": 12.68,
+    "sharpe": 2.71,
+    "maxdd_pct": -6.88,
+    "maxdd_trough": "2024-04-19",
+    "worst_day_pct": -4.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -5.53,
+    "worst21_end": "2018-10-11",
+    "worst63_pct": -3.41,
+    "cvar1_pct": -2.348
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-06",
+    "depth_pct": -6.88,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -26.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.9
+     ],
+     [
+      "Indices Oversold Bounce",
+      -9.8
+     ]
+    ]
+   },
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -6.83,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -43.9
+     ],
+     [
+      "52wh Breakout",
+      -4.6
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -2.7
+     ]
+    ]
+   },
+   {
+    "peak": "2018-04-17",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -6.25,
+    "days_to_trough": 127,
+    "top3": [
+     [
+      "LT Trend ST OS",
+      -21.9
+     ],
+     [
+      "Sector BO",
+      -10.3
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -7.9
+     ]
+    ]
+   },
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -5.56,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -48.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.3
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-07-30",
+    "depth_pct": -5.49,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -15.8
+     ],
+     [
+      "Oversold Low Volume",
+      -8.9
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -8.3
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 0.9589,
+  "pnl_per_risk": 0.469,
+  "olv_ratio_p95": 1.5,
+  "olv_ratio_max": 1.5,
+  "guard": {
+   "days_over_60": 23,
+   "days_over_70": 11,
+   "days_over_85": 1,
+   "max": 0.958,
+   "max_date": "2023-02-06",
+   "p99": 0.476
+  }
+ },
+ "ship_no_depth_rung_1.875": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 29.4,
+    "ann_vol_pct": 13.37,
+    "sharpe": 2.124,
+    "maxdd_pct": -11.67,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -6.82,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -9.72,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -10.31,
+    "cvar1_pct": -2.837
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 33.73,
+    "ann_vol_pct": 14.1,
+    "sharpe": 2.31,
+    "maxdd_pct": -11.67,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -6.82,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -7.67,
+    "worst21_end": "2014-10-16",
+    "worst63_pct": -10.31,
+    "cvar1_pct": -2.893
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 42.33,
+    "ann_vol_pct": 15.15,
+    "sharpe": 2.698,
+    "maxdd_pct": -8.29,
+    "maxdd_trough": "2021-01-27",
+    "worst_day_pct": -5.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -6.05,
+    "worst21_end": "2024-04-19",
+    "worst63_pct": -3.75,
+    "cvar1_pct": -2.833
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -8.29,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -54.1
+     ],
+     [
+      "52wh Breakout",
+      -4.7
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -3.4
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-03",
+    "depth_pct": -7.79,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -26.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -24.8
+     ],
+     [
+      "Indices Oversold Bounce",
+      -12.2
+     ]
+    ]
+   },
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -7.77,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -66.4
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.4
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-07-30",
+    "depth_pct": -6.95,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.8
+     ],
+     [
+      "Oversold Low Volume",
+      -11.8
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -10.4
+     ]
+    ]
+   },
+   {
+    "peak": "2018-04-17",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -6.84,
+    "days_to_trough": 127,
+    "top3": [
+     [
+      "LT Trend ST OS",
+      -22.8
+     ],
+     [
+      "Sector BO",
+      -12.9
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -9.8
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 1.1424,
+  "pnl_per_risk": 0.4702,
+  "olv_ratio_p95": 1.875,
+  "olv_ratio_max": 2.019,
+  "guard": {
+   "days_over_60": 50,
+   "days_over_70": 23,
+   "days_over_85": 5,
+   "max": 0.977,
+   "max_date": "2014-09-09",
+   "p99": 0.559
+  }
+ },
+ "ship_no_depth_rung_1.5eq": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 25.25,
+    "ann_vol_pct": 11.41,
+    "sharpe": 2.137,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -8.54,
+    "worst21_end": "2008-01-22",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.416
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 29.03,
+    "ann_vol_pct": 12.03,
+    "sharpe": 2.332,
+    "maxdd_pct": -10.06,
+    "maxdd_trough": "2014-12-16",
+    "worst_day_pct": -5.56,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -6.98,
+    "worst21_end": "2014-02-14",
+    "worst63_pct": -8.98,
+    "cvar1_pct": -2.449
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 36.54,
+    "ann_vol_pct": 12.96,
+    "sharpe": 2.724,
+    "maxdd_pct": -6.87,
+    "maxdd_trough": "2026-07-01",
+    "worst_day_pct": -4.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -5.53,
+    "worst21_end": "2018-10-11",
+    "worst63_pct": -3.36,
+    "cvar1_pct": -2.395
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -6.87,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -58.4
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.3
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -6.83,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -43.9
+     ],
+     [
+      "52wh Breakout",
+      -4.6
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -2.7
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-01",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-06",
+    "depth_pct": -6.83,
+    "days_to_trough": 14,
+    "top3": [
+     [
+      "St OS Sznl",
+      -26.5
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.9
+     ],
+     [
+      "Indices Oversold Bounce",
+      -9.8
+     ]
+    ]
+   },
+   {
+    "peak": "2018-09-14",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-10",
+    "depth_pct": -6.06,
+    "days_to_trough": 19,
+    "top3": [
+     [
+      "52wh Breakout",
+      -19.2
+     ],
+     [
+      "LT Trend ST OS",
+      -19.2
+     ],
+     [
+      "Sector BO",
+      -6.1
+     ]
+    ]
+   },
+   {
+    "peak": "2026-07-22",
+    "trough": "2026-07-29",
+    "recovery": "2026-07-30",
+    "depth_pct": -5.69,
+    "days_to_trough": 5,
+    "top3": [
+     [
+      "3x Bear ETF Overbot Fade",
+      -15.8
+     ],
+     [
+      "Oversold Low Volume",
+      -10.4
+     ],
+     [
+      "SPY QQQ MonFri Reversion",
+      -8.3
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 0.9715,
+  "pnl_per_risk": 0.4738,
+  "olv_ratio_p95": 1.5,
+  "olv_ratio_max": 1.615,
+  "guard": {
+   "days_over_60": 24,
+   "days_over_70": 13,
+   "days_over_85": 1,
+   "max": 0.958,
+   "max_date": "2023-02-06",
+   "p99": 0.477
+  }
+ },
+ "ship_no_tilt_1.5eq": {
+  "windows": {
+   "2005-2026": {
+    "ann_pnl_pct": 26.02,
+    "ann_vol_pct": 12.17,
+    "sharpe": 2.066,
+    "maxdd_pct": -12.05,
+    "maxdd_trough": "2014-02-03",
+    "worst_day_pct": -6.59,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -9.24,
+    "worst21_end": "2014-02-14",
+    "worst63_pct": -9.31,
+    "cvar1_pct": -2.701
+   },
+   "2010-2026": {
+    "ann_pnl_pct": 29.98,
+    "ann_vol_pct": 12.73,
+    "sharpe": 2.274,
+    "maxdd_pct": -12.05,
+    "maxdd_trough": "2014-02-03",
+    "worst_day_pct": -6.59,
+    "worst_day": "2015-03-25",
+    "worst21_pct": -9.24,
+    "worst21_end": "2014-02-14",
+    "worst63_pct": -9.31,
+    "cvar1_pct": -2.741
+   },
+   "2016-07+": {
+    "ann_pnl_pct": 37.78,
+    "ann_vol_pct": 13.43,
+    "sharpe": 2.716,
+    "maxdd_pct": -8.34,
+    "maxdd_trough": "2026-07-01",
+    "worst_day_pct": -4.76,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -6.41,
+    "worst21_end": "2018-10-11",
+    "worst63_pct": -3.88,
+    "cvar1_pct": -2.626
+   }
+  },
+  "dd_top5_2016": [
+   {
+    "peak": "2026-06-12",
+    "trough": "2026-07-01",
+    "recovery": "2026-07-07",
+    "depth_pct": -8.34,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "Oversold Low Volume",
+      -69.3
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -0.3
+     ],
+     [
+      "3x ETF Overbot Fade",
+      0.0
+     ]
+    ]
+   },
+   {
+    "peak": "2024-04-02",
+    "trough": "2024-04-19",
+    "recovery": "2024-05-06",
+    "depth_pct": -7.55,
+    "days_to_trough": 13,
+    "top3": [
+     [
+      "St OS Sznl",
+      -30.1
+     ],
+     [
+      "3x Bear ETF Overbot Fade",
+      -19.9
+     ],
+     [
+      "Indices Oversold Bounce",
+      -11.0
+     ]
+    ]
+   },
+   {
+    "peak": "2021-01-21",
+    "trough": "2021-01-27",
+    "recovery": "2021-02-02",
+    "depth_pct": -7.22,
+    "days_to_trough": 4,
+    "top3": [
+     [
+      "Overbot Vol Spike",
+      -43.9
+     ],
+     [
+      "52wh Breakout",
+      -6.6
+     ],
+     [
+      "Weak Close Decent Sznls",
+      -3.6
+     ]
+    ]
+   },
+   {
+    "peak": "2018-09-14",
+    "trough": "2018-10-11",
+    "recovery": "2018-12-26",
+    "depth_pct": -7.18,
+    "days_to_trough": 19,
+    "top3": [
+     [
+      "52wh Breakout",
+      -27.4
+     ],
+     [
+      "LT Trend ST OS",
+      -18.4
+     ],
+     [
+      "Sector BO",
+      -7.0
+     ]
+    ]
+   },
+   {
+    "peak": "2019-09-30",
+    "trough": "2019-10-02",
+    "recovery": "2019-12-05",
+    "depth_pct": -6.06,
+    "days_to_trough": 2,
+    "top3": [
+     [
+      "Weak Close Decent Sznls",
+      -32.7
+     ],
+     [
+      "Indices Oversold Bounce",
+      -5.2
+     ],
+     [
+      "Sector BO",
+      -4.7
+     ]
+    ]
+   }
+  ],
+  "risk_deployed_ratio": 1.0005,
+  "pnl_per_risk": 0.4717,
+  "olv_ratio_p95": 2.4,
+  "olv_ratio_max": 2.76,
+  "guard": {
+   "days_over_60": 34,
+   "days_over_70": 19,
+   "days_over_85": 2,
+   "max": 1.085,
+   "max_date": "2014-09-09",
+   "p99": 0.519
+  }
+ },
+ "guard_trim": {
+  "trim_days": 15,
+  "trim_days_per_year": 0.64,
+  "mean_trim_factor": 0.316,
+  "pnl_foregone_k": 6.0,
+  "pnl_foregone_pct_of_total": 0.12,
+  "trimmed_trades": 39,
+  "trimmed_trade_pnl_k": 55.3,
+  "trim_dates": [
+   "2013-11-06",
+   "2014-09-09",
+   "2016-06-13",
+   "2021-07-16",
+   "2022-08-16",
+   "2022-08-17",
+   "2023-02-06",
+   "2023-12-05",
+   "2023-12-07",
+   "2023-12-18",
+   "2023-12-19",
+   "2025-01-13",
+   "2025-01-14",
+   "2025-01-15",
+   "2025-07-21"
+  ],
+  "stats_after_trim": {
+   "ann_pnl_pct": 30.17,
+   "ann_vol_pct": 13.6,
+   "sharpe": 2.142,
+   "maxdd_pct": -11.67,
+   "maxdd_trough": "2014-12-16",
+   "worst_day_pct": -6.82,
+   "worst_day": "2015-03-25",
+   "worst21_pct": -9.72,
+   "worst21_end": "2008-01-22",
+   "worst63_pct": -10.31,
+   "cvar1_pct": -2.898
+  },
+  "stats_2016_after_trim": {
+   "ann_pnl_pct": 43.8,
+   "ann_vol_pct": 15.57,
+   "sharpe": 2.716,
+   "maxdd_pct": -10.53,
+   "maxdd_trough": "2026-07-01",
+   "worst_day_pct": -5.43,
+   "worst_day": "2021-01-27",
+   "worst21_pct": -7.06,
+   "worst21_end": "2026-07-03",
+   "worst63_pct": -4.96,
+   "cvar1_pct": -2.979
+  },
+  "days_over_70_on_750k_base": 2,
+  "days_over_60_on_750k_base": 14
+ },
+ "hedge": {
+  "today": {
+   "hedged_2016": {
+    "ann_pnl_pct": 35.82,
+    "ann_vol_pct": 12.52,
+    "sharpe": 2.762,
+    "maxdd_pct": -7.29,
+    "maxdd_trough": "2021-01-27",
+    "worst_day_pct": -4.89,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -5.01,
+    "worst21_end": "2024-06-17",
+    "worst63_pct": -3.58,
+    "cvar1_pct": -2.362
+   },
+   "hedge_pnl_k": 29.3,
+   "armed_days": 409,
+   "june2026_armed_days": 0,
+   "aug2026_armed_days": 5,
+   "aug2026_hedge_pnl_k": 1.0,
+   "aug2026_book_pnl_k": -20.9,
+   "top_eps": [
+    [
+     "2021-01-21",
+     "2021-01-27",
+     -7.29
+    ],
+    [
+     "2024-04-04",
+     "2024-04-19",
+     -6.49
+    ],
+    [
+     "2016-09-07",
+     "2016-11-01",
+     -6.06
+    ],
+    [
+     "2019-09-30",
+     "2019-10-02",
+     -5.92
+    ]
+   ]
+  },
+  "ship_1.875": {
+   "hedged_2016": {
+    "ann_pnl_pct": 44.21,
+    "ann_vol_pct": 15.47,
+    "sharpe": 2.76,
+    "maxdd_pct": -10.53,
+    "maxdd_trough": "2026-07-01",
+    "worst_day_pct": -5.43,
+    "worst_day": "2021-01-27",
+    "worst21_pct": -7.06,
+    "worst21_end": "2026-07-03",
+    "worst63_pct": -4.96,
+    "cvar1_pct": -2.945
+   },
+   "hedge_pnl_k": 23.4,
+   "armed_days": 409,
+   "june2026_armed_days": 0,
+   "aug2026_armed_days": 5,
+   "aug2026_hedge_pnl_k": 1.5,
+   "aug2026_book_pnl_k": -32.8,
+   "top_eps": [
+    [
+     "2026-06-12",
+     "2026-07-01",
+     -10.53
+    ],
+    [
+     "2021-01-21",
+     "2021-01-27",
+     -8.29
+    ],
+    [
+     "2026-07-22",
+     "2026-07-29",
+     -7.52
+    ],
+    [
+     "2024-04-04",
+     "2024-04-19",
+     -7.01
+    ]
+   ]
+  }
+ },
+ "yearly_k": {
+  "ship_ratioclip_1.5eq": {
+   "2005": 88.0,
+   "2006": 79.0,
+   "2007": 149.0,
+   "2008": 43.0,
+   "2009": 117.0,
+   "2010": 180.0,
+   "2011": 93.0,
+   "2012": 103.0,
+   "2013": 220.0,
+   "2014": 69.0,
+   "2015": 101.0,
+   "2016": 142.0,
+   "2017": 121.0,
+   "2018": 132.0,
+   "2019": 167.0,
+   "2020": 436.0,
+   "2021": 482.0,
+   "2022": 138.0,
+   "2023": 312.0,
+   "2024": 189.0,
+   "2025": 509.0,
+   "2026": 255.0
+  },
+  "ship_depth07_1.875": {
+   "2005": 104.0,
+   "2006": 92.0,
+   "2007": 171.0,
+   "2008": 57.0,
+   "2009": 137.0,
+   "2010": 211.0,
+   "2011": 115.0,
+   "2012": 124.0,
+   "2013": 244.0,
+   "2014": 92.0,
+   "2015": 124.0,
+   "2016": 161.0,
+   "2017": 144.0,
+   "2018": 152.0,
+   "2019": 191.0,
+   "2020": 500.0,
+   "2021": 562.0,
+   "2022": 162.0,
+   "2023": 355.0,
+   "2024": 236.0,
+   "2025": 578.0,
+   "2026": 314.0
+  },
+  "ship_1.875": {
+   "2005": 104.0,
+   "2006": 95.0,
+   "2007": 171.0,
+   "2008": 57.0,
+   "2009": 137.0,
+   "2010": 214.0,
+   "2011": 115.0,
+   "2012": 124.0,
+   "2013": 244.0,
+   "2014": 92.0,
+   "2015": 124.0,
+   "2016": 161.0,
+   "2017": 144.0,
+   "2018": 159.0,
+   "2019": 193.0,
+   "2020": 499.0,
+   "2021": 596.0,
+   "2022": 162.0,
+   "2023": 361.0,
+   "2024": 238.0,
+   "2025": 594.0,
+   "2026": 324.0
+  },
+  "today": {
+   "2005": 77.0,
+   "2006": 87.0,
+   "2007": 144.0,
+   "2008": 72.0,
+   "2009": 103.0,
+   "2010": 170.0,
+   "2011": 83.0,
+   "2012": 110.0,
+   "2013": 276.0,
+   "2014": 60.0,
+   "2015": 42.0,
+   "2016": 107.0,
+   "2017": 138.0,
+   "2018": 121.0,
+   "2019": 170.0,
+   "2020": 408.0,
+   "2021": 454.0,
+   "2022": 151.0,
+   "2023": 319.0,
+   "2024": 186.0,
+   "2025": 480.0,
+   "2026": 229.0
+  },
+  "today_1.875": {
+   "2005": 92.0,
+   "2006": 111.0,
+   "2007": 177.0,
+   "2008": 85.0,
+   "2009": 121.0,
+   "2010": 209.0,
+   "2011": 104.0,
+   "2012": 137.0,
+   "2013": 345.0,
+   "2014": 75.0,
+   "2015": 53.0,
+   "2016": 114.0,
+   "2017": 172.0,
+   "2018": 151.0,
+   "2019": 212.0,
+   "2020": 479.0,
+   "2021": 558.0,
+   "2022": 176.0,
+   "2023": 380.0,
+   "2024": 221.0,
+   "2025": 577.0,
+   "2026": 280.0
+  },
+  "ship_vs_todayGRM_k": {
+   "2005": 12.0,
+   "2006": -16.0,
+   "2007": -6.0,
+   "2008": -28.0,
+   "2009": 16.0,
+   "2010": 5.0,
+   "2011": 11.0,
+   "2012": -13.0,
+   "2013": -101.0,
+   "2014": 17.0,
+   "2015": 71.0,
+   "2016": 47.0,
+   "2017": -28.0,
+   "2018": 8.0,
+   "2019": -19.0,
+   "2020": 20.0,
+   "2021": 38.0,
+   "2022": -14.0,
+   "2023": -19.0,
+   "2024": 17.0,
+   "2025": 17.0,
+   "2026": 44.0
+  }
+ },
+ "years_ship_better_than_todayGRM": "13/22",
+ "participation_rule": {
+  "rows_over_limit": 203,
+  "by_strategy": {
+   "LT Trend ST OS": 50,
+   "Overbot Vol Spike": 46,
+   "Weak Close Decent Sznls": 35,
+   "ATR Extended Gap Up": 20,
+   "Oversold Low Volume": 14,
+   "St OS Sznl": 14,
+   "52wh Breakout": 12,
+   "Sector BO": 5,
+   "3x ETF Overbot Fade": 5,
+   "Monday Dip": 1,
+   "3x Bear ETF Overbot Fade": 1
+  },
+  "by_tier": {
+   "Overflow": 152,
+   "Liquid": 51
+  },
+  "pnl_of_over_rows_k": 241.6,
+  "mean_haircut_if_trimmed": 0.508,
+  "rows_over_5pct_refusal": 21,
+  "refused_pnl_k": 11.0
+ },
+ "olv_earnings_override_composition": {
+  "rows": 59,
+  "old_eff_bps_mean": 10.47,
+  "new_eff_bps_mean": 20.61,
+  "new_eff_bps_max": 28.12,
+  "rows_gt_2x": 28,
+  "avgR_override_rows": 0.843
+ },
+ "worst20_overlap": {
+  "common": 13,
+  "new_in_ship": [
+   "2020-06-08",
+   "2023-02-07",
+   "2024-02-15",
+   "2026-03-20",
+   "2026-06-26",
+   "2026-07-01",
+   "2026-08-28"
+  ],
+  "dropped": [
+   "2016-09-09",
+   "2016-09-13",
+   "2018-06-25",
+   "2019-05-13",
+   "2019-06-25",
+   "2020-09-23",
+   "2020-10-28"
+  ]
+ }
+}

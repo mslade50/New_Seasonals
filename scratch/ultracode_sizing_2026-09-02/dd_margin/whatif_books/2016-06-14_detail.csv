@@ -1,0 +1,11 @@
+Strategy,Tier,Ticker,symbol,Direction,sign,klass,Entry Date,Exit Date,Exit Type,Entry Price,etf_price,Shares_flat,etf_shares,signed_shares,notional,Risk_flat_750k,Tranche
+Monday Dip,Liquid,DIA,DIA,Long,1,broad_idx,2016-06-14,2016-06-16,Stop,145.5106,145.5106,2998,2998,2998,436240.7885,3375.0000,
+52wh Breakout,Overflow,DLTR,DLTR,Long,1,single,2016-05-27,2016-08-26,Time,87.6455,87.6455,679,679,679,59511.3202,3937.5000,
+52wh Breakout,Overflow,HAS,HAS,Long,1,single,2016-04-19,2016-06-24,Stop,62.0927,62.0927,1517,1517,1517,94194.6944,3937.5000,
+Weak Close Decent Sznls,Liquid,IHI,IHI,Long,1,sector_etf,2016-06-14,2016-06-15,Stop,21.1930,21.1930,19981,19981,19981,423457.0528,3937.5000,
+Monday Dip,Liquid,IWM,IWM,Long,1,smallcap_idx,2016-06-14,2016-06-16,Time,100.3018,100.3018,2772,2772,2772,278036.4863,3375.0000,
+SPY QQQ MonFri Reversion,Liquid,QQQ,QQQ,Long,1,broad_idx,2016-06-14,2016-06-16,Stop,100.1555,100.1555,4399,4399,4399,440584.0883,3937.5000,
+Monday Dip,Liquid,SMH,SMH,Long,1,sector_etf,2016-06-14,2016-06-16,Stop,25.5948,25.5948,11694,11694,11694,299305.0762,3375.0000,
+SPY QQQ MonFri Reversion,Liquid,SPY,SPY,Long,1,broad_idx,2016-06-14,2016-06-16,Stop,176.3719,176.3719,2872,2872,2872,506539.9990,3937.5000,
+Weak Close Decent Sznls,Liquid,XLB,XLB,Long,1,sector_etf,2016-06-14,2016-06-16,Time,19.1905,19.1905,10862,10862,10862,208447.3418,2598.7500,
+Weak Close Decent Sznls,Liquid,XLV,XLV,Long,1,sector_etf,2016-06-14,2016-06-16,Time,59.9616,59.9616,6475,6475,6475,388251.6390,3937.5000,

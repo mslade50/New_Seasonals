@@ -1,0 +1,136 @@
+<title>Sizing Due Diligence</title>
+<style>
+:root{--paper:#FBFBF9;--ink:#17202A;--teal:#0F6E73;--slate:#55626D;--rule:#D8DEDC;--soft:#F3F5F3;--red:#9E3B2F;--amber:#8C5E0E;--green:#2E6B3A;--chip-red:#F6E4E0;--chip-amber:#F7EBD3;--chip-green:#E2EFE4;--chip-grey:#E8ECEA;--link:#0F6E73}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--paper:#15191C;--ink:#E6E9E7;--teal:#5FB8BC;--slate:#A3ADB3;--rule:#2E3538;--soft:#1D2326;--red:#E08A7C;--amber:#D9A94E;--green:#7FC08B;--chip-red:#3A2320;--chip-amber:#3A2F16;--chip-green:#1F3324;--chip-grey:#2A3134;--link:#5FB8BC}}
+:root[data-theme="dark"]{--paper:#15191C;--ink:#E6E9E7;--teal:#5FB8BC;--slate:#A3ADB3;--rule:#2E3538;--soft:#1D2326;--red:#E08A7C;--amber:#D9A94E;--green:#7FC08B;--chip-red:#3A2320;--chip-amber:#3A2F16;--chip-green:#1F3324;--chip-grey:#2A3134;--link:#5FB8BC}
+body{background:var(--paper);color:var(--ink);font-family:Georgia,"Times New Roman",serif;font-size:15px;line-height:1.55;margin:0}
+.wrap{max-width:860px;margin:0 auto;padding:36px 22px 60px}
+.eyebrow{font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);margin:0 0 8px}
+h1{font-size:26px;line-height:1.2;margin:0 0 12px;text-wrap:balance;font-weight:normal}
+h2{font-family:Arial,Helvetica,sans-serif;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal);border-top:1px solid var(--rule);padding-top:14px;margin:34px 0 12px}
+h3{font-size:16px;margin:22px 0 6px;font-weight:bold}
+p{margin:0 0 12px;max-width:68ch}
+.lede{font-size:16px;color:var(--ink)}
+.muted{color:var(--slate)}
+a{color:var(--link)}
+code{font-family:Consolas,"Courier New",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+.tbl{overflow-x:auto;margin:0 0 14px}
+table{border-collapse:collapse;width:100%;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-variant-numeric:tabular-nums}
+th{text-align:left;padding:7px 8px;border-bottom:1px solid var(--rule);background:var(--soft);font-weight:bold;vertical-align:bottom}
+td{padding:7px 8px;border-bottom:1px solid var(--rule);vertical-align:top}
+td.num,th.num{text-align:right}
+.chip{display:inline-block;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:3px;white-space:nowrap}
+.c-green{background:var(--chip-green);color:var(--green)}
+.c-amber{background:var(--chip-amber);color:var(--amber)}
+.c-red{background:var(--chip-red);color:var(--red)}
+.c-grey{background:var(--chip-grey);color:var(--slate)}
+ol.disc{padding-left:0;list-style:none;counter-reset:d;margin:0}
+ol.disc>li{counter-increment:d;display:grid;grid-template-columns:34px 1fr;gap:0 10px;padding:14px 0;border-bottom:1px solid var(--rule)}
+ol.disc>li::before{content:counter(d);font-family:Arial,Helvetica,sans-serif;font-size:20px;color:var(--teal);line-height:1.1}
+ol.disc>li>div>b{display:block;margin-bottom:4px}
+ol.disc>li p{margin:0 0 8px}
+ol.disc>li p:last-child{margin:0}
+.ask{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:var(--slate)}
+.ask b{color:var(--ink)}
+ul{margin:0 0 12px;padding-left:20px;max-width:70ch}
+li{margin-bottom:5px}
+.foot{font-size:12px;color:var(--slate);border-top:1px dashed var(--rule);padding-top:10px;margin-top:30px}
+</style>
+<div class="wrap">
+<p class="eyebrow">New_Seasonals · sizing research · due diligence · 2026-09-02</p>
+<h1>The fifteen gaps, worked one by one</h1>
+<p class="lede">Eight independent passes ran against the sizing plan before any code changes: three adversarial refuters (statistics, execution and margin, composition and tails), an engine replay of every lever the current engine can express, a margin what-if preparation, a live-fills audit, a point-in-time dial extension with a hedge re-run, and a pass over the guard cost, flow thresholds, basis mismatches and the midterm reading. Nothing in the repo's code, config or tests changed. Every script and result sits under <code>scratch/ultracode_sizing_2026-09-02/dd_*/</code>.</p>
+<p><b>The short version.</b> The plan's direction survives. Four of its Phase 1 items do not survive as written: the OLV composite clip, the Weak Close and LT Trend adds rule, and both flow rules. The GRM step buys less than stated and its margin precondition already fails on one historical book at today's live NLV. The hedge is a directional overlay sized to the wrong beta. And the live fills record that would settle the haircut question is being lost as of tomorrow.</p>
+
+<h2>1. Gap by gap</h2>
+<div class="tbl"><table>
+<tr><th style="width:26px">#</th><th style="width:210px">Gap as stated in the email</th><th style="width:110px">Status now</th><th>What the diligence found</th></tr>
+<tr><td>1</td><td>Adversarial verification never ran as designed</td><td><span class="chip c-green">closed</span></td><td>Three independent lenses now cover every Phase 0, 1 and 2 item plus the standing rules. Verdicts converge: 1.4 (OLV clip), 1.5 (adds), 1.9 and 1.10 (flow) are refuted as written; 1.6 (OVS extremity) and 1.8 (clones) stand clean; the rest stand weakened. Ledgers: <code>dd_stats</code>, <code>dd_exec</code>, <code>dd_tail</code>.</td></tr>
+<tr><td>2</td><td>No engine confirmation run</td><td><span class="chip c-amber">narrowed</span></td><td>Baseline reproduced exactly (4,696 of 4,696 trades). The five code-free levers (GRM, overflow exclusion, tilt, P2 cap, clamp extensions) replayed through the real engine with all caps: +3.75 pts a year on 2010+, +4.75 on 2016-07+, maxDD at GRM-1.5-equivalent -10.1% vs -12.4% today. The unbuilt levers (depth ladder, adds, extremity, flow, clip) were composed on daily MTM vectors by the tail lens instead; that is where the package fails.</td></tr>
+<tr><td>3</td><td>Margin rates stylised</td><td><span class="chip c-amber">needs you</span></td><td>Rates verified against IBKR's published PM text; the 45% 3x rate is an OCC convention IBKR never publishes, and "higher of rules-based and PM" is published only on the non-US panel, so it is unresolved for this account. Live primary NLV is <b>$605k</b> (pulled this morning), not $632k. Four what-if books, an import-ready CSV set, a click-path runbook and a results template are ready in <code>dd_margin</code>. One afternoon in Risk Navigator closes this.</td></tr>
+<tr><td>4</td><td>No live R series</td><td><span class="chip c-amber">narrowed</span></td><td>The broker's fills ring holds 182 fills since 08-20. On 18 matched primary legs execution matches the ledger inside noise (entry slip median -0.09 bps in live's favor, shares 0.97x). The gap is discretion (hand trims, an early ACHC sale, an SPG unwind). Nothing harvests the ring and its 08-20 rows drop on 09-03. A one-time IBKR Flex Trades pull from 2026-03-26 yields 100 to 150 closed matches on day one.</td></tr>
+<tr><td>5</td><td>PIT dial coverage ends 2026-05-07</td><td><span class="chip c-green">closed</span></td><td>The date was wrong: the PIT series ran to 2026-07-02, the date of a one-off signal extraction. Extended through 2026-09-01 with the same expanding-window rule (corr 0.9993 with the study series over the overlap). Aug-2026 arms 07-23 on PIT weights, 07-27 on current weights, 07-30 on the live parquet; no release yet under any of them. PIT runs about 5 points hotter than live.</td></tr>
+<tr><td>6</td><td>Guard cost unmeasured</td><td><span class="chip c-green">closed</span></td><td>Measured on the ledger at GRM 1.875. At a 90% 3x-short rate: 0.6 to 2.3 trims a year, 0.8% to 3.1% of book PnL, every trim day a 3x ETF short cluster. At the PM 45% rate: near zero. The 15%-of-days / 49%-of-PnL gross claim verifies but is not what sets the wall.</td></tr>
+<tr><td>7</td><td>Flow thresholds in-sample</td><td><span class="chip c-green">closed</span></td><td>Walk-forward terciles keep the effect and improve it (book +5.05% vs +4.07% fixed). The fixed 7 and 104 lines are the 2025-26 vintage and stricter than every pre-2022 year. The brief's family membership differs from the study's on three strategies. 2026 is a dip_buy flip year (hi-flow -0.40R vs +1.10R).</td></tr>
+<tr><td>8</td><td>Theme envelope not walked forward</td><td><span class="chip c-grey">open</span></td><td>Display only by design. No diligence possible without building the display. Left as is.</td></tr>
+<tr><td>9</td><td>52wh tail only diagnosed</td><td><span class="chip c-grey">open</span></td><td>Remains a prereg item (exit rule). The tail lens confirms the 52wh 0.70 tilt cut is where most of the tilt's drawdown benefit comes from (2013: -$101k vs pure GRM).</td></tr>
+<tr><td>10</td><td>Hedge: 13 episodes, asymmetric beta, payload ended 08-07</td><td><span class="chip c-amber">narrowed</span></td><td>Payload rebuilt through 09-01. On the extended PIT dial: +$94k, t 1.47, 11 of 13 episodes positive, robust to dropping 2026. But rolling return-beta is the wrong object: the book's realised beta in Aug-2026 was 1.1 against a hedge sized at 0.2, because exposure swung from net short to 115% NAV long in ten sessions. The return source is directional (armed-day SPY drift -13.6% annualised); variance reduction is 6%.</td></tr>
+<tr><td>11</td><td>Overflow survivorship scenario-based</td><td><span class="chip c-grey">open</span></td><td>The June dynamic-overflow work (FMP universe, isolated price staging, backtester wired, gate off) is still uncommitted and is the only path to a point-in-time overflow universe. Separately: the live ADV participation cap is a no-op today because it only runs when that universe is active.</td></tr>
+<tr><td>12</td><td>Index legs to futures is design only</td><td><span class="chip c-amber">narrowed</span></td><td>The broker rail is further along than the plan states: the execution path already supports FUT brackets with tick snapping, front-month resolution, a pure contract sizer, a whatIf margin gate and tests. Missing: scanner-side routing and engine modeling. No futures order has ever gone through the stack, and MOC does not exist on CME Globex.</td></tr>
+<tr><td>13</td><td>Basis mismatches (WCDS seasonal mult; OLV override)</td><td><span class="chip c-green">closed</span></td><td>WCDS's legacy seasonal multiplier is inverted against the edge (the 1.5x bucket earns +0.23R, the 0.66x bucket +0.71R); removing it lifts sleeve Sharpe 0.62 to 0.70, so the 0.75 tilt was fit on a degraded series. The OLV pre-earnings override shipped 2026-04-30 with no cited study, forgoes about $112k on the ledger, and guards a 9-trade post-print hole.</td></tr>
+<tr><td>14</td><td>Midterm base-rate reading</td><td><span class="chip c-green">closed</span></td><td>The base rate holds for the book (2026 Jan-Aug 0.34 PnL/risk vs prior midterms 0.27). It does not explain OLV: OLV historically does better in midterms, yet 2026 runs 0.36 against a prior-midterm 1.20. LT Trend is explained (rank 4 of 17). Both sit below the tilt's own 2027-Q1 retirement lines today, and the tilt raises both.</td></tr>
+<tr><td>15</td><td>PA account not modelled</td><td><span class="chip c-amber">narrowed</span></td><td>The small account is sized as primary quantity times 1.3 times its live NLV over $750k, floor-rounded, Reg-T, with no margin gate anywhere in its entry path. A GRM step lands on it at 1.3x that, and nothing checks feasibility before IBKR does. Live PA NLV $67k.</td></tr>
+</table></div>
+
+<h2>2. What the engine replay settled</h2>
+<p>Every lever the current engine can express, composed on the full ledger with the 250 cap, ticker cap, P2 cap and clamp all re-applied. Flat $750k basis.</p>
+<div class="tbl"><table>
+<tr><th>2010+</th><th class="num">Ann %</th><th class="num">Sharpe</th><th class="num">maxDD</th><th class="num">Worst day</th><th class="num">Worst 21d</th><th class="num">Cap-bound days</th></tr>
+<tr><td>A · today</td><td class="num">27.1</td><td class="num">2.20</td><td class="num">-12.4</td><td class="num">-5.9</td><td class="num">-9.5</td><td class="num">6.1%</td></tr>
+<tr><td>B · GRM 1.875</td><td class="num">32.7</td><td class="num">2.17</td><td class="num">-15.5</td><td class="num">-7.4</td><td class="num">-11.9</td><td class="num">8.5%</td></tr>
+<tr><td>C · + overflow longs excluded</td><td class="num">31.3</td><td class="num">2.17</td><td class="num">-15.2</td><td class="num">-7.2</td><td class="num">-10.1</td><td class="num">8.3%</td></tr>
+<tr><td>D · + tilt</td><td class="num">31.2</td><td class="num">2.26</td><td class="num">-13.1</td><td class="num">-6.2</td><td class="num">-8.0</td><td class="num">8.2%</td></tr>
+<tr><td>E · + P2 cap 1.0 + clamp extensions</td><td class="num">30.9</td><td class="num">2.25</td><td class="num">-12.6</td><td class="num">-6.2</td><td class="num">-8.0</td><td class="num">8.3%</td></tr>
+<tr><td>L · levers only at GRM 1.5</td><td class="num">26.5</td><td class="num">2.28</td><td class="num">-10.3</td><td class="num">-5.0</td><td class="num">-7.2</td><td class="num">6.1%</td></tr>
+</table></div>
+<ul>
+<li><b>The GRM step realises 1.205x, not 1.25x.</b> Eighteen percent of the step is absorbed by the fixed 250 bps cap, concentrated in OVS, 3x ETF Fade and Weak Close. OVS is cap-bound on 97% of its signal days since 2016, so the step buys it nothing. Seven never-capped strategies scale exactly.</li>
+<li><b>The tilt is PnL-neutral and is the whole risk improvement</b> (Sharpe 2.17 to 2.26, maxDD -15.2% to -13.1%, worst 21d -10.1% to -8.0%). The statistics lens finds the same: the plan's "+13% PnL" was a vol-matched figure. Nearly all the benefit is the 52wh 0.70 and Weak Close 0.75 cuts.</li>
+<li><b>The overflow exclusion costs 1.4 pts a year</b> and pulls the 2010+ window under the +4 gate (+3.75). On 2016-07+ the gate passes (+4.75).</li>
+<li><b>The P2 cap raise is a no-op in the engine</b> (+$1.3k over 17 years) because the 250 cap re-trims the same days.</li>
+</ul>
+<p>The tail lens then composed the unbuilt levers on daily MTM vectors. With the brief's OLV clip (absolute product of overlays capped at 1.5x), June 2026 becomes the worst episode since 2016 at both GRM levels (-10.5% at 1.875, -9.4% at the 1.5 equivalent, against -7.3% today) and the package fails three of the gate's four conditions. The plan's "back to April 2024" number came from a different clip in the study script, one that capped the ratio to today's size. An absolute clip at 1.0, or no depth rung at all, passes every condition at about 0.8 pts a year below the shipped form.</p>
+
+<h2>3. Worth discussing</h2>
+<p class="muted">Ordered by how much depends on the answer. Each ends with the decision it needs from you.</p>
+<ol class="disc">
+<li><div><b>The OLV lever package does not work as written.</b>
+<p>Three findings land on the same trades. The composite clip in the brief trims 7% on 104 rows and nothing else, so the depth rung's 2x regrade (0.5x to 1.0x) goes through unclipped and June 2026 becomes the worst episode since 2016. Depth and flow are one variable: 83% of depth-3+ legs are hi-flow legs, so both raise the same positions, which scored -0.03R across 20 legs in 2026. And the depth ladder is a three-year result: 70 of 74 legs at 6+ open fall in 2021, 2025 and 2026. On top sits the 1.17 tilt raise, which the midterm reading cannot explain and which puts OLV below its own retirement line before it ships. The OLV book cap is disabled while the package would put OLV above 100% NAV on 60 historical days, up to 4.1x.</p>
+<p class="ask"><b>Decide:</b> which clip you approved (ratio-to-today at 1.5x, or absolute at 1.0), whether to ship depth or flow on OLV but not both, whether the 1.17 raise holds at 1.0 until the 2027-Q1 re-read, and whether the EOD book cap is re-armed before any OLV up-lever goes live.</p></div></li>
+<li><div><b>The GRM step is smaller than stated and its precondition already fails.</b>
+<p>The step buys 1.2x, not 1.25x, and buys OVS nothing. At today's $605k NLV the plain-PM wall is 1.31x, and the 2013-11-04 book sits at 95% of live NLV at 1.25x, so the "four books under 85%" precondition fails before the what-if runs. Rules-based 3x margin, if it applies to this account, puts the current size at 100% of base and 124% of live NLV on the 2023-02-03 book. The guard's entire cost rides on that one rate. The live account also carries discretionary futures, UVXY and options the ledger never sees, and the trend, event and exposure sleeves add roughly 2 to 8% of NAV of requirement none of the walls count.</p>
+<p class="ask"><b>Decide:</b> whether the step waits for the what-if (the runbook and books are ready), and whether holding the 250 cap fixed in effective bps through GRM 2.25 is the real choice, since it turns the step into a nominal cap cut on the three cluster strategies.</p></div></li>
+<li><div><b>The Weak Close and LT Trend adds rule sizes the wrong legs.</b>
+<p>The evidence is same-day clusters. Prior-day-open adds, which is what the brief's live wiring keys on, score -0.08R for Weak Close (t -0.4) and +0.16R for LT Trend (t 1.3). Live would give cluster legs 0.8x while the engine sizes them 1.2x, a divergence by construction. The statistics and execution lenses reached this independently.</p>
+<p class="ask"><b>Decide:</b> re-key to "same-day staged count of 2 or more, or a prior open leg", identical in scan and engine, then re-score before it enters the gate. Or drop the item.</p></div></li>
+<li><div><b>The flow rules need one definition and probably one fewer carrier.</b>
+<p>The brief's families and thresholds are not the study's (St OS Sznl, 3x Bear and 3x Leader are in different families; edges 5/8/97 vs 6/7/104). Walk-forward terciles work and beat the fixed lines. The dip_buy carrier is the weak one: t 1.7 with the dial gate, t 1.0 since 2016, -0.33R on 2026's eight hi-flow trades. The guard and the flow rules also cancel by construction: the requirement projection counts staged rows at full size, OVS stages about 16x its fills, so hi-flow short-fade days are exactly the days the guard switches relief off.</p>
+<p class="ask"><b>Decide:</b> ship flow as an annual walk-forward tercile on the study's membership, start without the dip_buy carrier, and let the guard count staged rows at expected fill rate.</p></div></li>
+<li><div><b>The hedge is a dial-gated short-SPY overlay, not a beta neutraliser.</b>
+<p>On the extended PIT dial it still pays (+$94k, 11 of 13 episodes), but on down days it pays back twice what the book loses, so the hedged book is net short in selloffs; that directional bet, right because armed-day SPY drift is negative, is the return source. Sizing to a 126d return-beta missed the Aug-2026 book entirely: realised beta 1.1, hedge sized at 0.2, and the holdings beta the hedge panel already computes tracked it. At holdings beta the margin line is 8.4% of NAV, not 1.9%. The Aug-2026 paper episode is open and a small loser under every vintage, the third such episode. No futures order has ever gone through the stack, and MOC is not a Globex order type.</p>
+<p class="ask"><b>Decide:</b> reframe the prereg as a directional overlay on holdings beta with the exposure-leg conventions, state what closes the current paper episode and what counts as a fail, and put one MES round trip through the rail before anything else.</p></div></li>
+<li><div><b>The live fills record is being lost tomorrow.</b>
+<p>The broker's fills ring is the only broker-grade record, nothing writes it down, and its 08-20 rows drop on 09-03. Execution itself matches the ledger; the live-versus-ledger gap is discretion. A Flex Trades pull from 2026-03-26 gives 100 to 150 closed matches on day one; waiting puts 150 matches in spring 2027. Two scan-versus-ledger signal splits in one fortnight (SPG fired twice in the scan and never in the ledger; UNH's limit 126 bps apart) are a data-vintage problem with real money on it.</p>
+<p class="ask"><b>Decide:</b> whether the small harvest job is allowed to go in ahead of the sizing work, whether the haircut prices your overrides or the fills, and whether the scan should print its close and ATR beside the R2 parquet's.</p></div></li>
+<li><div><b>Four tilt multipliers have no determinate direction, and the series they were fit on is degraded.</b>
+<p>Under a block bootstrap OVS, LT Trend, Monday Dip and St OS Sznl flip sign freely; 52wh, Weak Close, OLV, 3x Fade and MonFri are robust. Weak Close's legacy seasonal multiplier is inverted against its edge and should be retired before any refit. If the tilt is fed through the engine's risk multipliers the per-strategy cap scales with it (MonFri would get a 325 bps engine cap against a fixed 250 live); only the import-time form keeps parity.</p>
+<p class="ask"><b>Decide:</b> set the four undetermined multipliers to 1.0, retire the WCDS seasonal multiplier first, and describe the tilt as a Sharpe and drawdown lever rather than a PnL one.</p></div></li>
+<li><div><b>The engine gate cannot fail on PnL and its window is unspecified.</b>
+<p>GRM alone delivers +6.2 pts against a +4 bar, so the levers could cost 2 pts and pass; the overflow exclusion alone decides whether 2010+ passes. Max-not-product holds in exactly two places (inside the OLV ladder and a relief max with one relief). Elsewhere everything is a product: 553 ledger rows carry three or more up-levers (median 1.76x, max 3.75x), the earnings override silently doubles in effective bps, and the P/C fear boost stacked with tilt and flow allows 3.66x nominal on MonFri.</p>
+<p class="ask"><b>Decide:</b> gate lever by lever with the tilt walked forward or off, name the window, cap every non-OLV composite too, and freeze the earnings override in effective bps if it is still an appetite haircut.</p></div></li>
+<li><div><b>Smaller items that still need a call.</b>
+<p>OVS extremity 0.7x stands on every cut (t -4.9) but is flat in midterm years where 0.75x already applies; consider 1.0 there. The P2 cap raise is a no-op; drop it or pair it with relief. The OLV pre-earnings override is an unevidenced $112k rule; the re-exam should question the override itself. The 40% haircut is a prior inside 27 to 71%, not a measurement; say so. The standing GRM rule retired the drawdown probability test at the moment it bound (6.2% at haircut 0, 17.2% at haircut 50) and two of its three replacement walls have no number yet. The PA account runs at 1.3x relative under Reg-T with no gate. The PIT signal extraction needs a scheduled home or gap 5 reopens with every episode.</p></div></li>
+</ol>
+
+<h2>4. Corrections to the review email</h2>
+<ul>
+<li>Gap 5: the PIT series ended 2026-07-02, not 05-07; it now runs to 09-01.</li>
+<li>Gap 4: replace "108 trades, ratio 0.36, CI [-0.57, 1.22]" with "92 closed, 0.66 [0.16, 1.16]; the pre-freeze half of 2026 was worse than the post-freeze half; midterm controls 0.19 to 0.84". The defensible statement is a normal bad midterm year, not rules degrading after the freeze.</li>
+<li>Gap 3: live NLV is $605k, the plain-PM live wall 1.31x; plan section 8's maxDD of -8.32% belongs to the 08-07 ledger vintage (-7.34% on today's).</li>
+<li>Section 4, item 1.4: "June 2026 prevented by the clip" holds only for a ratio clip at GRM 1.5, by 0.4 pt.</li>
+</ul>
+
+<h2>5. Where everything is</h2>
+<div class="tbl"><table>
+<tr><th style="width:170px">Folder</th><th>Contents</th></tr>
+<tr><td><code>dd_stats/</code></td><td>Statistics-lens refutation ledger, bootstrap of tilt weights, equal-risk replays of every shrunk form</td></tr>
+<tr><td><code>dd_exec/</code></td><td>Execution-lens ledger, cap-binding and ADV participation check, code locations for every new multiplier</td></tr>
+<tr><td><code>dd_tail/</code></td><td>Composed package tails, clip variants, top-10 drawdown episodes, interaction matrix, per-trade ratios</td></tr>
+<tr><td><code>dd_engine/</code></td><td>Engine runner, scenarios A to L trade parquets and daily series, pass/fail block</td></tr>
+<tr><td><code>dd_margin/</code></td><td>Four what-if books at three sizes, live book pull, rates verification with sources, requirement table, <code>WHATIF_RUNBOOK.md</code></td></tr>
+<tr><td><code>dd_live/</code></td><td>Fills inventory, matched legs, three-grader comparison, OOS re-read</td></tr>
+<tr><td><code>dd_pit/</code></td><td>Extended PIT dial parquet, rebuilt per-strategy daily payload, hedge results under three vintages, Aug-2026 day by day</td></tr>
+<tr><td><code>dd_misc/</code></td><td>Guard cost replay, walk-forward flow terciles, WCDS and OLV basis checks, midterm tables</td></tr>
+</table></div>
+<p class="foot">Produced 2026-09-02 from the Claude Code session, after the sizing review email. Nothing in the repo's code, config or tests changed; no commits; no R2 writes. Companion documents: sizing_optimal_plan_2026-09-02.html, sizing_optimal_implementation_brief_2026-09-02.md, sizing_review_email_2026-09-02.html.</p>
+</div>

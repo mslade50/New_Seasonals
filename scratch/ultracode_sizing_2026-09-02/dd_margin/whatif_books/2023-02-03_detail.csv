@@ -1,0 +1,82 @@
+Strategy,Tier,Ticker,symbol,Direction,sign,klass,Entry Date,Exit Date,Exit Type,Entry Price,etf_price,Shares_flat,etf_shares,signed_shares,notional,Risk_flat_750k,Tranche
+Overbot Vol Spike,Liquid,ADSK,ADSK,Short,-1,single,2023-02-02,2023-02-03,Target,231.2680,231.2680,31,31,-31,7169.3089,199.6112,near
+Overbot Vol Spike,Liquid,ADSK,ADSK,Short,-1,single,2023-02-02,2023-02-06,Target,231.2680,231.2680,46,46,-46,10638.3293,299.0590,far
+Overbot Vol Spike,Overflow,BLDR,BLDR,Short,-1,single,2023-02-02,2023-02-03,Target,84.4352,84.4352,85,85,-85,7176.9901,199.3637,near
+Overbot Vol Spike,Overflow,BLDR,BLDR,Short,-1,single,2023-02-02,2023-02-06,Time,84.4352,84.4352,127,127,-127,10723.2676,299.3065,far
+Overbot Vol Spike,Overflow,BNS,BNS,Short,-1,single,2023-02-02,2023-02-03,Target,47.2558,47.2558,54,54,-54,2551.8106,39.8772,near
+Overbot Vol Spike,Overflow,BNS,BNS,Short,-1,single,2023-02-02,2023-02-06,Time,47.2558,47.2558,81,81,-81,3827.7159,59.8568,far
+Overbot Vol Spike,Overflow,CNK,CNK,Short,-1,single,2023-02-02,2023-02-06,Target,12.8195,12.8195,340,340,-340,4358.6192,199.4941,near
+Overbot Vol Spike,Overflow,CNK,CNK,Short,-1,single,2023-02-02,2023-02-06,Time,12.8195,12.8195,511,511,-511,6550.7483,299.1762,far
+3x ETF Overbot Fade,Liquid,DRN,DRN,Short,-1,lev3x,2023-02-02,2023-02-06,Time,12.5772,12.5772,3901,3901,-3901,49063.7566,2343.7500,
+Overbot Vol Spike,Overflow,GWRE,GWRE,Short,-1,single,2023-02-02,2023-02-03,Target,78.2448,78.2448,101,101,-101,7902.7266,199.4245,near
+Overbot Vol Spike,Overflow,GWRE,GWRE,Short,-1,single,2023-02-02,2023-02-06,Target,78.2448,78.2448,152,152,-152,11893.2123,299.2457,far
+Overbot Vol Spike,Liquid,ITB,ITB,Short,-1,sector_etf,2023-02-02,2023-02-03,Target,71.1866,71.1866,118,118,-118,8400.0154,199.5430,near
+Overbot Vol Spike,Liquid,ITB,ITB,Short,-1,sector_etf,2023-02-02,2023-02-06,Time,71.1866,71.1866,177,177,-177,12600.0231,299.1273,far
+Overbot Vol Spike,Liquid,IWM,IWM,Short,-1,smallcap_idx,2023-02-02,2023-02-06,Target,190.9769,190.9769,59,59,-59,11267.6400,199.6187,near
+Overbot Vol Spike,Liquid,IWM,IWM,Short,-1,smallcap_idx,2023-02-02,2023-02-06,Time,190.9769,190.9769,88,88,-88,16805.9715,299.0515,far
+Overbot Vol Spike,Liquid,IYR,IYR,Short,-1,sector_etf,2023-02-02,2023-02-03,Target,87.6249,87.6249,138,138,-138,12092.2299,199.5001,near
+Overbot Vol Spike,Liquid,IYR,IYR,Short,-1,sector_etf,2023-02-02,2023-02-06,Target,87.6249,87.6249,207,207,-207,18138.3449,299.1701,far
+Overbot Vol Spike,Overflow,KMX,KMX,Short,-1,single,2023-02-02,2023-02-06,Time,79.6307,79.6307,58,58,-58,4618.5814,199.5438,near
+Overbot Vol Spike,Overflow,KMX,KMX,Short,-1,single,2023-02-02,2023-02-06,Time,79.6307,79.6307,88,88,-88,7007.5028,299.1264,far
+Overbot Vol Spike,Liquid,MDT,MDT,Short,-1,single,2023-02-02,2023-02-06,Time,78.3094,78.3094,39,39,-39,3054.0675,59.8067,far
+Overbot Vol Spike,Liquid,MDT,MDT,Short,-1,single,2023-02-02,2023-02-06,Target,78.3094,78.3094,26,26,-26,2036.0450,39.9273,near
+Overbot Vol Spike,Overflow,MRVL,MRVL,Short,-1,single,2023-02-02,2023-02-06,Time,47.9455,47.9455,150,150,-150,7191.8285,299.1138,far
+Overbot Vol Spike,Overflow,MRVL,MRVL,Short,-1,single,2023-02-02,2023-02-06,Target,47.9455,47.9455,100,100,-100,4794.5524,199.5564,near
+3x ETF Overbot Fade,Liquid,NAIL,NAIL,Short,-1,lev3x,2023-02-02,2023-02-06,Time,50.2967,50.2967,766,766,-766,38527.2892,2343.7500,
+Overbot Vol Spike,Overflow,NOVT,NOVT,Short,-1,single,2023-02-02,2023-02-03,Target,172.7609,172.7609,44,44,-44,7601.4795,199.3682,near
+Overbot Vol Spike,Overflow,NOVT,NOVT,Short,-1,single,2023-02-02,2023-02-06,Time,172.7609,172.7609,66,66,-66,11402.2192,299.3021,far
+Overbot Vol Spike,Liquid,NVDA,NVDA,Short,-1,single,2023-02-02,2023-02-06,Time,21.7094,21.7094,41,41,-41,890.0837,39.9153,near
+Overbot Vol Spike,Liquid,NVDA,NVDA,Short,-1,single,2023-02-02,2023-02-06,Time,21.7094,21.7094,61,61,-61,1324.2709,59.8188,far
+Overbot Vol Spike,Overflow,PAR,PAR,Short,-1,single,2023-02-02,2023-02-06,Time,38.1779,38.1779,178,178,-178,6795.6582,299.2393,far
+Overbot Vol Spike,Overflow,PAR,PAR,Short,-1,single,2023-02-02,2023-02-06,Target,38.1779,38.1779,119,119,-119,4543.1647,199.4309,near
+Overbot Vol Spike,Overflow,POOL,POOL,Short,-1,single,2023-02-02,2023-02-03,Target,394.1387,394.1387,19,19,-19,7488.6353,199.7073,near
+Overbot Vol Spike,Overflow,POOL,POOL,Short,-1,single,2023-02-02,2023-02-06,Target,394.1387,394.1387,28,28,-28,11035.8836,298.9630,far
+Overbot Vol Spike,Liquid,PSA,PSA,Short,-1,single,2023-02-02,2023-02-03,Target,273.8324,273.8324,38,38,-38,10405.6325,199.3532,near
+Overbot Vol Spike,Liquid,PSA,PSA,Short,-1,single,2023-02-02,2023-02-06,Target,273.8324,273.8324,58,58,-58,15882.2812,299.3170,far
+Overbot Vol Spike,Overflow,PSKY,PSKY,Short,-1,single,2023-02-02,2023-02-03,Target,24.1240,24.1240,217,217,-217,5234.8976,199.4477,near
+Overbot Vol Spike,Overflow,PSKY,PSKY,Short,-1,single,2023-02-02,2023-02-06,Time,24.1240,24.1240,326,326,-326,7864.4084,299.2225,far
+Overbot Vol Spike,Liquid,^NDX,QQQ,Short,-1,broad_idx,2023-02-02,2023-02-03,Target,12840.3568,306.1800,1,42,-42,12840.3568,193.9273,near
+Overbot Vol Spike,Liquid,QQQ,QQQ,Short,-1,broad_idx,2023-02-02,2023-02-03,Target,306.2228,306.2228,33,33,-33,10105.3513,199.3356,near
+Overbot Vol Spike,Liquid,^NDX,QQQ,Short,-1,broad_idx,2023-02-02,2023-02-06,Time,12840.3568,306.1800,1,42,-42,12840.3568,304.7429,far
+Overbot Vol Spike,Liquid,QQQ,QQQ,Short,-1,broad_idx,2023-02-02,2023-02-06,Time,306.2228,306.2228,50,50,-50,15311.1384,299.3346,far
+3x ETF Overbot Fade,Liquid,RETL,RETL,Short,-1,lev3x,2023-02-01,2023-02-03,Time,10.4090,10.4090,7137,7137,-7137,74289.0648,4500.0000,
+3x ETF Overbot Fade,Liquid,RETL,RETL,Short,-1,lev3x,2023-02-02,2023-02-06,Time,12.0537,12.0537,3382,3382,-3382,40765.5647,2343.7500,
+3x ETF Overbot Fade,Liquid,RETL,RETL,Short,-1,lev3x,2023-02-03,2023-02-07,Time,11.9076,11.9076,3061,3061,-3061,36449.0640,2343.7500,
+Overbot Vol Spike,Overflow,SBGI,SBGI,Short,-1,single,2023-02-02,2023-02-03,Target,17.6977,17.6977,424,424,-424,7503.8455,199.4889,near
+Overbot Vol Spike,Overflow,SBGI,SBGI,Short,-1,single,2023-02-02,2023-02-06,Target,17.6977,17.6977,636,636,-636,11255.7682,299.1813,far
+3x ETF Overbot Fade,Liquid,SOXL,SOXL,Short,-1,lev3x,2023-02-02,2023-02-06,Time,17.5535,17.5535,1967,1967,-1967,34527.7661,2343.7500,
+3x ETF Overbot Fade,Liquid,SOXL,SOXL,Short,-1,lev3x,2023-02-03,2023-02-07,Time,17.0272,17.0272,1928,1928,-1928,32828.4702,2343.7500,
+3x ETF Overbot Fade,Liquid,SPXL,SPXL,Short,-1,lev3x,2023-02-02,2023-02-06,Time,77.0880,77.0880,755,755,-755,58201.4743,2343.7500,
+3x ETF Overbot Fade,Liquid,SPXL,SPXL,Short,-1,lev3x,2023-02-03,2023-02-07,Time,75.3201,75.3201,739,739,-739,55661.5486,2343.7500,
+52wh Breakout,Overflow,TBBK,TBBK,Long,1,single,2023-01-30,2023-03-10,Stop,33.5452,33.5452,1728,1728,1728,57966.0718,3937.5000,
+3x ETF Overbot Fade,Liquid,TECL,TECL,Short,-1,lev3x,2023-02-02,2023-02-06,Time,30.2107,30.2107,1537,1537,-1537,46433.8799,2343.7500,
+3x ETF Overbot Fade,Liquid,TECL,TECL,Short,-1,lev3x,2023-02-03,2023-02-07,Time,29.4839,29.4839,1454,1454,-1454,42869.6310,2343.7500,
+Overbot Vol Spike,Liquid,TGT,TGT,Short,-1,single,2023-02-02,2023-02-03,Target,161.4538,161.4538,10,10,-10,1614.5382,39.8061,near
+Overbot Vol Spike,Liquid,TGT,TGT,Short,-1,single,2023-02-02,2023-02-06,Target,161.4538,161.4538,15,15,-15,2421.8073,59.9279,far
+Overbot Vol Spike,Overflow,THO,THO,Short,-1,single,2023-02-02,2023-02-06,Target,95.8134,95.8134,59,59,-59,5652.9885,199.5435,near
+Overbot Vol Spike,Overflow,THO,THO,Short,-1,single,2023-02-02,2023-02-06,Time,95.8134,95.8134,88,88,-88,8431.5761,299.1267,far
+3x ETF Overbot Fade,Liquid,TNA,TNA,Short,-1,lev3x,2023-02-02,2023-02-06,Time,43.7326,43.7326,1116,1116,-1116,48805.5885,2343.7500,
+3x ETF Overbot Fade,Liquid,TNA,TNA,Short,-1,lev3x,2023-02-03,2023-02-07,Time,43.7926,43.7926,1084,1084,-1084,47471.2221,2343.7500,
+3x ETF Overbot Fade,Liquid,TQQQ,TQQQ,Short,-1,lev3x,2023-02-02,2023-02-06,Time,12.7847,12.7847,3630,3630,-3630,46408.6316,2343.7500,
+3x ETF Overbot Fade,Liquid,TQQQ,TQQQ,Short,-1,lev3x,2023-02-03,2023-02-07,Time,12.4544,12.4544,3324,3324,-3324,41398.3385,2343.7500,
+Overbot Vol Spike,Overflow,UPBD,UPBD,Short,-1,single,2023-02-02,2023-02-06,Time,24.0507,24.0507,231,231,-231,5555.7011,199.4681,near
+Overbot Vol Spike,Overflow,UPBD,UPBD,Short,-1,single,2023-02-02,2023-02-06,Time,24.0507,24.0507,346,346,-346,8321.5263,299.2021,far
+Overbot Vol Spike,Liquid,VNQ,VNQ,Short,-1,sector_etf,2023-02-02,2023-02-03,Target,82.0928,82.0928,148,148,-148,12149.7307,199.4681,near
+Overbot Vol Spike,Liquid,VNQ,VNQ,Short,-1,sector_etf,2023-02-02,2023-02-06,Target,82.0928,82.0928,221,221,-221,18142.5033,299.2021,far
+Overbot Vol Spike,Overflow,WBD,WBD,Short,-1,single,2023-02-02,2023-02-03,Target,16.0268,16.0268,59,59,-59,945.5804,39.8636,near
+Overbot Vol Spike,Overflow,WBD,WBD,Short,-1,single,2023-02-02,2023-02-06,Time,16.0268,16.0268,89,89,-89,1426.3840,59.8704,far
+3x ETF Overbot Fade,Liquid,WEBL,WEBL,Short,-1,lev3x,2023-02-03,2023-02-07,Time,9.8871,9.8871,3371,3371,-3371,33329.2517,2343.7500,
+Overbot Vol Spike,Overflow,WSM,WSM,Short,-1,single,2023-02-02,2023-02-03,Target,68.4665,68.4665,90,90,-90,6161.9883,199.4681,near
+Overbot Vol Spike,Overflow,WSM,WSM,Short,-1,single,2023-02-02,2023-02-06,Target,68.4665,68.4665,135,135,-135,9242.9824,299.2021,far
+Overbot Vol Spike,Liquid,XHB,XHB,Short,-1,sector_etf,2023-02-02,2023-02-03,Target,70.8733,70.8733,121,121,-121,8575.6664,199.5410,near
+Overbot Vol Spike,Liquid,XHB,XHB,Short,-1,sector_etf,2023-02-02,2023-02-06,Time,70.8733,70.8733,182,182,-182,12898.9363,299.1292,far
+Overbot Vol Spike,Overflow,XLC,XLC,Short,-1,sector_etf,2023-02-02,2023-02-03,Target,57.1617,57.1617,199,199,-199,11375.1770,199.4903,near
+Overbot Vol Spike,Overflow,XLC,XLC,Short,-1,sector_etf,2023-02-02,2023-02-06,Time,57.1617,57.1617,298,298,-298,17034.1846,299.1799,far
+Overbot Vol Spike,Liquid,XLK,XLK,Short,-1,sector_etf,2023-02-02,2023-02-03,Target,70.1804,70.1804,147,147,-147,10316.5188,199.4981,near
+Overbot Vol Spike,Liquid,XLK,XLK,Short,-1,sector_etf,2023-02-02,2023-02-06,Time,70.1804,70.1804,221,221,-221,15509.8684,299.1722,far
+Overbot Vol Spike,Overflow,XLRE,XLRE,Short,-1,sector_etf,2023-02-02,2023-02-03,Target,37.4836,37.4836,306,306,-306,11469.9782,199.4681,near
+Overbot Vol Spike,Overflow,XLRE,XLRE,Short,-1,sector_etf,2023-02-02,2023-02-06,Target,37.4836,37.4836,459,459,-459,17204.9673,299.2021,far
+Overbot Vol Spike,Liquid,XLY,XLY,Short,-1,sector_etf,2023-02-02,2023-02-03,Target,76.5525,76.5525,120,120,-120,9186.2970,199.5050,near
+Overbot Vol Spike,Liquid,XLY,XLY,Short,-1,sector_etf,2023-02-02,2023-02-06,Target,76.5525,76.5525,180,180,-180,13779.4455,299.1652,far
+Overbot Vol Spike,Overflow,ZBRA,ZBRA,Short,-1,single,2023-02-02,2023-02-03,Target,343.5366,343.5366,20,20,-20,6870.7320,199.4681,near
+Overbot Vol Spike,Overflow,ZBRA,ZBRA,Short,-1,single,2023-02-02,2023-02-06,Time,343.5366,343.5366,30,30,-30,10306.0979,299.2021,far

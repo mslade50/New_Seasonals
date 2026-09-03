@@ -1,0 +1,16 @@
+symbol,position,gross_shares,notional,price,klass,strategies,tiers,long_notional,short_notional,pct_nav
+XLF,44270,44270,585028.1171,13.2150,sector_etf,Weak Close Decent Sznls,Liquid,585028.1171,0.0000,0.7800
+XLV,13331,13331,573930.4217,43.0523,sector_etf,Weak Close Decent Sznls,Liquid,573930.4217,0.0000,0.7652
+XLB,32177,32177,546689.9910,16.9901,sector_etf,Weak Close Decent Sznls,Liquid,546689.9910,0.0000,0.7289
+SPY,2875,2875,508412.8395,176.8300,broad_idx,Indices Oversold Bounce,Liquid,508412.8395,0.0000,0.6779
+XLU,23374,23374,300524.2340,12.8572,sector_etf,Weak Close Decent Sznls,Liquid,300524.2340,0.0000,0.4007
+GOOGL,3756,3756,93795.0246,24.9721,single,52wh Breakout,Overflow,93795.0246,0.0000,0.1251
+GOOG,3773,3773,93778.9583,24.8553,single,52wh Breakout,Liquid,93778.9583,0.0000,0.1250
+CP,3677,3677,93673.4472,25.4755,single,52wh Breakout,Overflow,93673.4472,0.0000,0.1249
+WWW,3623,3623,86022.4227,23.7434,single,52wh Breakout,Overflow,86022.4227,0.0000,0.1147
+MCHP,5229,5229,85298.2814,16.3125,single,52wh Breakout,Overflow,85298.2814,0.0000,0.1137
+CHH,2062,2062,83776.4193,40.6287,single,52wh Breakout,Overflow,83776.4193,0.0000,0.1117
+DIN,1664,1664,78385.6179,47.1067,single,52wh Breakout,Overflow,78385.6179,0.0000,0.1045
+TRMB,2231,2231,72128.2341,32.3300,single,52wh Breakout,Overflow,72128.2341,0.0000,0.0962
+AMGN,809,809,63846.3341,78.9201,single,52wh Breakout,Liquid,63846.3341,0.0000,0.0851
+WT,4215,4215,45475.9435,10.7891,single,52wh Breakout,Overflow,45475.9435,0.0000,0.0606

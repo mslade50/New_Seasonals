@@ -1,0 +1,83 @@
+{
+ "2017":{
+  "Distribution Dominance":0.0,
+  "VIX Range Compression":0.0,
+  "Defensive Leadership":0.0,
+  "Pre-FOMC Rally":0.0,
+  "Low Absorption Ratio":0.0,
+  "Seasonal Rank Divergence":1.243,
+  "Dispersion":0.0
+ },
+ "2018":{
+  "Distribution Dominance":0.0,
+  "VIX Range Compression":0.0,
+  "Defensive Leadership":7.434,
+  "Pre-FOMC Rally":0.0,
+  "Low Absorption Ratio":0.0,
+  "Seasonal Rank Divergence":4.612,
+  "Dispersion":0.0
+ },
+ "2019":{
+  "Distribution Dominance":0.0,
+  "VIX Range Compression":0.0,
+  "Defensive Leadership":6.686,
+  "Pre-FOMC Rally":1.153,
+  "Low Absorption Ratio":10.47,
+  "Seasonal Rank Divergence":7.246,
+  "Dispersion":0.0
+ },
+ "2020":{
+  "Distribution Dominance":0.0,
+  "VIX Range Compression":0.0,
+  "Defensive Leadership":8.218,
+  "Pre-FOMC Rally":0.0,
+  "Low Absorption Ratio":8.809,
+  "Seasonal Rank Divergence":7.743,
+  "Dispersion":0.0
+ },
+ "2021":{
+  "Distribution Dominance":0.0,
+  "VIX Range Compression":0.968,
+  "Defensive Leadership":7.071,
+  "Pre-FOMC Rally":0.0,
+  "Low Absorption Ratio":4.946,
+  "Seasonal Rank Divergence":6.016,
+  "Dispersion":0.0
+ },
+ "2022":{
+  "Distribution Dominance":0.226,
+  "VIX Range Compression":3.569,
+  "Defensive Leadership":6.09,
+  "Pre-FOMC Rally":0.383,
+  "Low Absorption Ratio":4.819,
+  "Seasonal Rank Divergence":4.721,
+  "Dispersion":0.0
+ },
+ "2023":{
+  "Distribution Dominance":0.381,
+  "VIX Range Compression":1.768,
+  "Defensive Leadership":6.147,
+  "Pre-FOMC Rally":0.318,
+  "Low Absorption Ratio":5.573,
+  "Seasonal Rank Divergence":5.483,
+  "Dispersion":0.0
+ },
+ "2024":{
+  "Distribution Dominance":0.943,
+  "VIX Range Compression":0.938,
+  "Defensive Leadership":5.603,
+  "Pre-FOMC Rally":0.42,
+  "Low Absorption Ratio":4.266,
+  "Seasonal Rank Divergence":4.003,
+  "Dispersion":0.0
+ },
+ "2025":{
+  "Distribution Dominance":0.979,
+  "VIX Range Compression":0.975,
+  "Defensive Leadership":5.64,
+  "Pre-FOMC Rally":0.421,
+  "Low Absorption Ratio":4.347,
+  "Seasonal Rank Divergence":3.283,
+  "Dispersion":3.152
+ }
+}

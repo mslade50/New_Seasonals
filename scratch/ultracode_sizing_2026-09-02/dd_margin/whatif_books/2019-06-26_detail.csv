@@ -1,0 +1,12 @@
+Strategy,Tier,Ticker,symbol,Direction,sign,klass,Entry Date,Exit Date,Exit Type,Entry Price,etf_price,Shares_flat,etf_shares,signed_shares,notional,Risk_flat_750k,Tranche
+52wh Breakout,Overflow,BRO,BRO,Long,1,single,2019-04-24,2019-07-03,Target,29.9011,29.9011,5125,5125,5125,153243.3783,3937.5000,
+Overbot Vol Spike,Liquid,DE,DE,Short,-1,single,2019-06-24,2019-06-26,Time,151.7013,151.7013,645,645,-645,97847.3102,1800.5583,near
+Overbot Vol Spike,Liquid,DE,DE,Short,-1,single,2019-06-24,2019-06-26,Time,151.7013,151.7013,967,967,-967,146695.1146,2699.4417,far
+Monday Dip,Liquid,DIA,DIA,Long,1,broad_idx,2019-06-25,2019-06-27,Time,235.3283,235.3283,1591,1591,1591,374407.3213,3375.0000,
+Weak Close Decent Sznls,Liquid,DIA,DIA,Long,1,broad_idx,2019-06-26,2019-06-28,Time,234.2062,234.2062,2202,2202,2202,515722.0084,4687.5000,
+52wh Breakout,Liquid,DIS,DIS,Long,1,single,2019-04-17,2019-07-16,Time,124.9359,124.9359,823,823,823,102822.2538,3937.5000,
+Overbot Vol Spike,Liquid,GLD,GLD,Short,-1,sector_etf,2019-06-24,2019-06-26,Target,133.7182,133.7182,1424,1424,-1424,190414.7418,1800.5058,near
+Overbot Vol Spike,Liquid,GLD,GLD,Short,-1,sector_etf,2019-06-24,2019-06-26,Time,133.7182,133.7182,2135,2135,-2135,285488.3945,2699.4942,far
+Weak Close Decent Sznls,Liquid,IYR,IYR,Long,1,sector_etf,2019-06-25,2019-06-26,Stop,74.4789,74.4789,7140,7140,7140,531779.3992,5906.2500,
+52wh Breakout,Overflow,LULU,LULU,Long,1,single,2019-03-29,2019-06-28,Time,165.9100,165.9100,354,354,354,58732.1413,3937.5000,
+Weak Close Decent Sznls,Liquid,SPY,SPY,Long,1,broad_idx,2019-06-26,2019-06-28,Time,263.5397,263.5397,2103,2103,2103,554224.0260,4687.5000,

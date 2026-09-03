@@ -1,0 +1,955 @@
+{
+ "basis": "flat $750k; Shares_flat x Entry Price; Entry<=d<=Exit",
+ "ledger_rows": 4696,
+ "ledger_last_exit": "2026-09-01",
+ "dates": {
+  "2013-11-04": {
+   "n_trades": 15,
+   "n_symbols": 15,
+   "gross": 3310766.2862488204,
+   "long": 3310766.2862488204,
+   "short": 0.0,
+   "gross_pct_nav": 4.41435504833176,
+   "long_pct_nav": 4.41435504833176,
+   "short_pct_nav": 0.0,
+   "class_notional": {
+    "broad_idx": 508412.83952985494,
+    "sector_etf": 2006172.763739075,
+    "single": 796180.6829798903
+   },
+   "top_symbol": "XLF",
+   "top_symbol_notional": 585028.1170681545,
+   "top_symbol_pct_nav": 0.780037489424206,
+   "top5": {
+    "XLF": 0.78,
+    "XLV": 0.765,
+    "XLB": 0.729,
+    "SPY": 0.678,
+    "XLU": 0.401
+   },
+   "strategies": {
+    "Weak Close Decent Sznls": 2006172.763739075,
+    "52wh Breakout": 796180.6829798903,
+    "Indices Oversold Bounce": 508412.83952985494
+   },
+   "carets_converted": [
+    [
+     "^GSPC",
+     "SPY",
+     2875
+    ]
+   ],
+   "positions": [
+    {
+     "symbol": "XLF",
+     "position": 44270,
+     "notional": 585028.1170681545,
+     "long_notional": 585028.1170681545,
+     "short_notional": 0.0,
+     "price": 13.215001514979772,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "XLV",
+     "position": 13331,
+     "notional": 573930.4216644424,
+     "long_notional": 573930.4216644424,
+     "short_notional": 0.0,
+     "price": 43.052315780094695,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "XLB",
+     "position": 32177,
+     "notional": 546689.9909849848,
+     "long_notional": 546689.9909849848,
+     "short_notional": 0.0,
+     "price": 16.99008580616542,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "SPY",
+     "position": 2875,
+     "notional": 508412.83952985494,
+     "long_notional": 508412.83952985494,
+     "short_notional": 0.0,
+     "price": 176.830002,
+     "klass": "broad_idx"
+    },
+    {
+     "symbol": "XLU",
+     "position": 23374,
+     "notional": 300524.23402149335,
+     "long_notional": 300524.23402149335,
+     "short_notional": 0.0,
+     "price": 12.857201763561793,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "GOOGL",
+     "position": 3756,
+     "notional": 93795.02460724967,
+     "long_notional": 93795.02460724967,
+     "short_notional": 0.0,
+     "price": 24.972051279885427,
+     "klass": "single"
+    },
+    {
+     "symbol": "GOOG",
+     "position": 3773,
+     "notional": 93778.95829677582,
+     "long_notional": 93778.95829677582,
+     "short_notional": 0.0,
+     "price": 24.85527651650565,
+     "klass": "single"
+    },
+    {
+     "symbol": "CP",
+     "position": 3677,
+     "notional": 93673.44720602036,
+     "long_notional": 93673.44720602036,
+     "short_notional": 0.0,
+     "price": 25.47550916671753,
+     "klass": "single"
+    },
+    {
+     "symbol": "WWW",
+     "position": 3623,
+     "notional": 86022.42270892007,
+     "long_notional": 86022.42270892007,
+     "short_notional": 0.0,
+     "price": 23.743423325674875,
+     "klass": "single"
+    },
+    {
+     "symbol": "MCHP",
+     "position": 5229,
+     "notional": 85298.28138327599,
+     "long_notional": 85298.28138327599,
+     "short_notional": 0.0,
+     "price": 16.31254185949053,
+     "klass": "single"
+    },
+    {
+     "symbol": "CHH",
+     "position": 2062,
+     "notional": 83776.41925811768,
+     "long_notional": 83776.41925811768,
+     "short_notional": 0.0,
+     "price": 40.628719329833984,
+     "klass": "single"
+    },
+    {
+     "symbol": "DIN",
+     "position": 1664,
+     "notional": 78385.61785016741,
+     "long_notional": 78385.61785016741,
+     "short_notional": 0.0,
+     "price": 47.10674149649484,
+     "klass": "single"
+    },
+    {
+     "symbol": "TRMB",
+     "position": 2231,
+     "notional": 72128.23408508301,
+     "long_notional": 72128.23408508301,
+     "short_notional": 0.0,
+     "price": 32.33000183105469,
+     "klass": "single"
+    },
+    {
+     "symbol": "AMGN",
+     "position": 809,
+     "notional": 63846.33406829834,
+     "long_notional": 63846.33406829834,
+     "short_notional": 0.0,
+     "price": 78.9200668334961,
+     "klass": "single"
+    },
+    {
+     "symbol": "WT",
+     "position": 4215,
+     "notional": 45475.94351598195,
+     "long_notional": 45475.94351598195,
+     "short_notional": 0.0,
+     "price": 10.789073194776263,
+     "klass": "single"
+    }
+   ]
+  },
+  "2016-06-14": {
+   "n_trades": 10,
+   "n_symbols": 10,
+   "gross": 3134568.486417532,
+   "long": 3134568.486417532,
+   "short": 0.0,
+   "gross_pct_nav": 4.17942464855671,
+   "long_pct_nav": 4.17942464855671,
+   "short_pct_nav": 0.0,
+   "class_notional": {
+    "broad_idx": 1383364.8757476807,
+    "sector_etf": 1319461.10974976,
+    "single": 153706.0146682603,
+    "smallcap_idx": 278036.48625183105
+   },
+   "top_symbol": "SPY",
+   "top_symbol_notional": 506539.9990190778,
+   "top_symbol_pct_nav": 0.6753866653587705,
+   "top5": {
+    "SPY": 0.675,
+    "QQQ": 0.587,
+    "DIA": 0.582,
+    "IHI": 0.565,
+    "XLV": 0.518
+   },
+   "strategies": {
+    "Weak Close Decent Sznls": 1020156.0335990702,
+    "Monday Dip": 1013582.3508666584,
+    "SPY QQQ MonFri Reversion": 947124.0872835431,
+    "52wh Breakout": 153706.0146682603
+   },
+   "carets_converted": [],
+   "positions": [
+    {
+     "symbol": "SPY",
+     "position": 2872,
+     "notional": 506539.9990190778,
+     "long_notional": 506539.9990190778,
+     "short_notional": 0.0,
+     "price": 176.3718659537179,
+     "klass": "broad_idx"
+    },
+    {
+     "symbol": "QQQ",
+     "position": 4399,
+     "notional": 440584.08826446533,
+     "long_notional": 440584.08826446533,
+     "short_notional": 0.0,
+     "price": 100.15550994873047,
+     "klass": "broad_idx"
+    },
+    {
+     "symbol": "DIA",
+     "position": 2998,
+     "notional": 436240.7884641375,
+     "long_notional": 436240.7884641375,
+     "short_notional": 0.0,
+     "price": 145.5106032235282,
+     "klass": "broad_idx"
+    },
+    {
+     "symbol": "IHI",
+     "position": 19981,
+     "notional": 423457.0528153351,
+     "long_notional": 423457.0528153351,
+     "short_notional": 0.0,
+     "price": 21.19298597744533,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "XLV",
+     "position": 6475,
+     "notional": 388251.6389608383,
+     "long_notional": 388251.6389608383,
+     "short_notional": 0.0,
+     "price": 59.961643082754954,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "SMH",
+     "position": 11694,
+     "notional": 299305.0761506898,
+     "long_notional": 299305.0761506898,
+     "short_notional": 0.0,
+     "price": 25.594755956104823,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "IWM",
+     "position": 2772,
+     "notional": 278036.48625183105,
+     "long_notional": 278036.48625183105,
+     "short_notional": 0.0,
+     "price": 100.30176271711078,
+     "klass": "smallcap_idx"
+    },
+    {
+     "symbol": "XLB",
+     "position": 10862,
+     "notional": 208447.3418228967,
+     "long_notional": 208447.3418228967,
+     "short_notional": 0.0,
+     "price": 19.190512044089182,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "HAS",
+     "position": 1517,
+     "notional": 94194.69441965649,
+     "long_notional": 94194.69441965649,
+     "short_notional": 0.0,
+     "price": 62.09274516786848,
+     "klass": "single"
+    },
+    {
+     "symbol": "DLTR",
+     "position": 679,
+     "notional": 59511.32024860382,
+     "long_notional": 59511.32024860382,
+     "short_notional": 0.0,
+     "price": 87.64553792136056,
+     "klass": "single"
+    }
+   ]
+  },
+  "2019-06-26": {
+   "n_trades": 11,
+   "n_symbols": 8,
+   "gross": 3011376.0894242353,
+   "long": 2290930.5282806326,
+   "short": 720445.5611436027,
+   "gross_pct_nav": 4.015168119232314,
+   "long_pct_nav": 3.05457403770751,
+   "short_pct_nav": 0.9605940815248036,
+   "class_notional": {
+    "broad_idx": 1444353.3556919098,
+    "sector_etf": 1007682.5355426243,
+    "single": 559340.1981897014
+   },
+   "top_symbol": "DIA",
+   "top_symbol_notional": 890129.3297094618,
+   "top_symbol_pct_nav": 1.1868391062792825,
+   "top5": {
+    "DIA": 1.187,
+    "SPY": 0.739,
+    "IYR": 0.709,
+    "GLD": 0.635,
+    "DE": 0.326
+   },
+   "strategies": {
+    "Weak Close Decent Sznls": 1601725.4335883004,
+    "Overbot Vol Spike": 720445.5611436027,
+    "Monday Dip": 374407.32128879003,
+    "52wh Breakout": 314797.77340354235
+   },
+   "carets_converted": [],
+   "positions": [
+    {
+     "symbol": "DIA",
+     "position": 3793,
+     "notional": 890129.3297094618,
+     "long_notional": 890129.3297094618,
+     "short_notional": 0.0,
+     "price": 234.76723875318254,
+     "klass": "broad_idx"
+    },
+    {
+     "symbol": "SPY",
+     "position": 2103,
+     "notional": 554224.025982448,
+     "long_notional": 554224.025982448,
+     "short_notional": 0.0,
+     "price": 263.5397175380162,
+     "klass": "broad_idx"
+    },
+    {
+     "symbol": "IYR",
+     "position": 7140,
+     "notional": 531779.3991851807,
+     "long_notional": 531779.3991851807,
+     "short_notional": 0.0,
+     "price": 74.47890744890485,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "GLD",
+     "position": -3559,
+     "notional": 475903.13635744364,
+     "long_notional": 0.0,
+     "short_notional": 475903.13635744364,
+     "price": 133.71821757725306,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "DE",
+     "position": -1612,
+     "notional": 244542.424786159,
+     "long_notional": 0.0,
+     "short_notional": 244542.424786159,
+     "price": 151.70125607081823,
+     "klass": "single"
+    },
+    {
+     "symbol": "BRO",
+     "position": 5125,
+     "notional": 153243.37832842555,
+     "long_notional": 153243.37832842555,
+     "short_notional": 0.0,
+     "price": 29.901146990912302,
+     "klass": "single"
+    },
+    {
+     "symbol": "DIS",
+     "position": 823,
+     "notional": 102822.25377873011,
+     "long_notional": 102822.25377873011,
+     "short_notional": 0.0,
+     "price": 124.93590981619698,
+     "klass": "single"
+    },
+    {
+     "symbol": "LULU",
+     "position": 354,
+     "notional": 58732.14129638672,
+     "long_notional": 58732.14129638672,
+     "short_notional": 0.0,
+     "price": 165.91000366210938,
+     "klass": "single"
+    }
+   ]
+  },
+  "2023-02-03": {
+   "n_trades": 81,
+   "n_symbols": 41,
+   "gross": 1350716.7522086585,
+   "long": 57966.071829659595,
+   "short": 1292750.6803789989,
+   "gross_pct_nav": 1.8009556696115447,
+   "long_pct_nav": 0.07728809577287946,
+   "short_pct_nav": 1.723667573838665,
+   "class_notional": {
+    "broad_idx": 51097.203319004606,
+    "lev3x": 727030.5417063066,
+    "sector_etf": 208873.8865927969,
+    "single": 335641.50910602295,
+    "smallcap_idx": 28073.611484527588
+   },
+   "top_symbol": "RETL",
+   "top_symbol_notional": 151503.69346414294,
+   "top_symbol_pct_nav": 0.20200492461885725,
+   "top5": {
+    "RETL": 0.202,
+    "SPXL": 0.152,
+    "TNA": 0.128,
+    "TECL": 0.119,
+    "TQQQ": 0.117
+   },
+   "strategies": {
+    "3x ETF Overbot Fade": 727030.5417063066,
+    "Overbot Vol Spike": 565720.1386726925,
+    "52wh Breakout": 57966.071829659595
+   },
+   "carets_converted": [
+    [
+     "^NDX",
+     "QQQ",
+     42
+    ],
+    [
+     "^NDX",
+     "QQQ",
+     42
+    ]
+   ],
+   "positions": [
+    {
+     "symbol": "RETL",
+     "position": -13580,
+     "notional": 151503.69346414294,
+     "long_notional": 0.0,
+     "short_notional": 151503.69346414294,
+     "price": 11.456752504621234,
+     "klass": "lev3x"
+    },
+    {
+     "symbol": "SPXL",
+     "position": -1494,
+     "notional": 113863.02291161675,
+     "long_notional": 0.0,
+     "short_notional": 113863.02291161675,
+     "price": 76.20406913757324,
+     "klass": "lev3x"
+    },
+    {
+     "symbol": "TNA",
+     "position": -2200,
+     "notional": 96276.81058720179,
+     "long_notional": 0.0,
+     "short_notional": 96276.81058720179,
+     "price": 43.76262324196952,
+     "klass": "lev3x"
+    },
+    {
+     "symbol": "TECL",
+     "position": -2991,
+     "notional": 89303.51089041572,
+     "long_notional": 0.0,
+     "short_notional": 89303.51089041572,
+     "price": 29.84732495035444,
+     "klass": "lev3x"
+    },
+    {
+     "symbol": "TQQQ",
+     "position": -6954,
+     "notional": 87806.97008391788,
+     "long_notional": 0.0,
+     "short_notional": 87806.97008391788,
+     "price": 12.619560394968305,
+     "klass": "lev3x"
+    },
+    {
+     "symbol": "SOXL",
+     "position": -3895,
+     "notional": 67356.23626443319,
+     "long_notional": 0.0,
+     "short_notional": 67356.23626443319,
+     "price": 17.290365440504893,
+     "klass": "lev3x"
+    },
+    {
+     "symbol": "TBBK",
+     "position": 1728,
+     "notional": 57966.071829659595,
+     "long_notional": 57966.071829659595,
+     "short_notional": 0.0,
+     "price": 33.54518045697893,
+     "klass": "single"
+    },
+    {
+     "symbol": "QQQ",
+     "position": -167,
+     "notional": 51097.203319004606,
+     "long_notional": 0.0,
+     "short_notional": 51097.203319004606,
+     "price": 306.20138021058875,
+     "klass": "broad_idx"
+    },
+    {
+     "symbol": "DRN",
+     "position": -3901,
+     "notional": 49063.75660044806,
+     "long_notional": 0.0,
+     "short_notional": 49063.75660044806,
+     "price": 12.577225480760847,
+     "klass": "lev3x"
+    },
+    {
+     "symbol": "NAIL",
+     "position": -766,
+     "notional": 38527.28915895735,
+     "long_notional": 0.0,
+     "short_notional": 38527.28915895735,
+     "price": 50.296722139631,
+     "klass": "lev3x"
+    },
+    {
+     "symbol": "WEBL",
+     "position": -3371,
+     "notional": 33329.251745172915,
+     "long_notional": 0.0,
+     "short_notional": 33329.251745172915,
+     "price": 9.887051837784904,
+     "klass": "lev3x"
+    },
+    {
+     "symbol": "VNQ",
+     "position": -369,
+     "notional": 30292.23395143236,
+     "long_notional": 0.0,
+     "short_notional": 30292.23395143236,
+     "price": 82.09277493613106,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "IYR",
+     "position": -345,
+     "notional": 30230.574754306246,
+     "long_notional": 0.0,
+     "short_notional": 30230.574754306246,
+     "price": 87.62485436030796,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "XLRE",
+     "position": -765,
+     "notional": 28674.945508411955,
+     "long_notional": 0.0,
+     "short_notional": 28674.945508411955,
+     "price": 37.48358889988491,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "XLC",
+     "position": -497,
+     "notional": 28409.361570358276,
+     "long_notional": 0.0,
+     "short_notional": 28409.361570358276,
+     "price": 57.16169330051967,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "IWM",
+     "position": -147,
+     "notional": 28073.611484527588,
+     "long_notional": 0.0,
+     "short_notional": 28073.611484527588,
+     "price": 190.97694887433732,
+     "klass": "smallcap_idx"
+    },
+    {
+     "symbol": "PSA",
+     "position": -96,
+     "notional": 26287.913713727678,
+     "long_notional": 0.0,
+     "short_notional": 26287.913713727678,
+     "price": 273.83243451799666,
+     "klass": "single"
+    },
+    {
+     "symbol": "XLK",
+     "position": -368,
+     "notional": 25826.387136186873,
+     "long_notional": 0.0,
+     "short_notional": 25826.387136186873,
+     "price": 70.18039982659477,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "XLY",
+     "position": -300,
+     "notional": 22965.74245180402,
+     "long_notional": 0.0,
+     "short_notional": 22965.74245180402,
+     "price": 76.55247483934674,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "XHB",
+     "position": -303,
+     "notional": 21474.602719443184,
+     "long_notional": 0.0,
+     "short_notional": 21474.602719443184,
+     "price": 70.87327630179269,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "ITB",
+     "position": -295,
+     "notional": 21000.038500853945,
+     "long_notional": 0.0,
+     "short_notional": 21000.038500853945,
+     "price": 71.18657118933541,
+     "klass": "sector_etf"
+    },
+    {
+     "symbol": "GWRE",
+     "position": -253,
+     "notional": 19795.938955579484,
+     "long_notional": 0.0,
+     "short_notional": 19795.938955579484,
+     "price": 78.24481800624302,
+     "klass": "single"
+    },
+    {
+     "symbol": "NOVT",
+     "position": -110,
+     "notional": 19003.69866507394,
+     "long_notional": 0.0,
+     "short_notional": 19003.69866507394,
+     "price": 172.76089695521765,
+     "klass": "single"
+    },
+    {
+     "symbol": "SBGI",
+     "position": -1060,
+     "notional": 18759.61368901389,
+     "long_notional": 0.0,
+     "short_notional": 18759.61368901389,
+     "price": 17.697748763220652,
+     "klass": "single"
+    },
+    {
+     "symbol": "POOL",
+     "position": -47,
+     "notional": 18524.5188331604,
+     "long_notional": 0.0,
+     "short_notional": 18524.5188331604,
+     "price": 394.13869857788086,
+     "klass": "single"
+    },
+    {
+     "symbol": "BLDR",
+     "position": -212,
+     "notional": 17900.257694244385,
+     "long_notional": 0.0,
+     "short_notional": 17900.257694244385,
+     "price": 84.43517780303955,
+     "klass": "single"
+    },
+    {
+     "symbol": "ADSK",
+     "position": -77,
+     "notional": 17807.63823890686,
+     "long_notional": 0.0,
+     "short_notional": 17807.63823890686,
+     "price": 231.26802907671248,
+     "klass": "single"
+    },
+    {
+     "symbol": "ZBRA",
+     "position": -50,
+     "notional": 17176.82991027832,
+     "long_notional": 0.0,
+     "short_notional": 17176.82991027832,
+     "price": 343.5365982055664,
+     "klass": "single"
+    },
+    {
+     "symbol": "WSM",
+     "position": -225,
+     "notional": 15404.970732757021,
+     "long_notional": 0.0,
+     "short_notional": 15404.970732757021,
+     "price": 68.46653659003121,
+     "klass": "single"
+    },
+    {
+     "symbol": "THO",
+     "position": -147,
+     "notional": 14084.56457233429,
+     "long_notional": 0.0,
+     "short_notional": 14084.56457233429,
+     "price": 95.81336443764823,
+     "klass": "single"
+    },
+    {
+     "symbol": "UPBD",
+     "position": -577,
+     "notional": 13877.227457761765,
+     "long_notional": 0.0,
+     "short_notional": 13877.227457761765,
+     "price": 24.05065417289734,
+     "klass": "single"
+    },
+    {
+     "symbol": "PSKY",
+     "position": -543,
+     "notional": 13099.305962153843,
+     "long_notional": 0.0,
+     "short_notional": 13099.305962153843,
+     "price": 24.123952048165457,
+     "klass": "single"
+    },
+    {
+     "symbol": "MRVL",
+     "position": -250,
+     "notional": 11986.380883625574,
+     "long_notional": 0.0,
+     "short_notional": 11986.380883625574,
+     "price": 47.9455235345023,
+     "klass": "single"
+    },
+    {
+     "symbol": "KMX",
+     "position": -146,
+     "notional": 11626.084145682198,
+     "long_notional": 0.0,
+     "short_notional": 11626.084145682198,
+     "price": 79.6307133265904,
+     "klass": "single"
+    },
+    {
+     "symbol": "PAR",
+     "position": -297,
+     "notional": 11338.822898932865,
+     "long_notional": 0.0,
+     "short_notional": 11338.822898932865,
+     "price": 38.17785487856184,
+     "klass": "single"
+    },
+    {
+     "symbol": "CNK",
+     "position": -851,
+     "notional": 10909.367547069276,
+     "long_notional": 0.0,
+     "short_notional": 10909.367547069276,
+     "price": 12.819468327930995,
+     "klass": "single"
+    },
+    {
+     "symbol": "BNS",
+     "position": -135,
+     "notional": 6379.526522500174,
+     "long_notional": 0.0,
+     "short_notional": 6379.526522500174,
+     "price": 47.25575201851981,
+     "klass": "single"
+    },
+    {
+     "symbol": "MDT",
+     "position": -65,
+     "notional": 5090.112444332668,
+     "long_notional": 0.0,
+     "short_notional": 5090.112444332668,
+     "price": 78.30942222050258,
+     "klass": "single"
+    },
+    {
+     "symbol": "TGT",
+     "position": -25,
+     "notional": 4036.34546824864,
+     "long_notional": 0.0,
+     "short_notional": 4036.34546824864,
+     "price": 161.4538187299456,
+     "klass": "single"
+    },
+    {
+     "symbol": "WBD",
+     "position": -148,
+     "notional": 2371.964361327035,
+     "long_notional": 0.0,
+     "short_notional": 2371.964361327035,
+     "price": 16.02678622518267,
+     "klass": "single"
+    },
+    {
+     "symbol": "NVDA",
+     "position": -102,
+     "notional": 2214.354579653059,
+     "long_notional": 0.0,
+     "short_notional": 2214.354579653059,
+     "price": 21.709358624049596,
+     "klass": "single"
+    }
+   ]
+  },
+  "2026-09-01": {
+   "n_trades": 16,
+   "n_symbols": 11,
+   "gross": 884271.764752456,
+   "long": 884271.764752456,
+   "short": 0.0,
+   "gross_pct_nav": 1.1790290196699413,
+   "long_pct_nav": 1.1790290196699413,
+   "short_pct_nav": 0.0,
+   "class_notional": {
+    "single": 884271.7647524561
+   },
+   "top_symbol": "D",
+   "top_symbol_notional": 242543.98498753138,
+   "top_symbol_pct_nav": 0.32339197998337516,
+   "top5": {
+    "D": 0.323,
+    "LUV": 0.273,
+    "UNH": 0.204,
+    "POWI": 0.092,
+    "CINF": 0.072
+   },
+   "strategies": {
+    "Oversold Low Volume": 884271.7647524561
+   },
+   "carets_converted": [],
+   "positions": [
+    {
+     "symbol": "D",
+     "position": 3706,
+     "notional": 242543.98498753138,
+     "long_notional": 242543.98498753138,
+     "short_notional": 0.0,
+     "price": 65.62312425885881,
+     "klass": "single"
+    },
+    {
+     "symbol": "LUV",
+     "position": 4914,
+     "notional": 205073.82693243027,
+     "long_notional": 205073.82693243027,
+     "short_notional": 0.0,
+     "price": 41.99416689645677,
+     "klass": "single"
+    },
+    {
+     "symbol": "UNH",
+     "position": 396,
+     "notional": 153019.87896892003,
+     "long_notional": 153019.87896892003,
+     "short_notional": 0.0,
+     "price": 386.44623810904363,
+     "klass": "single"
+    },
+    {
+     "symbol": "POWI",
+     "position": 1266,
+     "notional": 68900.66516692298,
+     "long_notional": 68900.66516692298,
+     "short_notional": 0.0,
+     "price": 54.42687555721828,
+     "klass": "single"
+    },
+    {
+     "symbol": "CINF",
+     "position": 322,
+     "notional": 53972.549335479736,
+     "long_notional": 53972.549335479736,
+     "short_notional": 0.0,
+     "price": 167.61661284310478,
+     "klass": "single"
+    },
+    {
+     "symbol": "WERN",
+     "position": 889,
+     "notional": 33180.81316137314,
+     "long_notional": 33180.81316137314,
+     "short_notional": 0.0,
+     "price": 37.323749337877544,
+     "klass": "single"
+    },
+    {
+     "symbol": "WWD",
+     "position": 96,
+     "notional": 32673.521641322546,
+     "long_notional": 32673.521641322546,
+     "short_notional": 0.0,
+     "price": 340.3491837637765,
+     "klass": "single"
+    },
+    {
+     "symbol": "CMI",
+     "position": 54,
+     "notional": 31455.49391392299,
+     "long_notional": 31455.49391392299,
+     "short_notional": 0.0,
+     "price": 582.5091465541294,
+     "klass": "single"
+    },
+    {
+     "symbol": "ON",
+     "position": 313,
+     "notional": 22947.091725485665,
+     "long_notional": 22947.091725485665,
+     "short_notional": 0.0,
+     "price": 73.31339209420341,
+     "klass": "single"
+    },
+    {
+     "symbol": "CRS",
+     "position": 47,
+     "notional": 22853.13879776001,
+     "long_notional": 22853.13879776001,
+     "short_notional": 0.0,
+     "price": 486.2369956970215,
+     "klass": "single"
+    },
+    {
+     "symbol": "MOD",
+     "position": 94,
+     "notional": 17650.800121307373,
+     "long_notional": 17650.800121307373,
+     "short_notional": 0.0,
+     "price": 187.77446937561035,
+     "klass": "single"
+    }
+   ]
+  }
+ }
+}
