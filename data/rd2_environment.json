@@ -1,20 +1,20 @@
 {
-  "date": "2026-08-27",
+  "date": "2026-09-02",
   "price_ctx": {
-    "price": 770.5900268554688,
-    "ret_12m": 0.20490609005311278,
-    "extension_200d": 0.09001576232571962,
-    "drawdown": -0.009371597137841303,
-    "sma_200": 706.9531042480469,
+    "price": 761.780029296875,
+    "ret_12m": 0.2029624809028201,
+    "extension_200d": 0.07551754583992021,
+    "drawdown": -0.02069724827078301,
+    "sma_200": 708.2915869140625,
     "high_52w": 777.8800048828125,
-    "regime_label": "Extended uptrend, stretched above trend",
-    "days_since_5pct": 101,
-    "days_since_10pct": 337
+    "regime_label": "Strong uptrend, moderately extended",
+    "days_since_5pct": 104,
+    "days_since_10pct": 340
   },
   "h_scores": {
-    "5d": 40.17945967814604,
-    "21d": 69.17863097107502,
-    "63d": 89.44974115531718
+    "5d": 32.889689171022574,
+    "21d": 62.843514614994305,
+    "63d": 85.62079023251003
   },
   "signals": {
     "Distribution Dominance": {
@@ -23,39 +23,39 @@
       "summary": "D/A ratio: 1.8 (threshold: 3.75) \u2014 7D / 4A last 63d"
     },
     "VIX Range Compression": {
-      "on": false,
-      "detail": "",
-      "summary": "21d range: 6th pctile (fires below 15th) \u2014 VIX at 14.6"
+      "on": true,
+      "detail": "VIX 21d range at 1th percentile (threshold: 15th). VIX at 16.5 is compressed \u2014 eventual breakout tends to be violent.",
+      "summary": "21d range: 1th pctile (fires below 15th) \u2014 VIX at 16.5"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -17pp (fires < -10) | 200d spread: +0pp (fires < 0)"
+      "summary": "50d spread: -13pp (fires < -10) | 200d spread: -5pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Sep 16 (20d away) \u2014 5d return: 64th pctile (outside window)"
+      "summary": "Next FOMC: Sep 16 (15d away) \u2014 5d return: 28th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.363 (14th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.335 (6th pctile, fires below 10th) \u2014 near high: no"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: -1.4pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: -1.3pp (fires above 10) \u2014 near high: no"
     },
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 86th (fires above 85th) \u2014 component RV: 35.2% | SPY RV: 11.5%"
+      "summary": "Composite pctile: 89th (fires above 85th) \u2014 component RV: 32.3% | SPY RV: 9.5%"
     },
     "Equity P/C Complacency": {
       "on": false,
-      "detail": "10d-MA equity P/C 252d pctile: 53 (fires < 10)",
-      "summary": "Equity P/C at the 53th pctile of its trailing year (data 2026-08-26) \u2014 no complacency"
+      "detail": "10d-MA equity P/C 252d pctile: 52 (fires < 10)",
+      "summary": "Equity P/C at the 52th pctile of its trailing year (data 2026-09-01) \u2014 no complacency"
     }
   }
 }

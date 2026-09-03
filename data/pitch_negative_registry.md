@@ -1934,3 +1934,1282 @@ be live on 2026-08-12. (a2_c1_gate_attribution.py)
   beyond +12 td. That left month-end, which this morning closed on equities and
   suspended on rates. When the anchor set is empty the honest move is a
   price-state sweep and a stand-down, not an eighth class on a dead anchor.
+
+## Method traps (2026-08-25, from an 11-candidate sweep that killed all 11)
+
+- **The RECON contaminated the whole map: `px.pct_change(n)` on a wide
+  union-calendar panel pads foreign-calendar holes into synthetic zero-return
+  sessions.** This is the trap `pitch_lab._valid_pct_change` was written for
+  (2026-08-19) and it was walked into at stage B1 rather than inside a check,
+  so it propagated into every spread premise the surface map quoted and into
+  three checkers' briefs. Found INDEPENDENTLY by two checkers within minutes.
+  Measured damage: EEM-EFA 63d **-7.57pp / PIT 1.98 -> -4.67pp / PIT 5.56**,
+  FXI-EEM 63d **+4.24pp / PIT 100.0 -> -0.03pp / PIT 90.5** (error +4.27pp and
+  9.5 percentile points), OIH-XOP 63d -18.52 -> -16.78pp, SMH-SPY 63d
+  -10.17 -> -7.78pp. **C8 died on it outright** - its named extreme did not
+  exist and its trigger had last fired ten calendar days earlier. Two
+  properties worth keeping: only windows SPANNING a hole are affected, so
+  same-calendar US pairs and short lookbacks reproduce exactly (XLV-XLK 5d,
+  GDX-GLD 21d, XLU-TLT 21d all 0.00 error); and **the magnitude of the error is
+  a property of the PANEL, not the pair** - padding the recon universe (which
+  carried `^TNX` and `DX-Y.NYB`) gives +4.24pp on FXI-EEM while padding a
+  US-ETF-only panel gives -0.03pp. Rule: build every premise on valid sessions
+  per ticker, and state the basis. A premise is the one number a whole morning
+  rests on.
+  (b1d_premise_padfill_audit.py, c3b_c8_premise_forensic.py,
+  c5_padfill_basis_verification.py)
+- **A multi-day spread trigger can be a single-day gap trigger wearing a
+  longer lookback, and EPISODE CONTAINMENT is the test, not day-level mask
+  overlap.** Day-level overlap between the 5-day XLV-XLK rung and the dead
+  2026-08-19 one-day >=3pp gap form read only 32.3% / 17.1%, which looks like
+  a different object. Episode containment says otherwise: **95.4% of rung>=8
+  days and 100.0% of rung>=9/10 days contain a >=3pp single-day gap**, and the
+  biggest single day is a median **48% of the whole 5-day spread**. Today's
+  five daily gaps were [+4.07, +4.57, -1.58, +1.18, +1.82] and the +4.07pp
+  print was **2026-08-18, the exact session the corpse was built on**, with it
+  and 08-19 making 86.6% of the 9.98pp headline. When a window trigger is
+  suspected of re-skinning a point trigger, ask what fraction of its episodes
+  CONTAIN the point event, not what fraction of days coincide.
+  (a1b_c1_round2.py)
+- **The count-matched single-instrument control is the cheapest way to kill a
+  spread candidate, and it should run before the battery.** Take the spread
+  trigger's day count, then take the same number of days by the LONG leg's own
+  drawdown alone. XLK 5d <= -9.82% (count-matched) pays **+1.069%** against the
+  XLV-XLK spread trigger's **+0.555%**. The defensive leg was not adding
+  information, it was subtracting selectivity - and the gate framing (rotation
+  vs no-rotation, +0.564% vs +0.405%, worth +0.159pp) understated how badly,
+  because it holds the threshold fixed instead of the sample size.
+  (a1_c1_xlk_rotation_r1.py)
+- **A registry BY-PRODUCT is not pre-specified until you check the prose
+  against the script, and here they disagreed by 5 rank points.** The
+  2026-08-24 kill report recorded "on days tech's 63-day rank is
+  bottom-quintile while the index's is not, QQQ LONG pays +0.508% at h=5". The
+  code behind that line used **SPY r63 >= 25**; the prose said 20. **The cell
+  fires today only under the prose threshold** (SPY r63 is 23.8), and the
+  +0.508% headline was additionally the gap-10 decluster, where gap 5 gives
+  +0.297%. Edge over drift decays monotonically with the decluster gap
+  (+0.207 / +0.187 / +0.128 / +0.142 / +0.066 pp at gaps 1/5/10/21/63, t 2.67
+  -> 0.48). Two rules: quote a by-product from its SCRIPT, and a by-product
+  written down to explain why something else died has not been falsified just
+  because it was written down.
+  (e1_c11_qqq_laggard.py)
+- **A conditioning clause can be ANTI-selective, and the giveaway is that
+  loosening it toward inert improves the number.** "QQQ 63d rank <= 20" alone
+  is 337 episodes at +0.452%; adding "and the index is not" discards **226 of
+  337** to move the mean **-0.036pp**, and the discarded half pays **+0.508%**
+  against the kept half's +0.416%. The threshold ladder confirms the direction:
+  SPY > 30 gives +0.014%, > 25 gives +0.222%, > 20 gives +0.416% - the closer
+  the gate comes to doing nothing, the better it looks. When a gate's value
+  rises monotonically as it approaches inert, it has negative information and
+  the trade is the ungated parent.
+  (e1_c11_qqq_laggard.py)
+- **Today's fragility dial had no precedent in ANY cell examined, and that
+  became the morning's most reusable single filter.** ma10(63d) = **89.5, the
+  99.4th percentile of the entire 2016+ series**, with only 21 of 2453 days
+  >= 85 and exactly one prior episode (2021-12-20..2022-01-11, max 95.2).
+  Four independent cells were asked and all four answered the same way: C11's
+  support **tops out at dial 80.4** with zero episodes >= 85 and the parent's
+  [70,85) bucket at -0.806% on a 28.6% hit; C6's [80,200) bucket is **N=3 at
+  -1.963%, 0% hit**; C8 has **never been observed above 85** and is 0-for-2
+  above 65; C3's episodes top out at 68.6. Ask "what is the maximum dial this
+  cell has ever been observed at" early - when the answer is below today, the
+  candidate is out of sample regardless of its other statistics.
+  (e1c_c11_cochranq_parentdial.py, a4b_c6_round2.py, c3_c8_eem_efa_r1.py)
+- **An earnings anchor at the PRE-PRINT session is the worst rung on its own
+  ladder, which is the second independent earnings-anchor ladder failure.**
+  SMH into NVDA, ungated h=1: the true anchor ranks **16 of 16** at -0.286%
+  against a +0.122% ladder mean over offsets -10..+5, with offset -10 paying
+  +0.550% at t=2.35. The offset placebo ladder is now **11-for-11** in this
+  repo and has been applied to macro anchors and single-name anchors alike.
+  (b1_c2_smh_nvda_print.py)
+
+## Cells swept and empty (2026-08-25)
+
+- **The five-day tech-to-defensive rotation at a 99.6th-percentile extreme, in
+  all four expressions.** The tape handed over a genuine one-in-250-day
+  reading (XLV-XLK 5d = +9.98pp, 99.6th full-sample percentile) and every way
+  of trading it failed. **Long XLK**: see the count-matched and containment
+  entries above; additionally the rung ladder INVERTS where today sits (+0.566
+  / +0.424 / +0.180 / +0.555 / **-0.408 / -0.490%** at rungs 5/6/7/8/9/10pp,
+  today 9.98pp), the definition is fragile (at today's 99.64 percentile all
+  three lookbacks are negative, at the 95th all three are positive), and it is
+  a BEAR-tape selector for once - 20.0% of rung>=8 days sit above SPY's 200d
+  against a 71.6% base, while today SPY is +8.1% above, so the near-high
+  subclass is 5 days / 3 episodes all in 2026. **Short XLV**: -0.069% at h=3
+  and +0.009% at h=5 (-1.4x and 0.2x cost, 34-44); the apparent edge is only
+  that short-XLV's drift is -0.188%, and XLV ranks **9 of 9** by |t| across
+  the SPDRs. **Cross-sectional losers-vs-winners**: today's dispersion is the
+  84.5th PIT percentile, not an extreme; the gate is worth +0.009pp and the
+  live band pays +0.017% against an unconditional +0.096%; 0.5x cost. **XLI
+  intact-trend washout**: the "intact trend" clause is a negative-value filter
+  (broken-trend complement +0.418% beats the joint cell's +0.234%), and the
+  real h=7 shelf fails the family test at Cochran Q p=0.789 with permutation
+  P=0.268. Note the four are ONE position: h=5 return correlations run 0.780
+  (XLK/xsec), 0.715 (XLK/XLI), -0.586 (XLK/short-XLV), with OLS R-squared
+  0.34-0.61.
+  (a1_c1_xlk_rotation_r1.py, a1b, a1c, a2_c10_short_xlv_r1.py,
+  a4_c6_xsec_reversal_r1.py, a4b, a3_c9_xli_washout_r1.py, a3b, a3c)
+- **The NVDA print as a tradeable anchor for the semis complex, the first
+  single-name earnings anchor examined in this repo.** Ladder kill above. Also
+  settled: the edge is **not NVDA-specific and the gate is incoherent across
+  the family** - the same rule on the other five big semi prints has the
+  relative-low gate HELPING AVGO (+0.97pp) and MU (+1.32pp) while HURTING AMD
+  (-0.50pp), INTC (-0.73pp) and TXN (-0.47pp), with pooled non-NVDA ungated
+  h=3 at +0.085% over 465 prints. The one nominally positive object is the
+  POST-print entry (h=1 +0.351%, t=2.00, edge +0.288pp) and it is offset +2 on
+  the ladder, ungated, and 4.6x cost - under the bar and not the pitched
+  trade. Tail for anyone revisiting: SMH's reaction-day sd is 2.42%
+  full-history and **3.41% since 2020**, p01 -6.15%.
+  (b1_c2_smh_nvda_print.py, b1b, b1c)
+- **"The bond proxy was dumped and the bond was not" - the 2026-08-20 credit
+  gate re-skinned on utilities, and it INVERTS across its own threshold
+  walk.** Gate value by XLU rank21 rung: **+0.522 / +0.086 / -0.230 / -0.100pp
+  at <= 2/5/10/15**. Reference class puts XLU **8 of 9** (Cochran Q 2.80 on
+  8 df, p=0.946, I-squared 0, common excess +0.329pp, max is XLV). The
+  mechanism is falsified inside its own window: the state where TLT WAS hit
+  pays **+0.858% at h=5 on a 75.0% hit** over 28 episodes, sign p 0.006 - the
+  rates-repricing seller is the good one, not the equity rotator. Not a
+  duration trade either (beta_TLT -0.41, duration-neutral form +0.002%).
+  100% mask overlap with the dead 2026-08-12 rank21<=5 cell. **Utilities are
+  now dead in eight expressions.**
+  (b1_c3_xlu_washout_tlt_fine.py, b1b, b1c)
+- **Oil services versus E&P at a 63-day extreme, the first intra-energy pair
+  examined here.** Pair wrong-signed at h=1/2/3/5 (-0.209% at h=5, 35-44,
+  sign p 0.870, -1.7x cost); the one positive horizon is one episode
+  (drop-best -0.018%, drop-best-2 -0.200%). Leg attribution: long OIH +0.763pp
+  against short XOP **-0.439pp**, so the naked long pays +0.934% at 15.6x cost
+  against the pair's 1.4x - the 2026-08-24 SPY/QQQ and 2026-08-19 EFA/SPY
+  failure for the third time. Complex is one factor (PC1 83.0%, **1.42
+  effective names of 4**). Book overlap: 13 energy-family ledger signals in
+  these windows are **all Overbot Vol Spike SHORTS at avgR +1.083**.
+  (c1_c4_oih_xop_r1.py, c4_book_overlap_and_confirms.py)
+- **Fading a 99.6th-percentile gold-miner thrust, and it is not adjacent to
+  the 2026-08-18 GDX/GLD corpse, it IS it.** P(corpse mask | this mask) =
+  **0.924**, above the 91% same-object line, and that corpse's `outright`
+  vehicle is literally `-r_gdx`. Wrong-signed at all ten horizons (-0.844% at
+  h=5, 17-24, -16.9x cost); every live gate worsens it (today's r21>=37% rung
+  **-2.958%**); the 8 genuinely-new days are the worst subsample (-3.919% at
+  h=10, 1-for-6). The sign is on the LONG side (+0.844%, edge +0.575pp).
+  Premise itself was sound - only **32 of 5,075 days** ever ran hotter. Book
+  overlap quantifies a claim this registry had asserted from memory: **19
+  miner-name ledger signals in this state, all 19 OVS shorts at avgR +0.492,
+  27.1% of that family's lifetime signals in a state covering 4.1% of
+  sessions = 6.6x concentration.**
+  (c2_c7_gdx_thrust_fade_r1.py, c4_book_overlap_and_confirms.py)
+- **Emerging versus developed at a 63-day extreme.** Killed on false premise
+  first (see the pad entry). Granting the mask: short EFA carries **92% of the
+  h=5 excess** while long EEM contributes +0.020pp and the attribution FLIPS
+  SIGN at h=10; top-2 episodes are both late 2008 at **107% of total**; 2013+
+  pays +0.047% at a 45.2% hit; the live shape with EFA near its high pays
+  -0.113%. Naked long EEM edge **-0.008pp** - the signal says nothing about
+  EEM. The dollar-regression test is the only one it passes.
+  (c3_c8_eem_efa_r1.py, c3b)
+- **Month-end on FX, which completes the month-end anchor to three asset
+  classes (equities closed 2026-08-24, rates suspended 2026-08-24, FX closed
+  here).** The mechanism is the 4pm London fix rebalancing flow and it is
+  falsified in its own window: DXY's **ME-0 session pays -0.55 bp at a 45.6%
+  hit** against an all-days base of +0.10 bp, and **+3.57 bp (wrong sign) from
+  2020**; the window's total comes from ME-1/-3/-4, sessions the story does
+  not name. The pre-specified signed regression on relative US-vs-foreign
+  equity performance is slope -0.0157, **t -0.75, R-squared 0.0019**, with
+  non-monotone terciles. The ME-5 spike (+5.03 bp, 55.9%) is noise: rotation
+  null over the same 16-cell walk gives **P(max |t| >= 1.93) = 0.523**. Cost
+  4.11x on the index and **0.38x and wrong-signed on UUP**, the only vehicle
+  that trades as an ETF. August x midterm is N=7 at -0.156%.
+  (d1_c5_monthend_fx_r1.py, d1b)
+
+### Calendar finding, filed because it repeats yesterday's
+
+- **For the SECOND consecutive session the macro anchor set was empty**, which
+  makes 2026-08-24's note a pattern rather than a one-off. Jackson Hole is
+  closed on seven asset classes and today was JH-3; post-opex is closed in
+  both directions; NFP at +8 td sits at the horizon cap with its one live cell
+  midterm-parked to 2027-01; CPI, PPI, FOMC and quad witching are all beyond
+  +11 td. Month-end was the only non-macro anchor left and FX was its last
+  unswept class, now closed. **The two calendar-anchored candidates a morning
+  like this can still generate are a single-name earnings date and a
+  flow-calendar position** - both were tried here and both died, so the
+  inventory of anchors available in late August of a midterm year is now
+  documented as exhausted.
+
+## Method traps (2026-08-26, from a 12-candidate sweep that killed all 12)
+
+- **A breadth COUNT can be 96% redundant with a single-name cell already
+  closed.** The metals-complex count (members at a 21d rank >= 95) looked like
+  a new object beside the closed GDX thrust cell; **116 of 121 count>=4 days
+  (95.9%) ARE GDX-rank>=95 days**, and the residual "breadth without the
+  headline name" cell is **5 days**. Before treating a count as a new object,
+  compute its overlap with the largest member's own trigger. Companion to the
+  2026-08-24 energy-count entry, whose ladder shape reproduced here and worse:
+  long GDX h=5 by count runs +0.280 / +0.161 / -0.743 / -0.097 / **-0.861**
+  (today's live count of 4) / -1.616 / +2.911% against an all-days +0.272%.
+  (b3_c5_metals_breadth.py, b3b_c5_metals_round2.py)
+- **The COMPOSITION behind a count is a free parameter, and enumerating it can
+  produce three signs from one live state.** The same 2026-08-26 metals tape
+  reads **+0.448%** (today's exact 3-equity 1-metal composition, N=12),
+  **-0.861%** (the pitched count>=4 cell) and **+2.911%** (count=6) depending
+  on which defensible reading is taken. Nine neighbouring definitions of the
+  identical rule span -1.330% to +0.930%, five positive and four negative. A
+  count trigger owes its membership list pre-declared, exactly like a grid.
+  (b3b_c5_metals_round2.py)
+- **A gate can be worth +0.6pp at one depth and NEGATIVE at the depth that is
+  live.** The credit cell (HYG at a fresh 52w high while SPY is off its own)
+  passed round 1 cleanly -- +0.530% over 62 episodes, Welch t +1.97, era-stable,
+  8.8x cost -- and died to a depth-matched split: the gate is **+0.615pp at h=3
+  when SPY is >=2% below its high and -0.042pp in the 1.0-2.0% band**, which is
+  where today's -1.54% lands. Always split the conditioning variable at the LIVE
+  value, not just at the threshold the cell was defined on. (a6b_c6_round2.py)
+- **"Out of sample on the dial" is a kill in its own right, and this tape keeps
+  triggering it.** Three independent cells died partly on it: the credit cell's
+  **maximum historical dial reading is 68.0 across 100 trigger days** against
+  today's 88.9; the dial >= 85 analogue has **16 resolved observations that are
+  all one episode** (2021-12); and the QQQ cell killed on 2026-08-25 topped out
+  at 80.4. When the live regime sits 20+ points outside everything a cell was
+  measured on, say so as a kill rather than as a caveat.
+  (a6b_c6_round2.py, a8_c8_dial85.py, a8b_c8_round2.py)
+- **Charge a SESSION scan the same way you charge a grid.** The September
+  month-turn's whole three-day window is one session: **ME-3 to ME-2 pays
+  +83.12 bp at t=+3.11 on IWM, 93% of the window (100% on SPY)**, with every
+  other session in ME-8..ME+7 inside +/-30 bp. Charged for the 16-session x
+  12-month grid it was found in, a random scan on 26 draws returns
+  **P(max |t| >= 3.11) = 0.063** (SPY 0.421). A one-session spike found by
+  looking at sixteen is a scan result, and shifting the entry one session took
+  h=5 from +0.86% to -0.27%. (c9c_scanned_session.py)
+- **A sector-conditioner story is falsified when the gate pays BEST on the
+  members with the wrong sign of exposure.** The XLRE duration-rally gate was
+  pitched as rate repricing; XLRE's daily beta on TLT is **+0.060 (0.2% of
+  variance)** while the biggest gate values at h=5 belong to **XLB (-0.219),
+  XLF (-0.412) and XLE (-0.489)**, the three most negatively duration-correlated
+  sectors. The gate is a market-timing selector. Check the exposure ordering
+  before believing a channel. (c10b_loosen_refclass_mechanism.py, c10c_era_matched.py)
+- **The midterm inversion is now book-wide rather than anchor-specific.** It
+  killed or blocked five unrelated candidates in one morning: the dollar
+  washout (**-0.479%, 36.4% hit, N=22**, both vehicles), the September month
+  turn (**-0.366% on 3-3**), the payrolls run-up (**-0.676% on 3-3**), the
+  bank pair (-0.233% vs +0.125%) and the two put/call cells (h=10 **-1.219%**
+  vs +0.517%; h=3 **0-for-5**). Treat a midterm split as a REQUIRED round-2
+  test in a midterm year, not an optional one.
+- **A "virgin data surface" can have exactly one regime, and that is a
+  structural fact to establish FIRST.** The CBOE **index and etp put/call
+  series only begin 2019-10-07**, so the first usable trailing-252d
+  point-in-time percentile is **2020-10-16** and no pre/post-2018 era split
+  exists by construction. Establish a series' usable span before spending a
+  morning's budget on it. (a0_pc_recon.py)
+
+## Cells swept and empty (2026-08-26)
+
+- **The CBOE index put/call at a trailing-year low with equity P/C mid-range,
+  the first put/call cell ever tested in this repo.** The gate is
+  anti-selective: index<=10 alone is 289 days, adding the mid-range equity leg
+  discards **184 of them to move h=10 from +0.237% to -0.084%**, and the
+  discarded complement pays **+0.503%**. The threshold ladder runs backwards
+  (<=15 pays +0.762%, <=20 pays +0.862%). Long is negative against its own
+  same-era drift at all six horizons (worst **-0.747pp** at h=10); short is
+  8-18 at h=10 and one episode (drop-best-1 takes +0.084% to **-0.212%**). The
+  pitched ma10/252 definition is the **worst of nine** MA-by-lookback
+  neighbours. (a1_c1_index_pc.py, a1b_c1_round2.py)
+- **The ETF-options put/call at a trailing-year low on small caps.** NOT a
+  duplicate of the index cell -- the two share 38 days of 289/140, jaccard
+  0.097 -- so it dies on its own numbers. Sign flips inside its own horizon
+  profile (**-0.749% at h=3, +0.891% at h=10** on the same 21 episodes); five
+  of nine definition neighbours are negative at h=10 (ma21/252 **-0.782%**);
+  drop-best-2, both 2024, takes h=10 to **-0.082%**; the IWM-vs-SPY relative
+  form covers **3.7x** a 12 bp round trip against a 5x bar and 0.6x on
+  drop-best-1. (a2_c2_etp_pc.py, a2b_c2_round2.py)
+- **The bare dollar 21d washout, the untested parent of two parked entries.**
+  Full sample is flat: **+0.029% over 63 episodes, 31-32, sign p 0.599, 2.0x
+  cost**, with a plateau ladder that turns negative at every looser rung.
+  Midterm is wrong-signed on both vehicles. Two useful sub-findings filed with
+  it: DX vs UUP agree on **95.8% of matched episodes with a 1.4 bp per 5td
+  structural gap** (reproducing the registry's 1.3 bp figure), and the
+  registered one-day weak-NFP-close cell does NOT transfer to the 21-day rank
+  parent (the 22 episodes within 3 td of a print pay **-0.089%** against the
+  away episodes' +0.093%). Parked to the first non-midterm instance.
+  (b1_c3_dollar_washout.py, b1b_c3_dollar_round2.py, b1c_c3_nonmidterm_ladder.py)
+- **The dollar washout translated to EEM, i.e. the EM funding trade.** Excess
+  against its own all-days control is negative at all five horizons and the
+  episode-vs-control difference is **-0.000% at Welch t -0.00 over 56
+  episodes**. The dollar gate WITHOUT EEM's own washout pays +0.137% against
+  the joint cell's +0.174% and all days' +0.243%. Beta-neutral residual
+  **-0.093% against 1.13x SPY**, worse than the all-days residual, so it is a
+  levered index long. Reference class: **3 of 6, P(max-of-6) = 0.938**. It
+  dies with the country-decoupling family. (b2_c4_eem_dollar.py)
+- **Long KRE against XLF, the mirror of the parked short.** The literal rung is
+  **1 day in 4,818 sessions** and it is today; the nearest neighbour is 2
+  episodes, both losers, at -3.199%. Naked long KRE pays +0.464% at h=5 while
+  the short leg contributes **-0.414pp**, leaving **0.4x** cost, and the
+  surviving long is not alpha (**-0.185% vs SPY**; at h=10 the pair is
+  **-0.737% at t=-2.35**). Ten sub-industry-vs-parent pairs rank it **5 of 10**
+  with a fixed-effect common excess of -0.071%, independently reproducing
+  watchlist #19's blocker on a different construction. **Financials are now
+  closed in both directions.** (c7_kre_xlf.py, c7b_loosen_and_legs.py)
+- **The fragility dial at >= 85 as a directional index analogue.** All 16
+  resolved h=5/h=10 observations come from the 2021-12 top, and the second
+  episode is the one being traded, so it cannot also be its own evidence. The
+  level ladder is monotone across the whole range (+1.035% bottom bucket to
+  **-1.341%** top), i.e. the plain dial LEVEL as direction, the object CLAUDE.md
+  records dead at PIT t = -0.23. The loosest form with spread (>=70, 12
+  episodes) goes to **-0.103%** at h=10 on drop-best-3, and 2021, the majority
+  year, pays -0.337%. **Vintage flips it**: +1.427% on the sizing parquet
+  against **+0.245% at a 41.7% hit** on the research recompute, the two
+  agreeing on 82 of 102 days with ma10 differing by up to 11.8 points. Long
+  TLT as the defensive expression is -1.492% at a 12.5% hit.
+  (a8_c8_dial85.py, a8b_c8_round2.py)
+- **The turn INTO September entered at ME-3, on IWM and SPY.** One scanned
+  session (see the method trap above). September is not distinguishable in its
+  own family: **max-of-12 permutation P = 0.238** at its best horizon and
+  0.987/1.000/1.000 at h=5/7/10, ranking 2nd/8th/10th on SPY, with June-end,
+  May-end and Oct-end all beating it somewhere. The bare ME-3 entry pooled
+  across twelve months is worth **1.3x cost**. Midterm h=3 is -0.366% on 3-3
+  and h=7 hits **16.7%**; era runs +1.195% pre-2018 to **-0.500%** after.
+  **The month-end anchor is now closed on equities in the month-of-year
+  direction as well as the month-position one.**
+  (c9_month_of_year.py, c9b_gate_and_scan.py, c9c_scanned_session.py)
+- **XLRE out of a lagging base into a duration rally, the first real-estate
+  cell tested here.** Pitched rung is 2 episodes; gate value swings
+  +0.886 / -0.254 / **-2.422** / -0.640pp across h=3/5/7/10 and the
+  "TLT NOT rallying" complement beats the joint cell at h=5 and h=7. Era-matched
+  across ten sectors it ranks 2 of 10 then 4 of 10, family mean gate +0.476pp
+  with **nine of ten sectors positive, Cochran Q 6.07 on 9 df, I-squared 0%**,
+  random-date max-of-10 **P = 0.113**. Top-2 episodes are 61% of total
+  (2020-04-02 alone +15.32%); drop-best-3 is **4.1x** cost at h=3 and 2.6x at
+  h=5. The pooled family form is NEGATIVE at every horizon ex-2020, and deep
+  history agrees (IYR **0.7x cost** over 2000+, VNQ 2.0x). **Real estate is
+  closed and there is nothing to park.**
+  (c10_xlre_rates.py, c10b_loosen_refclass_mechanism.py, c10c_era_matched.py, c10d_family_pooled.py)
+- **MOVE/VIX at a trailing-year high, traded on duration.** The premise is
+  false: **MOVE is at the 46.4th percentile of its own trailing year** while
+  VIX is at the 17.5th, so the ratio is high because the denominator is cheap,
+  and today's sub-population of 397 days has a median MOVE percentile of 28.6.
+  Wrong-signed against its own control **15 of 15** across three vehicles and
+  five horizons. Gate attribution: rich-ratio +0.073% vs not-rich +0.072% vs
+  all days +0.080%, so the gate discards 77% of days to move the mean by
+  **-0.001pp**, and the half matching the stated mechanism pays **-0.144%**.
+  Cost 0.4x (TLT) and 0.3x (IEF). Data note for reuse: **^MOVE runs
+  2002-11-12 to date, 5,881 observations, 94.8% business-day coverage** -- it
+  is usable, it just says nothing here. (b4_c11_move_vix.py)
+- **The run into NFP entered seven sessions early, four vehicles.** Ladder is a
+  plateau on every vehicle (SPY's k=-2 beats the true anchor; **GLD peaks four
+  sessions AFTER the print**, rank 7 of 16; TLT 9 of 16). The print session
+  carries **6.5%** of the trade (+0.035% at t=+0.53 against a +0.500%
+  six-session run-up; TLT's print session is -0.094%). Charged for the
+  pre-declared 4x6 grid, the best cell returns a rotation-null
+  **P(max >= observed) = 0.338**. September prints pay **-0.038%** against a
+  same-month control of +0.156% while the other eleven months pay +0.588% at
+  t=3.77, and September-in-a-midterm is **-0.676% on 3-3**. Only SPY clears a
+  naked cost bar, at **4.5x** month-matched against 5x.
+  (c12_nfp_ladder.py, c12b_sept_midterm_control.py)
+
+### Calendar finding, filed because it is now three consecutive sessions
+
+- **The anchor set was empty for a THIRD straight session, and the two
+  additions that came into range both died.** NFP crossed from +8 td to +7 td,
+  putting it inside the horizon cap for the first time, and the month turn came
+  inside every horizon. Both were checked rather than dismissed, and both are
+  now closed: NFP on the ladder plus a September-midterm cell of -0.676%, the
+  month turn on a scanned session and a max-of-12 permutation P of 0.238. With
+  Jackson Hole closed on seven classes, post-opex closed both ways, and
+  CPI/PPI/FOMC/quad beyond the cap, **the late-August midterm calendar is
+  exhausted in the strong sense: not merely swept, but swept including the
+  cells that only became reachable this week.** The next genuinely new anchor
+  is the September CPI/PPI pair on 2026-09-10/11, which enters the horizon
+  around 2026-08-28.
+
+## Method traps (2026-08-27, from a 10-candidate sweep that killed 9)
+
+- **The PASS-THROUGH RATIO settles "is this vol effect harvestable" in one
+  number, and it should be run before any statistics.** A spot-VIX effect only
+  reaches a futures-based ETP to the extent the FRONT FUTURE moves with spot.
+  Back out the implied front future from UVXY/SVXY, then compare the cell's
+  pass-through against the unconditional baseline. Jackson Hole: on the 14
+  SVXY-era JH+0 sessions spot VIX falls **-1.79%** while the implied front
+  future moves **-0.17%**, a ratio of **0.09x**, against **0.55x** measured over
+  all **2034** down-VIX sessions (spot -4.86% -> future -2.65%). A sixth of the
+  normal rate means the spot drop is a same-day repricing of the near strip the
+  front future has already discounted, so there is nothing in it for the
+  vehicle. This is the general form of the registry's existing SVXY
+  beta-translation objection and it is cheaper to run: it kills the trade
+  without needing the beta regression, the ladder or the era split (all of
+  which agreed here). Companion note: the JH spot effect itself is weaker in
+  the tradeable era, -1.79% on 10/14 (sign p 0.0898) against -2.60% on 21/26
+  (p 0.0010) on the full 2000+ sample. (a1_c1_jh_vol.py, a1b_c1_jh_vol_h1.py)
+- **A one-session mechanism does not license a multi-session hold, and the
+  check must test the horizon the mechanism CLAIMS.** The JH vol work measured
+  the spot drop as exactly one session wide (JH-1 -> JH+0 -2.60%, 21/26;
+  JH-1 -> JH+2 back to +1.04%) and then tested the vehicle only at h=2 and h=4.
+  The h=1 vehicle form had to be requested separately. Match the hold to the
+  measured width of the effect before running the battery, or the round-1
+  verdict is about a different trade than the mechanism describes.
+- **The ledger's columns are SPACE-separated and a wrong guess returns a FALSE
+  ZERO overlap.** `data/backtest_trades_full.parquet` carries `Signal Date` and
+  `Strategy`, not `Signal_Date`/`Strategy_Name`. A
+  `dcol = "Signal_Date" if ... else led.columns[0]` fallback silently joins on
+  `trade_id` and reports "0 ledger signals", which reads as "no book overlap"
+  and is the most reassuring possible failure. Caught on the composer's own
+  red-team pass; the true overlap was 5 signals on the trigger days and 66
+  inside the holds. ASSERT the column names. (r1_redteam_c6.py)
+- **A cross-sectional reference class can CONFIRM as well as kill, and the
+  asymmetry is worth naming.** Three of this morning's candidates died to
+  reference classes (132 sector pairs at family-wise p 1.0000, 23 sector ETFs
+  at 0.8805, 205 single names at 1.0000) and the one survivor was confirmed by
+  the same instrument: the GDX rule run independently on NEM/AEM/AU/KGC pools
+  to +2.228% over 30 episodes at 22-8, sign p 0.0121 against those names' OWN
+  up-rate. The class also supplies the honest MAGNITUDE, since GDX's +5.5pp is
+  about 3x the family estimate, so the shipped expectation was shrunk toward
+  the family rather than quoted at the headline. Build the class for every
+  single-instrument cell, not only the ones you suspect. (c6c_gdx_replication.py)
+- **Widening a rank rung can degrade the cell at the LIVE depth specifically,
+  which is a different fact from the cell being fragile overall.** The GDX dose
+  response grades correctly on every rung, but today's flush depth (-2.94%, the
+  (-3,-2] bucket) pays +5.104% on 3-0 at rank>=99, +4.837% at >=97 and only
+  **+2.206% on 5-3 at >=95**. The tight gate is load-bearing at this depth even
+  though the ladder looks monotone in aggregate. Split the conditioning
+  variable at the LIVE value, not just across its range.
+  (c6d_gdx_dose.py, r1_redteam_c6.py)
+
+## Cells swept and empty (2026-08-27)
+
+- **Jackson Hole on VOLATILITY, which completes that anchor to EIGHT asset
+  classes and closes it in the strong sense.** Long SVXY at h=1 (the only
+  horizon the mechanism claims) pays +0.222% against an own-drift +0.099%,
+  record 9-5, exact sign p 0.2120, and the **beta-hedged residual is +0.0010pp
+  -- after SPY beta there is no cell at all**, because SPY's own h=1 on those
+  anchors is -0.0162% against +0.0632% all-days, so the raw number is the -0.5x
+  inverse of a mildly negative SPY day. The h=4 form is +0.332% against a
+  +0.419% drift (excess -0.087pp) with **top-2 episodes = 115% of total**. The
+  anchor ranks 11 of 25 at h=1 and 13 of 25 at h=4; k=+10 pays 2-13x more. The
+  **live -0.5x leverage era is NEGATIVE** (-0.054%, N=8) while the entire
+  positive mean is the pre-2018 -1x era (+0.591%, N=6). Midterm h=1 is -1.387%
+  on N=3, the eighth independent JH midterm inversion. Do not reopen this
+  anchor on a ninth class. (a1_c1_jh_vol.py, a1b_c1_jh_vol_h1.py)
+- **The month turn on commodities and metals, the last unswept class of that
+  anchor.** EW 8-name basket, ME-2 close to the ME-0 close: **+0.090% against
+  an own drift of +0.090%, excess -0.000pp at Welch t +0.00** over 243
+  observations, 128-115. Era split is the arbitraged-calendar signature,
+  **pre-2013 +0.548% at a 65.8% hit -> 2013+ -0.131% at 46.3%**. Cost 0.2x (8
+  legs x 5 bps = 40 bp against a 9.0 bp edge). The h=5 stretch form (+0.431% vs
+  +0.223%, sign p 0.0412) dies three ways: beta-hedged residual +0.098pp on
+  118-112, **August-only -0.136% with excess -0.359pp** and today IS an August
+  turn, and the offset ladder is a plateau ranking m=3 5 of 21. Per-ticker grid
+  best is XME h=5 at Sidak-over-16 p 0.2374. **The month-end anchor is now
+  closed on equities, rates, FX and commodities.** (a2_c2_month_turn_cmdty.py)
+- **A hold containing BOTH the PPI and the CPI of a back-to-back pair.** The
+  gate is ON 39.7% of all days and agrees with the trivial "CPI in the hold"
+  gate on **5045 of 5465 days (92.3%)**, reproducing the macro-vacuum kill
+  (278/318). The gated cell is BELOW drift: today's exact configuration (PPI at
+  entry+9, CPI at entry+10) pays +0.406% against a same-span +0.458%, and the
+  **NEITHER cell (+0.538%) beats the BOTH cell outright**. Anchor ranks 21 of
+  25. Gap-share: the two 08:30 release gaps contribute **+0.080% of the +0.406%
+  hold, about 5%**, against an unconditional two-gap baseline of +0.0595%.
+  TLT/IEF/GLD all below their own drift (-0.019 / -0.044 / -0.069pp). The
+  September-only sub-cell (N=9, 8-1, sign p 0.0195) is the **equity month turn
+  in disguise: 7 of its 9 dates are month-turn dates**, and today's instance is
+  an August one where the cell is 50.0%. (a3_c3_ppi_cpi_containment.py,
+  a3b_c3_september_probe.py)
+- **Three-month implied vol at a one-year LEVEL floor.** SPY h=10 +0.592%
+  against own drift +0.576% (edge +0.016pp, Welch t +0.08) and against a local
+  +/-126td control of **+0.752%** -- the cell underperforms its own
+  neighbourhood. **The threshold ladder is INVERTED**: lvlpct <=2 +0.076% /
+  <=5 +0.092% / <=10 +0.256% / <=20 +0.373% / all days +0.388%, so the more
+  extreme the floor the less it pays. h=3 and h=5 are wrong-signed against
+  control (-0.167pp, -0.198pp). SVXY post-leverage-cut clears drift by 15 bp
+  (1.9x) with two episodes at -25.04pp against a +28.02pp total. Note the level
+  basis was chosen deliberately over the return-rank basis per the 2026-08-10
+  level-vs-rank entry; both are now closed. (c4_vix3m_floor.py)
+- **Sector-vs-sector pairs at a 63-day spread floor, which closes the
+  relative-value pair form the way 2026-08-07 closed sector-vs-index.** Across
+  **132 ordered pairs** of 12 sector names the identical rule is perfectly
+  homogeneous: **Cochran Q 93.27 on 131 df, p 0.995, I-squared 0.0%**, common
+  excess +0.179pp, and the permutation max-of-132 null has a **median of
+  +1.440pp which is above every observed pair**. XLK-XLV (the "PIT 0.0" cell)
+  ranks **75 of 132, family-wise p 1.0000**; SMH-XLV 0.9753; best pair in the
+  grid 0.8560. Per-leg attribution kills the structure separately: **long SMH
+  outright +1.282pp, short XLV outright -0.283pp, pair +1.010pp** -- the short
+  leg subtracts and the pair is strictly worse than the outright long. Regime:
+  SPY<200d +3.172% (t 2.89) against SPY>=200d **+0.033% at a 45.5% hit**, and
+  the trigger over-selects SPY<200d by +12.6pp, which is the closed
+  laggard-snapback mechanism. Magnitude-only form flips sign inside one family
+  (-0.504 / -0.308 / -0.322 / +0.957pp). (b1_c5_sector_spread.py, b1b, b1c)
+- **The single-name washout at a 21-day rank floor, on a 205-name reference
+  class.** Common excess +0.226pp (z +1.45), **Cochran Q 219.33 on 204 df,
+  p 0.220, I-squared 7.0%** -- homogeneous, nothing distinguishable. TJX's
+  excess is **-3.554pp, rank 186 of 205, family-wise p 1.0000**, and its own
+  h=10 cell is **-2.766% against a +0.753% drift on 3-3**. The h=5 form is one
+  crisis: **drop 2008 and +4.233% becomes -0.792%** against a +0.400% drift.
+  The POOLED cell flips sign after 2018 (name-matched excess h=5 +1.575pp at
+  t 6.10 -> **-0.809pp at t -2.69**; h=10 +1.275 -> -1.081pp), and only returns
+  by excluding 2008/09/2020, which is a post-hoc carve-out of exactly the tail
+  the trigger over-selects. **There is also no basket form**: loosened to
+  z10<=-1.5 / r21<=10 / <=5% off low, the trigger still returns 1 of 218 names.
+  (b3_c10_washout_refclass.py, b3b_c10_round2.py)
+- **The dollar washout CONFIRMED BY A BOUNCE, i.e. the conditioner that was
+  supposed to rescue the midterm-parked parent.** It selects the wrong half.
+  The bounce leg strips **93.5%** of parent days and the survivors underperform
+  the discards: non-midterm h=5 pays **-0.129% over 8 episodes** while the
+  anti-cell the filter throws away pays **+0.125% over 52**, against a parent of
+  +0.051%. Every adjacent rung flips sign (r5>=75 +0.227% at a **25% hit**,
+  r5>=50 -0.183%, r21<=2 & r5>=60 -0.147% at a **16.7% hit**). Midterm is N=2 at
+  every horizon, so the parent's midterm block (watchlist 27) stands untouched
+  and is NOT what killed this. (c9_dx_washout_bounce.py)
+
+### Calendar finding, filed because it is now four consecutive sessions
+
+- **The anchor set was empty for a FOURTH straight session, and the two cells
+  that only became reachable this week both died the day they came into range.**
+  The September PPI/CPI pair crossed inside the 10 td cap for the first time
+  (+9 and +10 td) and is now closed as a containment object; Jackson Hole moved
+  to JH-1 and its eighth and final class closed. That exhausts the anchor
+  inventory in the strongest sense this repo has recorded: **every macro anchor
+  reachable from late August of a midterm year has now been swept on every
+  asset class it has a vehicle for.** The month-end anchor closed its fourth
+  and last class the same morning. The next genuinely new anchor is the
+  September FOMC on 2026-09-16, which enters the 10 td horizon around
+  2026-09-02, and the pre-FOMC drift is already spoken for by the event
+  sleeve's T1/T2 (midterm years take the T2 short form, gated on SPY's 21d rank
+  being under 50). **The practical consequence for the next week is that a
+  price-state sweep is the only honest search mode**, which is what produced
+  today's single survivor.
+
+### Method traps (2026-08-28, from an 11-candidate sweep that killed all 11)
+
+- **`searchsorted` fabricates anchors at the START of an index as well as the
+  end, and this one produced a t=4.64 headline before it was caught.** The
+  documented guard is `if loc >= len(dates): continue`, for a future event
+  resolving to the end of the index. The mirror case is worse because it is
+  silent: an event date BEFORE an instrument's first bar returns position 0, so
+  every pre-inception anchor collapses onto the opening sessions. On the
+  post-Jackson-Hole sweep all **11 pre-2011 conferences** landed on SVXY's first
+  bars and one early value was counted **twelve times**, reporting SVXY h=7 at
+  **+11.24%, t 4.64, n=26** against a real history of 14 Augusts. Any anchored
+  sweep touching a late-inception vehicle (SVXY 2011, XLRE 2015, UUP 2007, GDX
+  2006) needs BOTH guards. Promoted into `pitch_lab.anchor_positions`, which
+  drops out-of-range anchors on both sides and returns the surviving anchor
+  dates alongside the positions. (c6_post_jackson_hole.py,
+  tests/test_pitch_lab.py)
+- **The placebo offset ladder's record is 9-for-10, not 9-for-9, and saying so
+  matters.** Long IEF one session AFTER the Jackson Hole close is the first
+  event anchor in this repo whose ladder isolates k=0: the true anchor pays
+  +0.228% (t 3.99, n=24) while every neighbouring offset runs -0.09% to +0.11%.
+  It still died, on the midterm split and on family-wise multiplicity, but a
+  killer quoted as undefeated invites the wrong inference when it finally
+  misses. Record the ladder as a strong filter, not an oracle.
+- **A homogeneous reference class is now the modal kill, and the fixed-effect
+  common excess is frequently NEGATIVE.** Three of today's eleven died this way
+  with the family's common effect pointing the wrong direction: 11 country ETFs
+  at Cochran Q p 0.7879 / I-squared 0.0% / common excess **-0.230%**; 29 index
+  and industry ETFs at p 0.8915 / 0.0% / **-0.228%**; 28 sector and industry
+  ETFs at p 0.1671 / 20.5% / **-0.540% at t -3.14**. When the family mean is
+  negative, a positive member is not a leader, it is the right tail of a
+  negative distribution, and the permutation max-of-N p values behave
+  accordingly (0.144, 0.135, 0.8875). Run the reference class BEFORE round 2,
+  not after: it would have saved three round-2 passes today.
+- **The joint state whose join subtracts is not a near-miss and must not be
+  parked.** Four candidates today paid LESS than the plain state underneath
+  them (round-trip breakout -0.048% against a low-63d-rank parent of +0.530%;
+  the V that turned +0.370% against a momentum parent of +0.476%; the defensive
+  washout with the index-high clause +1.182% on 6 episodes against +1.227% on
+  34 without it; gold-and-equities below both parents AND below unconditional
+  drift). No threshold rescues a negative interaction, so these leave no
+  watchlist entry -- parking one would guarantee it is re-found and re-killed.
+  Contrast with a cell blocked by a cycle year or a live reading, which IS
+  parkable because a date or a number moves.
+
+### Cells swept and empty (2026-08-28)
+
+- **SPY at a 52-week high while its own 63-day return rank is bottom-quartile,
+  the "round-trip breakout".** 138 days of 6,389, live today, and the
+  interaction destroys both parents: the low-63d-rank leg alone pays **+0.530%
+  at h=10 over 239 episodes (t 2.14)**, near-high alone +0.194%, the joint
+  **-0.048% on 37 episodes** against own drift +0.457%, all days +0.377% and
+  local +/-126td +0.518%. Threshold neighbours flip sign in both directions
+  (r63<=15 -0.538%, r63<=35 +0.268%) and top-2 episodes are -12.64pp against a
+  -1.76pp total. Separately CONFIRMED not to be the 2026-08-14 low-VIX
+  near-high cell in disguise: overlap is 20 of 138 days and carries all the
+  sign (+1.259% on the overlap, -0.172% off it). (a1_c1_roundtrip_breakout.py)
+- **SVXY at a fresh 52-week high, as a price state rather than a term-structure
+  state.** Post-2018-03 vehicle only, 47 fresh episodes. Ladder: offset -5
+  +3.008% (t 9.42), -4 +2.721%, -3 +2.150%, -2 +1.472%, **true anchor +0.018%
+  (t 0.04)** -- a monotone decay into the entry, which is the lagging-marker
+  signature the registry already recorded for contango triggers, reproduced on
+  a PRICE trigger. Trigger population's trailing 21-day return is **+9.497% at
+  a 100% hit**. SPY-beta residual at beta 1.52 is **-0.449% (t -2.80)**, so the
+  vehicle underperforms its own beta at the high. Both directions closed.
+  (a2_c2_svxy_at_high.py)
+- **Gold and the S&P both in the top decile of their 21-day returns, both
+  directions.** Long is a filter that does not filter: joint -0.528% at h=5
+  against a gold-only +0.418% and unconditional +0.237%; the 50/50 form is
+  below both parents at every horizon. The fade is one fortnight: **top-2
+  episodes 2008-12-16 and 2008-12-31 are 80% of the total** and ex-2008 the
+  edge is ~1.2x cost. Reference class of 16 sibling pairs puts gold-vs-equities
+  at **z +0.90** with USO-vs-IWM ahead of it, and a one-step lookback nudge
+  (21d -> 10d) flips the sign. (a3_c10_gold_spx_joint_topdecile.py, a3b)
+- **The month turn conditioned on a SECTOR washout, which was the last
+  unswept form of the month-end anchor.** Ladder at h=5: **ME-5 +1.416%
+  (t 2.79)** against the pitched **ME-1 +0.008% (t 0.02)**, and the
+  three-sector form is a flat plateau with every t under 1.6. The washout
+  conditioner is worse than nothing: bare ME-1 +0.105% (N=319), conditioned
+  +0.008% (N=35), owning the basket every day +0.175%. Midterm is **-0.773%
+  (N=13, t -2.11, 30.8% hit)**. 110-cell grid, best occupant at Sidak p 0.358.
+  The month-end anchor is now closed on five classes.
+  (a4_c11_sector_month_turn.py)
+- **The country-ETF thrust from inside a drawdown, the INVERSION of the closed
+  break-inside-an-intact-thrust family.** The drawdown clause subtracts
+  (+0.673% bare, +0.463% joint, **+0.713% complement**; pooled -0.138pp over 11
+  names) and today's own depth bucket is the worst of six (**(-15%,-10%]
+  -0.289% at a 50.0% hit**). This reproduces the 2026-08-10 silver finding on a
+  second asset class: **distance-from-high is a U-shaped noise carve, not a
+  conditioner**, and that now holds on metals and on country equity. Family
+  Cochran Q p 0.7879, I-squared 0.0%, common excess -0.230%.
+  (b1_c3_thrust_in_drawdown.py, b1b)
+- **The "V that turned", 21-day rank >= 90 with 63-day rank <= 10, pooled over
+  29 ETFs.** Bare momentum +0.476% (N=3,521, t 6.43); joint +0.370% (N=189,
+  t 0.88); complement +0.481% (t 6.47). The 63-day clause subtracts -0.106pp
+  and discards 95% of the population. Rank and level forms disagree at
+  **Jaccard 0.10** with the t-63 roll-off exceeding the day's own bar on 31.0%
+  of trigger name-days, so the 2026-08-19 warning holds on the rank-LOW tail
+  too. USEFUL RESIDUE, filed to watchlist: the sub-cell with a **5-day rank
+  under 15** pays +1.437% (N=53, t 2.15, 67.9% hit) and there the 63-day gate
+  adds +0.705pp, against +0.139pp in the already-bouncing half -- a pooled
+  confirmation of watchlist 30 at 3x its episode count.
+  (b2_c4_v_that_turned.py, b2b)
+- **Sustained industry leadership at a double rank extreme into a 52-week high,
+  tested on biotech, which closes the last unswept industry class.** Every
+  clause subtracts (near-high alone +0.273% on 4,151 obs; double-rank plus
+  near-high +0.200%; full cell **-0.159%**), the beta-neutral residual is
+  **-0.023% (t -0.035)** on a measured beta of 0.983, and **92.2% of trigger
+  days sit above SPY's 200d against a 71.6% base rate**. Family of 28: common
+  excess **-0.540% (t -3.14)**, IBB 11 of 28, family-wise p 0.8875 -- the IHI
+  shape for the third time. (b3_c5_biotech_leadership.py)
+- **The POST-Jackson-Hole anchor on ten asset classes, which closes the
+  conference in the only direction that was left.** 210 cells produce 10 at
+  |t| >= 2 against an iid expectation of 10.5, and the best cell fails a
+  permutation null at **P 0.065**. The duration pulse (IEF +0.228%, LQD
+  +0.218% at h=1) is real and ladder-isolated but **midterm-inverted for the
+  seventh time** (+0.037%, t 0.41, 33.3% hit on 6 anchors, against +0.292% and
+  t 4.54 on 18), era-decayed to +0.137% at t 1.05 from 2020, one duration bet
+  wearing four labels (IEF/TLT forward correlation **0.911**), and partly a
+  month-position effect (lag-1 entry lands ME-1..ME-6 in 20 of 24 anchors).
+  **Jackson Hole is now closed pre-speech on eight classes and post-speech on
+  ten.** (c6_post_jackson_hole.py, c6b)
+- **The whole defensive complex washed out while the index sits at a 52-week
+  high**, which is the post-presidential-election rotation wearing a
+  sector-breadth label. **62.5% of the 16 trigger days fall within 60 calendar
+  days of a presidential election against a 9.1% base rate**, 8 of 16 within
+  30 days, leaving two historical episodes outside that window. Top-2 episodes
+  are **143% of the h=3 total**. The index-near-high clause subtracts
+  (three-of-three alone +1.227% on 34 episodes against +1.182% on 6 with it)
+  and breadth is non-monotone (2-of-3 beats 3-of-3). The rates reading fails
+  independently: basket TLT loading **0.138**, and TLT's own forward return on
+  trigger episodes is -0.291% at a 22.2% hit. (c7_defensives_washed_at_high.py,
+  c7b)
+- **The energy PULLBACK inside a thrust near a 52-week high, the rung between
+  two already-closed cells.** Both clauses subtract monotonically: near-high
+  2%/3%/5%/10%/none pays +0.482 / +0.409 / +0.813 / +1.080 / **+1.294%**, and
+  the thrust ladder r21>=50/65/80 pays +0.926 / +0.409 / **-0.276%**. The
+  near-high clause is the bull-tape selector at **100.0% of 27 trigger days
+  above SPY's 200d against a 71.6% base**. Nine SPDRs homogeneous (I-squared
+  0%), pooled pays +0.065% at h=7 against 6 bps, XLE ranks **9 of 9** by |t| at
+  h=10 with permutation P 1.000. Premise correction worth keeping: **XLE's
+  measured daily beta on CL=F is 0.112, not ~0.48** -- the levered-crude story
+  does not apply to XLE at the index level. (c8_xle_pullback_in_thrust.py)
+- **The dollar washout translated through DEVELOPED international, which closes
+  the family the EM version opened on 2026-08-26.** Best horizon pays 2.7 bps
+  = **0.34x** an 8 bps two-leg round trip, negative at five of six horizons,
+  123-129 record. The identity does not exist to harvest: on gate episodes the
+  dollar's own forward move is **+0.005%** (it mean-reverts UP) and the pair's
+  slope on the dollar is -0.63. The beta worry was wrong in the idea's favour
+  and did not save it -- measured **EFA beta on SPY 0.951**, so
+  beta-neutralising moves +0.027% to +0.030%. Decisive for the lane: the
+  already-dead EM version scores BETTER (+0.176% vs +0.027% at h=5), so the
+  whole dollar-washout-through-international family is closed rather than
+  parked. (c9_translation_channel.py)
+
+### Calendar finding, filed because it is now five consecutive sessions
+
+- **A fifth straight empty anchor set, and today the last open DIRECTION of the
+  last anchor closed.** Jackson Hole was JH+0 for the first time in this
+  product's life, so the post-speech anchor became reachable and was swept on
+  ten classes; it is now closed. Nothing else moved: NFP at +5 td, PPI at +8
+  and CPI at +9 are all closed on their own ladders, and FOMC, VIX expiry, the
+  September opex and quad witching are all beyond the 10 td cap. The month-end
+  anchor closed its fifth class (sector-conditioned). **The next genuinely new
+  anchor remains the September FOMC on 2026-09-16, entering the horizon around
+  2026-09-02, and it is already spoken for by the event sleeve's T1/T2** --
+  and note the midterm T2 short is itself gated on SPY's 21-day rank being
+  under 50, which reads 91.3 today, so even the sleeve's rule is off. The
+  practical consequence is unchanged and now five sessions old: **a price-state
+  sweep is the only honest search mode**, and today it produced eleven
+  candidates and no survivor.
+
+## Method traps (2026-08-31, from a 22-candidate sweep that killed all 22)
+
+- **The LAG PROFILE settles whether an effect has a shape, and it costs one
+  line.** Run lag=0 / lag=1 / lag=2 at the same horizon before crediting any
+  mechanism. The short-silver-after-a-complex-break cell reads **+0.039% /
+  +0.516% / +0.035%** at h=1: one session wide, and it starts a session LATE.
+  No forced-deleveraging continuation predicts that, and the direction of the
+  anomaly is itself the tell -- the registry's standing worry is that the
+  untradeable lag=0 look FLATTERS a cell, and here the tradeable lag=1 is
+  **13x LARGER** than lag=0, which is backwards from every other cell measured
+  in this repo. Nothing else caught it: gate attribution passed decisively
+  (conjunction +0.531% against +0.031% for the single-name parent and -0.278%
+  for the anti-cell), the local +/-126td control cleared at welch t +2.21, the
+  record was 67-52 at sign p 0.019 scored against silver's own down-rate,
+  declustering was stable at gap 5/10/21, and the six-family reference class
+  CONFIRMED rather than killed. Era, decluster and reference-class work would
+  all have shipped this. (b4c_c19_slv_short_teardown.py)
+- **A continuation cell must be split by the ENTRY-DAY move, and the split is
+  a mechanism test rather than a robustness test.** The same silver cell pays
+  **+0.867% on 28-15 when silver BOUNCES more than 1% on the entry session**
+  and +0.573% on 25-25 when it keeps falling, with an entry-day correlation of
+  **-0.033**. "The highest-beta member keeps bleeding" is falsified by its own
+  data. Any story about flow persisting into the next session owes this split.
+  (b4c3_c19_entryday_and_2026.py)
+- **`pitch_lab.cluster_note` ranks the top-k by ABSOLUTE value, so it NETS a
+  large winner against a large loser and can report a concentrated cell as
+  clean.** The silver cell's "top-2 episodes = 3% of a +41.66pp total" is a
+  +16.86% and a -15.56% cancelling; ranked by VALUE on the side actually being
+  traded, top-3 is **103% of total** and drop-best-3 is negative. Report
+  concentration by value on the traded side, not by magnitude.
+- **A percentile is two different statistics and this repo uses both.**
+  `rolling(252).rank(pct=True)` (inclusive of the current observation) and the
+  `w[:-1] <= w[-1]` form used by the morning recon (exclusive) differ by about
+  0.4pp on a 252-day window. On the oil-services spread cell that is the whole
+  result: the identical rung on identical data gives **+0.934% on 28-23 at
+  15.6x cost** under one convention and **+0.005% on 28-29 at 0.08x** under the
+  other, and today's live bar straddled the gate at **3.98 excl-self against
+  4.37 rank**. Every parked cell must record which convention minted it.
+  (b4_c6_oih_xop_ladder.py)
+- **Charge the grid you SCANNED, not the axis you found it on.** The
+  bond-vol band cell cleared a band-only permutation at P 0.029 and reads
+  **P 0.857** once charged for the bands x horizons x vehicles it was actually
+  walked over -- a below-median draw from the best-cell-under-no-effect
+  distribution. The candidate spec itself named four sign and vehicle
+  combinations, which is the disclosure that makes the wider charge mandatory.
+  (b2c_c2_fullgrid_and_dose.py)
+- **An inverted-U conditioner ladder falsifies a directional mechanism even
+  when the live bucket is the maximum.** The tails are where the mechanism
+  makes its strongest prediction, and for "an orderly repricing trends" the
+  most compressed bond-vol bucket [0,20) is the **worst** long-duration bucket
+  at -0.809%. A monotone ladder supports a dose response; a hump means the
+  chosen band is mid-range wearing an extremity label.
+- **A DEPTH BAND is instrument-specific and cannot be transplanted.** The
+  2026-08-26 credit kill established that the index-distance gate is worth
+  +0.615pp beyond 2% and -0.042pp in the 1-2% band -- measured on SPY.
+  Substituting IWM because it sat 3.06% off its high assumed SPY's ladder;
+  measured on IWM, the 2.0-5.0% band is IWM's **dead** band at -0.119% and
+  **-6.0x cost**, and the open-ended >=2% form is positive only because it
+  pools that dead band with the >5% tail. Same kill, different ticker.
+  (b2f_c4_hyg_high_iwm_depth.py)
+- **Print the distance-from-extreme across a calendar anchor's history before
+  running any statistics.** One `print` of 27 August month-end anchors' yield
+  distances ended the September duration candidate in a line: **^TNX has never
+  been within 2% of its trailing-252 high at an August month end**, distances
+  running -1.54% (today) to -62.48%, so the interaction cell has exactly one
+  observation and it is the live one. This is the 2026-08-07 count-first rule
+  applied to a conditioner rather than to a joint state.
+  (b2e_c8_empty_cell_and_fallback.py)
+- **The placebo offset ladder is now 12-for-12**, adding a second single-name
+  earnings failure (the pre-print anchor ranks 5 of 16, with four neighbouring
+  offsets beating it) after the 2026-08-25 case.
+- **`data/earnings_calendar.parquet` is not usable as an anchor calendar before
+  ~1993.** 82-87% of 1985-1992 rows land exactly on a quarter END and 1988-91
+  carries up to 61% weekend dates: those are fiscal period ends masquerading as
+  announcement dates. Restrict to 1996+ before any earnings anchor (prices
+  bound it at 1999 anyway). First use of this file as a pitch anchor.
+  (b3_c3_recon.py)
+- **^GSPC is not a usable OVERNIGHT instrument before ~2013.** Yahoo's
+  synthetic open gives a pre-2013 overnight series with a **median of exactly
+  0.000 at a 25.0% up-rate** and an sd of 0.159%. A dividend-contamination
+  hypothesis raised against the month-end overnight cell was WRONG for the
+  same reason and is recorded here so it is not raised again: the RAW
+  unadjusted overnight excess is LARGER than the adjusted one (SPY +9.92
+  against +7.38 bp), so adjustment does not manufacture overnight returns.
+  (b1_c1_me0_overnight.py, b1f_c1_single_roundtrip.py)
+
+## Cells swept and empty (2026-08-31)
+
+- **The month-end anchor's OVERNIGHT return, which is a genuinely new return
+  object in this repo and closes the anchor's sixth form.** All five prior
+  month-end closures measured close-to-close; nobody had measured
+  `Open[ME+1]/Close[ME-0]`. The headline is real -- SPY +10.48 bp against a
+  +2.98 bp unconditional overnight, 206-113, **sign p 0.0004** against SPY's
+  own 55.1% overnight base rate; IWM +16.80 bp, sign p 0.0004 -- and the
+  mechanism is false. The reversal regression that the auction story predicts
+  **runs backwards on the one session that has the auction**: slope +0.194
+  (t +2.03) on SPY's ME-0 sessions against **-0.131 (t -6.56)** on all
+  sessions, with IWM +0.081 against -0.079 and QQQ +0.057 against -0.277. The
+  15-vehicle reference class then names it: **EEM (+21.2 bp) and EFA (+15.0 bp)
+  rank first and second**, two markets that are SHUT during the US closing
+  auction and reopen overnight in Asia and Europe, and the family is
+  homogeneous (Cochran Q p 0.6875, I-squared 0.0%) at a common excess of
+  **+8.26 bp (t +7.24)** with SPY 9 of 15. One market-wide overnight drift
+  wearing fifteen labels. August is the WORST of the twelve months on every
+  vehicle (SPY **-9.87 bp** at a 46.2% hit, DIA -13.24 at 38.5%); the cell is
+  Dec plus Oct-Nov, and December fails its own max-of-12 scan at P 0.476-0.931.
+  The ladder does not isolate (ME-4 beats ME-0 on all five vehicles, true
+  anchor **rank 2 of 9**), era decay is monotone (SPY 10.34 -> 4.78 -> 3.91 bp),
+  cost never reaches 5x, and August-in-a-midterm is **3-3 and negative on all
+  five vehicles**. (b1_c1_me0_overnight.py, b1d_round2_refclass.py)
+- **The intraday shape of the month-end session, and the first use of the
+  15-minute cache by a pitch check.** Data is deep and fine (SPY/IWM
+  2003-09-10 onward, 5,708 sessions, 265 ME-0). The finding is genuine: the
+  ME-0 last hour IS distinguishable on SPY (**-0.065% against +0.004%, welch
+  t -2.52**) and IWM (**-0.128% against +0.009%, t -4.35**) on a last-hour
+  volume share of 30.0% against 23.7%, and the offset ladder isolates the true
+  anchor at **rank 1 of 9** on both, which is rare. As a trade it dies on era
+  sign instability: SPY runs **+14.46 bp pre-2013 -> +1.75 (2013+) -> -2.03
+  (2018+) -> -4.82 bp (2020+)**, wrong-signed in the modern era, and IWM
+  decays to 0.43x cost. QQQ has the volume signature (25.1% against 21.2%) and
+  **no return signature at all** (+0.003%, t +0.20), which is absorption rather
+  than impact and is the cleanest single argument that the flow does not move
+  price. The one-round-trip join (buy 15:00 ME-0, sell MOO ME+1) is worse than
+  either leg at 0.67x / 0.22x / 1.12x cost, because the last hour eats half the
+  overnight. (b1b_c15_intraday_shape.py, b1e_c15_lasthour_standalone.py)
+- **Short silver after the whole metals complex breaks together.** See the lag
+  profile and entry-day entries above; parked with two arming numbers. Filed
+  here because of what did NOT kill it, so nobody re-runs them: the
+  state-matched and depth-matched splits are **not distinguishable** (worst
+  welch t -1.59 for "all four of today's states") and the multiplicity charge
+  on those refinements is **p 0.822 over a 56-cell grid**, so the
+  unconditional cell is the honest estimate and the state-matched h=3/h=5 forms
+  (+1.355%, +1.334%) are not real. The GLD-beta residual also survives
+  (+0.322pp edge, 61.1% hit), so this is NOT the closed "second metals leg is
+  size, not diversification" objection. Per-leg attribution on the same
+  trigger: short gold is **-2.6x cost** and short the miners **-1.1x**, both
+  with top-2 concentration at 202% and -233% of total.
+- **Fading the miners' 21-day outperformance of the metal at a 98th-percentile
+  spread.** Wrong-signed at every horizon (-0.186% at h=1 to **-1.718% at h=10
+  on 24-41**) with the percentile ladder monotone in the wrong direction, so
+  the more extreme the spread the worse the fade. The beta-neutral form is also
+  negative and the long-metal leg subtracts. The seven-pair miner-metal
+  reference class is homogeneous with a **negative** common excess (-0.021% at
+  h=1, -0.165% at h=3) and no family support for the fade in any name, while
+  the CONTINUATION side pays **+1.718% at h=10 on 41-24, sign p 0.045**,
+  independently re-confirming the 2026-08-27 finding. (b4d_c18_gdx_gld_fade.py)
+- **Industrial metals thrusting while precious metals flush**, which is inside
+  the sector-pair family closed on 2026-08-27 and reproduces that closure on a
+  fresh enumeration: 131 ordered pairs from a 12-name pool give Cochran Q
+  p 0.936, I-squared 0.0%, permutation max-of-131 **P 0.723**, with this pair
+  ranking **39 of 131**; the pair form is worse still (common excess -0.144%,
+  P 0.996). The short leg is the wrong side, since silver RISES after this
+  trigger (**-0.474% at h=5 on 10-19** for the short), so the pair is strictly
+  worse than the outright everywhere, and drop-best-2 at h=5 is -0.721% with
+  the top two episodes at 356% of total. The trigger has also been ON since
+  2026-08-11 with nothing happening. (b4b_c6_c10_pair_refclass.py)
+- **Long oil services at a services-versus-exploration 63-day spread extreme**,
+  the parked watchlist entry, now CLOSED rather than re-parked. Beyond the
+  percentile-convention finding above: the ladder is non-monotone and inverted
+  at the tight end (pit<=0.5 **-1.404% on 10-14**, <=1.0 -0.655%, <=2.5
+  +0.934%, <=3.0 +0.005%, <=20 +0.875% on 90-63), so extremity is not what the
+  cell keys on; the headline exists only at a declustering gap of exactly 10
+  (gap 5 +0.306%, gap 21 +0.091%, gap 42 **-1.682%**); drop-best-3 is -0.126%;
+  midterm is **-2.233% on 6-11**; and the 12-pair reference class is
+  homogeneous with a **negative** common excess of -0.121% at a permutation
+  max-of-12 P of 0.806, where this pair is not even the family maximum. The
+  entry's "four wins away" arm was arithmetically wrong -- it converted losses
+  to wins rather than adding episodes; the real answer at the 4.0 rung (31-32)
+  is that no number under 15 consecutive wins arms it.
+- **The tail-premium-to-at-the-money ratio (SKEW over VIX3M) at a trailing-year
+  extreme.** A total re-skin, and the overlap statistic is the whole finding:
+  `P(inside the closed VIX3M-floor OR SKEW-rank cells | ratio at a 95th
+  percentile)` is **1.000 at day level (590 of 590) and 1.000 at episode level
+  (95 of 95)**, and tightening the ratio rung makes it MORE redundant (0.989 at
+  the 98th). The ratio moves on its denominator: corr(dlog ratio, -dlog VIX3M)
+  **0.895** against corr(dlog ratio, dlog SKEW) 0.549, with VIX3M's daily sd
+  1.9x SKEW's. The conjunction subtracts (SKEW alone +0.268pp of excess at
+  sign p 0.035, the ratio -0.011pp, the VIX3M leg alone -0.090pp) and the
+  ladder inverts exactly as the 2026-08-27 VIX3M floor did. Mechanism
+  falsified in-window in BOTH directions: across the hold ^SKEW falls -0.251%
+  but **^VIX RISES 3.816%** and ^VIX3M +1.956%, so the ratio reverts because
+  the denominator rises, not because tail premium decays. Also out of sample:
+  the live reading is the 98.4th trailing-252 percentile but only the **80.7th
+  of full history**, the 2026-08-14 SKEW-median-drift trap live, and on the
+  full-history basis the mechanism needs, today does not trigger at any rung.
+  (b3_c5_overlap.py, b3_c5_battery.py, b3b_c5_livecell.py)
+- **The dollar CONFIRMING a rate rise, the untested inversion of the parked
+  unconfirmed form.** The premise is false on the live tape and that is the
+  kill: the "rate rise" is **+5.7 bp over 21 sessions, the 6.9th percentile of
+  1,001 trigger days** against a trigger-day median of +24.5 bp, and the dollar
+  leg reads a 21-day rank of 42.9 against the rule's 65 floor. The ten-year is
+  at a 52-week high **by level only**. Where the rule does fire the
+  confirmation leg adds **+0.016pp at t +0.21** over the dollar alone, 45% of
+  the total sits in two late-2008 episodes, the record is 136-145 at sign
+  p 0.725, and the grid charge over 320 cells gives P 0.807. Restated to the
+  state that actually fires today the sign INVERTS to **-0.536% at t -2.20**
+  (32.4% hit, bootstrap 0.991), with short EURUSD, long USDJPY and the dollar
+  ETF all agreeing. The offset ladder makes it a lagging label: **k=-5 pays
+  +1.371% at a 100.0% hit, t 12.40** against the true anchor's +0.055%.
+  No threshold arms it, so nothing is parked. (b3_c14_r1.py, b3b_c14_r2.py)
+- **Pre-print drift in a deeply lagging mega-cap, the first use of the earnings
+  calendar as a pitch anchor.** The pitched conditioner is what kills it: the
+  "deeply lagging" gate is worth **-1.867pp on the very name pitched**, taking
+  its pre-print session from +0.513% on 33-22 ungated to **-1.354% gated**, and
+  the gate ladder is monotone against the pitch (<=5 -1.354% / <=10 -0.407% /
+  <=25 -0.441% / **>25 +0.779%**), with today's reading on the worst rung. The
+  horizon ladder falsifies the mechanism outright: holds beyond two sessions
+  run -0.56pp at 3 td, -2.01pp at 5 td and **-4.52pp at 9 td**, so the lagging
+  name keeps FALLING into its print and there is no run-up, only a 1-2 session
+  tail. Reference class closes both forms -- gated, the name cannot even enter
+  the 535-name class; ungated it ranks **116 of 934 at a permutation P of
+  1.0000** against a near-homogeneous class (common excess +0.145pp, I-squared
+  16.5%). Era flips pooled (+0.190pp at t 3.31 pre-2018 to **+0.002pp at t
+  0.04** from 2018) at 1.49x cost, and liquid large caps specifically are
+  **0.44x cost**. Half the raw number is beta (pooled beta 1.057, and the gate
+  over-selects up-tape). Survivorship note: 97.7% of the calendar's tickers
+  still report in 2026 and the price cache holds today's universe only, so a
+  cell selecting names that just fell 17% in 63 days is exactly where the
+  missing delistings sit -- the common excess is an UPPER BOUND.
+  (b3_c3_preprint_r1.py, b3b_c3_preprint_r2.py, b3b_c3_ungated_refclass.py)
+- **High yield at a 52-week high while the SMALL-CAP index sits below its
+  own**, the depth-substituted re-ask of the 2026-08-26 credit kill. Dead as a
+  re-skin (see the depth-band entry above) and independently on its reference
+  class: six indices in the depth slot give a fixed-effect common excess of
+  +0.143pp with **Cochran Q 4.32 on 5 df, I-squared 0.0%**, a cross-sectional
+  sd of 0.152pp against a mean sampling SE of 0.162pp (**ratio 0.94**, so the
+  whole spread is sampling noise), IWM ranking **5 of 6**, and a random-date
+  max-of-6 **P of 0.954** -- the left tail of a null, not the right tail. The
+  dial split finishes it: the entire edge is in dial [0,30) (+0.311 / +0.658 /
+  +1.570%) while [50,70) pays **-0.453 / -0.794 / -1.749%** and the live
+  dial>=80 slice is 2 episodes. It is a calm-tape effect and this tape is the
+  opposite. (b2f_c4_hyg_high_iwm_depth.py, b2g_c4_freshhigh_repro_and_dial.py)
+- **The small-cap laggard into the month turn, long IWM against short SPY.**
+  A join that subtracts at every rung, on a parent that is already negative:
+  the beta-neutral pair at ME-0 pays -0.038 / -0.108 / -0.170 / -0.293% at
+  h=1/3/5/10 against its own all-days drift of -0.007 / -0.020 / -0.032 /
+  -0.063%, so the anchor makes the pair WORSE at every horizon and the ladder
+  ranks the true anchor **8 of 9**. The short leg is the better leg (SPY
+  outright beats IWM outright at every horizon; IWM at ME-0 is below its own
+  all-days drift), and short-leg attribution is negative at every rung and
+  horizon (-0.116 to -0.284pp). Threshold-mined around the live reading: the
+  h=5 gate ladder runs r5<20 **-0.200% on 9-18**, r5<30 +0.021%, r5<40 -0.039%,
+  and the complement (IWM LEADING, r5>70) beats it. Confirmed NOT a re-skin of
+  the closed index-pair cell (residual correlation +0.019 to +0.052), so it is
+  a genuinely new object that dies on its own. Per the 2026-08-28 rule, a
+  negative interaction is not parkable. (b1c_c12_iwm_spy_me0.py)
+- **Long duration with the ten-year at a 52-week yield high and bond vol
+  compressed.** The pitched conjunction beats neither parent; the surviving
+  mid-range band is parked with an episode count. See the grid-charge and
+  inverted-U entries above.
+- **Short duration into September with the ten-year at a 52-week yield high.**
+  The interaction cell is empty (one observation, the live one). The bare
+  September parent fails on cost once short carry of ~1.79 bp/session is
+  charged (**0.53x at h=5, 2.27x at h=10, -0.91x at h=21**) and on its own
+  twelve-month scan (August ranks 4 of 12, **max-of-12 P 0.997**), with the top
+  three episodes at 107% of total, 2021+ at -0.872% on a 40% hit, and the
+  bond-bull objection INVERTED (falling-yield years +0.764% against
+  rising-yield +0.551%). Reproduced the registry's month-of-year table exactly,
+  with one correction: September is TLT's **third**-worst month on those
+  numbers, not the second as the 2026-08-13 entry states (Oct -0.432%, Apr
+  -0.240%, Sep -0.220%). (b2d_c8_september_duration.py)
+
+### Calendar finding, filed because it is now six consecutive sessions
+
+- **A sixth straight empty anchor set, and the month turn arrived and closed
+  its sixth form the day it became reachable.** Jackson Hole moved to JH-1 and
+  is closed on eight classes pre-speech and ten post; NFP at +4 td, PPI at +7
+  and CPI at +8 are all closed on their own ladders; FOMC and VIX expiry at
+  +11 and opex and quad witching at +13 remain beyond the 10 td cap. The month
+  turn was the only live anchor, and its one never-measured return -- the
+  overnight -- was measured today on daily bars AND at 15-minute resolution,
+  and closed both ways. **The month-end anchor is now closed on six forms
+  across five asset classes.** The next genuinely new anchor is still the
+  September FOMC on 2026-09-16, which enters the horizon around 2026-09-02 and
+  is spoken for by the event sleeve's T1/T2 -- and the midterm T2 short is
+  gated on SPY's 21-day rank being under 50, which reads 91.3, so the sleeve's
+  own rule remains off. The practical consequence is unchanged and now six
+  sessions old: a price-state sweep is the only honest search mode. Today it
+  produced twenty-two candidates across ten asset classes and no survivor, and
+  the closest of them died on a lag profile that no other test in the battery
+  would have caught.
+
+## Method traps (2026-09-01, from a 12-candidate sweep that killed all 12)
+
+- **Charge the grid the TRADED RUNG lives in, not the grid the original
+  pre-registration declared.** The parked duration-neutral flattener declared
+  `HS = (1,2,3,5,10)` and permuted 3 vehicles x 2 signs x 5 horizons to reach
+  P 0.018 -- and then parked its arm on **h=8, which is not in that grid**.
+  Charging the walk actually disclosed (3 vehicles x h=1..10 x 6 proximity
+  rungs = 180 cells, a floor, since the 6 lookbacks make it 1080) gives the
+  shipped cell **P 0.388** and the grid max **P 0.144**. A pre-registration
+  does not immunise a cell that was later read off a horizon the
+  pre-registration never charged. Re-read every parked arm against the grid
+  its own headline number sits in before treating the park as protection.
+  (a1_r2c_verdict.py)
+- **A cost arm can CLEAR and the cell still die, so resolve the arm and keep
+  going.** The flattener's stated arm was a two-leg round trip under 4.4 bps
+  and the honest answer is **3.59 bps (6.18x)** on a half-spread MOC basis,
+  **4.42 bps (5.01x)** with 0.50%/yr borrow on the short leg -- only the
+  full-cross bound (5.31 bps) fails, and an MOC does not cross. Both stated
+  blockers cleared (Jackson Hole passed on 2026-08-28) and the morning still
+  ended in a kill. Recorded because the temptation on an armed watchlist entry
+  is to treat the arm as the verdict.
+- **^TNX is quoted in PERCENT, so an index point change x100 is basis points.**
+  Two recon scripts multiplied by 10 and printed every yield change **10x low**,
+  which produced the false framing "a one-year high at the top of a year of
+  nothing" (the year did **+55.1 bp**, not +5.5) and was the entire premise of
+  one of the twelve candidates. Caught in round 2, not round 1. Any rates cell
+  that reasons about MAGNITUDE owes a units check against a known move before
+  the statistics run.
+- **The live magnitude bucket, not the pooled mean, is today's expectation.**
+  The flattener's live 252-session yield change of **+55.1 bp sits below its
+  episode median of +77.6**, and that low half pays **5.0 bps against 22.2**
+  pooled = 1.38x cost. This is the 2026-08-07 "rank gates in a quiet tape buy a
+  fraction of the historical force" trap arriving through a LEVEL trigger
+  rather than a rank one: the trigger fired at 100.00% of the trailing-252
+  maximum under both conventions and still bought a below-median thrust.
+- **A class-level "inversion" read off a coarse map is a family statistic
+  until proven otherwise.** The 15-class pre-FOMC map showed a near-universal
+  midterm inversion with energy as the lone exception, which reads like an
+  `inversion`-axis object. It is not: the cross-sectional spread is **1.03x its
+  own sampling noise** (sd 0.717pp against a mean sampling SE of 0.699pp),
+  Cochran Q p 0.8138, I-squared 0.0%, and the correlation-preserving
+  permutation max-of-15 gives P 0.2447. The exception itself then lost its sign
+  to drop-best-2 (+0.827pp -> **-0.493pp**, both top episodes from 2026) and
+  ranked 8 of 12 on its own placebo ladder. (b1b_family_common_excess_r2.py,
+  b2_crude_midterm_fomc_r1.py)
+- **An inverse-variance common excess is not the family's answer.** The
+  pre-FOMC family's fixed-effect common excess of **-0.274pp at z -2.51** is an
+  artifact of up-weighting the low-volatility rates, dollar and credit legs;
+  **equal-weighted it is -0.004pp** at a two-sided permutation P of 0.3754.
+  Report both, or the weighting invents an effect the family does not have.
+- **Two gate legs can each be positive alone and negative together, and the
+  discarded complement can beat both.** Silver's post-parabolic cell: the
+  drawdown leg alone +1.077%, the up-on-the-year leg alone +1.118%, the pitched
+  conjunction **-1.032%**, and the OPPOSITE year leg (drawdown with a negative
+  trailing year) **+1.563%**. "Still up huge on the year" cost 2.6pp against
+  its own complement. A conjunction owes both single-leg cells AND the
+  complement of each leg. (02_c1_silver_postparabolic.py)
+- **Check which era the live half is in before reading an era split as
+  reassurance.** The same silver cell is pre-2018 +7.676% on 4-for-4 and 2018+
+  **-6.838% on 1-for-6**, and the 2018+ half IS 2026 -- 82% of all trigger days
+  in history are the currently live episode. The cell has been paying -6.8% per
+  10 td for the entire time it has been live.
+- **A continuous futures series' seasonal edge can be its ROLL's seasonality.**
+  NG=F prints **+0.1367 pp/day** more than UNG over 4,872 common sessions at
+  0.850 return correlation, and the wedge is itself seasonal at **+0.3601
+  pp/day in September**, which fully accounts for the contract's apparent
+  September edge (+4.724% against the fund's +0.532% at h=10). Confirmed by an
+  overnight-gap-by-day-of-month profile spiking to +1.33% on day 29. Before
+  claiming a futures expression escapes an ETF's roll decay, measure the wedge
+  and then measure it BY MONTH.
+- **The placebo offset ladder is now 16-for-16**, adding four failures in one
+  morning (crude, energy equity, the midterm index short, and the 15-class
+  family average). In three of the four the extremum sat AFTER the decision
+  date, which is the signature of a slow regime ramp wearing an event label.
+- **The two z10 conventions in this repo disagree materially and a thrust cell
+  must be measured on the one it was SELECTED on.** `build_pitch_state._metrics_for`
+  (r10 over 21d vol scaled to 10d) read UNG at **+1.34** while `pitch_lab.zscore`
+  (252d standardised) read **+0.713**, correlation 0.924. The natgas candidate
+  was re-run under both so the kill could not be dismissed as the wrong cell.
+  Same verdict either way, but the discrepancy is now on the record.
+
+## Cells swept and empty (2026-09-01)
+
+- **The pre-FOMC window across FIFTEEN asset classes, which closes the anchor
+  cross-asset.** This is the anchor the registry had been naming as "the next
+  genuinely new one" for six consecutive sessions, and both event-sleeve trades
+  were off by their own gates (T1 is non-midterm only; T2 needs SPY's 21-day
+  rank under 50 against a live 67.5), so the window was genuinely unclaimed and
+  had never been swept off SPY. It is a homogeneous family with nothing
+  distinguishable in it: **Cochran Q 9.26 on 14 df, p 0.8138, I-squared 0.0%**,
+  cross-sectional sd 0.717pp against a mean sampling SE of 0.699pp (**ratio
+  1.03**), permutation max-of-15 **P 0.2447** for the strongest class and a
+  median per-class charge of 0.667. Equal-weight common excess **-0.004pp**
+  (permutation P 0.3754). The placebo ladder over k=-20..0 ranks the true
+  anchor **11 of 21** with the trough at **k=-6**, four sessions AFTER the
+  decision. Declustering verified rather than assumed: consecutive entry gaps
+  run min 23 / median 30 td against a 10 td window, **0 overlapping pairs of
+  211**. (b1_fomc_family_r1.py, b1b_family_common_excess_r2.py)
+- **Short the index at FOMC-10td in a midterm year**, i.e. the window the event
+  sleeve's T2 declines. Overlap measured rather than asserted: leg correlation
+  **0.679**, T2 owns 4 of the 10 held sessions, and the T2-free portion alone is
+  **+0.079% on 27-26 at sign p 0.5000**. It dies because the live rung is
+  wrong-signed -- the rank21 ladder pays +0.025% under 50, **-0.068% above 65
+  on a 41.2% hit** and -0.535% above 80, with the live lag-1 input at 67.5 --
+  which independently reproduces the sleeve's own frozen prereg cross-check at
+  a different offset. Two episodes are **75% of the +23.49pp total** and
+  drop-best-3 takes the short to -0.030%; pre-2018 -0.138% against 2018+
+  +1.328%, so it is two bear years rather than midterms.
+  (b3_spy_short_midterm_fomc_r1.py)
+- **The FOMC decision that is ALSO the VIX settle, as a flow coincidence.**
+  A third form of two already-dead parents and dead on its own terms. The
+  "coincidence" is a calendar identity: **41 of 42 coincident decisions are
+  March/June/September/December at trading-day-of-month 11-16**, the same
+  mid-month confound that killed VIX-expiry-week drift. The 14:00 placebo
+  falsifies the settle mechanism in its own window, since VRO settles off SPX
+  opening prints and the coincidence **SUBTRACTS from both halves** of the
+  session (overnight +9.1 bps against 17.7 for FOMC-only; intraday +0.2 against
+  8.5). On the vol complex it runs outright the wrong way: SVXY **-0.121pp
+  coincident against +1.904pp otherwise**. (b4_fomc_vix_expiry_coincidence_r1.py)
+- **Long crude and energy equity into a midterm-year FOMC**, the map's lone
+  counter-inversion. Placebo rank 8 of 12 (crude) and 10 of 12 (energy equity)
+  with k=-14 paying 2.4x the anchor; concentration **157% of total in two 2026
+  episodes**; nine-vehicle reference class at Cochran Q p 0.9892 with a spread
+  **0.41x** its own sampling noise (the left tail of a null) and permutation
+  P 0.2220 for the class max. The live entry state is the negative half: on
+  index-down entry days crude pays **-0.458% on n=17** against +1.670% on up
+  days. Vehicle note for reuse: **USO's unconditional 10-td drift is +0.9 bps
+  against XLE's +47.5**, so "crude is the worst class into an FOMC on the full
+  sample" is mostly wrapper rather than information.
+- **Duration into an FOMC conditioned on the ten-year at a trailing-252
+  maximum.** Not dead on its count -- a loosened, monotone form exists -- but
+  dead on gate attribution applied to the CALENDAR leg: all 192 pre-FOMC
+  anchors on the flattener pay **+0.017pp at t +0.38** over all days, so there
+  is no pre-FOMC flattener effect to condition. Inside the flattener's own
+  trigger the FOMC runs the wrong way at the traded horizon (**-0.320pp**,
+  FOMC-in-hold against FOMC-out), and the candidate's 6 anchors are **6-for-6 a
+  subset** of the parent's 183 trigger days. (a2b_fomc_gate_attribution.py)
+- **A trailing-252 yield maximum reached with no rate thrust behind it.** The
+  object does not exist: across 3 cuts x 2 vehicles x 2 horizons, all **24
+  no-thrust-versus-with-thrust Welch t values lie in [-1.08, +1.37]**. The one
+  standalone-alive cell is the flattener's own bottom-quintile sub-cell under a
+  third label, measuring the same 10-12 observation population, own difference
+  test +0.184pp at t +0.76. (a3_yield_high_no_thrust.py)
+- **Bond volatility popping while equity volatility falls, at a yield level
+  extreme.** The premise was FALSE on the live tape -- ^VIX rose 3.40% the same
+  session ^MOVE rose 6.13% -- and the surface map had copied its own recon
+  wrong. Granting it anyway, all eight vehicle-by-horizon attribution t values
+  sit in **[-0.58, +0.75]** and today's ^MOVE move is the **48th percentile** of
+  the interaction's own 25-episode support. (a4_movevix_at_level_extreme.py)
+- **Long silver deep in a post-parabolic drawdown while still up on the year.**
+  See the two-legs-anti-filter and live-era entries above. Reference class puts
+  silver **last in its own family** (-1.538pp against a pooled +1.469pp at
+  h=10, Welch t -0.98), so the depth band is not transplantable and silver does
+  not even earn it. Cost at h=10 is **-12.9x**.
+- **Energy closing at a fresh 52-week high on a session the index FELL.** The
+  only candidate of the twelve to survive round 1 (+0.547% at h=5 against the
+  up-gate's -0.008%) and the closest thing to a trade today. Killed by an
+  inverted dose -- binned by the index's same-day move the **deepest down-bin
+  is the worst cell in the table at -1.609%**, Spearman -0.066 over 435 at-high
+  days, and today's -0.30% lands in the best INTERIOR bin -- plus definition
+  fragility (within 1% of the high +0.146%, within 2% **-0.023%**) and a
+  nine-sector family P of **0.5144** with XLE ranking 3 of 9. The h=21 boundary
+  was settled separately: family P re-seeds at **0.0510-0.0616, never under
+  0.05**, and ex-2022/2026 the excess collapses +0.762pp -> +0.264pp. Energy
+  effective names **1.42 of 4 (PC1 83.0%)**. Parked as a near-miss.
+- **The count of sectors simultaneously in the bottom fifteenth of their
+  five-day rank.** Spearman between count and forward index return is **+0.034**
+  (11-sector) and **+0.027** (9-sector); the live count of 5 is an interior
+  bucket at **-0.043%** at h=21 while counts of 3 and 4 pay +2.265% and +2.109%;
+  the gate is index drift with a breadth label at +0.201pp / Welch t +0.38.
+  Note the literal 11-sector definition only has 2018+ history (XLC inception
+  2018-06). (01_c3_sector_washout_count.py)
+- **Natural gas thrusting into the September shoulder season**, which is a
+  DIFFERENT state from the registry's closed "UNG long at a 52-week low" and
+  dies anyway. Absolutely negative at today's depth (**-1.113% / -0.202% /
+  -2.259%** at h=5/10/21 inside a -0.887%/10td bleed) while positive in excess,
+  the thrust leg is a SHORT signal (**-1.256% at h=5, -3.074% at h=21** over 124
+  episodes on 48-76 and 47-77), and the seasonal leg does not extend (September
+  alone +1.051% against the conjunction's -0.120%; extending to Sep+Oct flips
+  h=21 from +0.508% to -2.616%). Futures escape closed by the roll wedge above.
+
+### Calendar finding, filed because the six-session prediction came true and closed
+
+- **The anchor the registry had been pointing at for six consecutive sessions
+  arrived, and it closed on the day it became reachable.** The September FOMC
+  crossed inside the 10 td cap on 2026-09-01, carrying a VIX expiry on the same
+  date, and both were swept: the pre-FOMC window on **fifteen asset classes**
+  plus a nine-vehicle energy reference class, and the settle coincidence as a
+  third form of two dead parents. The registry's standing note that the
+  pre-FOMC drift was "already spoken for by the event sleeve's T1/T2" turned
+  out to be the 2026-08-07 blind spot in miniature -- both sleeve trades were
+  OFF by their own gates, so nothing was spoken for, and the cross-asset cells
+  had never been opened. They are open and empty now. **What remains reachable
+  is opex and quad witching on 2026-09-18, which enter the horizon around
+  2026-09-04**, and September post-opex is the event sleeve's T3 territory with
+  the registry already recording that September inverts the post-opex vol
+  crush. The practical consequence is now seven sessions old and unchanged: a
+  price-state sweep is the only honest search mode, and today it produced
+  twelve candidates across nine asset classes and no survivor.
+
+## 2026-09-02
+
+- **The ATR conjunction on the crude thrust band, as a filter that does not
+  filter.** Watchlist 4's arm fired on every stated leg for the first time
+  since it was parked (USO +5.460% into [5,6), 1.65 ATR, no CPI/PPI in a
+  three-session hold) and the parked cell reproduced to the decimal at 38
+  episodes, +1.105pp excess, 73.7% hit, sign p 0.0025. The `>=1.50 ATR` leg,
+  which was the whole reason the entry was an ARM rather than a state, moves
+  the excess to **+1.121pp while discarding 22 of 38 episodes whose own excess
+  is +1.094pp** - 1.6 bps of movement for 58% sample removal. The lesson
+  generalises past this cell: **an arm condition minted from a bucket sweep has
+  to be re-attributed when it fires, because a threshold chosen to separate a
+  sample does not have to separate the effect.** Three further kills on the
+  same cell: the bucket ladder is an interior spike with [4,5) at -0.186pp and
+  a 4.8% lower edge halving it to +0.685pp; the top three of sixteen armed
+  episodes are 72% of the total with 2026 wrong-signed at -0.451%; and net of a
+  re-estimated 0.506 crude beta the residual is a 62.5% hit at sign p 0.227,
+  so the registry's 2026-08-11 closure survives the band intact. The one attack
+  that FAILED is worth recording so it is not re-run: a payrolls print inside
+  the hold is +1.973% (n=7) against +1.088% out, Welch t +0.64, i.e. NFP is not
+  the CPI/PPI containment effect. (c1_energy_band_r1.py, c1b_energy_band_r2.py)
+- **The index-near-a-high gate is a bull-tape selector, now confirmed three
+  times.** In the sector triple-rank-floor cell it SUBTRACTS 0.733pp (bare
+  +1.646% on 65 episodes at t 2.236 -> gated +0.913% on 11), and 100.0% of its
+  20 trigger days sit above SPY's 200-day against a 71.6% base with **zero**
+  observations below. In the defense washout its apparent +1.595pp dose is the
+  same thing wearing a positive sign, since the episodes it selects are ones
+  where SPY itself runs +1.201%. Any future candidate whose novelty is "while
+  the index holds near its high" starts from a negative prior and owes the
+  above/below-200d base-rate split up front. (c5_xli_triple_floor_r1.py,
+  c6_defense_washout_r1.py, and the 2026-08-25 watchlist-21 precedent)
+- **"The range has been dead, then it broke" is monotone in the WRONG
+  direction.** Bucketing a >=8% VIX pop by the VIX 21-day range percentile at
+  h=10: bottom 5% pays **-0.479pp edge**, [5,15) +0.023pp, [15,30) +0.628pp,
+  [30,50) +0.446pp, 50+ +0.209pp. The more compressed the prior range, the
+  worse the subsequent index return, which falsifies the compression-release
+  story inside its own window. The cell is also negative against every control
+  it has (-0.239pp vs compression alone, -0.475pp vs the pop alone, -0.448pp vs
+  local) at every horizon h=1..10. Distinct from watchlist 12 by construction -
+  day-level Jaccard **0.008**, one shared day of a 120-day union - so this is a
+  second, independent road to the same place. (c7_vix_range_pop_r1.py)
+- **A conditioner that inverts its parent, on the metals complex break.** The
+  parabolic-run gate (miner 21d rank >= 90) on the three-name break pays
+  +0.185% on 4-8 against the bare parent's +0.454% on 87-90 and the DISCARDS'
+  +0.521%, i.e. -0.270pp at h=1 and -1.344pp at h=5, monotone as the gate
+  tightens (>=80 +0.435%, >=90 +0.185%, >=95 -0.162%). This closes the
+  parabolic route to paying watchlist 29's lag-profile debt: the gated cell's
+  lag profile is lag=0 -0.297%, lag=1 +0.185%, lag=2 -0.420%, still one session
+  wide, still starting late, and smaller than the parent's. (a1_c3_slv_parabolic_break.py)
+- **Miner-versus-metal, entered from the break side rather than the thrust
+  side, fails the same two ways.** Beta-neutral at h=3 the long miner leg is
+  +1.711pp and the short metal leg -1.365pp of a +0.458pp spread, so the long
+  side is 495% of it; permutation across twelve miner/metal pairs gives
+  family-wise P 1.0000 / 0.9947 / 0.8452 at h=1/3/5. The outright long miner
+  form is separately a **class effect with dispersion ratio BELOW 1 at every
+  horizon** (0.89 / 0.82 / 0.78 across 14 names), so the whole cross-name
+  spread is smaller than sampling noise. (a2_c4_gdx_gld_pair.py,
+  b1_c4_outright_miner_refclass.py)
+- **September weakness does not exist at the month position everybody assumes
+  it does.** Anchored at trading day 1, ^GSPC September pays -0.042% at h=3 on
+  15-11, an excess of **-0.080pp** over all other months, and the midterm
+  crossing is POSITIVE at +1.344% on 4-2 - wrong-signed for any short. Over the
+  48-cell month x cycle grid the cell ranks 43 of 48 from the negative end with
+  P(min-of-48 <= observed) = 1.0000. Any future calendar-month candidate owes
+  the grid permutation before the anecdote. (a4_c11_september_midterm.py)
+- **The repo holds two co-resident z10 definitions and they disagree about
+  which states are live.** `build_pitch_state._metrics_for` (ret10 / vol21 x
+  sqrt(10)) scored EWZ at **+2.03**, the tape's loudest extreme and the reason
+  an international candidate was selected at all; `pitch_lab.zscore` scores the
+  same name at **+1.46**, under which the candidate's state was never live.
+  CLAUDE.md already records the drift for the context engine; this is the first
+  time it decided a pitch candidate's existence. Print BOTH when a z10 extreme
+  is the reason a candidate was chosen. (a3_c10_ewz_em_floor.py)
+- **A commodity index at a fresh 52-week high into a CPI print.** The placebo
+  anchor ladder is now four-for-four as a killer: sliding the at-a-high anchor
+  k=-8..+8 from the print, the live k=+6 configuration pays +0.782pp while
+  k=-7 pays **+3.365pp (5-0)** and k=+7 pays +2.921pp. The parent is dead
+  underneath anyway - 90 episodes at +0.332% against a local +/-126td control
+  of +0.224%, Welch t +0.78, top-2 episodes 60% of the total - and the
+  conditioner flips sign across the vehicle class (XLE +0.992 CPI-in, GLD
+  -0.312, SLV -0.049). (c8_dbc_high_cpi_r1.py)
+- **Crude itself is the wrong vehicle for a crude-thrust follow-through.** On
+  the same 38 band episodes USO pays +0.581% at a **47.4% hit, below a coin**,
+  against the producers' +1.251% at 73.7%, and at h=1 crude is -0.576% at a
+  31.25% hit because it mean-reverts the session after the pop. Measured roll
+  decay is **-7.75pp/yr against the front contract over 20.4 years**. Where a
+  producer/crude choice arises, XOP dominated XLE on both trigger sets
+  (+1.749pp vs +1.121pp armed) - but the four-vehicle reference class is
+  homogeneous, which is itself the confirmation that the whole object is a
+  crude-complex move rather than producer alpha. (c2_vehicle_translation.py)

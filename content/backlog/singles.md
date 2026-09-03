@@ -70,7 +70,7 @@ say. Risk appetite is a real input. Pretending every rule is a PnL
 optimization is how you end up lying to yourself about why it exists.
 
 ### S6. In-sample rules flatter themselves
-Status: unposted
+Status: queued 2026-08-30 (x20260830-5)
 
 How NOT to validate a new sizing rule: re-run the backtest with the rule on
 and admire the improvement. The rule was fit on exactly that history. Of
@@ -237,7 +237,7 @@ optimization pretense. If your backtest has a performance cliff at a
 specific sizing knob value, the knob is fit, not chosen.
 
 ### S17. Day-2 stops
-Status: unposted
+Status: queued 2026-08-23 (x20260823-4)
 
 We measured 81 episodes where a dip-buy would have hit its stop on entry
 day: booking those cost -33R over 24 years vs arming the stop the NEXT

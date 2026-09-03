@@ -1,13 +1,13 @@
 {
- "generated": "2026-08-17 20:00:48",
- "asof": "2026-08-17",
+ "generated": "2026-09-02 20:00:51",
+ "asof": "2026-09-02",
  "rolling_60d": {
-  "n": 2,
-  "graded": 0,
-  "avg_r": null,
-  "median_r": null,
-  "hit_rate": null,
-  "total_r": null,
+  "n": 6,
+  "graded": 4,
+  "avg_r": -0.366,
+  "median_r": -0.319,
+  "hit_rate": 50.0,
+  "total_r": -1.46,
   "no_fill": 0,
   "posted": {
    "n": 0,
@@ -19,24 +19,24 @@
    "no_fill": 0
   },
   "unposted": {
-   "n": 2,
-   "graded": 0,
-   "avg_r": null,
-   "median_r": null,
-   "hit_rate": null,
-   "total_r": null,
+   "n": 6,
+   "graded": 4,
+   "avg_r": -0.366,
+   "median_r": -0.319,
+   "hit_rate": 50.0,
+   "total_r": -1.46,
    "no_fill": 0
   },
   "window_td": 60,
-  "since": "2026-05-20"
+  "since": "2026-06-08"
  },
  "lifetime": {
-  "n": 2,
-  "graded": 0,
-  "avg_r": null,
-  "median_r": null,
-  "hit_rate": null,
-  "total_r": null,
+  "n": 6,
+  "graded": 4,
+  "avg_r": -0.366,
+  "median_r": -0.319,
+  "hit_rate": 50.0,
+  "total_r": -1.46,
   "no_fill": 0,
   "posted": {
    "n": 0,
@@ -48,12 +48,12 @@
    "no_fill": 0
   },
   "unposted": {
-   "n": 2,
-   "graded": 0,
-   "avg_r": null,
-   "median_r": null,
-   "hit_rate": null,
-   "total_r": null,
+   "n": 6,
+   "graded": 4,
+   "avg_r": -0.366,
+   "median_r": -0.319,
+   "hit_rate": 50.0,
+   "total_r": -1.46,
    "no_fill": 0
   }
  }

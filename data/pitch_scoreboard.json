@@ -1,10 +1,10 @@
 {
- "generated": "2026-08-21 05:42:18",
- "asof": "2026-08-21",
+ "generated": "2026-09-02 05:10:46",
+ "asof": "2026-09-02",
  "rolling_60d": {
-  "n": 4,
+  "n": 5,
   "graded": 4,
-  "fill_rate": 100.0,
+  "fill_rate": 80.0,
   "avg_r": 0.372,
   "median_r": 0.276,
   "hit_rate": 100.0,
@@ -20,9 +20,9 @@
     "total_pnl": 2077.3
    },
    "C": {
-    "n": 1,
+    "n": 2,
     "graded": 1,
-    "fill_rate": 100.0,
+    "fill_rate": 50.0,
     "avg_r": 0.146,
     "median_r": 0.146,
     "hit_rate": 100.0,
@@ -48,6 +48,15 @@
     "hit_rate": 100.0,
     "total_pnl": 280.0
    },
+   "inversion": {
+    "n": 1,
+    "graded": 0,
+    "fill_rate": 0.0,
+    "avg_r": null,
+    "median_r": null,
+    "hit_rate": null,
+    "total_pnl": 0
+   },
    "relative_value": {
     "n": 1,
     "graded": 1,
@@ -60,9 +69,9 @@
   },
   "by_model": {
    "opus": {
-    "n": 4,
+    "n": 5,
     "graded": 4,
-    "fill_rate": 100.0,
+    "fill_rate": 80.0,
     "avg_r": 0.372,
     "median_r": 0.276,
     "hit_rate": 100.0,
@@ -71,12 +80,12 @@
   },
   "approved_vs_declined": null,
   "window_td": 60,
-  "since": "2026-05-27"
+  "since": "2026-06-08"
  },
  "lifetime": {
-  "n": 4,
+  "n": 5,
   "graded": 4,
-  "fill_rate": 100.0,
+  "fill_rate": 80.0,
   "avg_r": 0.372,
   "median_r": 0.276,
   "hit_rate": 100.0,
@@ -92,9 +101,9 @@
     "total_pnl": 2077.3
    },
    "C": {
-    "n": 1,
+    "n": 2,
     "graded": 1,
-    "fill_rate": 100.0,
+    "fill_rate": 50.0,
     "avg_r": 0.146,
     "median_r": 0.146,
     "hit_rate": 100.0,
@@ -103,9 +112,9 @@
   },
   "by_model": {
    "opus": {
-    "n": 4,
+    "n": 5,
     "graded": 4,
-    "fill_rate": 100.0,
+    "fill_rate": 80.0,
     "avg_r": 0.372,
     "median_r": 0.276,
     "hit_rate": 100.0,
