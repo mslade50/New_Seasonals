@@ -1619,7 +1619,7 @@ The production data, scan, sleeve, report, and weekly jobs run on this machine t
 | `premarket` | Weekdays 04:10 | CBOE, settled prices, risk correction, event sleeve, AM scan, cloud site handoffs |
 | `discretionary` | Weekdays 08:35 | Research-only Discretionary Focus |
 | `execution` | Weekdays 16:30 | Live-position execution email |
-| `postclose` | Weekdays 17:10 | PM prices/risk/fills/earnings/portfolio/CBOE/trend/intraday/scan/macro/sites |
+| `postclose` | Weekdays 17:10 | PM prices/risk/fills (verify + broker harvest)/earnings/portfolio/CBOE/trend/intraday/scan/macro/sites |
 | `indicator` | Monday 03:00 | Backtester indicator cache |
 | `weekly-rundown` | Sunday 08:00 | Weekly PDF email |
 | `health` | Weekdays 07:30 | R2 receipts, data, delivery, and runtime logs |
@@ -1627,6 +1627,51 @@ The production data, scan, sleeve, report, and weekly jobs run on this machine t
 `scripts/automation_supervisor.py` owns component-level R2 receipts, leases, strict producer validation, and GitHub fallback. Successful and indeterminate receipts block duplicates. Non-rerun-safe commands are durably marked `indeterminate` immediately before external side effects; crashes and ambiguous outcomes require explicit operator resolution and never blind-dispatch a second copy.
 
 Migrated child workflows are `workflow_dispatch`-only backups. `.github/workflows/local_automation_fallback.yml` is their sole cron and dispatches only missing/retryable receipt components during bounded ET windows. Production private/shared site builds remain cloud-only; local pipelines publish bounded canonical inputs to R2 and dispatch the site workflows. See `docs/local_automation_task_scheduler.md` for install, cutover, status, and rollback.
+
+### Live fills store (durable execution record, 2026-09-02)
+
+`scripts/harvest_fills.py` -> `data/live_fills.parquet` (R2 key
+`live_fills.parquet`, R2-CANONICAL, gitignored) + `live_fills_status.json`.
+Runs as the `harvest_fills` job in the `postclose` pipeline, LOCAL-ONLY (no
+GitHub workflow backup: the ring sits behind the broker's read token).
+
+**Why it exists.** IBKR's API serves only the CURRENT session's executions.
+`book_snapshot.py` pushes each account's fills with the book; the broker DO
+folds them into per-day keys and DROPS them after `retention_days` (14). So
+before this job the ring was the only accumulating copy of actual fills and a
+row older than 14 days existed nowhere machine-readable — only in IBKR's own
+Flex/activity statements. Found 2026-09-02 by the sizing due diligence, which
+also established that live execution matches the ledger inside noise (entry
+slip median -0.09 bps, shares 0.97x on 18 matched legs); the live-vs-ledger
+gap is DISCRETION, not fills.
+
+Contract:
+- **Upsert by `exec_id`, never append.** Commission reports lag the fill, and
+  an MOC fill can miss the day's last book push and only appear in tomorrow's
+  ring. The broker wins field-for-field EXCEPT `ENRICHMENT_COLUMNS`
+  (commission, realized_pnl), where a null incoming value keeps what is
+  stored — a later fetch must never erase a commission.
+- **Set containment, not row count**, is the write guard: every `exec_id`
+  already held must survive the merge or the run raises. An empty ring (a
+  no-trade fortnight) is legitimate and never shrinks the store.
+- **Gap detection is the point.** The ring's oldest session is compared to
+  our newest stored session; a hole means rows aged out unseen and prints a
+  loud GAP line (`--assert-no-gap` exits 3). Only an IBKR Flex pull recovers
+  those.
+- `session_date` is the EASTERN session, not the UTC date (00:30 UTC belongs
+  to the prior session). `order_ref` is parsed into `ref_symbol` /
+  `ref_action` / `strategy` / `ref_date` off the book's
+  `SYMBOL|ACTION|Strategy|Date` contract — that is what makes the store
+  joinable to `data/backtest_trades_full.parquet`. Untagged legs (pre-2026-07,
+  discretionary) get empty strings, never a guess.
+- Schema is FROZEN in `COLUMNS`; new broker fields are dropped until added
+  there (the fragility-parquet convention).
+
+Coverage starts 2026-08-20 (the oldest row in the ring on the day the job was
+built). Earlier history is recoverable ONLY from an IBKR Flex Trades pull with
+the Order Reference field, which is still a manual to-do. Guard:
+`tests/test_fills_harvest.py`. The site Trade Log tab still reads the DO's 14
+days directly; pointing it at this store is unbuilt.
 
 ### R2 secrets (machine `.env` and GitHub backup secrets)
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET=seasonals-cache`

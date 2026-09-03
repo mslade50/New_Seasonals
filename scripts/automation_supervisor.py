@@ -615,6 +615,28 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 required_env=SHEETS_ENV,
             ),
             JobSpec(
+                id="harvest_fills",
+                description="Copy the broker's executions ring into the durable fills store",
+                commands=(
+                    _py(
+                        "harvest broker fills",
+                        "scripts/harvest_fills.py",
+                        "--summary-json",
+                        "data/live_fills_status.json",
+                        timeout=900,
+                        side_effecting=True,
+                    ),
+                ),
+                # Local-only by design: the ring lives behind the broker's read
+                # token, and a GitHub runner has no reason to hold it.
+                required_env=R2_ENV + ("STATUS_TOKEN",),
+                rerun_safe=True,
+                outputs=(
+                    _out("data/live_fills.parquet", "live_fills.parquet", minimum=1_000),
+                    _out("data/live_fills_status.json", "live_fills_status.json", minimum=50),
+                ),
+            ),
+            JobSpec(
                 id="earnings_and_grades",
                 description="Refresh FMP earnings calendar and analyst-grade history",
                 commands=(
@@ -2094,6 +2116,13 @@ class AutomationSupervisor:
                     receipt=existing,
                     logger=logger,
                 )
+
+        if github_only and job.workflow is None:
+            # A local-only job (no migrated workflow) has no GitHub backup to
+            # dispatch. The hourly fallback controller must step over it rather
+            # than assert its way into a crashed sweep of the whole pipeline.
+            logger.line(f"skip {job.id}: local-only job, no GitHub workflow backup")
+            return JobOutcome(job.id, "skipped", None, "no GitHub workflow backup")
 
         started = self.now().astimezone(UTC)
         token = self._token(run_date, job)
