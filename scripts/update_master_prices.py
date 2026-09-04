@@ -13,6 +13,15 @@ late-reporting bars or splits get refreshed.
 --exclude-today drops any newly-fetched bars dated today (Eastern). Use on
 pre-market refresh runs (e.g. 3 AM ET) where yfinance might surface a stale
 or placeholder bar for "today" before the session has opened.
+
+Dry-run / repair-verification flags (2026-09-04):
+    --no-upload            never push to R2 (the repo .env carries R2 creds,
+                           so a plain local run WOULD upload)
+    --only-tickers T [T..] restrict the fetch to these cached tickers
+                           (implies --no-upload; still writes the canonical
+                           file unless --out is given)
+    --out PATH             write the merged parquet to PATH instead of the
+                           canonical file (implies --no-upload)
 """
 import argparse
 import os
@@ -101,6 +110,127 @@ def novel_cliff_dates(fresh_close, cached_close, window=320, thresh=0.5):
     return [d for d in fresh_cliffs.index if d in cc.index and d not in old_cliffs]
 
 
+def detect_broken_segments(master, new_data, run_tol=0.10, edge_tol=0.02,
+                           min_run=5, exclude=()):
+    """Tickers whose re-fetched WINDOW disagrees with the cache on a contiguous
+    segment - a broken vendor series, not a basis change (2026-09-04).
+
+    detect_basis_changes is a median over the ~83-session overlap, so a short
+    island inside the window (SOXS: 12 sessions at 15x, 2026-05-07..05-22 of
+    a 2026-03-19..05-22 island yfinance still serves inflated) cannot trip it,
+    and because window rows merge with keep="last" the island was re-imported
+    over the 2026-07-17 repair every night. Per ticker (skipping `exclude`,
+    the median-flagged names that take the full re-pull path) this walks the
+    overlap in session order (ratio = new/old Close) and collects runs of
+    consecutive diverging sessions. A run is broken when
+
+      * LENGTH rule: |ratio - 1| > run_tol (10%) on >= min_run consecutive
+        sessions. 10%, not 2% (verifier round 2): a >2% dividend going EX
+        mid-window rescales only the pre-ex block, so a 2.5-5% run of 20-25
+        sessions is GENUINE re-adjustment - rejecting it drops real data
+        and leaves a basis step at the ex-date. No split or vendor island
+        is that small; a 5-session 1.5x blip still trips it.
+      * WINDOW-EDGE rule: |ratio - 1| > edge_tol (2%) on a run that starts
+        at the FIRST overlap session and whose next session is a NOVEL >50%
+        cliff in the fresh series (a novel_cliff_dates() hit). This is the
+        signature of an island the fetch window has cut into: as the 120d
+        window rolls past the island its tail is 4, 3, 2, 1 sessions long
+        (SOXS on 2026-09-16..18) and would otherwise leak back in for good,
+        since the cache and the vendor then agree on those rows forever.
+        A short divergence in mid-window (an isolated bogus bar, a <5-session
+        blip) still merges exactly as today - the median test tolerates
+        those on purpose.
+
+    Returns {ticker: [{"start", "end", "n", "max_ratio", "reason"}, ...]},
+    tickers sorted, segments in date order. Only Close is compared, like the
+    median test.
+    """
+    m = master[["ticker", "date", "Close"]].copy()
+    n = new_data[["ticker", "date", "Close"]].copy()
+    m["date"] = pd.to_datetime(m["date"])
+    n["date"] = pd.to_datetime(n["date"])
+    if exclude:
+        n = n[~n["ticker"].isin(set(exclude))]
+    j = n.merge(m, on=["ticker", "date"], suffixes=("_new", "_old"))
+    j = j[(j["Close_old"] > 0) & j["Close_new"].notna()]
+    if j.empty:
+        return {}
+    j["ratio"] = j["Close_new"] / j["Close_old"]
+    j["dev"] = (j["ratio"] - 1.0).abs()
+    out = {}
+    for t, g in j.groupby("ticker"):
+        if not (g["dev"] > edge_tol).any():
+            continue
+        g = g.sort_values("date").reset_index(drop=True)
+        fresh_close = new_data.loc[new_data["ticker"] == t].copy()
+        fresh_close["date"] = pd.to_datetime(fresh_close["date"])
+        fresh_close = fresh_close.drop_duplicates("date", keep="last").set_index("date")["Close"]
+        cached_close = m.loc[m["ticker"] == t].drop_duplicates("date", keep="last").set_index("date")["Close"]
+        novel = set(novel_cliff_dates(fresh_close, cached_close))
+
+        def _seg(run, reason):
+            return {"start": run["date"].iloc[0], "end": run["date"].iloc[-1],
+                    "n": int(len(run)), "max_ratio": float(run["ratio"].max()),
+                    "min_ratio": float(run["ratio"].min()), "reason": reason}
+
+        segs = []
+        # LENGTH rule at run_tol
+        flags = (g["dev"] > run_tol).to_numpy()
+        i = 0
+        while i < len(g):
+            if not flags[i]:
+                i += 1
+                continue
+            k = i
+            while k + 1 < len(g) and flags[k + 1]:
+                k += 1
+            if k - i + 1 >= min_run:
+                segs.append(_seg(g.iloc[i:k + 1], f"{k - i + 1} consecutive sessions (>= {min_run}) "
+                                                  f"beyond {run_tol:.0%}"))
+            i = k + 1
+        # WINDOW-EDGE rule at edge_tol: the divergence begins before the
+        # overlap starts and ends in a cliff the cache does not have. An
+        # isolated bogus bar in mid-window is NOT this (the median test
+        # tolerates those on purpose) and still merges as today.
+        eflags = (g["dev"] > edge_tol).to_numpy()
+        if eflags[0] and not (segs and segs[0]["start"] == g["date"].iloc[0]):
+            k = 0
+            while k + 1 < len(g) and eflags[k + 1]:
+                k += 1
+            if k + 1 < len(g) and g["date"].iloc[k + 1] in novel:
+                segs.insert(0, _seg(g.iloc[:k + 1],
+                                    f"{k + 1}-session run at the window edge beyond {edge_tol:.0%} "
+                                    f"ending at a novel >50% cliff on {g['date'].iloc[k + 1].date()}"))
+        if segs:
+            out[t] = segs
+    return dict(sorted(out.items()))
+
+
+def drop_broken_segment_rows(new_data, broken):
+    """Remove ONLY the broken segments' rows from the fetched frame.
+
+    Segment-only drop (mind's decision 2026-09-04): the ticker's agreeing
+    overlap rows and its brand-new bars still merge, so a name with a stale
+    vendor island keeps updating instead of going dark until the island
+    leaves the fetch window (SOXS would otherwise have been dropped from the
+    scan as stale ~2026-09-08..09-21, with live 3x Bear Fade legs).
+    Returns (frame, {ticker: {"dropped": n, "merged": m}}).
+    """
+    if not broken:
+        return new_data, {}
+    dates = pd.to_datetime(new_data["date"])
+    drop = pd.Series(False, index=new_data.index)
+    stats = {}
+    for t, segs in broken.items():
+        is_t = new_data["ticker"] == t
+        t_drop = pd.Series(False, index=new_data.index)
+        for s in segs:
+            t_drop |= is_t & (dates >= pd.Timestamp(s["start"])) & (dates <= pd.Timestamp(s["end"]))
+        stats[t] = {"dropped": int(t_drop.sum()), "merged": int((is_t & ~t_drop).sum())}
+        drop |= t_drop
+    return new_data[~drop], stats
+
+
 def download_chunk(tickers, start_date):
     out = {}
     try:
@@ -154,7 +284,24 @@ def main():
                     help="Add any tickers in data/symbol_master.parquet not already in the cache.")
     ap.add_argument("--backfill-start", default="2005-01-01",
                     help="Start date for newly-added tickers' first backfill (default 2005-01-01).")
+    ap.add_argument("--no-upload", action="store_true",
+                    help="Skip the R2 push (dry runs / repair verification). The repo .env "
+                         "carries R2 creds, so a plain local run WOULD upload.")
+    ap.add_argument("--only-tickers", nargs="+", default=None,
+                    help="Restrict the fetch to these cached tickers (dry runs). The full "
+                         "master is still loaded and written; other tickers pass through.")
+    ap.add_argument("--out", default=None,
+                    help="Write the merged parquet HERE instead of the canonical file "
+                         "(implies --no-upload). Dry-run inspection of one update cycle.")
     args = ap.parse_args()
+    if args.out:
+        args.no_upload = True
+    if args.only_tickers and not args.no_upload:
+        # A partial refresh must never become the canonical R2 object
+        # (verifier round 2, case F: --only-tickers alone uploaded).
+        args.no_upload = True
+        print("  --only-tickers implies --no-upload: a partial refresh is never pushed to R2")
+    out_path = os.path.abspath(args.out) if args.out else PATH
 
     if not os.path.exists(PATH):
         print(f"ERROR: {PATH} missing - run scripts/build_master_prices.py first")
@@ -164,6 +311,15 @@ def main():
     master = pd.read_parquet(PATH)
     existing = set(master["ticker"].astype(str).str.upper().str.strip())
     universe = sorted(existing)
+    if args.only_tickers:
+        wanted = {t.upper().strip() for t in args.only_tickers}
+        missing = sorted(wanted - existing)
+        if missing:
+            print(f"ERROR: --only-tickers not in cache: {missing}")
+            return 1
+        universe = sorted(wanted)
+        print(f"  --only-tickers: fetch restricted to {universe} (fetch window still "
+              f"derived from the FULL cache, as a production run would)")
     last_dates = master.groupby("ticker")["date"].max()
     earliest_stale = last_dates.min()
     today = pd.Timestamp.today().normalize()
@@ -242,7 +398,7 @@ def main():
     # Coverage floor: stale (>lookback) names legitimately return nothing,
     # so measure against the live set only. Below 80% = degraded vintage —
     # don't write it over the only copy.
-    live_expected = max(len(universe) - len(stale), 1)
+    live_expected = max(len(universe) - int(stale.index.isin(universe).sum()), 1)
     coverage = len(fetched_tickers) / live_expected
     if coverage < 0.80:
         print(f"ERROR: only {len(fetched_tickers)}/{live_expected} live tickers "
@@ -267,6 +423,27 @@ def main():
     # be worse than a known cliff, which the next run re-flags).
     MAX_BASIS_REPULLS = 40
     basis_changed = detect_basis_changes(master, new_data)
+    # ---- Segment guard (2026-09-04) ----
+    # A ticker whose window disagrees with the cache on a contiguous segment
+    # (not the whole overlap - that is the basis path above) is a broken
+    # vendor segment: keep the cache on those sessions, drop ONLY the
+    # segment's fetched rows, merge the ticker's agreeing rows and its new
+    # bars, and say so loudly. It re-flags nightly until the vendor agrees or
+    # the segment leaves the fetch window. See detect_broken_segments.
+    broken = detect_broken_segments(master, new_data, exclude=basis_changed)
+    if broken:
+        before_rows = len(new_data)
+        new_data, seg_stats = drop_broken_segment_rows(new_data, broken)
+        for t, segs in broken.items():
+            for s in segs:
+                print(f"  [SEGMENT] {t}: vendor window diverges from cache on "
+                      f"{s['n']} consecutive session(s) {s['start'].date()}..{s['end'].date()} "
+                      f"(ratio new/old max {s['max_ratio']:.4f}, min {s['min_ratio']:.4f}; "
+                      f"{s['reason']}) - vendor segment looks broken; keeping cached "
+                      f"rows on those sessions; rows dropped {seg_stats[t]['dropped']} / "
+                      f"rows merged {seg_stats[t]['merged']} for {t}")
+        print(f"  [SEGMENT] {len(broken)} ticker(s) with rejected segment(s) this run: "
+              f"{sorted(broken)} ({before_rows - len(new_data):,} fetched rows dropped)")
     replaced_rows_dropped = 0
     if basis_changed:
         if len(basis_changed) > MAX_BASIS_REPULLS:
@@ -315,7 +492,10 @@ def main():
             print(f"  [BASIS] replaced full history for {sorted(replaced_ok)} "
                   f"({replaced_rows_dropped:,} old rows swapped out)")
 
-    combined = pd.concat([master, new_data], ignore_index=True)
+    # new_data can be EMPTY when the segment guard rejected every fetched
+    # ticker (a --only-tickers dry run on a broken name); concat with an empty
+    # frame warns and will change dtypes in a future pandas, so skip it.
+    combined = pd.concat([f for f in (master, new_data) if len(f)], ignore_index=True)
     combined = combined.dropna(subset=["Close"])
     combined = combined.drop_duplicates(subset=["ticker", "date"], keep="last")
     for c in ["Open", "High", "Low", "Close"]:
@@ -339,13 +519,18 @@ def main():
     # Atomic replace: an in-place to_parquet interrupted mid-write leaves a
     # corrupt canonical cache (a stray data/master_prices.parquet.XXXXXXXX
     # partial confirmed interrupted transfers happen on this surface).
-    _tmp = PATH + ".tmp"
+    _tmp = out_path + ".tmp"
     combined.to_parquet(_tmp, compression="snappy", index=False)
-    os.replace(_tmp, PATH)
+    os.replace(_tmp, out_path)
 
     elapsed = time.time() - t_start
     new_max = combined.groupby("ticker")["date"].max().max()
     print(f"\nDone in {elapsed:.1f}s. Added {added:,} rows. New max date: {new_max.date()}")
+    if out_path != PATH:
+        print(f"  --out: merged parquet written to {out_path} (canonical file untouched)")
+    if args.no_upload:
+        print("[r2 upload] skipped (--no-upload)")
+        return 0
 
     # Push the updated parquet to canonical R2 so local-primary consumers and
     # GitHub backups read the same cache. Ad-hoc non-strict local runs retain
