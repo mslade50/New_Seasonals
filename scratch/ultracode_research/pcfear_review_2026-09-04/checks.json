@@ -1,0 +1,20 @@
+{
+ "vintage_a_path": "scratch/ultracode_sizing_2026-09-02/dd_pit/pit_dial_extended.parquet",
+ "vintage_a_last_date": "2026-09-01",
+ "trades_scored": 539,
+ "gate_1a_sigma_A": -2.818,
+ "gate_1a_sigma_B": -2.222,
+ "gate_1b_avgR_A": 0.791,
+ "gate_1b_t_A": 1.117,
+ "gate_1b_n": 21,
+ "grid_cells_passing_both": 8,
+ "grid_cells_total": 9,
+ "legB_diff_R": 0.062,
+ "loyo_min_avgR": 0.421,
+ "loyo_all_positive": true,
+ "aug2026_zeroed_n": 6,
+ "aug2026_at_025_R": 2.209,
+ "aug2026_at_100_R": 2.209,
+ "aug2026_at_100_usd": 8539.0,
+ "family_off_sessions_since_0730": 23
+}

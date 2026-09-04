@@ -9,7 +9,10 @@ given), DONE (commit hash). Move items down, never delete them.
 - O1. DONE 2026-09-04: McKinley confirmed D5 semantics (Y on every leg = placed at grammar size; partial approval refuses the basket).
 - O2. D7 OLV EOD book cap: McKinley wants to understand usefulness first. Mind's assessment (2026-09-04): insurance with a known premium (ledger replay binds ~10 days / 3 episodes since 2015, ~$58k of $362k OLV PnL forgone, every clipped leg a winner; live would bind more often given pre-07-29 live sizes 1.15-2.85x ledger) against a tail the ledger never realized (OLV's worst drawdowns were idiosyncratic at dial 20-50, SPY flat). Not needed this fortnight (no OLV up-lever); D10's hedge work is the cheaper bound. DECIDED by OWNER 2026-09-04: leave the OLV EOD book cap disabled for now. Re-ask when the D10 hedge prereg lands or when any OLV up-lever is proposed.
 - O3. DONE 2026-09-04: McKinley keeps the pitch cadence daily. D6's event-trigger change is withdrawn; watchlist expiry (20 td) and registry-by-cell index remain as quality items, low priority.
-- O4. D8 decision rule: mind writes it after re-reading the 2026-08-05 prereg; study runs after.
+- O4. DONE 2026-09-04 (see A7): D8 review part 1 ran; all three legs STAND; recorded in the prereg Status block and CLAUDE.md.
+- O21. OLV pivot-aware entry policy (live since 2026-08-31, modeled + tested on all three sides per recon_parity): its evidence ("359 completed fills, +8.68R", strategy_config comment) exists nowhere in the repo, and 111 of 195 pivot sources on 2026-09-03 are older than the cache's re-adjust window. Decision: keep live; a research brief must reproduce the evidence this fortnight or the policy flag goes off; CLAUDE.md entry owed; basis question waits on recon_data_window.
+- O22. order_staging's REL_CLOSE close-gap guard (limit moved to open +/- 0.15 ATR on a > 0.5 ATR gap-down through it) is live and unmodeled in the engine across all 7 persistent-limit strategies (recon_parity finding 1). Decision: document in CLAUDE.md now; model it once the fills store can size the effect.
+- O23. Mind action: resolve the 2026-09-02 `execution_report` receipt (disposition `failure` unless the email is found to have gone out) so the controller stops exiting red on it.
 - O5. D9 study DONE (see A6); decision D12 (liquid OVS 0.5x) recorded; OWNER veto window open until the OVS build brief is written.
 - O6. D10 hedge prereg rewrite + MES round trip (December contract).
 - O7. D11 ops fixes: health task, task pruning, operational log, persistent runtime logs, 05:30 S4U re-run task, cutover cadence rule in docs.
@@ -36,6 +39,11 @@ given), DONE (commit hash). Move items down, never delete them.
 - A5. D8 study brief `docs/briefs/2026-09-04/study_pcfear_review.md`; D9 study brief `docs/briefs/2026-09-04/study_ovs_liquid.md`; incident write-up brief `docs/briefs/2026-09-04/doc_incident_0903.md`. Launched 2026-09-04.
 
 - A6. D9 liquid-OVS study ran 2026-09-04 under the frozen registration; all four decision inputs hold (t -3.05; cut i -1.83; top-cell -3.02; 2024/25/26 each below mean). Evidence committed under `scratch/ultracode_research/ovs_liquid_2026-09-04/`. Decision D12.
+
+- A7. D8 review part 1 ran 2026-09-04 (`scratch/ultracode_research/pcfear_review_2026-09-04/`): gates 1a/1b/1c/legB/LOYO PASS on both vintages; gate 2 not runnable (0 new fear-ON episodes); outcome all legs STAND; Aug-2026 shadow +2.21R on 6 zeroed signals recorded as one episode.
+- A8. recon_parity DONE 2026-09-04: 19 contracts, 0 drift, 1,292 live pairs 0 divergences; earnings-override suspect NOT confirmed; OLV pivot IS modeled; 7 red tests (6 disabled-feature, 1 network); close-gap guard unmodeled; harvest_fills gap detector blind on empty ring. Report in `artifacts/recon_2026-09-04/parity/`.
+- A9. Incident write-up `docs/incidents/2026-09-03_scan_am_stall.md` written 2026-09-04 (three corrections to the ops audit recorded inside it). D1's precondition for the one cutover is met.
+- A10. Builders launched 2026-09-04: `build_tests_hygiene`, `build_sizing_d31_d32` (verify brief `verify_sizing_d31_d32` ready), `build_ops_supervisor`, `build_ops_fills_ledger`.
 
 ## DONE
 

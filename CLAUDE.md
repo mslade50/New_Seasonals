@@ -679,7 +679,14 @@ SHIPPED AHEAD OF THE PREREG GATES as an explicit McKinley appetite decision
 the prereg's gates (PIT re-bucket, 2 new OOS episodes, LOYO) now run as the
 POST-SHIP REVIEW: scratch/ultracode_research/
 family_pc_fear_band_prereg_2026-08-05.md. Multiplier set is CLOSED:
-{1.25, 1.0, 0.25, 0.0}. **Leg-C shadow tracking is mandatory**:
+{1.25, 1.0, 0.25, 0.0}. POST-SHIP REVIEW PART 1 RAN 2026-09-04
+(scratch/ultracode_research/pcfear_review_2026-09-04/): every runnable gate
+passed on both dial vintages (1a -2.82 / -2.22 sigma; 1b +0.79R on n=21;
+leg B within 0.1R; LOYO min remainder +0.42), so all three legs STAND;
+gate 2 (two new fear-ON hi-frag episodes) has accrued nothing because fear
+has been OFF since 2026-08-04. The Aug-2026 zeroed set (6 signals, +2.21R,
++$8.5k at 1.0x) is one episode and does not move a multiplier.
+**Leg-C shadow tracking is mandatory**:
 `build_trade_ledger.build_pcfear_shadow` re-runs the engine with
 `pc_fear_enabled=False` -> `data/backtest_trades_pcfear_shadow.parquet` so
 the zeroed cell keeps accruing evidence for the "+20 hi-frag family trades"

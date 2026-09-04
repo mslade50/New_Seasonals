@@ -1,0 +1,825 @@
+{
+ "vintage_a_path": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\scratch\\ultracode_sizing_2026-09-02\\dd_pit\\pit_dial_extended.parquet",
+ "vintage_a_last_date": "2026-09-01",
+ "vintage_b_path": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\rd2_fragility.parquet",
+ "population": {
+  "positions": 557,
+  "scored_A": 504,
+  "scored_B": 539,
+  "first_signal": "2016-06-13",
+  "last_signal": "2026-09-02"
+ },
+ "vintage_A": {
+  "gates_50_85": {
+   "cells": {
+    "lo_off": {
+     "n": 281,
+     "dates": 141,
+     "avgR": 0.6328195951658026,
+     "win": 71.88612099644128,
+     "date_avgR": 0.5887380169895889,
+     "t_date": 5.95621765869525,
+     "t_cluster": 5.766865171518626,
+     "se_cluster": 0.10973372470907934,
+     "years": [
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025,
+      2026
+     ]
+    },
+    "hi_off": {
+     "n": 118,
+     "dates": 64,
+     "avgR": 0.005767236529948372,
+     "win": 51.69491525423729,
+     "date_avgR": 0.09632158010089555,
+     "t_date": 0.6683090555701868,
+     "t_cluster": 0.03577702677538972,
+     "se_cluster": 0.1611994357763551,
+     "years": [
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025,
+      2026
+     ]
+    },
+    "lo_on": {
+     "n": 84,
+     "dates": 42,
+     "avgR": 0.694916225749559,
+     "win": 77.38095238095238,
+     "date_avgR": 0.5241638646479916,
+     "t_date": 3.072830290139446,
+     "t_cluster": 3.7743478874138026,
+     "se_cluster": 0.1841155734655181,
+     "years": [
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2025,
+      2026
+     ]
+    },
+    "hi_on": {
+     "n": 21,
+     "dates": 14,
+     "avgR": 0.7907300915427898,
+     "win": 80.95238095238095,
+     "date_avgR": 0.4991081884605694,
+     "t_date": 1.1166032866331868,
+     "t_cluster": 2.0389459326194883,
+     "se_cluster": 0.3878131729206364,
+     "years": [
+      2018,
+      2021,
+      2022,
+      2026
+     ]
+    }
+   },
+   "gate_1a": {
+    "diff_avgR": -0.6270523586358542,
+    "diff_date_avgR": -0.4924164368886934,
+    "welch_t": -2.81758887011506,
+    "welch_p": 0.0056335290724595,
+    "mw_U": 3397.0,
+    "mw_p": 0.00463099956396027,
+    "t_cluster_diff": -3.215579194048299
+   },
+   "gate_1b": {
+    "n": 21,
+    "dates": 14,
+    "avgR": 0.7907300915427898,
+    "win": 80.95238095238095,
+    "date_avgR": 0.4991081884605694,
+    "t_date": 1.1166032866331868,
+    "t_cluster": 2.0389459326194883,
+    "se_cluster": 0.3878131729206364,
+    "years": [
+     2018,
+     2021,
+     2022,
+     2026
+    ]
+   },
+   "legB": {
+    "diff_avgR": 0.062096630583756474,
+    "diff_date_avgR": -0.06457415234159736,
+    "welch_t": -0.3275396250625415,
+    "welch_p": 0.7442260904709962,
+    "mw_U": 2905.0,
+    "mw_p": 0.8538726230713614,
+    "t_cluster_diff": 0.28971593035662546
+   },
+   "hi_fear_vs_nofear": {
+    "diff_avgR": 0.7849628550128415,
+    "diff_date_avgR": 0.4027866083596739,
+    "welch_t": 0.8576319058017428,
+    "welch_p": 0.4039111120550086,
+    "mw_U": 576.0,
+    "mw_p": 0.09689509983388736,
+    "t_cluster_diff": 1.8690422745012847
+   }
+  },
+  "loyo": {
+   "by_year": {
+    "2018": {
+     "n": 1,
+     "avgR": -0.039619047619047616
+    },
+    "2021": {
+     "n": 6,
+     "avgR": 1.714251851851852
+    },
+    "2022": {
+     "n": 3,
+     "avgR": -0.9915597883597883
+    },
+    "2026": {
+     "n": 11,
+     "avgR": 0.8485562930896264
+    }
+   },
+   "drop_one": {
+    "2018": {
+     "dropped_n": 1,
+     "rest_n": 20,
+     "rest_avgR": 0.8322475485008818
+    },
+    "2021": {
+     "dropped_n": 6,
+     "rest_n": 15,
+     "rest_avgR": 0.42132138741916525
+    },
+    "2022": {
+     "dropped_n": 3,
+     "rest_n": 18,
+     "rest_avgR": 1.0877784048598864
+    },
+    "2026": {
+     "dropped_n": 11,
+     "rest_n": 10,
+     "rest_avgR": 0.7271212698412699
+    }
+   }
+  },
+  "grid": {
+   "fear80_dial45": {
+    "gate_1a_t": -3.446071751814235,
+    "gate_1a_n_hi_off": 143,
+    "gate_1b_avgR": 0.8313361243237786,
+    "gate_1b_n": 27,
+    "gate_1b_t_date": 1.7759066313272134,
+    "pass_both": true
+   },
+   "fear80_dial50": {
+    "gate_1a_t": -2.911569349850804,
+    "gate_1a_n_hi_off": 114,
+    "gate_1b_avgR": 0.8583113932980599,
+    "gate_1b_n": 25,
+    "gate_1b_t_date": 1.7177373325100012,
+    "pass_both": true
+   },
+   "fear80_dial55": {
+    "gate_1a_t": -1.9408710769438564,
+    "gate_1a_n_hi_off": 87,
+    "gate_1b_avgR": 1.0782085278555866,
+    "gate_1b_n": 17,
+    "gate_1b_t_date": 2.0142664712482548,
+    "pass_both": true
+   },
+   "fear85_dial45": {
+    "gate_1a_t": -3.43453179948716,
+    "gate_1a_n_hi_off": 147,
+    "gate_1b_avgR": 0.7649401063777874,
+    "gate_1b_n": 23,
+    "gate_1b_t_date": 1.207604904073347,
+    "pass_both": true
+   },
+   "fear85_dial50": {
+    "gate_1a_t": -2.81758887011506,
+    "gate_1a_n_hi_off": 118,
+    "gate_1b_avgR": 0.7907300915427898,
+    "gate_1b_n": 21,
+    "gate_1b_t_date": 1.1166032866331868,
+    "pass_both": true
+   },
+   "fear85_dial55": {
+    "gate_1a_t": -1.7826763303519553,
+    "gate_1a_n_hi_off": 91,
+    "gate_1b_avgR": 1.0366993894993894,
+    "gate_1b_n": 13,
+    "gate_1b_t_date": 1.2377759689646506,
+    "pass_both": true
+   },
+   "fear90_dial45": {
+    "gate_1a_t": -3.2478241887735195,
+    "gate_1a_n_hi_off": 154,
+    "gate_1b_avgR": 0.647707319223986,
+    "gate_1b_n": 16,
+    "gate_1b_t_date": 0.9836440231985754,
+    "pass_both": true
+   },
+   "fear90_dial50": {
+    "gate_1a_t": -2.8275381708180625,
+    "gate_1a_n_hi_off": 124,
+    "gate_1b_avgR": 0.7582966255144032,
+    "gate_1b_n": 15,
+    "gate_1b_t_date": 1.2293589761990273,
+    "pass_both": true
+   },
+   "fear90_dial55": {
+    "gate_1a_t": -1.3558081637381687,
+    "gate_1a_n_hi_off": 95,
+    "gate_1b_avgR": 0.5806405643738977,
+    "gate_1b_n": 9,
+    "gate_1b_t_date": 0.5220751998544567,
+    "pass_both": false
+   }
+  },
+  "grid_cells_passing_both": 8
+ },
+ "vintage_B": {
+  "gates_50_85": {
+   "cells": {
+    "lo_off": {
+     "n": 347,
+     "dates": 179,
+     "avgR": 0.6081273417717729,
+     "win": 72.91066282420749,
+     "date_avgR": 0.5125669296377209,
+     "t_date": 5.95302548518218,
+     "t_cluster": 6.39672250022941,
+     "se_cluster": 0.09506858266088034,
+     "years": [
+      2016,
+      2017,
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025,
+      2026
+     ]
+    },
+    "hi_off": {
+     "n": 86,
+     "dates": 51,
+     "avgR": -0.1663029258998251,
+     "win": 39.53488372093023,
+     "date_avgR": 0.07366237502857485,
+     "t_date": 0.41438251981478996,
+     "t_cluster": -0.9001816149412567,
+     "se_cluster": 0.18474374852754302,
+     "years": [
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2024,
+      2025,
+      2026
+     ]
+    },
+    "lo_on": {
+     "n": 89,
+     "dates": 47,
+     "avgR": 0.7266590174979688,
+     "win": 76.40449438202246,
+     "date_avgR": 0.5653949593878672,
+     "t_date": 3.289051685893303,
+     "t_cluster": 4.044745066068367,
+     "se_cluster": 0.17965508471571157,
+     "years": [
+      2017,
+      2018,
+      2019,
+      2020,
+      2022,
+      2023,
+      2025,
+      2026
+     ]
+    },
+    "hi_on": {
+     "n": 17,
+     "dates": 10,
+     "avgR": 0.7062628073451603,
+     "win": 88.23529411764706,
+     "date_avgR": 0.41296592592592585,
+     "t_date": 0.8035434586152185,
+     "t_cluster": 1.698008785210072,
+     "se_cluster": 0.4159358970912414,
+     "years": [
+      2021,
+      2022,
+      2026
+     ]
+    }
+   },
+   "gate_1a": {
+    "diff_avgR": -0.774430267671598,
+    "diff_date_avgR": -0.438904554609146,
+    "welch_t": -2.2220907783965207,
+    "welch_p": 0.029290298684968002,
+    "mw_U": 3531.0,
+    "mw_p": 0.013732395705550628,
+    "t_cluster_diff": -3.727347687125275
+   },
+   "gate_1b": {
+    "n": 17,
+    "dates": 10,
+    "avgR": 0.7062628073451603,
+    "win": 88.23529411764706,
+    "date_avgR": 0.41296592592592585,
+    "t_date": 0.8035434586152185,
+    "t_cluster": 1.698008785210072,
+    "se_cluster": 0.4159358970912414,
+    "years": [
+     2021,
+     2022,
+     2026
+    ]
+   },
+   "legB": {
+    "diff_avgR": 0.11853167572619594,
+    "diff_date_avgR": 0.05282802975014633,
+    "welch_t": 0.274774001819399,
+    "welch_p": 0.7842898284883675,
+    "mw_U": 4396.0,
+    "mw_p": 0.635666303776391,
+    "t_cluster_diff": 0.5831575210488655
+   },
+   "hi_fear_vs_nofear": {
+    "diff_avgR": 0.8725657332449854,
+    "diff_date_avgR": 0.339303550897351,
+    "welch_t": 0.6239419993844666,
+    "welch_p": 0.5451060593552494,
+    "mw_U": 321.0,
+    "mw_p": 0.20195519106842053,
+    "t_cluster_diff": 1.9172272215662287
+   }
+  },
+  "loyo": {
+   "by_year": {
+    "2021": {
+     "n": 9,
+     "avgR": 1.12947771898883
+    },
+    "2022": {
+     "n": 3,
+     "avgR": -0.9915597883597883
+    },
+    "2026": {
+     "n": 5,
+     "avgR": 0.9631695238095238
+    }
+   },
+   "drop_one": {
+    "2021": {
+     "dropped_n": 9,
+     "rest_n": 8,
+     "rest_avgR": 0.2301460317460317
+    },
+    "2022": {
+     "dropped_n": 3,
+     "rest_n": 14,
+     "rest_avgR": 1.0700819349962207
+    },
+    "2026": {
+     "dropped_n": 5,
+     "rest_n": 12,
+     "rest_avgR": 0.5992183421516756
+    }
+   }
+  },
+  "grid": {
+   "fear80_dial45": {
+    "gate_1a_t": -2.2667799768324657,
+    "gate_1a_n_hi_off": 103,
+    "gate_1b_avgR": 0.827265138154027,
+    "gate_1b_n": 30,
+    "gate_1b_t_date": 1.9669850339879964,
+    "pass_both": true
+   },
+   "fear80_dial50": {
+    "gate_1a_t": -2.4098465783254284,
+    "gate_1a_n_hi_off": 82,
+    "gate_1b_avgR": 0.8028057445200302,
+    "gate_1b_n": 21,
+    "gate_1b_t_date": 1.5273039277579272,
+    "pass_both": true
+   },
+   "fear80_dial55": {
+    "gate_1a_t": -1.9659344481757213,
+    "gate_1a_n_hi_off": 60,
+    "gate_1b_avgR": 0.5303407407407408,
+    "gate_1b_n": 16,
+    "gate_1b_t_date": 0.9999173476382708,
+    "pass_both": true
+   },
+   "fear85_dial45": {
+    "gate_1a_t": -2.1136359844352355,
+    "gate_1a_n_hi_off": 109,
+    "gate_1b_avgR": 0.7716207524985302,
+    "gate_1b_n": 24,
+    "gate_1b_t_date": 1.2852426196820763,
+    "pass_both": true
+   },
+   "fear85_dial50": {
+    "gate_1a_t": -2.2220907783965207,
+    "gate_1a_n_hi_off": 86,
+    "gate_1b_avgR": 0.7062628073451603,
+    "gate_1b_n": 17,
+    "gate_1b_t_date": 0.8035434586152185,
+    "pass_both": true
+   },
+   "fear85_dial55": {
+    "gate_1a_t": -1.7628889538307202,
+    "gate_1a_n_hi_off": 62,
+    "gate_1b_avgR": 0.3808846560846561,
+    "gate_1b_n": 14,
+    "gate_1b_t_date": 0.4003607600058786,
+    "pass_both": true
+   },
+   "fear90_dial45": {
+    "gate_1a_t": -2.1543803156156507,
+    "gate_1a_n_hi_off": 115,
+    "gate_1b_avgR": 0.7382230844601215,
+    "gate_1b_n": 18,
+    "gate_1b_t_date": 1.4120412412533092,
+    "pass_both": true
+   },
+   "fear90_dial50": {
+    "gate_1a_t": -1.8121453383895538,
+    "gate_1a_n_hi_off": 90,
+    "gate_1b_avgR": 0.2888569800569801,
+    "gate_1b_n": 13,
+    "gate_1b_t_date": 0.07220292030855936,
+    "pass_both": false
+   },
+   "fear90_dial55": {
+    "gate_1a_t": -1.6014678976779422,
+    "gate_1a_n_hi_off": 63,
+    "gate_1b_avgR": 0.2888569800569801,
+    "gate_1b_n": 13,
+    "gate_1b_t_date": 0.07220292030855936,
+    "pass_both": false
+   }
+  },
+  "grid_cells_passing_both": 7
+ },
+ "aug2026": {
+  "zeroed_since_0805_n": 6,
+  "zeroed_0730_to_0804_n": 0,
+  "sum_R": 2.209185185185185,
+  "avg_R": 0.36819753086419754,
+  "win": 66.66666666666666,
+  "usd_at_025": 2133.0,
+  "usd_at_100": 8539.0,
+  "open_at_last_bar": [
+   "3x Bear ETF Overbot Fade SOXS"
+  ],
+  "rows": [
+   {
+    "Strategy": "SPY QQQ MonFri Reversion",
+    "Ticker": "QQQ",
+    "Signal Date": "2026-08-10",
+    "Exit Date": "2026-08-13",
+    "Exit Type": "Time",
+    "dial_B": 63.693,
+    "dial_A": 72.214,
+    "fear_pct": 50.794,
+    "R_Multiple": 0.866,
+    "pnl_025": 852.0,
+    "pnl_100": 3406.0,
+    "open_at_last_bar": false
+   },
+   {
+    "Strategy": "Monday Dip",
+    "Ticker": "SMH",
+    "Signal Date": "2026-08-10",
+    "Exit Date": "2026-08-13",
+    "Exit Type": "Time",
+    "dial_B": 63.693,
+    "dial_A": 72.214,
+    "fear_pct": 50.794,
+    "R_Multiple": 0.671,
+    "pnl_025": 283.0,
+    "pnl_100": 1148.0,
+    "open_at_last_bar": false
+   },
+   {
+    "Strategy": "SPY QQQ MonFri Reversion",
+    "Ticker": "QQQ",
+    "Signal Date": "2026-08-17",
+    "Exit Date": "2026-08-20",
+    "Exit Type": "Time",
+    "dial_B": 84.817,
+    "dial_A": 92.949,
+    "fear_pct": 38.889,
+    "R_Multiple": -0.496,
+    "pnl_025": -488.0,
+    "pnl_100": -1960.0,
+    "open_at_last_bar": false
+   },
+   {
+    "Strategy": "SPY QQQ MonFri Reversion",
+    "Ticker": "SPY",
+    "Signal Date": "2026-08-28",
+    "Exit Date": "2026-09-01",
+    "Exit Type": "Stop",
+    "dial_B": 87.601,
+    "dial_A": 96.417,
+    "fear_pct": 39.683,
+    "R_Multiple": -1.044,
+    "pnl_025": -1028.0,
+    "pnl_100": -4112.0,
+    "open_at_last_bar": false
+   },
+   {
+    "Strategy": "Weak Close Decent Sznls",
+    "Ticker": "XBI",
+    "Signal Date": "2026-08-28",
+    "Exit Date": "2026-09-02",
+    "Exit Type": "Time",
+    "dial_B": 87.601,
+    "dial_A": 96.417,
+    "fear_pct": 39.683,
+    "R_Multiple": 1.239,
+    "pnl_025": 1829.0,
+    "pnl_100": 7315.0,
+    "open_at_last_bar": false
+   },
+   {
+    "Strategy": "3x Bear ETF Overbot Fade",
+    "Ticker": "SOXS",
+    "Signal Date": "2026-09-02",
+    "Exit Date": "2026-09-03",
+    "Exit Type": "Time",
+    "dial_B": 87.9,
+    "dial_A": null,
+    "fear_pct": 51.587,
+    "R_Multiple": 0.974,
+    "pnl_025": 685.0,
+    "pnl_100": 2742.0,
+    "open_at_last_bar": true
+   }
+  ]
+ },
+ "live_status": [
+  {
+   "session": "2026-07-30",
+   "dial_B_live": 50.3,
+   "dial_A_pit": 56.7,
+   "fear_pct_lag1": 95.6,
+   "fear_state": "on",
+   "fear_data_date": "2026-07-29",
+   "family_zeroed": false
+  },
+  {
+   "session": "2026-07-31",
+   "dial_B_live": 50.9,
+   "dial_A_pit": 57.8,
+   "fear_pct_lag1": 91.7,
+   "fear_state": "on",
+   "fear_data_date": "2026-07-30",
+   "family_zeroed": false
+  },
+  {
+   "session": "2026-08-03",
+   "dial_B_live": 51.6,
+   "dial_A_pit": 59.3,
+   "fear_pct_lag1": 88.9,
+   "fear_state": "on",
+   "fear_data_date": "2026-07-31",
+   "family_zeroed": false
+  },
+  {
+   "session": "2026-08-04",
+   "dial_B_live": 52.9,
+   "dial_A_pit": 61.0,
+   "fear_pct_lag1": 84.9,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-03",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-05",
+   "dial_B_live": 54.7,
+   "dial_A_pit": 63.0,
+   "fear_pct_lag1": 71.0,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-04",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-06",
+   "dial_B_live": 57.2,
+   "dial_A_pit": 65.6,
+   "fear_pct_lag1": 69.4,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-05",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-07",
+   "dial_B_live": 60.2,
+   "dial_A_pit": 68.8,
+   "fear_pct_lag1": 68.7,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-06",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-10",
+   "dial_B_live": 63.7,
+   "dial_A_pit": 72.2,
+   "fear_pct_lag1": 50.8,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-07",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-11",
+   "dial_B_live": 67.9,
+   "dial_A_pit": 75.9,
+   "fear_pct_lag1": 49.2,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-10",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-12",
+   "dial_B_live": 72.2,
+   "dial_A_pit": 80.4,
+   "fear_pct_lag1": 44.0,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-11",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-13",
+   "dial_B_live": 76.8,
+   "dial_A_pit": 85.2,
+   "fear_pct_lag1": 44.4,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-12",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-14",
+   "dial_B_live": 80.8,
+   "dial_A_pit": 89.4,
+   "fear_pct_lag1": 42.5,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-13",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-17",
+   "dial_B_live": 84.8,
+   "dial_A_pit": 92.9,
+   "fear_pct_lag1": 38.9,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-14",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-18",
+   "dial_B_live": 86.8,
+   "dial_A_pit": 95.7,
+   "fear_pct_lag1": 42.9,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-17",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-19",
+   "dial_B_live": 88.1,
+   "dial_A_pit": 97.5,
+   "fear_pct_lag1": 54.8,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-18",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-20",
+   "dial_B_live": 89.1,
+   "dial_A_pit": 98.4,
+   "fear_pct_lag1": 51.2,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-19",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-21",
+   "dial_B_live": 89.5,
+   "dial_A_pit": 98.6,
+   "fear_pct_lag1": 52.0,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-20",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-24",
+   "dial_B_live": 89.5,
+   "dial_A_pit": 98.3,
+   "fear_pct_lag1": 50.0,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-21",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-25",
+   "dial_B_live": 88.9,
+   "dial_A_pit": 98.2,
+   "fear_pct_lag1": 54.4,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-24",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-26",
+   "dial_B_live": 88.6,
+   "dial_A_pit": 97.8,
+   "fear_pct_lag1": 51.2,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-25",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-27",
+   "dial_B_live": 88.1,
+   "dial_A_pit": 97.1,
+   "fear_pct_lag1": 52.8,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-26",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-28",
+   "dial_B_live": 87.6,
+   "dial_A_pit": 96.4,
+   "fear_pct_lag1": 39.7,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-27",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-08-31",
+   "dial_B_live": 87.1,
+   "dial_A_pit": 96.1,
+   "fear_pct_lag1": 44.0,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-28",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-09-01",
+   "dial_B_live": 87.5,
+   "dial_A_pit": 95.6,
+   "fear_pct_lag1": 49.2,
+   "fear_state": "off",
+   "fear_data_date": "2026-08-31",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-09-02",
+   "dial_B_live": 87.9,
+   "dial_A_pit": null,
+   "fear_pct_lag1": 51.6,
+   "fear_state": "off",
+   "fear_data_date": "2026-09-01",
+   "family_zeroed": true
+  },
+  {
+   "session": "2026-09-03",
+   "dial_B_live": 87.8,
+   "dial_A_pit": null,
+   "fear_pct_lag1": 54.4,
+   "fear_state": "off",
+   "fear_data_date": "2026-09-02",
+   "family_zeroed": true
+  }
+ ],
+ "family_off_sessions_since_0730": 23
+}

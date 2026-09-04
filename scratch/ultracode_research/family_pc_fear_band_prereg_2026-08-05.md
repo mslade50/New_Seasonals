@@ -177,8 +177,15 @@ decision. Recorded, not endorsed-by-evidence: the motivating cell remains
       with tests)
 - [x] Leg C shadow tracking built (build_pcfear_shadow)
 - [x] SHIPPED (rev 3, 2026-08-05) — all three legs live per McKinley
-- [ ] Post-ship review, part 1: PIT re-bucket (gate 1 incl. leg B
-      non-inferiority + leg C 1a) — runnable now, not yet run
+- [x] Post-ship review, part 1: RUN 2026-09-04
+      (scratch/ultracode_research/pcfear_review_2026-09-04/REVIEW.md).
+      Gate 1a PASS on both vintages (extended PIT -2.82 sigma, live
+      parquet -2.22); gate 1b PASS (+0.79R / +0.71R, n 21 / 17, one-sample
+      date t 1.12 / 0.80); grid 8/9 and 7/9 cells; leg B non-inferiority
+      PASS (within 0.1R either way); LOYO PASS (min remainder +0.42 /
+      +0.23). OUTCOME: legs A, B and C all STAND. Aug-2026 leg-C shadow
+      recorded as one episode: 6 zeroed signals, +2.21R, +$8,539 at 1.0x,
+      not decisive under this registration.
 - [ ] Post-ship review, part 2: 2+ new OOS hi-frag fear-ON episodes
       (gate 2) + LOYO on combined sample (gate 3) — folds into the
       FAMILY4 "+20 hi-frag trades (~2029)" re-exam
