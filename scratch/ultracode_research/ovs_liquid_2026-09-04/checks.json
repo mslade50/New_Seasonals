@@ -1,0 +1,26 @@
+{
+  "n_liquid_2010_2023": 189,
+  "n_liquid_2024p": 66,
+  "avgR_2010_2023": 0.5796,
+  "avgR_2024p": -0.0283,
+  "diff": -0.6079,
+  "t_clustered": -3.055,
+  "boot_ci95": [
+    -0.9747,
+    -0.1968
+  ],
+  "cut_i_t": -1.828,
+  "cut_iii_t": -1.931,
+  "cut_iv_top_cell_t": -3.021,
+  "cut_iv_bottom_share_2010_2023": 0.3386,
+  "cut_iv_bottom_share_2024p": 0.197,
+  "years_below_mean": [
+    "2024",
+    "2025",
+    "2026"
+  ],
+  "overflow_diff_t": -0.451,
+  "lev3x_fade_diff_t": -3.244,
+  "decision_inputs_all_hold": true,
+  "explained_by_extremity": false
+}

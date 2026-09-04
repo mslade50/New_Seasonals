@@ -6,11 +6,11 @@ given), DONE (commit hash). Move items down, never delete them.
 
 ## OPEN
 
-- O1. D5 confirmation: Y on every leg = placed at grammar size; partial approval refuses the basket. (OWNER)
-- O2. D7: re-arm the EOD OLV book cap now, or on the next OLV up-lever proposal. (OWNER)
-- O3. D6: pitch cadence event-triggered vs daily. (OWNER)
+- O1. DONE 2026-09-04: McKinley confirmed D5 semantics (Y on every leg = placed at grammar size; partial approval refuses the basket).
+- O2. D7 OLV EOD book cap: McKinley wants to understand usefulness first. Mind's assessment (2026-09-04): insurance with a known premium (ledger replay binds ~10 days / 3 episodes since 2015, ~$58k of $362k OLV PnL forgone, every clipped leg a winner; live would bind more often given pre-07-29 live sizes 1.15-2.85x ledger) against a tail the ledger never realized (OLV's worst drawdowns were idiosyncratic at dial 20-50, SPY flat). Not needed this fortnight (no OLV up-lever); D10's hedge work is the cheaper bound. Recommendation: leave disabled, re-ask when the hedge prereg lands. Still OWNER's call.
+- O3. DONE 2026-09-04: McKinley keeps the pitch cadence daily. D6's event-trigger change is withdrawn; watchlist expiry (20 td) and registry-by-cell index remain as quality items, low priority.
 - O4. D8 decision rule: mind writes it after re-reading the 2026-08-05 prereg; study runs after.
-- O5. D9 OVS liquid-vs-overflow prereg: mind writes the rule; study runs after.
+- O5. D9 study DONE (see A6); decision D12 (liquid OVS 0.5x) recorded; OWNER veto window open until the OVS build brief is written.
 - O6. D10 hedge prereg rewrite + MES round trip (December contract).
 - O7. D11 ops fixes: health task, task pruning, operational log, persistent runtime logs, 05:30 S4U re-run task, cutover cadence rule in docs.
 - O8. D11: resolve the 2026-09-02 `execution_report` receipt (verify whether the email went out first).
@@ -34,6 +34,8 @@ given), DONE (commit hash). Move items down, never delete them.
 - A3. Freeze (D1) in force from 2026-09-04.
 - A4. 2026-09-04 04:10 v8 premarket verified: cboe_am, master_prices_am, risk_am, event_sleeve_am, scan_am all `success local`; both AM site deploys `success github` (supervisor `status --date 2026-09-04`, read-only). First real test of the 09-03 stall fix passed.
 - A5. D8 study brief `docs/briefs/2026-09-04/study_pcfear_review.md`; D9 study brief `docs/briefs/2026-09-04/study_ovs_liquid.md`; incident write-up brief `docs/briefs/2026-09-04/doc_incident_0903.md`. Launched 2026-09-04.
+
+- A6. D9 liquid-OVS study ran 2026-09-04 under the frozen registration; all four decision inputs hold (t -3.05; cut i -1.83; top-cell -3.02; 2024/25/26 each below mean). Evidence committed under `scratch/ultracode_research/ovs_liquid_2026-09-04/`. Decision D12.
 
 ## DONE
 
