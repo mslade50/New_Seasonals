@@ -180,6 +180,23 @@ def test_atr_ext_precedence_drops_ovs():
     assert 'ATR Extended Gap Up' in strats
 
 
+def test_overlay_free_mode_keeps_both_strategies_and_full_sizes_ovs_path2():
+    candidates, signal_data, processed = _build_inputs(n_strats=2)
+    # Mild OVS gap: production uses 8/40 size, while the overlay-free ledger
+    # keeps the core positive-gap entry rule but removes the path-2 downsize.
+    processed['TEST'].iloc[1, processed['TEST'].columns.get_loc('Open')] = 100.25
+    sig_df = process_signals_fast(
+        candidates, signal_data, processed,
+        [_ovs_strategy(), _atr_ext_strategy()],
+        starting_equity=100_000,
+        portfolio_overlays_enabled=False,
+    )
+
+    assert set(sig_df['Strategy']) == {'Overbot Vol Spike', 'ATR Extended Gap Up'}
+    ovs = sig_df[sig_df['Strategy'] == 'Overbot Vol Spike']
+    assert abs(ovs['Risk $'].sum() - 400.0) < 1e-6
+
+
 def test_config_scaleout_fields_not_grm_scaled():
     ovs = next(s for s in STRATEGY_BOOK if s['name'] == 'Overbot Vol Spike')
     exe = ovs['execution']

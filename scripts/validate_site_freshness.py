@@ -22,6 +22,18 @@ REQUIRED_PORTFOLIO_PAYLOADS = (
     "trade_mtm",
 )
 
+OVERLAY_FREE_PORTFOLIO_PAYLOADS = (
+    "trades",
+    "strategy_daily",
+    "positions",
+    "exposure",
+    "correlation",
+    "stopfills",
+    "drawdowns",
+    "sector_risk",
+    "trade_mtm",
+)
+
 PAGE_BUILD_PAYLOADS = (
     ("trades.json", None),
     ("strategy_daily.json", "strategy_daily"),
@@ -133,6 +145,31 @@ def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[
     for name in REQUIRED_PORTFOLIO_PAYLOADS:
         if flags.get(name) is not True:
             problems.append(f"Portfolio payload {name!r} is unavailable")
+
+    overlay_book = (meta.get("portfolio_books") or {}).get("overlay_free")
+    if flags.get("overlay_free") is not True or not isinstance(overlay_book, dict):
+        problems.append("overlay-free Portfolio book is unavailable")
+    else:
+        overlay_flags = overlay_book.get("payloads") or {}
+        overlay_dir = os.path.join(data_dir, "overlay_free")
+        for name in OVERLAY_FREE_PORTFOLIO_PAYLOADS:
+            if name != "trades" and overlay_flags.get(name) is not True:
+                problems.append(
+                    f"overlay-free Portfolio payload {name!r} is unavailable")
+                continue
+            payload = _read_json(os.path.join(overlay_dir, f"{name}.json"))
+            if payload is None:
+                problems.append(
+                    f"data/overlay_free/{name}.json is missing or unreadable")
+            elif str(payload.get("_site_build_id") or "") != build_id:
+                problems.append(
+                    f"data/overlay_free/{name}.json belongs to a different site build")
+        overlay_positions = _read_json(
+            os.path.join(overlay_dir, "positions.json"))
+        overlay_asof = (overlay_positions or {}).get("asof")
+        if prev_td and (not overlay_asof or str(overlay_asof) < str(prev_td)):
+            problems.append(
+                f"overlay-free positions as-of {overlay_asof or 'missing'} is before {prev_td}")
     for name in ("ledger", "master_prices"):
         status = (artifacts.get(name) or {}).get("status")
         if status != "fresh":

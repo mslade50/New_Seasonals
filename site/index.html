@@ -13,8 +13,10 @@
 <body>
 <header class="topbar" id="topbar"></header>
 <div class="wrap">
-  <h1>Portfolio — full strategy book</h1>
+  <h1 id="pageTitle">Portfolio — full strategy book</h1>
   <p class="sub" id="subtitle">Loading...</p>
+  <div class="filters" id="portfolioMode"></div>
+  <p class="cap" id="portfolioModeNote"></p>
 
   <div class="filters" id="filters"></div>
 
@@ -174,37 +176,39 @@
     <p class="cap" id="srCaption"></p>
   </div>
 
-  <h2 id="gatelab">Sector-gate history — with vs without <span class="cap" style="display:inline">(counterfactual rerun; realized at exit, flat $750k, native sizing)</span></h2>
-  <div id="glSection">
-    <div class="kpis" id="glKpis"></div>
-    <div class="grid2">
-      <div>
-        <h3 class="cap">Cumulative realized PnL, gate on vs gate off</h3>
-        <div class="card"><div class="chart" id="glCurve"></div></div>
+  <section data-production-only>
+    <h2 id="gatelab">Sector-gate history — with vs without <span class="cap" style="display:inline">(counterfactual rerun; realized at exit, flat $750k, native sizing)</span></h2>
+    <div id="glSection">
+      <div class="kpis" id="glKpis"></div>
+      <div class="grid2">
+        <div>
+          <h3 class="cap">Cumulative realized PnL, gate on vs gate off</h3>
+          <div class="card"><div class="chart" id="glCurve"></div></div>
+        </div>
+        <div>
+          <h3 class="cap">Gate-blocked trades (would-have-been outcomes)</h3>
+          <div id="glTable"></div>
+        </div>
       </div>
-      <div>
-        <h3 class="cap">Gate-blocked trades (would-have-been outcomes)</h3>
-        <div id="glTable"></div>
-      </div>
+      <p class="cap" id="glCaption"></p>
     </div>
-    <p class="cap" id="glCaption"></p>
-  </div>
 
-  <h2 id="extlab">OVS hold-extension lab — losers hold to T+5 <span class="cap" style="display:inline">(what-if, not a live rule; realized at exit, flat $750k)</span></h2>
-  <div id="xlSection">
-    <div class="kpis" id="xlKpis"></div>
-    <div class="grid2">
-      <div>
-        <h3 class="cap">Cumulative realized PnL, current exit vs extended</h3>
-        <div class="card"><div class="chart" id="xlCurve"></div></div>
+    <h2 id="extlab">OVS hold-extension lab — losers hold to T+5 <span class="cap" style="display:inline">(what-if, not a live rule; realized at exit, flat $750k)</span></h2>
+    <div id="xlSection">
+      <div class="kpis" id="xlKpis"></div>
+      <div class="grid2">
+        <div>
+          <h3 class="cap">Cumulative realized PnL, current exit vs extended</h3>
+          <div class="card"><div class="chart" id="xlCurve"></div></div>
+        </div>
+        <div>
+          <h3 class="cap">Rebooked trades (T+2 exit &rarr; T+5 / target)</h3>
+          <div id="xlTable"></div>
+        </div>
       </div>
-      <div>
-        <h3 class="cap">Rebooked trades (T+2 exit &rarr; T+5 / target)</h3>
-        <div id="xlTable"></div>
-      </div>
+      <p class="cap" id="xlCaption"></p>
     </div>
-    <p class="cap" id="xlCaption"></p>
-  </div>
+  </section>
 
   <footer>Private analytics site. Data regenerated nightly from the persistent backtest ledger.</footer>
 </div>

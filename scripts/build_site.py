@@ -10,6 +10,8 @@ Outputs (dist/):
   - dist/index.html, signals.html, risk.html, montecarlo.html + assets/   (copied from site/)
   - dist/data/meta.json            build info, strategy roster, payload flags
   - dist/data/trades.json          full trade ledger, columnar
+  - dist/data/overlay_free/        complete second Portfolio bundle generated
+                                   from core strategies with portfolio overlays off
   - dist/data/strategy_daily.json  per Strategy||Tier daily MTM PnL (flat $750k basis)
                                    + total flat/compounded daily curves
   - dist/data/positions.json       open positions marked to latest close (flat basis)
@@ -92,9 +94,13 @@ from scripts.site_r2_pipeline import CANONICAL_INPUTS, GENERATED_INPUTS, PROVENA
 from fundamental.site_payload import build_fundamental_site_payload
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
+OVERLAY_FREE_LEDGER = os.path.join(
+    _ROOT, "data", "backtest_trades_overlay_free.parquet")
 NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
 OVSEXT = os.path.join(_ROOT, "data", "backtest_trades_ovsext.parquet")
 DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
+OVERLAY_FREE_DAILY = os.path.join(
+    _ROOT, "data", "backtest_daily_pnl_overlay_free.parquet")
 FRAGILITY = os.path.join(_ROOT, "data", "rd2_fragility.parquet")
 IDEAS = os.path.join(_ROOT, "data", "daily_seasonal_ideas.json")
 RISK = os.path.join(_ROOT, "data", "site_risk.json")
@@ -289,8 +295,8 @@ def col_list(series, kind="auto", nd=4):
 
 
 # ---------------------------------------------------------------- ledger load
-def load_ledger():
-    df = pd.read_parquet(LEDGER)
+def load_ledger(path=LEDGER):
+    df = pd.read_parquet(path)
     for c in ["Signal Date", "Entry Date", "Exit Date", "Time Stop"]:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c])
@@ -882,14 +888,15 @@ def build_stopfills(df):
     }
 
 
-def build_drawdowns(df, sd, smap, top_n=10, min_depth_dollars=5000.0):
+def build_drawdowns(df, sd, smap, top_n=10, min_depth_dollars=5000.0,
+                    daily_path=DAILY):
     """Top book drawdown episodes on the FLAT $750k equity curve
     (backtest_daily_pnl.parquet equity_flat). Depth is expressed in dollars
     and as % of the fixed $750k base (a running-max % on the additive flat
     curve is a shrinking yardstick). Attribution per episode: Strategy||Tier
     MTM PnL sums from the strategy_daily series, worst 5 trades and sector
     realized PnL from ledger exits inside the window."""
-    dp = pd.read_parquet(DAILY)
+    dp = pd.read_parquet(daily_path)
     dp["date"] = pd.to_datetime(dp["date"])
     dp = dp.sort_values("date").reset_index(drop=True)
     eq = dp["equity_flat"].astype(float).values
@@ -1036,7 +1043,7 @@ def source_freshness_errors():
     return errors
 
 
-def build_sector_risk(df):
+def build_sector_risk(df, include_gate=True):
     """Weekly gross exposure by sector + current open-position concentration +
     sector-loss-gate telemetry for every strategy carrying
     execution['sector_loss_gate'] (OLV today). The gate math mirrors
@@ -1102,7 +1109,7 @@ def build_sector_risk(df):
     _led_max = pd.to_datetime(df["Exit Date"]).max()
     gate_asof = _led_max.normalize() if pd.notna(_led_max) else expected
     gate_out = []
-    for strat in STRATEGY_BOOK:
+    for strat in (STRATEGY_BOOK if include_gate else []):
         cfg = (strat.get("execution") or {}).get("sector_loss_gate")
         if not cfg:
             continue
@@ -1347,7 +1354,7 @@ def build_ext_lab(df):
     }
 
 
-def build_trade_mtm(df, md):
+def build_trade_mtm(df, md, include_counterfactuals=True):
     """Per-trade daily MTM PnL vectors (flat $750k basis) so the client can
     build EXACT MTM curves for any per-trade filter combination (direction,
     ticker, gate toggle, extension toggle, fragility multipliers) instead of
@@ -1361,12 +1368,12 @@ def build_trade_mtm(df, md):
     main = df.copy()
     frames["main"] = main
 
-    if os.path.exists(OVSEXT):
+    if include_counterfactuals and os.path.exists(OVSEXT):
         ext = pd.read_parquet(OVSEXT)
         for c in ["Signal Date", "Entry Date", "Exit Date"]:
             ext[c] = pd.to_datetime(ext[c])
         frames["ext"] = ext
-    if os.path.exists(NOGATE):
+    if include_counterfactuals and os.path.exists(NOGATE):
         ng = pd.read_parquet(NOGATE)
         for c in ["Signal Date", "Entry Date", "Exit Date"]:
             ng[c] = pd.to_datetime(ng[c])
@@ -2426,6 +2433,80 @@ def build_event_sleeve():
     }
 
 
+def build_overlay_free_portfolio(df, md, data_dir):
+    """Write the complete Portfolio-page bundle for the overlay-free ledger."""
+    target = os.path.join(data_dir, "overlay_free")
+    df_flat = page_shaped(df)
+    flags = {
+        "strategy_daily": False,
+        "positions": False,
+        "exposure": False,
+        "correlation": False,
+        "fragility": False,  # shared root payload; filled by main()
+        "stopfills": False,
+        "drawdowns": False,
+        "sector_risk": False,
+        "gate_lab": False,
+        "ext_lab": False,
+        "trade_mtm": False,
+        "health": True,      # shared root health/freshness record
+    }
+
+    def required(name, payload):
+        if payload is None:
+            raise RuntimeError(f"overlay-free Portfolio payload {name} is empty")
+        write_json(payload, os.path.join(target, f"{name}.json"))
+        flags[name] = True
+        return payload
+
+    write_json(build_trades_json(df), os.path.join(target, "trades.json"))
+    sd = required(
+        "strategy_daily",
+        build_strategy_daily(df_flat, md, OVERLAY_FREE_DAILY),
+    )
+    required("positions", build_positions(df, md))
+    required("exposure", build_exposure(df_flat))
+    required("correlation", build_correlation(df_flat, md))
+    required("stopfills", build_stopfills(df))
+    required(
+        "drawdowns",
+        build_drawdowns(
+            df, sd, load_sector_map(), daily_path=OVERLAY_FREE_DAILY),
+    )
+    required("sector_risk", build_sector_risk(df, include_gate=False))
+    required(
+        "trade_mtm",
+        build_trade_mtm(df, md, include_counterfactuals=False),
+    )
+
+    strat_counts = (df.groupby(["Strategy", "Tier"]).size()
+                    .reset_index(name="n").to_dict("records"))
+    return {
+        "variant": "overlay_free",
+        "label": "All overlays off",
+        "description": (
+            "Core strategy signals and execution only; regime filters and "
+            "portfolio sizing/risk overlays are disabled."),
+        "ledger_last_signal": df["Signal Date"].max().strftime("%Y-%m-%d"),
+        "n_trades": int(len(df)),
+        "n_tickers": int(df["Ticker"].nunique()),
+        "date_min": df["Signal Date"].min().strftime("%Y-%m-%d"),
+        "date_max": df["Signal Date"].max().strftime("%Y-%m-%d"),
+        "account_value": float(ACCOUNT_VALUE),
+        "strategies": strat_counts,
+        "payloads": flags,
+        "removed_overlays": [
+            "Risk-dial signal gates",
+            "Fragility and put/call-fear sizing bands",
+            "Earnings blackouts and earnings size overrides",
+            "Sector-loss and T+1 gap-kill gates",
+            "Cycle-year, gap, same-day, recency, and seasonal size adjustments",
+            "Cross-strategy overlap and ATR-extended/OVS precedence",
+            "Overflow risk overrides and ticker/daily/path-2 risk caps",
+        ],
+    }
+
+
 def main():
     global _SITE_BUILD_ID
 
@@ -2524,6 +2605,16 @@ def main():
     df = load_ledger()
     print(f"  ledger: {len(df)} trades, {df['Ticker'].nunique()} tickers, "
           f"{df['Signal Date'].min().date()} -> {df['Signal Date'].max().date()}")
+    overlay_free_df = None
+    if os.path.exists(OVERLAY_FREE_LEDGER):
+        overlay_free_df = load_ledger(OVERLAY_FREE_LEDGER)
+        print(f"  overlay-free ledger: {len(overlay_free_df)} trades, "
+              f"{overlay_free_df['Ticker'].nunique()} tickers, "
+              f"{overlay_free_df['Signal Date'].min().date()} -> "
+              f"{overlay_free_df['Signal Date'].max().date()}")
+    elif args.production:
+        print("FATAL: production build is missing the required overlay-free ledger")
+        sys.exit(2)
     write_json(build_trades_json(df), os.path.join(data_dir, "trades.json"))
 
     write_json(build_strat_notes(df), os.path.join(data_dir, "strat_notes.json"))
@@ -2538,7 +2629,9 @@ def main():
              "iv_context": False, "option_surface": False, "options_market": False,
              "strategy_stats": False, "earnings_next": False,
              "seasonality": False, "macro_sznl": False, "montecarlo": False,
-             "fundamentals": False, "event_sleeve": False}
+             "fundamentals": False, "event_sleeve": False,
+             "overlay_free": False}
+    overlay_free_meta = None
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
@@ -2564,7 +2657,9 @@ def main():
         return obj
 
     if not args.no_mtm:
-        md = load_master_for(df)
+        price_scope = (pd.concat([df, overlay_free_df], ignore_index=True)
+                       if overlay_free_df is not None else df)
+        md = load_master_for(price_scope)
         print("  building per-strategy daily MTM (flat basis) ...")
         sd = build_strategy_daily(df_flat, md, DAILY)
         write_json(sd, os.path.join(data_dir, "strategy_daily.json"))
@@ -2592,6 +2687,12 @@ def main():
         best_effort("drawdowns", build_drawdowns, df, sd, load_sector_map())
         best_effort("trade_mtm", build_trade_mtm, df, md)
         best_effort("montecarlo", build_monte_carlo, df, md)
+
+        if overlay_free_df is not None:
+            print("  building overlay-free Portfolio bundle ...")
+            overlay_free_meta = build_overlay_free_portfolio(
+                overlay_free_df, md, data_dir)
+            flags["overlay_free"] = True
 
     # ledger-only payloads (no price map needed) — all best effort
     best_effort("stopfills", build_stopfills, df)
@@ -2645,6 +2746,8 @@ def main():
     if fragility:
         write_json(fragility, os.path.join(data_dir, "fragility.json"))
         flags["fragility"] = True
+        if overlay_free_meta is not None:
+            overlay_free_meta["payloads"]["fragility"] = True
         print(f"  wrote fragility.json ({len(fragility['dates'])} days, "
               f"dials: {', '.join(fragility['dials'])})")
 
@@ -2731,6 +2834,8 @@ def main():
         "strategies": strat_counts,
         "payloads": flags,
     }
+    if overlay_free_meta is not None:
+        meta["portfolio_books"] = {"overlay_free": overlay_free_meta}
     if provenance is not None:
         public_provenance = {
             "mode": provenance.get("mode"),

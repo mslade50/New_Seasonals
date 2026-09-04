@@ -60,10 +60,13 @@ from daily_portfolio_report import (
 )
 
 OUT_PARQUET = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
+OUT_OVERLAY_FREE = os.path.join(_ROOT, "data", "backtest_trades_overlay_free.parquet")
 OUT_NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
 OUT_OVSEXT = os.path.join(_ROOT, "data", "backtest_trades_ovsext.parquet")
 OUT_PCSHADOW = os.path.join(_ROOT, "data", "backtest_trades_pcfear_shadow.parquet")
 OUT_DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
+OUT_OVERLAY_FREE_DAILY = os.path.join(
+    _ROOT, "data", "backtest_daily_pnl_overlay_free.parquet")
 OUT_SUMMARY = os.path.join(_HERE, "trade_ledger_summary.csv")
 DATA_START = datetime.date(2000, 1, 1)   # history for percentile/SMA warmup
 BT_START = datetime.date(2003, 1, 1)     # first eligible signal date
@@ -80,6 +83,56 @@ DIFF_WINDOW_TD = 15                      # vintage-diff lookback (business days)
 # (tests/test_pooled_cap_sequential.py still guards it).
 POOLED_LONG_CAP_BPS = None
 POOLED_SHORT_CAP_BPS = None
+
+# Cross-cutting filters and sizing controls layered on top of the strategies'
+# core signal/entry/exit definitions.  The private site's overlay-free book
+# removes exactly this allow-list; adding a new production overlay therefore
+# requires an explicit decision here rather than silently contaminating the
+# counterfactual.
+OVERLAY_EXECUTION_KEYS = frozenset({
+    "cycle_risk_mults",
+    "earnings_blackout_td",
+    "earnings_size_override",
+    "frag_risk_bands",
+    "gap_size_derate",
+    "ladder_multipliers",
+    "pc_fear_bands",
+    "same_day_derate_floor",
+    "same_day_signal_derate",
+    "sector_loss_gate",
+    "signal_recency_ladder",
+    "ticker_notional_cap",
+})
+
+
+def strip_portfolio_overlays(book):
+    """Deep-copy ``book`` and retain only core strategy mechanics.
+
+    Core technical/seasonal conditions, universes, order types, stops,
+    targets, and holding periods stay intact.  Regime gates and portfolio
+    sizing/risk overlays are removed.  Overflow passes also return to the
+    strategy's native liquid ``risk_bps`` so the comparison has one base size.
+    Hard-coded cross-strategy/OVS/WCDS overlays are disabled at the engine call
+    site with ``portfolio_overlays_enabled=False``.
+    """
+    clean = copy.deepcopy(book)
+    native_risk = {
+        s["name"]: (s.get("execution") or {}).get("risk_bps")
+        for s in STRATEGY_BOOK
+    }
+    for strat in clean:
+        settings = strat.setdefault("settings", {})
+        settings["dial_filters"] = []
+        if "use_t1_gap_kill" in settings:
+            settings["use_t1_gap_kill"] = False
+
+        execution = strat.setdefault("execution", {})
+        for key in OVERLAY_EXECUTION_KEYS:
+            execution.pop(key, None)
+        base_risk = native_risk.get(strat.get("name"))
+        if base_risk is not None:
+            execution["risk_bps"] = base_risk
+    return clean
 
 
 def _provenance_meta(n_rows):
@@ -232,6 +285,73 @@ def shape_flat_trades(sig):
     return df
 
 
+def combine_sizing_passes(sig_comp, sig_flat, book):
+    """Join compounded and flat engine passes into the canonical ledger shape."""
+    df = sig_comp.copy().reset_index(drop=True)
+    key = ["Strategy", "Ticker", "Date", "Entry Date", "Price"]
+    aligned = (
+        len(sig_flat) == len(df)
+        and df[key].reset_index(drop=True).round({"Price": 4}).astype(str).equals(
+            sig_flat[key].reset_index(drop=True).round({"Price": 4}).astype(str))
+    )
+    if aligned:
+        df["PnL_flat_750k"] = sig_flat["PnL"].values
+        df["Risk_flat_750k"] = sig_flat["Risk $"].values
+        df["Shares_flat"] = sig_flat["Shares"].values
+        df["Size_Mult"] = sig_flat["Size_Mult"].values
+    else:
+        print("  NOTE: sizing passes not positionally aligned — merging on key.")
+        fl = sig_flat[key + ["PnL", "Risk $", "Shares", "Size_Mult"]].copy()
+        fl["_k"] = fl[key].round({"Price": 4}).astype(str).agg("|".join, axis=1)
+        df["_k"] = df[key].round({"Price": 4}).astype(str).agg("|".join, axis=1)
+        fl_dedup = fl.drop_duplicates("_k").set_index("_k")
+        df["PnL_flat_750k"] = df["_k"].map(fl_dedup["PnL"]).values
+        df["Risk_flat_750k"] = df["_k"].map(fl_dedup["Risk $"]).values
+        df["Shares_flat"] = df["_k"].map(fl_dedup["Shares"]).values
+        df["Size_Mult"] = df["_k"].map(fl_dedup["Size_Mult"]).values
+        df.drop(columns="_k", inplace=True)
+
+    df = df.rename(columns={
+        "Date": "Signal Date",
+        "Price": "Entry Price",
+        "PnL": "PnL_compounded",
+        "Risk $": "Risk_compounded",
+        "Equity at Signal": "Equity_at_Signal",
+    })
+    df["Direction"] = np.where(
+        df["Action"].astype(str).str.upper().str.contains("SHORT"), "Short", "Long")
+    sign = np.where(df["Direction"] == "Short", -1.0, 1.0)
+    df["Return_Pct"] = sign * (
+        df["Exit Price"] - df["Entry Price"]) / df["Entry Price"] * 100.0
+    df["R_Multiple"] = (
+        df["PnL_compounded"] / df["Risk_compounded"].replace(0, np.nan))
+
+    overflow = set(OVERFLOW_TICKERS)
+    df["Tier"] = np.where(
+        df["Strategy"].isin(OVERFLOW_ELIGIBLE) & df["Ticker"].isin(overflow),
+        "Overflow", "Liquid")
+    holds = {s["name"]: s["execution"].get("hold_days") for s in book}
+    df["hold_days_target"] = df["Strategy"].map(holds)
+    df.insert(0, "trade_id", np.arange(len(df)))
+
+    col_order = [
+        "trade_id", "Strategy", "Tier", "Ticker", "Direction",
+        "Signal Date", "Entry Date", "Exit Date", "Exit Type", "Time Stop",
+        "Entry Price", "Exit Price", "Signal Close", "T+1 Open",
+        "Return_Pct", "R_Multiple",
+        "PnL_flat_750k", "Risk_flat_750k",
+        "PnL_compounded", "Risk_compounded", "Equity_at_Signal",
+        "Risk bps", "Entry Criteria", "ATR", "stop_atr", "tgt_atr",
+        "Range %", "Shares", "hold_days_target",
+    ]
+    col_order = [c for c in col_order if c in df.columns]
+    df = df[col_order + [c for c in df.columns if c not in col_order]]
+    for col in ["Signal Date", "Entry Date", "Exit Date", "Time Stop"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col])
+    return df
+
+
 def build_nogate_counterfactual(candidates, signal_data, processed, full_book,
                                 starting_equity):
     """Counterfactual pass with execution['sector_loss_gate'] stripped from a
@@ -364,6 +484,65 @@ def build_ovsext_counterfactual(df, md):
           f"({n_censored} censored) -> {OUT_OVSEXT}")
 
 
+def build_overlay_free_counterfactual(processed, full_book, sznl_map,
+                                      starting_equity, md):
+    """Build the private site's full-book, all-portfolio-overlays-off ledger."""
+    clean_book = strip_portfolio_overlays(full_book)
+    print("\n  Generating candidates [all portfolio overlays off] ...")
+    candidates, signal_data = generate_candidates_fast(
+        processed, clean_book, sznl_map, BT_START)
+    print(f"    {len(candidates)} overlay-free candidate signal-dates")
+    if not candidates:
+        raise RuntimeError("overlay-free book produced no candidates")
+
+    common = {
+        "cap_bps": 0,
+        "overflow_active": False,
+        "max_long_risk_bps": None,
+        "max_short_risk_bps": None,
+        "portfolio_overlays_enabled": False,
+    }
+    print("  Processing trades [all overlays off, compounded sizing] ...")
+    sig_comp = process_signals_fast(
+        candidates.copy(), signal_data, processed, clean_book,
+        starting_equity, **common)
+    print(f"    {len(sig_comp)} trades")
+    print("  Processing trades [all overlays off, flat $750k sizing] ...")
+    sig_flat = process_signals_fast(
+        candidates.copy(), signal_data, processed, clean_book,
+        starting_equity, flat_sizing=True, **common)
+    print(f"    {len(sig_flat)} trades")
+    if sig_comp.empty or sig_flat.empty:
+        raise RuntimeError("overlay-free book produced no executed trades")
+
+    df = combine_sizing_passes(sig_comp, sig_flat, clean_book)
+    meta = _provenance_meta(len(df))
+    meta.update({
+        "portfolio_variant": "overlay_free",
+        "removed_execution_overlays": ",".join(sorted(OVERLAY_EXECUTION_KEYS)),
+        "removed_signal_overlays": "dial_filters,use_t1_gap_kill",
+        "removed_portfolio_overlays": (
+            "cross_strategy_overlap,overflow_risk_override,"
+            "per_strategy_daily_cap,ovs_path2_downsize,ovs_path2_daily_cap,"
+            "ovs_atr_extended_precedence,wcds_seasonal_size_tier"),
+    })
+    _write_ledger_with_meta(df, OUT_OVERLAY_FREE, meta)
+    print(f"  Wrote {len(df)} overlay-free trades -> {OUT_OVERLAY_FREE}")
+
+    pnl_comp = get_daily_mtm_series(sig_comp, md, start_date=BT_START)
+    pnl_flat = get_daily_mtm_series(sig_flat, md, start_date=BT_START)
+    daily = pd.DataFrame({
+        "pnl_compounded": pnl_comp,
+        "pnl_flat": pnl_flat,
+    }).fillna(0.0)
+    daily.index.name = "date"
+    daily["equity_compounded"] = starting_equity + daily["pnl_compounded"].cumsum()
+    daily["equity_flat"] = starting_equity + daily["pnl_flat"].cumsum()
+    daily.reset_index().to_parquet(OUT_OVERLAY_FREE_DAILY, index=False)
+    print(f"  Wrote {len(daily)} overlay-free daily rows -> {OUT_OVERLAY_FREE_DAILY}")
+    return df
+
+
 def load_data(tickers):
     if data_provider.has_master():
         print(f"  Loading {len(tickers)} tickers from master_prices.parquet ...")
@@ -460,79 +639,7 @@ def main(upload=False):
     except Exception as e:
         print(f"  (pcfear shadow pass skipped: {e})")
 
-    df = sig_comp.copy().reset_index(drop=True)
-
-    # Attach flat-sizing dollars. Trade set/order is identical across sizing
-    # passes (fill depends on price, cap only scales size), but verify before
-    # aligning positionally; fall back to a key-merge if anything drifted.
-    key = ["Strategy", "Ticker", "Date", "Entry Date", "Price"]
-    aligned = (
-        len(sig_flat) == len(df)
-        and df[key].reset_index(drop=True).round({"Price": 4}).astype(str).equals(
-            sig_flat[key].reset_index(drop=True).round({"Price": 4}).astype(str))
-    )
-    if aligned:
-        df["PnL_flat_750k"] = sig_flat["PnL"].values
-        df["Risk_flat_750k"] = sig_flat["Risk $"].values
-        df["Shares_flat"] = sig_flat["Shares"].values
-        # Size_Mult from the FLAT pass (equity-basis-clean; the earnings override
-        # uses starting_equity so the compounded ratio drifts with book growth).
-        df["Size_Mult"] = sig_flat["Size_Mult"].values
-    else:
-        print("  NOTE: sizing passes not positionally aligned — merging on key.")
-        fl = sig_flat[key + ["PnL", "Risk $", "Shares", "Size_Mult"]].copy()
-        fl["_k"] = fl[key].round({"Price": 4}).astype(str).agg("|".join, axis=1)
-        df["_k"] = df[key].round({"Price": 4}).astype(str).agg("|".join, axis=1)
-        fl_dedup = fl.drop_duplicates("_k").set_index("_k")
-        df["PnL_flat_750k"] = df["_k"].map(fl_dedup["PnL"]).values
-        df["Risk_flat_750k"] = df["_k"].map(fl_dedup["Risk $"]).values
-        df["Shares_flat"] = df["_k"].map(fl_dedup["Shares"]).values
-        df["Size_Mult"] = df["_k"].map(fl_dedup["Size_Mult"]).values
-        df.drop(columns="_k", inplace=True)
-
-    # --- derive analysis columns ---
-    df = df.rename(columns={
-        "Date": "Signal Date",
-        "Price": "Entry Price",
-        "PnL": "PnL_compounded",
-        "Risk $": "Risk_compounded",
-        "Equity at Signal": "Equity_at_Signal",
-    })
-    df["Direction"] = np.where(
-        df["Action"].astype(str).str.upper().str.contains("SHORT"), "Short", "Long")
-    _sign = np.where(df["Direction"] == "Short", -1.0, 1.0)
-    df["Return_Pct"] = _sign * (df["Exit Price"] - df["Entry Price"]) / df["Entry Price"] * 100.0
-    df["R_Multiple"] = df["PnL_compounded"] / df["Risk_compounded"].replace(0, np.nan)
-
-    # Tier: a trade is from the overflow pass iff its strategy is overflow-
-    # eligible AND its ticker lives in the (disjoint) overflow tier.
-    _of = set(OVERFLOW_TICKERS)
-    df["Tier"] = np.where(
-        df["Strategy"].isin(OVERFLOW_ELIGIBLE) & df["Ticker"].isin(_of),
-        "Overflow", "Liquid")
-
-    # target hold days per strategy (reference)
-    _hold = {s["name"]: s["execution"].get("hold_days") for s in full_book}
-    df["hold_days_target"] = df["Strategy"].map(_hold)
-
-    df.insert(0, "trade_id", np.arange(len(df)))
-
-    col_order = [
-        "trade_id", "Strategy", "Tier", "Ticker", "Direction",
-        "Signal Date", "Entry Date", "Exit Date", "Exit Type", "Time Stop",
-        "Entry Price", "Exit Price", "Signal Close", "T+1 Open",
-        "Return_Pct", "R_Multiple",
-        "PnL_flat_750k", "Risk_flat_750k",
-        "PnL_compounded", "Risk_compounded", "Equity_at_Signal",
-        "Risk bps", "Entry Criteria", "ATR", "stop_atr", "tgt_atr",
-        "Range %", "Shares", "hold_days_target",
-    ]
-    col_order = [c for c in col_order if c in df.columns]
-    df = df[col_order + [c for c in df.columns if c not in col_order]]
-
-    for c in ["Signal Date", "Entry Date", "Exit Date", "Time Stop"]:
-        if c in df.columns:
-            df[c] = pd.to_datetime(df[c])
+    df = combine_sizing_passes(sig_comp, sig_flat, full_book)
 
     os.makedirs(os.path.dirname(OUT_PARQUET), exist_ok=True)
 
@@ -551,21 +658,6 @@ def main(upload=False):
     except Exception as e:
         print(f"  (ovsext counterfactual skipped: {e})")
 
-    # Mirror the ledger to R2 so daily_scan's sector_loss_gate (which reads
-    # recent closed trades at scan time) sees exits through yesterday in the
-    # GHA screener job. Gated behind --upload (deploy_site.yml passes it):
-    # this key sizes/gates LIVE orders, so local runs (refresh_view etc.)
-    # must not silently replace it. Graceful no-op without R2 creds.
-    if upload:
-        try:
-            from cache_io import upload_from_local
-            if not upload_from_local(OUT_PARQUET, "backtest_trades_full.parquet"):
-                raise RuntimeError("R2 ledger upload returned false")
-        except Exception as e:
-            raise RuntimeError(f"R2 ledger upload failed: {e}") from e
-    else:
-        print("  (R2 mirror skipped: run with --upload to overwrite the prod ledger key)")
-
     # --- daily portfolio MTM series (both sizing bases) for equity/DD figs ---
     # Uses the raw process_signals_fast frames (Price/PnL/Shares column names).
     print("  Computing daily portfolio MTM series ...")
@@ -577,6 +669,28 @@ def main(upload=False):
     daily["equity_flat"] = starting_equity + daily["pnl_flat"].cumsum()
     daily.reset_index().to_parquet(OUT_DAILY, index=False)
     print(f"  Wrote {len(daily)} daily rows -> {OUT_DAILY}")
+
+    # Full second ledger for the private site's one-click comparison.  This is
+    # intentionally required (not best effort): a production deploy must never
+    # advertise the overlay-free mode while serving an absent/stale bundle.
+    overlay_free_df = build_overlay_free_counterfactual(
+        processed, full_book, sznl_map, starting_equity, md)
+    print(f"  Overlay-free comparison: {len(overlay_free_df)} trades")
+
+    # Mirror the production ledger only after every required comparison
+    # artifact has been built successfully.  This key sizes/gates LIVE orders,
+    # so a failed site-counterfactual build must not advance it by itself.
+    # Gated behind --upload (deploy_site.yml passes it); local runs never write
+    # this production R2 key.
+    if upload:
+        try:
+            from cache_io import upload_from_local
+            if not upload_from_local(OUT_PARQUET, "backtest_trades_full.parquet"):
+                raise RuntimeError("R2 ledger upload returned false")
+        except Exception as e:
+            raise RuntimeError(f"R2 ledger upload failed: {e}") from e
+    else:
+        print("  (R2 mirror skipped: run with --upload to overwrite the prod ledger key)")
 
     # ---- summary ----
     print("\n" + "=" * 74)

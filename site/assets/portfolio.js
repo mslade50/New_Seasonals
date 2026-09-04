@@ -11,6 +11,10 @@
 */
 "use strict";
 
+const BOOK_QUERY = (window.location && window.location.search) || "";
+const BOOK_MODE = /(?:^|[?&])book=overlay_free(?:&|$)/.test(BOOK_QUERY)
+  ? "overlay_free" : "production";
+
 const S = {
   meta: null, trades: [], sd: null, positions: null, exposure: null, corr: null,
   dateIdx: [],            // sd.dates as strings
@@ -159,32 +163,40 @@ async function init() {
   renderNav("index.html");
   try {
     const snapshot = await loadSiteSnapshot(async meta => {
-      const flags = meta.payloads || {};
-      const maybe = (name, path) => flags[name] ? fetchSitePayload(meta, path) : null;
+      const variant = BOOK_MODE === "overlay_free"
+        ? ((meta.portfolio_books || {}).overlay_free || null) : null;
+      if (BOOK_MODE === "overlay_free" && !variant)
+        throw new Error("The overlay-free Portfolio bundle is unavailable in this build");
+      const bookMeta = variant
+        ? { ...meta, ...variant, payloads: variant.payloads || {} } : meta;
+      const flags = bookMeta.payloads || {};
+      const base = BOOK_MODE === "overlay_free" ? "data/overlay_free/" : "data/";
+      const maybe = (name, path) => flags[name]
+        ? fetchSitePayload(meta, path || `${base}${name}.json`) : null;
       const [trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm] =
         await Promise.all([
-          fetchSitePayload(meta, "data/trades.json"),
-          maybe("strategy_daily", "data/strategy_daily.json"),
-          maybe("positions", "data/positions.json"),
-          maybe("exposure", "data/exposure.json"),
-          maybe("correlation", "data/correlation.json"),
+          fetchSitePayload(meta, `${base}trades.json`),
+          maybe("strategy_daily"),
+          maybe("positions"),
+          maybe("exposure"),
+          maybe("correlation"),
           maybe("fragility", "data/fragility.json"),
-          maybe("stopfills", "data/stopfills.json"),
-          maybe("drawdowns", "data/drawdowns.json"),
-          maybe("sector_risk", "data/sector_risk.json"),
-          maybe("gate_lab", "data/gate_lab.json"),
-          maybe("ext_lab", "data/ext_lab.json"),
-          maybe("trade_mtm", "data/trade_mtm.json"),
+          maybe("stopfills"),
+          maybe("drawdowns"),
+          maybe("sector_risk"),
+          maybe("gate_lab"),
+          maybe("ext_lab"),
+          maybe("trade_mtm"),
         ]);
-      return { trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm };
+      return { bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm };
     });
-    const { meta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm } = snapshot;
+    const { meta, bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm } = snapshot;
     const health = meta.freshness;
-    S.meta = meta;
+    S.meta = bookMeta;
     S.trades = rowsFromColumnar(trades);
     S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.fragility = frag;
     S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr; S.gateLab = gl; S.extLab = xl;
-    const freshnessError = portfolioFreshnessError(meta, health, pos);
+    const freshnessError = portfolioFreshnessError(bookMeta, health, pos);
     if (freshnessError) throw new Error(`${freshnessError}; deployment was blocked for safety`);
     if (sf && sf.trades) S.sfRows = rowsFromColumnar(sf.trades);
     if (gl && gl.strategies) {
@@ -219,10 +231,12 @@ async function init() {
       S.midMask = new Uint8Array(sd.dates.length);
       sd.dates.forEach((d, i) => { if (isMidYearStr(d)) S.midMask[i] = 1; });
     }
-    setAsof(`ledger thru ${meta.ledger_last_signal} · built ${meta.built_at}`);
+    buildPortfolioMode(bookMeta);
+    setAsof(`${BOOK_MODE === "overlay_free" ? "overlay-free" : "production"} ledger thru ` +
+            `${bookMeta.ledger_last_signal} · built ${meta.built_at}`);
     document.getElementById("subtitle").textContent =
-      `${meta.n_trades.toLocaleString()} trades · ${meta.n_tickers} tickers · ` +
-      `${meta.date_min} to ${meta.date_max} · $750k base, filter-exact recompute`;
+      `${bookMeta.n_trades.toLocaleString()} trades · ${bookMeta.n_tickers} tickers · ` +
+      `${bookMeta.date_min} to ${bookMeta.date_max} · $750k base, filter-exact recompute`;
     computeNativeBps();
     buildFilterBar();
     buildSizingSeg();
@@ -233,6 +247,49 @@ async function init() {
     document.getElementById("kpis").innerHTML = `<div class="err">Failed to load data: ${e.message}</div>`;
     console.error(e);
   }
+}
+
+function buildPortfolioMode(bookMeta) {
+  const host = document.getElementById("portfolioMode");
+  host.innerHTML = '<label>Book</label>';
+  const seg = document.createElement("span");
+  seg.className = "seg";
+  const choices = [
+    ["production", "Production overlays"],
+    ["overlay_free", "All overlays off"],
+  ];
+  for (const [mode, label] of choices) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.classList.toggle("on", mode === BOOK_MODE);
+    b.addEventListener("click", () => {
+      if (mode === BOOK_MODE) return;
+      const url = new URL(window.location.href);
+      if (mode === "overlay_free") url.searchParams.set("book", "overlay_free");
+      else url.searchParams.delete("book");
+      window.location.assign(url.toString());
+    });
+    seg.appendChild(b);
+  }
+  host.appendChild(seg);
+
+  const isOverlayFree = BOOK_MODE === "overlay_free";
+  document.getElementById("pageTitle").textContent = isOverlayFree
+    ? "Portfolio — all overlays off" : "Portfolio — full strategy book";
+  const note = document.getElementById("portfolioModeNote");
+  if (isOverlayFree) {
+    const removed = bookMeta.removed_overlays || [];
+    note.innerHTML = '<span class="badge warn">RESEARCH COUNTERFACTUAL</span> ' +
+      "Core strategy signals, entries, exits, and base risk remain. Removed: " +
+      removed.join("; ") + ". Click <b>Production overlays</b> to restore every rule in one step.";
+  } else {
+    note.innerHTML = '<span class="badge conv">PRODUCTION</span> ' +
+      "Current signal gates and portfolio sizing/risk overlays are included. " +
+      "Click <b>All overlays off</b> for the complete baseline comparison.";
+  }
+  document.querySelectorAll("[data-production-only]").forEach(el => {
+    el.style.display = isOverlayFree ? "none" : "";
+  });
 }
 
 /* ================= filters ================= */

@@ -30,6 +30,7 @@ def _site(tmp_path: Path):
         "macro_sznl": True,
         "fundamentals": True,
         "health": True,
+        "overlay_free": True,
     }
     health = _stamped({
         "build_id": SITE_BUILD_ID,
@@ -47,6 +48,18 @@ def _site(tmp_path: Path):
         "built_at": "2026-08-06T12:00:00Z",
         "freshness": health,
         "payloads": flags,
+        "portfolio_books": {
+            "overlay_free": {
+                "payloads": {
+                    name: True
+                    for name in (
+                        "strategy_daily", "positions", "exposure",
+                        "correlation", "stopfills", "drawdowns",
+                        "sector_risk", "trade_mtm", "health",
+                    )
+                },
+            },
+        },
     }))
     _write(data / "health.json", health)
     _write(data / "positions.json", _stamped({
@@ -98,6 +111,16 @@ def _site(tmp_path: Path):
     })
     for name in ("trades.json", "strategy_daily.json", "exposure.json", "trade_mtm.json"):
         _write(data / name, _stamped({}))
+    overlay = data / "overlay_free"
+    for name in (
+        "trades", "strategy_daily", "exposure", "correlation", "stopfills",
+        "drawdowns", "sector_risk", "trade_mtm",
+    ):
+        _write(overlay / f"{name}.json", _stamped({}))
+    _write(overlay / "positions.json", _stamped({
+        "asof": "2026-08-06",
+        "positions": [{"Ticker": "QQQ", "Days_To_Time_Stop": 2}],
+    }))
     return data
 
 
@@ -135,6 +158,19 @@ def test_page_payload_identity_must_match_meta(tmp_path):
 
     problems = validate_site(str(tmp_path))
     assert any("data/positions.json belongs to a different site build" in p for p in problems)
+
+
+def test_overlay_free_portfolio_bundle_must_match_build_identity(tmp_path):
+    data = _site(tmp_path)
+    _write(data / "overlay_free" / "trade_mtm.json", {
+        "_site_build_id": "adjacent-deployment",
+    })
+
+    problems = validate_site(str(tmp_path))
+    assert any(
+        "overlay_free/trade_mtm.json belongs to a different site build" in p
+        for p in problems
+    )
 
 
 def test_stale_ledger_and_expired_open_position_block_deploy(tmp_path):
