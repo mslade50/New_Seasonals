@@ -1,0 +1,183 @@
+{
+  "data": {
+    "source": "data\\master_prices.parquet",
+    "ticker": "TLT",
+    "first_date": "2002-07-30",
+    "last_date": "2026-08-06",
+    "rows": 6044
+  },
+  "frozen_spec": {
+    "entry": "TLT MOC at T-5",
+    "exit": "TLT MOC at month-end T",
+    "cost_bps_round_trip": 10.0,
+    "holdout_start": "2020-01-01"
+  },
+  "summaries": {
+    "full": {
+      "n": 288,
+      "mean_pct": 0.33022220186878554,
+      "median_pct": 0.5124274324041945,
+      "t_stat": 3.5435148205798503,
+      "p_value_two_sided": 0.00046072746127977693,
+      "win_rate_pct": 59.02777777777778,
+      "avg_win_pct": 1.370144498356972,
+      "avg_loss_pct": -1.1679709371396187,
+      "payoff_ratio": 1.1730981095407045,
+      "profit_factor": 1.6900565984908458,
+      "best_pct": 4.944231586998004,
+      "worst_pct": -4.131926911306438,
+      "compounded_pct": 149.36129195031245,
+      "max_drawdown_pct": -12.103256746190583,
+      "annualized_return_pct": 3.894123456227594,
+      "annualized_sharpe": 0.7233169338675431
+    },
+    "pre_publication_through_2019": {
+      "n": 209,
+      "mean_pct": 0.3587802922950755,
+      "median_pct": 0.5676099172292727,
+      "t_stat": 3.4424289779401738,
+      "p_value_two_sided": 0.0006968987753276304,
+      "win_rate_pct": 62.67942583732058,
+      "avg_win_pct": 1.2791115511029456,
+      "avg_loss_pct": -1.1869042577540396,
+      "payoff_ratio": 1.077687220975505,
+      "profit_factor": 1.8099618711255279,
+      "best_pct": 4.944231586998004,
+      "worst_pct": -4.131926911306438,
+      "compounded_pct": 106.46719711062036,
+      "max_drawdown_pct": -12.103256746190583,
+      "annualized_return_pct": 4.270448778284797,
+      "annualized_sharpe": 0.8248642260841654
+    },
+    "holdout_2020_plus": {
+      "n": 79,
+      "mean_pct": 0.2546697854245501,
+      "median_pct": -0.021007398621219944,
+      "t_stat": 1.2772111525719194,
+      "p_value_two_sided": 0.2053165388659084,
+      "win_rate_pct": 49.36708860759494,
+      "avg_win_pct": 1.6759218340051112,
+      "avg_loss_pct": -1.1310509619414968,
+      "payoff_ratio": 1.4817385691696159,
+      "profit_factor": 1.4446951049403753,
+      "best_pct": 4.810764867186313,
+      "worst_pct": -4.073758668227967,
+      "compounded_pct": 20.775258946684104,
+      "max_drawdown_pct": -9.467449492161418,
+      "annualized_return_pct": 2.9479532252651097,
+      "annualized_sharpe": 0.4977826776467602
+    }
+  },
+  "bootstrap": {
+    "draws": 50000,
+    "seed": 107,
+    "mean_pct": 0.33022220186878554,
+    "ci_2_5_pct": 0.14949883323757943,
+    "ci_97_5_pct": 0.511896297742642,
+    "probability_mean_le_zero": 0.00014
+  },
+  "mechanism": {
+    "duration": {
+      "n_a": 288,
+      "n_b": 288,
+      "mean_a_pct": 0.43022220186878557,
+      "mean_b_pct": 0.2693461238223957,
+      "difference_pct": 0.16087607804638987,
+      "welch_t": 1.5508816564587444,
+      "p_value_two_sided": 0.1216890175269027
+    },
+    "primary_vs_pre": {
+      "n_a": 288,
+      "n_b": 288,
+      "mean_a_pct": 0.43022220186878557,
+      "mean_b_pct": 0.17891600611928152,
+      "difference_pct": 0.251306195749504,
+      "welch_t": 1.731315167183906,
+      "p_value_two_sided": 0.08394946845218741
+    },
+    "primary_vs_post": {
+      "n_a": 288,
+      "n_b": 288,
+      "mean_a_pct": 0.43022220186878557,
+      "mean_b_pct": -0.2665046269903394,
+      "difference_pct": 0.696726828859125,
+      "welch_t": 4.371195034887208,
+      "p_value_two_sided": 1.4918803210486778e-05
+    },
+    "primary_vs_baseline": {
+      "n_a": 288,
+      "n_b": 829,
+      "mean_a_pct": 0.43022220186878557,
+      "mean_b_pct": -0.0492841946317317,
+      "difference_pct": 0.47950639650051724,
+      "welch_t": 4.095973329101254,
+      "p_value_two_sided": 4.7430162050604304e-05
+    }
+  },
+  "execution": {
+    "gross_mean_bps": 43.022220186878556,
+    "friction_break_even_bps": 43.022220186878556,
+    "through_exit_open_mean_bps": 33.69798889202676,
+    "exit_day_intraday_mean_bps": 9.28995351585988,
+    "exit_day_intraday_t_stat": 2.4785146268756977
+  },
+  "portfolio_fit": {
+    "existing_bond_etf_trades": 0,
+    "spy_same_window_correlation": -0.23259285239874797,
+    "spy_same_window_correlation_p": 6.752229585172916e-05,
+    "ledger_monthly_pnl_correlation": 0.08694116500691762,
+    "ledger_monthly_pnl_correlation_p": 0.1453195419642245,
+    "ledger_monthly_pnl_correlation_n": 282,
+    "max_losing_streak": 4,
+    "worst_events": [
+      {
+        "month": "2008-10",
+        "entry_date": "2008-10-24",
+        "exit_date": "2008-10-31",
+        "net_return_pct": -4.131926911306438
+      },
+      {
+        "month": "2022-12",
+        "entry_date": "2022-12-22",
+        "exit_date": "2022-12-30",
+        "net_return_pct": -4.073758668227967
+      },
+      {
+        "month": "2015-08",
+        "entry_date": "2015-08-24",
+        "exit_date": "2015-08-31",
+        "net_return_pct": -4.009474601523177
+      },
+      {
+        "month": "2009-01",
+        "entry_date": "2009-01-23",
+        "exit_date": "2009-01-30",
+        "net_return_pct": -3.7586137922253404
+      },
+      {
+        "month": "2009-04",
+        "entry_date": "2009-04-23",
+        "exit_date": "2009-04-30",
+        "net_return_pct": -3.555085991204787
+      }
+    ]
+  },
+  "decision": {
+    "graduates": true,
+    "holdout_positive": true,
+    "full_t_above_2": true,
+    "positive_years": 20,
+    "total_years": 25,
+    "years_pass": true,
+    "mechanism_passes": 3,
+    "duration_pass": true,
+    "timing_pass": true,
+    "baseline_pass": true,
+    "reasons": [
+      "2020+ holdout mean after 10 bp is 0.255% (pass).",
+      "Full-sample t-stat is 3.54 (pass versus >2.0).",
+      "Positive years: 20/25 (pass).",
+      "Mechanism/placebo checks passed: 3/3 (maturity=True, timing=True, baseline=True)."
+    ]
+  }
+}

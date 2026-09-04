@@ -1,0 +1,193 @@
+{
+  "bootstrap": {
+    "ci_2_5_pct": 0.038164129433391834,
+    "ci_97_5_pct": 0.4797260956581321,
+    "draws": 50000,
+    "mean_pct": 0.25388633973472985,
+    "probability_mean_le_zero": 0.00966,
+    "seed": 73
+  },
+  "data": {
+    "first_date": "2000-01-03",
+    "last_date": "2026-08-06",
+    "rows": 6688,
+    "source": "data\\master_prices.parquet"
+  },
+  "decision": {
+    "all_regimes_positive": true,
+    "friday_pass": true,
+    "graduates": true,
+    "holdout_positive": true,
+    "mechanism_passes": 2,
+    "positive_years": 18,
+    "pressure_pass": true,
+    "reasons": [
+      "2014+ holdout mean after costs is 0.171% (pass).",
+      "Positive calendar years: 18/27; each settlement-regime mean positive = True.",
+      "Mechanism checks passed: 2/3 (Friday=True, pressure=True, timing=False; predicted offset was best in 1/3 regimes)."
+    ],
+    "timing_best_offsets": {
+      "T+1": -3,
+      "T+2": -4,
+      "T+3": -4
+    },
+    "timing_matches": 1,
+    "timing_pass": false,
+    "total_years": 27
+  },
+  "frozen_spec": {
+    "cost_bps_round_trip": 4.0,
+    "entry": "MOC at T-(settlement_days+1)",
+    "exit": "MOC 3 sessions later",
+    "instrument": "SPY",
+    "paper_sample_end": "2013-12-31"
+  },
+  "mechanism": {
+    "event_vs_non_event_baseline": {
+      "difference_pct": 0.21185212756391233,
+      "mean_a_pct": 0.29388633973472983,
+      "mean_b_pct": 0.08203421217081747,
+      "n_baseline": 1807,
+      "n_event": 319,
+      "p_value_two_sided": 0.0866981853935332,
+      "welch_t": 1.7169677047261553
+    },
+    "friday_vs_other": {
+      "difference_pct": 0.2198209067403214,
+      "mean_a_pct": 0.41999049626601137,
+      "mean_b_pct": 0.20016958952568997,
+      "n_friday": 136,
+      "n_other": 183,
+      "p_value_two_sided": 0.3547738656073176,
+      "welch_t": 0.9270416840268677
+    },
+    "pressure_relation": {
+      "n": 319,
+      "negative_minus_nonnegative": {
+        "difference_pct": 0.7948641006650764,
+        "mean_a_pct": 0.7124981545050522,
+        "mean_b_pct": -0.08236594616002432,
+        "p_value_two_sided": 0.000631014668725978,
+        "welch_t": 3.4623345193182007
+      },
+      "negative_pressure_mean_gross_pct": 0.7124981545050522,
+      "negative_pressure_n": 151,
+      "nonnegative_pressure_mean_gross_pct": -0.08236594616002432,
+      "nonnegative_pressure_n": 168,
+      "pearson_p": 3.485534841089409e-10,
+      "pearson_r": -0.34204796450405395,
+      "spearman_p": 0.002556980672400522,
+      "spearman_r": -0.16834632105045247
+    }
+  },
+  "summaries": {
+    "full": {
+      "annualized_return_pct": 2.8482535546904497,
+      "annualized_sharpe": 0.43195822450576404,
+      "avg_loss_pct": -1.240856861014821,
+      "avg_win_pct": 1.437924493137464,
+      "best_pct": 14.671154684071292,
+      "compounded_pct": 110.56580782513392,
+      "max_drawdown_pct": -14.802601348756495,
+      "mean_pct": 0.25388633973472985,
+      "median_pct": 0.2600168234733591,
+      "n": 319,
+      "p_value_two_sided": 0.026638034018894148,
+      "payoff_ratio": 1.15881576539092,
+      "profit_factor": 1.4629021719119413,
+      "t_stat": 2.227134604562869,
+      "win_rate_pct": 55.79937304075236,
+      "worst_pct": -6.388244669735725
+    },
+    "holdout_2014_plus": {
+      "annualized_return_pct": 1.9225283221614653,
+      "annualized_sharpe": 0.36647591279229796,
+      "avg_loss_pct": -1.1168600595580422,
+      "avg_win_pct": 1.1977294669610572,
+      "best_pct": 6.3732144883289665,
+      "compounded_pct": 26.89171132829129,
+      "max_drawdown_pct": -14.802601348756482,
+      "mean_pct": 0.17072616711483413,
+      "median_pct": 0.19436266965148888,
+      "n": 151,
+      "p_value_two_sided": 0.19559512094606385,
+      "payoff_ratio": 1.072407824696512,
+      "profit_factor": 1.3445113026045825,
+      "t_stat": 1.29999980106406,
+      "win_rate_pct": 55.62913907284768,
+      "worst_pct": -5.2822868341333695
+    },
+    "paper_era_through_2013": {
+      "annualized_return_pct": 3.7047799159655392,
+      "annualized_sharpe": 0.48354508490885273,
+      "avg_loss_pct": -1.3531242353067696,
+      "avg_win_pct": 1.6525668569546792,
+      "best_pct": 14.671154684071292,
+      "compounded_pct": 65.94134133817715,
+      "max_drawdown_pct": -12.349564144127855,
+      "mean_pct": 0.32863149488713617,
+      "median_pct": 0.27999413866123923,
+      "n": 168,
+      "p_value_two_sided": 0.07220901928893793,
+      "payoff_ratio": 1.22129721265396,
+      "profit_factor": 1.5513775403982737,
+      "t_stat": 1.8092600387874416,
+      "win_rate_pct": 55.952380952380956,
+      "worst_pct": -6.388244669735725
+    },
+    "regime_T+1": {
+      "annualized_return_pct": 0.749371316617431,
+      "annualized_sharpe": 0.1620850669703374,
+      "avg_loss_pct": -1.0146444389181573,
+      "avg_win_pct": 1.4277445189541118,
+      "best_pct": 3.827238791402539,
+      "compounded_pct": 1.6299930020768683,
+      "max_drawdown_pct": -9.644894261756477,
+      "mean_pct": 0.07086176458062925,
+      "median_pct": -0.07117631824475219,
+      "n": 27,
+      "p_value_two_sided": 0.8098144909942291,
+      "payoff_ratio": 1.4071377757477426,
+      "profit_factor": 1.1257102205981941,
+      "t_stat": 0.24312760045550608,
+      "win_rate_pct": 44.44444444444444,
+      "worst_pct": -2.171415762597333
+    },
+    "regime_T+2": {
+      "annualized_return_pct": 1.783283710637562,
+      "annualized_sharpe": 0.31323504050432277,
+      "avg_loss_pct": -1.308893963205002,
+      "avg_win_pct": 1.3047970998865392,
+      "best_pct": 5.35793421096193,
+      "compounded_pct": 12.343231992617664,
+      "max_drawdown_pct": -14.802601348756529,
+      "mean_pct": 0.1613072597839898,
+      "median_pct": 0.29124427724871005,
+      "n": 80,
+      "p_value_two_sided": 0.4210768162491031,
+      "payoff_ratio": 0.9968699807366892,
+      "profit_factor": 1.281689975232886,
+      "t_stat": 0.808769396881232,
+      "win_rate_pct": 56.25,
+      "worst_pct": -5.2822868341333695
+    },
+    "regime_T+3": {
+      "annualized_return_pct": 3.5412465062387932,
+      "annualized_sharpe": 0.49545492178718253,
+      "avg_loss_pct": -1.2519765066718944,
+      "avg_win_pct": 1.488444264926653,
+      "best_pct": 14.671154684071292,
+      "compounded_pct": 84.42468112853432,
+      "max_drawdown_pct": -12.349564144127855,
+      "mean_pct": 0.31213157523105023,
+      "median_pct": 0.22988108322822945,
+      "n": 212,
+      "p_value_two_sided": 0.038503805524191734,
+      "payoff_ratio": 1.1888755555672177,
+      "profit_factor": 1.5808125519080585,
+      "t_stat": 2.082482950288476,
+      "win_rate_pct": 57.07547169811321,
+      "worst_pct": -6.388244669735725
+    }
+  }
+}
