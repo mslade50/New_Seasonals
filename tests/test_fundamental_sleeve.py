@@ -41,7 +41,7 @@ def test_policy_is_research_only_and_limits_are_coherent():
     assert SLEEVE_POLICY.live_actions_enabled is False
     assert BROAD_UNIVERSE_POLICY.min_market_cap < 2_000_000_000
     assert BROAD_UNIVERSE_POLICY.default_enrichment_batch <= BROAD_UNIVERSE_POLICY.max_enrichment_batch
-    assert policy_payload()["policy_version"] == "fundamental-sleeve.v2"
+    assert policy_payload()["policy_version"] == "fundamental-sleeve.v2.1"
 
 
 def test_daily_report_excludes_companies_that_left_current_universe():
@@ -358,7 +358,7 @@ def test_advanced_candidate_gets_source_backed_research_packet(tmp_path):
 
 
 def _broad_prices() -> pd.DataFrame:
-    dates = pd.bdate_range("2025-01-01", periods=300)
+    dates = pd.bdate_range(end="2026-08-04", periods=300)
     frames = []
     for ticker, start, end in (("AAA", 20, 40), ("BBB", 50, 65), ("SPY", 100, 120)):
         frames.append(pd.DataFrame({
@@ -399,6 +399,25 @@ def test_broad_universe_preserves_standard_and_specialist_lanes():
     summary = summarize_universe(universe)
     assert summary["research_eligible"] == 2
     assert summary["specialist_queue"] == 1
+
+
+def test_broad_universe_excludes_stale_prices_even_when_provider_marks_active():
+    payload = [{
+        "symbol": "DEAD", "companyName": "Acquired Company", "marketCap": 5_000_000_000,
+        "sector": "Financial Services", "industry": "Banks - Regional", "price": 75,
+        "volume": 1_000_000, "exchangeShortName": "NYSE", "country": "US",
+        "isEtf": False, "isFund": False, "isActivelyTrading": True,
+    }]
+    screener = normalize_screener_rows(payload, as_of="2026-08-28")
+    dates = pd.bdate_range(end="2026-08-20", periods=300)
+    prices = pd.DataFrame({
+        "ticker": "DEAD", "date": dates, "Close": np.linspace(50, 75, len(dates)),
+        "Volume": 1_000_000,
+    })
+    universe = build_broad_universe(screener, prices, as_of="2026-08-28")
+    row = universe.iloc[0]
+    assert not bool(row["research_eligible"])
+    assert "stale" in row["eligibility_reason"].lower()
 
 
 def test_balanced_enrichment_batch_does_not_default_to_mega_caps():

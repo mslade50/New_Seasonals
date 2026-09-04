@@ -133,12 +133,18 @@ def build_broad_universe(
     is_fund = frame.get("isFund", bool_default).fillna(False).astype(bool)
     active = frame.get("isActivelyTrading", pd.Series(True, index=frame.index)).fillna(True).astype(bool)
     exchange_ok = frame["exchange"].astype(str).str.upper().isin(policy.primary_exchanges)
+    price_as_of_raw = frame.get("price_as_of", pd.Series(pd.NaT, index=frame.index))
+    price_as_of = pd.to_datetime(price_as_of_raw, errors="coerce")
+    if getattr(price_as_of.dt, "tz", None) is not None:
+        price_as_of = price_as_of.dt.tz_localize(None)
+    cutoff = pd.Timestamp(as_of).normalize() - pd.Timedelta(days=policy.max_price_age_days)
+    price_fresh = price_as_of.ge(cutoff)
     liquid = pd.to_numeric(frame["dollar_volume_63d"], errors="coerce") >= policy.min_dollar_volume_63d
     history_ok = pd.to_numeric(frame["price_history_days"], errors="coerce") >= policy.min_price_history_days
     price_ok = pd.to_numeric(frame["price"], errors="coerce") >= policy.min_price
     cap_ok = pd.to_numeric(frame["market_cap"], errors="coerce") >= policy.min_market_cap
     frame["research_eligible"] = (
-        ~is_etf & ~is_fund & active & exchange_ok & liquid & history_ok & price_ok & cap_ok
+        ~is_etf & ~is_fund & active & exchange_ok & price_fresh & liquid & history_ok & price_ok & cap_ok
     )
 
     reasons: list[str] = []
@@ -150,6 +156,8 @@ def build_broad_universe(
             reason = "Security is not actively trading."
         elif not bool(exchange_ok.loc[idx]):
             reason = "Listing is outside the primary US exchange scope."
+        elif not bool(price_fresh.loc[idx]):
+            reason = "Current price history is stale; the security may be halted, acquired, or delisted."
         elif pd.isna(row.get("market_cap")) or row.get("market_cap", 0) < policy.min_market_cap:
             reason = "Market capitalization is below the broad research floor."
         elif pd.isna(row.get("price")):

@@ -14,7 +14,7 @@ CURRENT_ROOT = DATA_ROOT / "current"
 RUN_ROOT = DATA_ROOT / "runs"
 REPORT_ROOT = ROOT / "reports" / "fundamental"
 
-POLICY_VERSION = "fundamental-sleeve.v2"
+POLICY_VERSION = "fundamental-sleeve.v2.1"
 SCHEMA_VERSION = "fundamental-data.v2"
 UNDERWRITE_SCHEMA_VERSION = "fundamental-underwrite.v2"
 RUN_MANIFEST_SCHEMA_VERSION = "fundamental-run-manifest.v1"
@@ -76,6 +76,7 @@ class BroadUniversePolicy:
     min_current_volume: float = 100_000.0
     min_dollar_volume_63d: float = 5_000_000.0
     min_price_history_days: int = 252
+    max_price_age_days: int = 7
     primary_exchanges: tuple[str, ...] = ("NASDAQ", "NYSE", "AMEX")
     default_enrichment_batch: int = 125
     max_enrichment_batch: int = 250
