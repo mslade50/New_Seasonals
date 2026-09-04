@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Cloudflare Seasonality Lab — Zero-Production-Risk Proposal</title>
+  <style>
+    :root {
+      --bg: #0b0f16;
+      --panel: #111824;
+      --panel2: #151e2d;
+      --ink: #e8edf5;
+      --muted: #9aa8ba;
+      --line: #29364a;
+      --blue: #55aaff;
+      --green: #38d996;
+      --amber: #ffc45c;
+      --red: #ff6f78;
+      --violet: #aa8cff;
+      --code: #09101a;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: linear-gradient(160deg, #0a0e15 0%, #0d1420 55%, #0a1019 100%);
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    a { color: #81c2ff; }
+    code {
+      color: #d5e9ff;
+      background: var(--code);
+      border: 1px solid #233148;
+      border-radius: 5px;
+      padding: .1rem .32rem;
+    }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 38px 28px 72px; }
+    .eyebrow {
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 8px 0 8px; font-size: clamp(30px, 5vw, 52px); line-height: 1.05; }
+    h2 { margin: 42px 0 14px; font-size: 25px; }
+    h3 { margin: 26px 0 8px; font-size: 18px; }
+    p { margin: 8px 0 14px; }
+    .sub { max-width: 900px; color: var(--muted); font-size: 17px; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 20px 0 28px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #c8d3e1;
+      background: #101724;
+      font-size: 12px;
+    }
+    .pill.good { border-color: #246c53; color: #8ef0c4; }
+    .pill.warn { border-color: #755a26; color: #ffda88; }
+    .callout {
+      margin: 22px 0;
+      padding: 17px 18px;
+      border: 1px solid #2b7258;
+      border-left: 5px solid var(--green);
+      border-radius: 9px;
+      background: linear-gradient(90deg, rgba(56,217,150,.11), rgba(17,24,36,.94));
+    }
+    .callout.warn {
+      border-color: #735928;
+      border-left-color: var(--amber);
+      background: linear-gradient(90deg, rgba(255,196,92,.10), rgba(17,24,36,.94));
+    }
+    .callout strong { color: #f4f8fd; }
+    .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+    .card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: linear-gradient(180deg, var(--panel2), var(--panel));
+    }
+    .card h3 { margin-top: 0; }
+    .card p:last-child { margin-bottom: 0; }
+    .num {
+      color: var(--blue);
+      font-size: 27px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+    .cap { color: var(--muted); font-size: 12px; }
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+      align-items: stretch;
+      gap: 9px;
+      margin: 20px 0 26px;
+    }
+    .flow .node {
+      min-height: 116px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+    }
+    .flow .node.prod { border-color: #6f5230; }
+    .flow .node.safe { border-color: #2c6d57; }
+    .flow .arrow {
+      align-self: center;
+      color: var(--muted);
+      font-size: 22px;
+      font-weight: 800;
+    }
+    .flow b { display: block; margin-bottom: 5px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 22px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+    }
+    th, td {
+      padding: 10px 11px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+    th { color: #c8dcf3; background: #172132; font-size: 12px; letter-spacing: .03em; }
+    tr:last-child td { border-bottom: 0; }
+    .ok { color: var(--green); font-weight: 700; }
+    .no { color: var(--red); font-weight: 700; }
+    .hold { color: var(--amber); font-weight: 700; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 5px 0; }
+    .phase {
+      margin: 14px 0;
+      padding: 15px 16px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: rgba(17,24,36,.88);
+    }
+    .phase-head { display: flex; align-items: baseline; gap: 10px; }
+    .phase-id { color: var(--violet); font-weight: 800; }
+    .gate {
+      margin-top: 10px;
+      color: #c9f5df;
+      background: rgba(56,217,150,.08);
+      border: 1px solid #275b48;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 14px;
+      border: 1px solid #233148;
+      border-radius: 9px;
+      background: var(--code);
+      color: #cfe5ff;
+      line-height: 1.45;
+      overflow: auto;
+    }
+    .toc {
+      columns: 2;
+      padding: 14px 22px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+    }
+    .toc li { break-inside: avoid; }
+    footer {
+      margin-top: 48px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 850px) {
+      .flow { grid-template-columns: 1fr; }
+      .flow .arrow { transform: rotate(90deg); justify-self: center; }
+      .toc { columns: 1; }
+    }
+    @media print {
+      body { color: #111; background: #fff; }
+      .wrap { max-width: none; padding: 20px; }
+      .card, .phase, table, .toc, .flow .node, .callout { background: #fff; color: #111; }
+      h1, h2, h3, th, td, p, li, code, .sub, .cap { color: #111 !important; }
+      a { color: #111; }
+    }
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <div class="eyebrow">Implementation proposal · read-only source architecture</div>
+  <h1>Cloudflare Seasonality Lab</h1>
+  <p class="sub">Exact plan for recreating the Streamlit User Input seasonality page on the private Cloudflare site while adding no write path, credential path, or code path capable of mutating the production price bucket or production master parquet.</p>
+
+  <div class="meta">
+    <span class="pill">Prepared 2026-07-13</span>
+    <span class="pill good">Decision: use 2000-present production history</span>
+    <span class="pill good">Production source: read-only</span>
+    <span class="pill good">New storage: isolated bucket</span>
+    <span class="pill warn">Proposal only — no implementation authorized</span>
+  </div>
+
+  <div class="callout">
+    <strong>Core decision.</strong> Production <code>master_prices.parquet</code> remains the canonical source and is read through a new bucket-scoped read-only credential. A pure local exporter derives compact seasonality payloads. Those payloads are written to a separate <code>seasonals-site-data</code> bucket and served by a separate Worker that has no production binding. The existing master updater, production bucket, production workflows, scanner, ledger, and execution systems are not modified.
+  </div>
+
+  <h2 id="contents">Contents</h2>
+  <ol class="toc">
+    <li><a href="#decision">Decision and risk definition</a></li>
+    <li><a href="#current">Current-state facts</a></li>
+    <li><a href="#architecture">Target architecture</a></li>
+    <li><a href="#iam">Credential and permission boundaries</a></li>
+    <li><a href="#contract">Data contract and calculations</a></li>
+    <li><a href="#changes">Exact repository changes</a></li>
+    <li><a href="#runbook">Implementation runbook</a></li>
+    <li><a href="#validation">Validation and acceptance gates</a></li>
+    <li><a href="#failure">Failure behavior and rollback</a></li>
+    <li><a href="#operations">Ongoing operation</a></li>
+    <li><a href="#owner">Owner setup checklist</a></li>
+    <li><a href="#nontouch">Explicit no-touch list</a></li>
+  </ol>
+
+  <h2 id="decision">1. Decision and risk definition</h2>
+  <div class="grid">
+    <section class="card">
+      <div class="num">0</div>
+      <h3>New production write permissions</h3>
+      <p>The new publisher receives an Object Read-only token for the existing production bucket. A programming error that attempts PUT, COPY, or DELETE against production is rejected by Cloudflare IAM.</p>
+    </section>
+    <section class="card">
+      <div class="num">0</div>
+      <h3>Changes to the master updater</h3>
+      <p>The existing 09:30/21:10 UTC master-price workflow and <code>scripts/update_master_prices.py</code> remain untouched.</p>
+    </section>
+    <section class="card">
+      <div class="num">0</div>
+      <h3>Interactive Yahoo dependencies</h3>
+      <p>The browser and data Worker never call Yahoo. The feature reads the last published R2 projection and remains available even when Yahoo is unavailable.</p>
+    </section>
+    <section class="card">
+      <div class="num">1</div>
+      <h3>New isolated data product</h3>
+      <p>A separate bucket holds disposable, reproducible, site-only JSON payloads. It is not a second source of truth.</p>
+    </section>
+  </div>
+
+  <div class="callout warn">
+    <strong>Precise meaning of “zero risk.”</strong> No engineering change can remove the pre-existing operational risk of systems that already update production. This design adds zero new capability to mutate production: every new component is either credential-free, production-read-only, or scoped exclusively to the new site-data bucket. Existing production behavior is unchanged.
+  </div>
+
+  <h3>Non-negotiable invariants</h3>
+  <ol>
+    <li>No new script receives the existing <code>R2_ACCESS_KEY_ID</code> / <code>R2_SECRET_ACCESS_KEY</code> production writer secrets.</li>
+    <li>No new Worker or Pages Function receives the existing <code>CHARTS</code> / production bucket binding.</li>
+    <li>No new code uploads, copies, deletes, rewrites, compacts, or renames <code>master_prices.parquet</code>.</li>
+    <li>No new code imports or calls production update, scan, ledger, Sheets, broker, or order-staging modules.</li>
+    <li>The frontend has no write endpoint and no yfinance fallback.</li>
+    <li>A failed export cannot replace the current valid site-data manifest.</li>
+    <li>No automated object deletion or lifecycle cleanup is introduced in Phase 1.</li>
+  </ol>
+
+  <h2 id="current">2. Current-state facts</h2>
+  <table>
+    <thead><tr><th>Fact</th><th>Observed state</th><th>Design consequence</th></tr></thead>
+    <tbody>
+      <tr><td>Production cache</td><td><code>master_prices.parquet</code>, adjusted daily OHLCV, long format</td><td>It already contains every primitive needed for the User Input analysis.</td></tr>
+      <tr><td>Local inspected vintage</td><td>6,720,545 rows; 1,114 tickers; 2000-01-03 through 2026-07-11; 160.7 MB</td><td>Post-2000 scope is sufficient by owner decision.</td></tr>
+      <tr><td>User Input dependency</td><td>One yfinance max-history download; all later calculations are deterministic</td><td>The interactive download can be replaced with a compact R2 payload.</td></tr>
+      <tr><td>Required price fields</td><td>High, Low, Close are used to calculate simple rolling ATR(14); afterward only date, Close, ATR are required</td><td>Site payload can be about 60–100 KB compressed per long-history ticker.</td></tr>
+      <tr><td>Private site</td><td>Static HTML/CSS/JS, Plotly already present, Cloudflare Access already used</td><td>No application server or Streamlit process is needed.</td></tr>
+      <tr><td>Existing Pages project</td><td>Bound to the production bucket as <code>CHARTS</code></td><td>The new data API must not be implemented as another Function in that project if strict capability isolation is required.</td></tr>
+      <tr><td>Master update timing</td><td>PM canonical update scheduled at 21:10 UTC weekdays</td><td>New publisher can run independently at 23:30 UTC and verify source freshness.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="architecture">3. Target architecture</h2>
+  <div class="flow" aria-label="Architecture flow">
+    <div class="node prod">
+      <b>Production bucket</b>
+      <code>seasonals-cache/master_prices.parquet</code>
+      <p class="cap">Existing canonical object. Existing updater only.</p>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node safe">
+      <b>Dedicated publisher job</b>
+      <p>Read-only download → local validation → pure export → isolated upload.</p>
+      <p class="cap">Never sees production write credentials.</p>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node safe">
+      <b>New site-data bucket</b>
+      <code>seasonals-site-data/seasonality/v1/…</code>
+      <p class="cap">Derived and reproducible; no production objects.</p>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node safe">
+      <b>Separate data Worker</b>
+      <p>GET-only API bound only to <code>seasonals-site-data</code>.</p>
+      <p class="cap">Private site performs browser-side analysis.</p>
+    </div>
+  </div>
+
+  <h3>Component responsibilities</h3>
+  <table>
+    <thead><tr><th>Component</th><th>Reads</th><th>Writes</th><th>Production capability</th></tr></thead>
+    <tbody>
+      <tr><td>Existing master updater</td><td>Production master + Yahoo</td><td>Production master</td><td class="hold">Existing and unchanged</td></tr>
+      <tr><td>New publisher download step</td><td>Production master</td><td>Runner-local temporary file</td><td class="ok">Object Read only</td></tr>
+      <tr><td>New pure exporter step</td><td>Runner-local parquet</td><td>Runner-local snapshot directory</td><td class="ok">No cloud credentials</td></tr>
+      <tr><td>New publisher upload step</td><td>Runner-local snapshot</td><td>New site-data bucket only</td><td class="ok">No production credentials</td></tr>
+      <tr><td>New data Worker</td><td>New site-data bucket only</td><td>Nothing</td><td class="ok">No production binding</td></tr>
+      <tr><td>Existing private-site frontend</td><td>New Worker API</td><td>Nothing</td><td class="ok">Browser has no R2 credentials</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Why a separate Worker is required</h3>
+  <p>The existing Pages project already has the production bucket bound as <code>CHARTS</code>. Cloudflare bindings are capabilities available to project Functions. Even if a newly added Function intended to use only <code>SEASONAL_DATA</code>, it would still run in a project where <code>CHARTS</code> exists. The safer design is a separate Worker/project with exactly one R2 binding: the new site-data bucket. The existing private site adds static HTML/JS only and calls this isolated API.</p>
+
+  <h2 id="iam">4. Credential and permission boundaries</h2>
+  <table>
+    <thead><tr><th>Credential / binding</th><th>Scope</th><th>Permission</th><th>Where present</th><th>Where forbidden</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>PROD_R2_READ_*</code></td>
+        <td>Bucket <code>seasonals-cache</code></td>
+        <td>Object Read only</td>
+        <td>Publisher download step only</td>
+        <td>Exporter, uploader, Worker, browser</td>
+      </tr>
+      <tr>
+        <td><code>SITE_R2_WRITE_*</code></td>
+        <td>Bucket <code>seasonals-site-data</code></td>
+        <td>Object Read &amp; Write</td>
+        <td>Publisher upload step only</td>
+        <td>Download step, exporter, browser</td>
+      </tr>
+      <tr>
+        <td><code>SEASONAL_DATA</code></td>
+        <td>Bucket <code>seasonals-site-data</code></td>
+        <td>Worker binding; implementation exposes GET only</td>
+        <td>Separate seasonality-data Worker</td>
+        <td>Existing Pages project is not changed to add this binding</td>
+      </tr>
+      <tr>
+        <td>Existing <code>R2_*</code> writer</td>
+        <td>Production bucket</td>
+        <td>Existing production permissions</td>
+        <td>Existing production workflows only</td>
+        <td class="no">Every new seasonality component</td>
+      </tr>
+      <tr>
+        <td>Existing <code>CHARTS</code> binding</td>
+        <td>Production bucket</td>
+        <td>Existing Pages binding</td>
+        <td>Existing Pages project only</td>
+        <td class="no">New seasonality data Worker</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Proposed GitHub secret names</h3>
+  <pre>PROD_R2_READ_ACCOUNT_ID
+PROD_R2_READ_ACCESS_KEY_ID
+PROD_R2_READ_SECRET_ACCESS_KEY
+PROD_R2_READ_BUCKET
+
+SITE_R2_ACCOUNT_ID
+SITE_R2_ACCESS_KEY_ID
+SITE_R2_SECRET_ACCESS_KEY
+SITE_R2_BUCKET
+
+SEASONAL_DATA_WORKER_API_TOKEN</pre>
+  <p>The workflow must scope credentials at the individual step level. It must not define either credential family at job scope. The pure build step receives no secrets.</p>
+
+  <h2 id="contract">5. Data contract and calculations</h2>
+  <h3>R2 object layout</h3>
+  <pre>seasonality/v1/
+  current.json
+  snapshots/
+    2026-07-10T233000Z/
+      manifest.json
+      prices/
+        c3b5...json.gz
+        e9a1...json.gz
+        ...</pre>
+  <p>Ticker filenames are stable opaque IDs generated by the exporter. Raw ticker strings never become path segments. The manifest maps canonical tickers such as <code>SPY</code>, <code>^GSPC</code>, or <code>ES=F</code> to their opaque IDs.</p>
+
+  <h3>Atomic publication</h3>
+  <ol>
+    <li>Download the production master with the read-only source token.</li>
+    <li>Validate schema, row counts, ticker counts, date monotonicity, duplicate keys, and source freshness.</li>
+    <li>Build the entire snapshot locally without cloud credentials.</li>
+    <li>Validate every generated object and the manifest locally.</li>
+    <li>Upload all ticker objects to a new versioned snapshot prefix in the isolated bucket.</li>
+    <li>Upload that snapshot’s manifest.</li>
+    <li>Read back and verify manifest/object counts and checksums.</li>
+    <li>Only then overwrite the small isolated-bucket pointer <code>current.json</code>.</li>
+  </ol>
+  <p>If any step fails before the pointer switch, the private site keeps using the previous complete snapshot. Partially uploaded data is unreachable and cannot affect production.</p>
+
+  <h3>Per-ticker payload</h3>
+  <pre>{
+  "schema_version": 1,
+  "ticker": "SPY",
+  "basis": "adjusted master_prices",
+  "history_start": "2000-01-03",
+  "asof": "2026-07-10",
+  "atr_method": "simple rolling mean of TR, window=14",
+  "rows": [
+    ["2000-01-03", 91.367599, null],
+    ["2000-01-04", 87.795700, null]
+  ]
+}</pre>
+  <p>Rows contain <code>[date, adjusted_close, atr14]</code>. ATR is computed in Python with the same definition as <code>pages/user_input.py</code>: true range is <code>max(High, previous Close) - min(Low, previous Close)</code>, followed by a simple 14-session rolling mean. This is intentionally not the Wilder ATR used by the existing private-site trade sizer.</p>
+
+  <h3>Browser-side parity scope</h3>
+  <ul>
+    <li>Ticker selection from the 1,114-symbol manifest; no arbitrary Yahoo fallback.</li>
+    <li>All Years / Election / Pre-Election / Post-Election / Midterm cycles.</li>
+    <li>Recency half-life control.</li>
+    <li>Time-travel cutoff year.</li>
+    <li>Fast-forward trading-day marker.</li>
+    <li>Cycle, all-years, realized-current-year, model-year, and reference-year paths.</li>
+    <li>ATR and optional percentage views.</li>
+    <li>Weighted median, mean, positive percentage, and forward realized volatility for 5/10/21 sessions.</li>
+    <li>Cycle-year paths since 2000, MAE similarity, and actual analog-date detail table.</li>
+    <li>Visible source date, history range, basis, and observation counts.</li>
+  </ul>
+
+  <h2 id="changes">6. Exact repository changes</h2>
+  <h3>Files to add</h3>
+  <table>
+    <thead><tr><th>File</th><th>Purpose</th><th>Network capability</th></tr></thead>
+    <tbody>
+      <tr><td><code>scripts/build_seasonality_site_data.py</code></td><td>Pure local parquet → validated snapshot exporter</td><td>None</td></tr>
+      <tr><td><code>scripts/publish_seasonality_site_data.py</code></td><td>Upload a previously validated local snapshot to the isolated bucket; hard-reject any key outside <code>seasonality/v1/</code></td><td>New site bucket only</td></tr>
+      <tr><td><code>.github/workflows/publish_seasonality_site_data.yml</code></td><td>Independent 23:30 UTC weekday publisher plus manual dispatch</td><td>Step-scoped read-only prod token and isolated site token</td></tr>
+      <tr><td><code>seasonality-data-worker/wrangler.toml</code></td><td>Separate Worker project and sole <code>SEASONAL_DATA</code> binding</td><td>New site bucket only</td></tr>
+      <tr><td><code>seasonality-data-worker/src/index.js</code></td><td>GET-only manifest and ticker payload API</td><td>New site bucket only</td></tr>
+      <tr><td><code>site/seasonality.html</code></td><td>Private Seasonality Lab page</td><td>GET isolated API only</td></tr>
+      <tr><td><code>site/assets/seasonality.js</code></td><td>Client-side calculation, rendering, caching, and error handling</td><td>GET isolated API only</td></tr>
+      <tr><td><code>tests/test_seasonality_export.py</code></td><td>Exporter schema, ATR, validation, key-prefix, and failure tests</td><td>None</td></tr>
+      <tr><td><code>tests/js/test_seasonality_math.js</code></td><td>JavaScript calculation parity against Python golden fixtures</td><td>None</td></tr>
+      <tr><td><code>tests/js/test_seasonality_worker.mjs</code></td><td>GET-only routing, input validation, binding failure, 404, ETag tests</td><td>Mock binding only</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Files to modify</h3>
+  <table>
+    <thead><tr><th>File</th><th>Change</th><th>Risk boundary</th></tr></thead>
+    <tbody>
+      <tr><td><code>site/assets/common.js</code></td><td>Add a navigation entry for Seasonality Lab</td><td>Static presentation only</td></tr>
+      <tr><td><code>docs/private_site_setup.md</code></td><td>Document the new isolated bucket, Worker, Access route, and secrets</td><td>Documentation only</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Files intentionally not modified</h3>
+  <p><code>scripts/build_site.py</code> already copies all files from <code>site/</code>, so it does not need feature-specific logic. The main Pages <code>wrangler.toml</code> is not given the new binding. Existing production workflows are not edited or chained.</p>
+
+  <h2 id="runbook">7. Implementation runbook</h2>
+
+  <section class="phase">
+    <div class="phase-head"><span class="phase-id">Phase 0</span><h3>Local implementation only</h3></div>
+    <ol>
+      <li>Add the pure exporter, synthetic fixtures, frontend page, math module, Worker code, and tests.</li>
+      <li>Use the existing local parquet only as read-only test input.</li>
+      <li>Run the exporter in <code>--dry-run</code> mode into a new local output directory.</li>
+      <li>Do not configure cloud credentials and do not deploy.</li>
+    </ol>
+    <div class="gate"><strong>Gate:</strong> No tracked production file changes; no external writes; Python and JavaScript parity suites pass.</div>
+  </section>
+
+  <section class="phase">
+    <div class="phase-head"><span class="phase-id">Phase 1</span><h3>Owner creates isolated cloud resources</h3></div>
+    <ol>
+      <li>Create Standard-class R2 bucket <code>seasonals-site-data</code>.</li>
+      <li>Create an Object Read-only token scoped only to the existing production bucket.</li>
+      <li>Create an Object Read &amp; Write token scoped only to <code>seasonals-site-data</code>.</li>
+      <li>Create a dedicated Worker deployment token.</li>
+      <li>Add the new GitHub secrets using the names in this document.</li>
+      <li>Do not change or reuse the existing production R2 secrets.</li>
+    </ol>
+    <div class="gate"><strong>Gate:</strong> Human review of Cloudflare token scopes. No write permission exists on the new production-read token.</div>
+  </section>
+
+  <section class="phase">
+    <div class="phase-head"><span class="phase-id">Phase 2</span><h3>Publish an isolated preview snapshot</h3></div>
+    <ol>
+      <li>Run the dedicated publisher manually.</li>
+      <li>The download step receives only the production read-only credential.</li>
+      <li>The export step receives no credentials.</li>
+      <li>The upload step receives only the site-data bucket credential.</li>
+      <li>Verify object count, current pointer, source date, checksums, and API responses.</li>
+    </ol>
+    <div class="gate"><strong>Gate:</strong> Production master ETag is observed unchanged before and after. This is a read-only assertion, not a write test.</div>
+  </section>
+
+  <section class="phase">
+    <div class="phase-head"><span class="phase-id">Phase 3</span><h3>Deploy isolated Worker and protect it</h3></div>
+    <ol>
+      <li>Deploy Worker name <code>seasonality-data-api</code> from its own configuration directory.</li>
+      <li>Bind only <code>SEASONAL_DATA = seasonals-site-data</code>.</li>
+      <li>Attach a same-site custom route such as <code>/seasonality-data/*</code>, or use a dedicated subdomain if the Pages hostname cannot accept a Worker route.</li>
+      <li>Extend Cloudflare Access to cover the API route.</li>
+      <li>If cross-origin, allow only the exact private-site origin and credentials required by Access.</li>
+    </ol>
+    <div class="gate"><strong>Gate:</strong> Worker environment inspection shows no production R2 binding, no production secret, and no non-GET route.</div>
+  </section>
+
+  <section class="phase">
+    <div class="phase-head"><span class="phase-id">Phase 4</span><h3>Preview the private-site page</h3></div>
+    <ol>
+      <li>Deploy the additive static page to a Cloudflare Pages preview deployment.</li>
+      <li>Validate SPY, ^GSPC, an equity, an ETF, a futures-style symbol, and an invalid symbol.</li>
+      <li>Compare the complete result set with Streamlit for fixed control values.</li>
+      <li>Verify mobile layout, loading states, stale-data messaging, and Access behavior.</li>
+    </ol>
+    <div class="gate"><strong>Gate:</strong> Numeric parity within agreed tolerances and no requests to Yahoo, production R2, execution APIs, or Sheets.</div>
+  </section>
+
+  <section class="phase">
+    <div class="phase-head"><span class="phase-id">Phase 5</span><h3>Production display enablement</h3></div>
+    <ol>
+      <li>Deploy the static page and navigation entry through the existing Pages deployment.</li>
+      <li>Keep the new publisher manual for the first three successful runs.</li>
+      <li>After three clean runs, enable the independent 23:30 UTC weekday schedule.</li>
+      <li>Retain the Streamlit page during a validation period; do not delete it.</li>
+    </ol>
+    <div class="gate"><strong>Gate:</strong> Three scheduled publications complete without stale/regressed data and without any production workflow change.</div>
+  </section>
+
+  <h2 id="validation">8. Validation and acceptance gates</h2>
+  <table>
+    <thead><tr><th>Area</th><th>Validation</th><th>Pass criterion</th></tr></thead>
+    <tbody>
+      <tr><td>IAM</td><td>Inspect token scopes and Worker bindings</td><td>New components have no production write capability</td></tr>
+      <tr><td>Source integrity</td><td>Record production object ETag before/after publisher</td><td>Identical</td></tr>
+      <tr><td>Schema</td><td>Require ticker/date/High/Low/Close and expected data types</td><td>Exact; otherwise fail before upload</td></tr>
+      <tr><td>Volume</td><td>Minimum row and ticker thresholds versus previous manifest</td><td>No unexplained material drop</td></tr>
+      <tr><td>Freshness</td><td>SPY last date and expected completed session</td><td>No regression; stale data produces warning or skip</td></tr>
+      <tr><td>Uniqueness</td><td>Duplicate ticker/date audit</td><td>Zero duplicates after deterministic source normalization</td></tr>
+      <tr><td>ATR parity</td><td>Python implementation versus current User Input fixture</td><td>Exact within floating-point tolerance</td></tr>
+      <tr><td>Frontend parity</td><td>Python golden outputs versus JavaScript outputs</td><td>Ranks/paths/stats within documented tolerance</td></tr>
+      <tr><td>Atomicity</td><td>Injected upload failure before pointer switch</td><td>Previous snapshot remains current</td></tr>
+      <tr><td>API methods</td><td>GET/HEAD plus POST/PUT/PATCH/DELETE probes</td><td>GET/HEAD supported; mutations return 405</td></tr>
+      <tr><td>Input safety</td><td>Traversal, malformed IDs, oversized input, unknown IDs</td><td>400/404; no arbitrary key access</td></tr>
+      <tr><td>Authentication</td><td>Signed-in and signed-out API requests</td><td>Access policy enforced</td></tr>
+      <tr><td>Network audit</td><td>Browser developer-tools request review</td><td>Only private site, isolated Worker, and approved Plotly asset requests</td></tr>
+      <tr><td>Regression</td><td>Existing Python tests, JS tests, site build, asset syntax checks</td><td>No new failures</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Numeric tolerances</h3>
+  <ul>
+    <li>Dates, sample membership, cycle-year membership, and observation counts: exact.</li>
+    <li>ATR and forward ATR returns: absolute tolerance ≤ 1e-6 before display rounding.</li>
+    <li>Weighted means, medians, positive percentages, ranks, and MAE: absolute tolerance ≤ 1e-6.</li>
+    <li>Displayed numbers: identical after the existing UI’s rounding rules.</li>
+  </ul>
+
+  <h2 id="failure">9. Failure behavior and rollback</h2>
+  <table>
+    <thead><tr><th>Failure</th><th>User-visible behavior</th><th>Production effect</th><th>Recovery</th></tr></thead>
+    <tbody>
+      <tr><td>Production download fails</td><td>Existing site snapshot remains</td><td class="ok">None</td><td>Retry publisher</td></tr>
+      <tr><td>Source validation fails</td><td>Existing site snapshot remains; workflow red</td><td class="ok">None</td><td>Investigate source without publishing</td></tr>
+      <tr><td>Exporter fails</td><td>Existing site snapshot remains</td><td class="ok">None</td><td>Fix exporter and rerun</td></tr>
+      <tr><td>Partial isolated upload</td><td>Unreachable orphan snapshot; current pointer unchanged</td><td class="ok">None</td><td>Rerun; no automatic deletion</td></tr>
+      <tr><td>Worker unavailable</td><td>Seasonality page shows data unavailable; rest of site remains functional</td><td class="ok">None</td><td>Rollback Worker or restore route</td></tr>
+      <tr><td>Frontend defect</td><td>Only Seasonality Lab affected</td><td class="ok">None</td><td>Revert static page/nav deployment</td></tr>
+      <tr><td>Publisher accidentally calls production write API</td><td>No user effect</td><td class="ok">IAM denies operation</td><td>Workflow fails; fix code</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Rollback sequence</h3>
+  <ol>
+    <li>Remove or hide the Seasonality Lab navigation entry through a normal Pages rollback/redeploy.</li>
+    <li>Leave the Streamlit page available as the fallback.</li>
+    <li>Disable the new publisher schedule without touching the production updater.</li>
+    <li>Roll the isolated Worker back to its prior deployment or detach its route.</li>
+    <li>Do not delete any bucket or object as part of emergency rollback; cleanup is a separate approved action.</li>
+  </ol>
+
+  <h2 id="operations">10. Ongoing operation</h2>
+  <p>The new bucket is not independently maintained as a second price database. It is a reproducible projection:</p>
+  <pre>Existing yfinance update
+  → production master_prices.parquet
+  → dedicated read-only publisher at 23:30 UTC
+  → isolated seasonality snapshot
+  → current.json pointer
+  → browser analysis</pre>
+  <ul>
+    <li>Normal cadence: once after the PM canonical master update.</li>
+    <li>AM publication is unnecessary because the tool is based on completed daily bars.</li>
+    <li>If the source has not advanced, the publisher may skip creating an identical snapshot.</li>
+    <li>The page always displays source <code>asof</code>, snapshot build time, basis, and history start.</li>
+    <li>No manual price blending is needed for the agreed 2000-present scope.</li>
+    <li>No automatic retention deletion is included initially. A site-bucket-only lifecycle policy can be proposed later with separate approval.</li>
+  </ul>
+
+  <h2 id="owner">11. Owner setup checklist</h2>
+  <table>
+    <thead><tr><th>Owner action</th><th>Exact target</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td>Create bucket</td><td><code>seasonals-site-data</code>, Standard storage</td><td>After local implementation passes</td></tr>
+      <tr><td>Create production read token</td><td>Object Read only, existing <code>seasonals-cache</code> bucket only</td><td>Before preview publisher</td></tr>
+      <tr><td>Create site-data token</td><td>Object Read &amp; Write, <code>seasonals-site-data</code> only</td><td>Before preview publisher</td></tr>
+      <tr><td>Create Worker token</td><td>Permission sufficient to deploy only the new Worker architecture</td><td>Before Worker preview</td></tr>
+      <tr><td>Add GitHub secrets</td><td>Use the new names; never overwrite existing <code>R2_*</code> secrets</td><td>Before manual workflow</td></tr>
+      <tr><td>Configure Worker route</td><td>Same-site <code>/seasonality-data/*</code> preferred</td><td>After Worker preview</td></tr>
+      <tr><td>Extend Access</td><td>Protect the Worker route/subdomain for the same authorized users</td><td>Before any real data is served</td></tr>
+      <tr><td>Approve first external upload</td><td>New bucket only</td><td>After dry-run evidence is reviewed</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="nontouch">12. Explicit no-touch list</h2>
+  <div class="grid">
+    <section class="card">
+      <h3>Production data</h3>
+      <ul>
+        <li>R2 bucket <code>seasonals-cache</code></li>
+        <li>Object <code>master_prices.parquet</code></li>
+        <li>Local <code>data/master_prices.parquet</code> except read-only validation</li>
+        <li>Overflow and intraday production price objects</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h3>Production pipelines</h3>
+      <ul>
+        <li><code>.github/workflows/update_master_prices.yml</code></li>
+        <li><code>scripts/update_master_prices.py</code></li>
+        <li><code>scripts/build_master_prices.py</code></li>
+        <li><code>cache_io.py</code></li>
+        <li>Existing production R2 secrets</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h3>Trading and execution</h3>
+      <ul>
+        <li><code>strategy_config.py</code></li>
+        <li><code>daily_scan.py</code></li>
+        <li>Ledger/backtester logic</li>
+        <li>Google Sheets staging</li>
+        <li>Execution broker and IBKR agent</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h3>Existing private-site data plane</h3>
+      <ul>
+        <li>Main Pages <code>CHARTS</code> binding</li>
+        <li>Existing chart and morning-order Functions</li>
+        <li>Main Pages <code>wrangler.toml</code> R2 binding list</li>
+        <li>Existing site payload generation logic</li>
+      </ul>
+    </section>
+  </div>
+
+  <h2>13. Final acceptance criteria</h2>
+  <ol>
+    <li>The private Cloudflare site reproduces the Streamlit User Input analysis for cached post-2000 tickers.</li>
+    <li>The browser performs no yfinance/Yahoo request.</li>
+    <li>Every new cloud credential and binding is incapable of writing to production.</li>
+    <li>The production master updater and all trading pipelines have zero code changes.</li>
+    <li>The existing Pages project receives only additive static page assets and no new production-capable Function.</li>
+    <li>Publisher failure leaves the last complete isolated snapshot active.</li>
+    <li>Python and JavaScript outputs pass parity tests.</li>
+    <li>The page shows data vintage and degrades locally without affecting any other private-site page.</li>
+    <li>No production or site-data object is deleted during implementation or rollback.</li>
+  </ol>
+
+  <h2>14. References</h2>
+  <ul>
+    <li>Repository source: <code>pages/user_input.py</code>, <code>data_provider.py</code>, <code>scripts/update_master_prices.py</code>, <code>.github/workflows/update_master_prices.yml</code>, <code>wrangler.toml</code>.</li>
+    <li><a href="https://developers.cloudflare.com/pages/functions/bindings/">Cloudflare Pages bindings and R2 buckets</a></li>
+    <li><a href="https://developers.cloudflare.com/r2/api/workers/workers-api-reference/">Cloudflare R2 Workers API</a></li>
+    <li><a href="https://developers.cloudflare.com/r2/reference/consistency/">Cloudflare R2 consistency model</a></li>
+    <li><a href="https://developers.cloudflare.com/r2/pricing/">Cloudflare R2 pricing and free allowances</a></li>
+    <li><a href="https://developers.cloudflare.com/workers/platform/limits/">Cloudflare Workers limits</a></li>
+  </ul>
+
+  <footer>
+    Proposal status: design only. Creating this document did not authorize repository implementation, cloud-resource creation, credential changes, deployments, R2 writes, or deletion of any file/object.
+  </footer>
+</main>
+
+<script id="proposal-data" type="application/json">
+{
+  "document": {
+    "title": "Cloudflare Seasonality Lab — Zero-Production-Risk Proposal",
+    "date": "2026-07-13",
+    "status": "proposal_only",
+    "history_scope": "2000-present"
+  },
+  "decision": {
+    "source_of_truth": "seasonals-cache/master_prices.parquet",
+    "source_access_for_new_feature": "object_read_only",
+    "derived_bucket": "seasonals-site-data",
+    "api_runtime": "separate_cloudflare_worker",
+    "browser_yfinance": false,
+    "production_workflow_changes": false,
+    "automatic_deletion": false
+  },
+  "invariants": [
+    "No new component receives production write credentials",
+    "No new Worker receives the production CHARTS binding",
+    "No new code modifies master_prices.parquet",
+    "Exporter build step has no cloud credentials",
+    "Publisher upload step can write only to seasonals-site-data",
+    "Publication pointer changes only after complete validation",
+    "No Yahoo fallback exists in the browser or Worker"
+  ],
+  "new_files": [
+    "scripts/build_seasonality_site_data.py",
+    "scripts/publish_seasonality_site_data.py",
+    ".github/workflows/publish_seasonality_site_data.yml",
+    "seasonality-data-worker/wrangler.toml",
+    "seasonality-data-worker/src/index.js",
+    "site/seasonality.html",
+    "site/assets/seasonality.js",
+    "tests/test_seasonality_export.py",
+    "tests/js/test_seasonality_math.js",
+    "tests/js/test_seasonality_worker.mjs"
+  ],
+  "modified_files": [
+    "site/assets/common.js",
+    "docs/private_site_setup.md"
+  ],
+  "must_not_modify": [
+    "data/master_prices.parquet",
+    "scripts/update_master_prices.py",
+    "scripts/build_master_prices.py",
+    "cache_io.py",
+    ".github/workflows/update_master_prices.yml",
+    "strategy_config.py",
+    "daily_scan.py",
+    "wrangler.toml production R2 binding",
+    "existing production R2 secrets"
+  ],
+  "publication": {
+    "schedule_utc": "23:30 weekdays",
+    "source_update_utc": "21:10 weekdays",
+    "prefix": "seasonality/v1/",
+    "atomic_pointer": "seasonality/v1/current.json",
+    "payload_fields": ["date", "adjusted_close", "simple_atr14"],
+    "publish_manifest_last": true
+  },
+  "approval_gates": [
+    "Approve owner creation of isolated bucket and scoped credentials",
+    "Approve first external upload to new bucket",
+    "Approve isolated Worker deployment and Access route",
+    "Approve production Pages display enablement",
+    "Separately approve any future object-retention deletion policy"
+  ]
+}
+</script>
+</body>
+</html>

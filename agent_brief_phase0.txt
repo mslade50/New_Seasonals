@@ -1,0 +1,84 @@
+AGENT BRIEF — Phase 0 fixes from codebase_review_proposal_2026-07-10.html
+===========================================================================
+
+Implement the Phase 0 fixes from codebase_review_proposal_2026-07-10.html in this
+repo. Work fully autonomously. Read CLAUDE.md before touching anything — its
+invariants (dividend-adjustment basis, aligned-sites lists, append-only fragility
+parquet) override everything below.
+
+HARD RULES — no exceptions:
+- Never delete, rename, or move any file. Only create and edit. If something
+  should be removed, leave it in place and list it in your final summary.
+- Never run pip install, npm install, or any package manager. If a dependency is
+  missing, work around it or flag it.
+- Commit each numbered item separately on main with a clear message. Do NOT push.
+- Never write to Google Sheets, R2, Cloudflare, or any external system. Do not
+  run daily_scan.py, order_staging, or any workflow. Validation must be local-only.
+- Do not touch: anything under data/ or scratch/, any .github/workflows/ file,
+  anything in OneDrive, tests/test_overflow_universe.py (its 2 failures are
+  pre-existing and entangled with un-committed in-flight work — leave them),
+  and any OVS Path-1/Path-2 logic (the review's R03 is stale; live already
+  trades both paths).
+
+BEFORE STARTING: record a baseline — run `python -m pytest -q tests/` and
+`node --check` on every site/assets/*.js file, and save the output. Every task
+below must end with these same checks passing at least as well as baseline
+(the 2 known overflow failures are allowed; nothing new may fail).
+
+TASK 1 — Trustworthy test discovery (review R18).
+Add pytest configuration (pyproject.toml [tool.pytest.ini_options] or pytest.ini,
+whichever fits the repo) with testpaths = ["tests"], so a bare `pytest` from the
+repo root no longer imports scratch/ files. Validate: `python -m pytest -q`
+from the repo root now collects and runs only tests/ and does not abort.
+
+TASK 2 — Execution page copy tells the truth (review R04).
+site/execution.html still says the page is "heartbeat only" with "No commands,
+positions, or click-to-trade" — but site/assets/execution.js implements a full
+order ticket (brackets, flatten, cancel/modify). Rewrite that intro copy to
+accurately describe a live execution console, including that actions transmit
+real orders when the agent is in live mode. Keep the page's existing style and
+tone. Validate: grep confirms the stale sentences are gone; node --check passes.
+
+TASK 3 — Unknown mode blocks mutations (review R02).
+In site/assets/execution.js, mode "unknown" (no fresh book confirming dry-run)
+is currently displayed as dangerous but the order controls stay usable. Change
+it so that when execMode() returns "unknown", all mutating controls (send order,
+flatten, cancel, modify) are disabled with a visible explanation of what would
+make the mode known again (fresh book / agent online). Keep the existing
+fail-dangerous banner. Read-only views stay fully functional. Do not restructure
+the file — minimal, surgical edits. Validate: node --check passes; write a small
+node script in the scratchpad that exercises the mode-derivation logic if it is
+extractable, and describe manual-check steps for what you could not exercise.
+
+TASK 4 — Fail closed on missing Access config for exec routes (review R01).
+functions/_access.js currently passes requests through with a console.warn when
+ACCESS_TEAM_DOMAIN or ACCESS_AUD is unset. Change requireAccess so that missing
+config returns a 503 JSON response instead of null for the exec endpoints.
+Check every caller under functions/ and make sure read-only status routes and
+the chartimg function are not broken — if any route legitimately needs the old
+pass-through, gate the fail-closed behavior to mutating exec routes only and
+say so in the commit message. Validate: write a node test script (scratchpad or
+tests/, your call) that calls requireAccess with stubbed request/env for all
+combinations: no config, config + no JWT, config + malformed JWT. Assert
+no-config now yields 503, not null. Run it and include the output in the summary.
+
+TASK 5 — Fragility copy matches current production policy (review R12).
+site/index.html (~lines 32-35) and site/assets/portfolio.js labels still
+describe the retired book-wide fragility ramp ("thr 25 / floor 0.10 / boost
+1.25 = the live ramp"). Current production policy per CLAUDE.md: per-strategy
+frag_risk_bands; only the FAMILY4 dip-buy strategies carry [[50, 999, 0.25]];
+there is no book-wide ramp or boost; OVS is fully exempt. Fix the prose and
+tooltips so "live" claims match this, and label the adjuster's other settings
+as research counterfactuals. Do NOT change any computation — the what-if lab's
+math stays exactly as is; only the language changes. Validate: node --check;
+grep confirms no remaining text claims the ramp is the live schedule.
+
+TASK 6 — End-to-end site build check.
+Run `python scripts/build_site.py --no-signals --no-mtm` and confirm it
+completes and dist/ contains the edited pages with your changes present.
+This is validation only — do not deploy anything.
+
+FINAL SUMMARY: list every commit (hash + one line), the before/after test and
+node --check results, anything you could not validate locally and how I should
+verify it (specific clicks on the deployed site), and anything you flagged
+instead of doing. I will review and push myself.

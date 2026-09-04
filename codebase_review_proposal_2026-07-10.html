@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>New Seasonals — Codebase and Private Site Review Proposal</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #091019;
+      --panel: #111a25;
+      --panel2: #0d151f;
+      --line: #283647;
+      --text: #eaf0f6;
+      --muted: #a3b0be;
+      --faint: #778596;
+      --blue: #65b5ff;
+      --green: #47d7a0;
+      --amber: #ffca69;
+      --red: #ff7d7d;
+      --purple: #b99cff;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.62 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    a { color: var(--blue); }
+    code { color: #cde7ff; background: #0a121c; padding: .1rem .3rem; border-radius: 4px; }
+    .shell { max-width: 1240px; margin: 0 auto; padding: 34px 28px 80px; }
+    header.hero { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 24px; }
+    .eyebrow { color: var(--blue); text-transform: uppercase; letter-spacing: .13em; font-size: 12px; font-weight: 750; }
+    h1 { font-size: clamp(30px, 5vw, 54px); line-height: 1.08; margin: 8px 0 12px; max-width: 920px; }
+    h2 { margin: 42px 0 14px; font-size: 25px; line-height: 1.2; }
+    h3 { margin: 0 0 9px; font-size: 18px; line-height: 1.3; }
+    h4 { margin: 0 0 6px; font-size: 15px; }
+    p { margin: 0 0 12px; }
+    .lede { font-size: 18px; color: #c8d3df; max-width: 940px; }
+    .meta { color: var(--muted); font-size: 13px; margin-top: 16px; }
+    .toc, .card, .rec, .callout, .score, .phase {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    .toc { padding: 18px 22px; }
+    .toc ul { columns: 2; margin: 8px 0 0; padding-left: 20px; }
+    .toc li { margin: 5px 0; break-inside: avoid; }
+    .grid { display: grid; gap: 14px; }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card, .score, .phase { padding: 18px; }
+    .score .n { font-size: 31px; line-height: 1; font-weight: 780; margin-bottom: 8px; }
+    .score .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+    .score.good .n { color: var(--green); }
+    .score.warn .n { color: var(--amber); }
+    .score.risk .n { color: var(--red); }
+    .callout { padding: 18px 20px; margin: 16px 0; border-left: 4px solid var(--blue); }
+    .callout.risk { border-left-color: var(--red); background: rgba(255,125,125,.07); }
+    .callout.warn { border-left-color: var(--amber); background: rgba(255,202,105,.06); }
+    .callout.good { border-left-color: var(--green); background: rgba(71,215,160,.06); }
+    .rec { padding: 18px 20px; margin: 12px 0; }
+    .rec-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+    .rec-head h3 { flex: 1; }
+    .pill { flex: 0 0 auto; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 800; letter-spacing: .05em; }
+    .p0 { color: #ffd8d8; background: rgba(255,93,93,.18); border: 1px solid rgba(255,93,93,.45); }
+    .p1 { color: #ffdf9e; background: rgba(255,193,77,.14); border: 1px solid rgba(255,193,77,.4); }
+    .p2 { color: #cce8ff; background: rgba(77,163,255,.12); border: 1px solid rgba(77,163,255,.38); }
+    .keep { color: #bff4df; background: rgba(71,215,160,.11); border: 1px solid rgba(71,215,160,.35); }
+    .evidence { color: var(--muted); font-size: 13px; }
+    .outcome { color: #d9e5ef; }
+    ul, ol { margin-top: 6px; }
+    li { margin: 5px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+    th, td { border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; padding: 10px 9px; }
+    th { color: var(--muted); background: var(--panel2); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .nowrap { white-space: nowrap; }
+    .phase strong { color: var(--blue); }
+    .wire { background: #080e15; border: 1px dashed #3c5269; border-radius: 9px; padding: 14px; color: #c7d4e0; }
+    .wire .row { display: grid; gap: 8px; grid-template-columns: repeat(4, 1fr); margin-top: 8px; }
+    .wire .box { border: 1px solid #33465a; border-radius: 6px; padding: 8px; background: #101925; }
+    .small { color: var(--faint); font-size: 12px; }
+    footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12px; }
+    @media (max-width: 850px) {
+      .grid.three, .grid.two { grid-template-columns: 1fr; }
+      .toc ul { columns: 1; }
+      .wire .row { grid-template-columns: 1fr 1fr; }
+      .shell { padding: 24px 16px 60px; }
+    }
+    @media print {
+      :root { color-scheme: light; --bg:#fff; --panel:#fff; --panel2:#f5f7f9; --line:#ccd4dc; --text:#101820; --muted:#475569; --faint:#64748b; }
+      body { font-size: 11pt; }
+      .shell { max-width: none; padding: 0; }
+      .rec, .card, .callout, .score, .phase { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="hero">
+    <div class="eyebrow">Independent read-only review · 10 July 2026</div>
+    <h1>New Seasonals codebase and private-site improvement proposal</h1>
+    <p class="lede">The platform has a strong quantitative core and unusually explicit trading invariants. Its main risk is no longer a lack of capability; it is policy duplication across the scanner, backtest engine, reporting jobs, private site, and the separate local execution project. The next phase should consolidate execution semantics, harden the live-order boundary, and turn the private site into a task-oriented operating cockpit.</p>
+    <p class="meta">Scope: Python application and analytics modules, strategy configuration, GitHub Actions, Cloudflare Pages Functions and broker, static private-site source and current built payload, test suite, repository hygiene, and documentation. No production code or configuration was changed.</p>
+  </header>
+
+  <nav class="toc" aria-label="Report contents">
+    <strong>Contents</strong>
+    <ul>
+      <li><a href="#summary">Executive summary</a></li>
+      <li><a href="#strengths">What should be preserved</a></li>
+      <li><a href="#critical">Critical recommendations</a></li>
+      <li><a href="#architecture">Architecture and correctness</a></li>
+      <li><a href="#site">Private-site UI/UX</a></li>
+      <li><a href="#bloat">Bloat and consolidation</a></li>
+      <li><a href="#quality">Testing and engineering quality</a></li>
+      <li><a href="#roadmap">Sequenced roadmap</a></li>
+      <li><a href="#evidence">Evidence and limitations</a></li>
+    </ul>
+  </nav>
+
+  <section id="summary">
+    <h2>Executive summary</h2>
+    <div class="grid three">
+      <div class="score good"><div class="n">Strong</div><div class="label">Domain modeling</div><p>Raw-vs-adjusted basis, risk overlays, tier rules, and point-in-time concerns are documented with rare precision.</p></div>
+      <div class="score warn"><div class="n">Medium</div><div class="label">Maintainability</div><p>Core behavior works, but several 800–2,200-line functions and synchronized copies make safe changes expensive.</p></div>
+      <div class="score risk"><div class="n">High</div><div class="label">Operational drift risk</div><p>Live, simulated, reported, and site-described behavior can diverge because policy has multiple sources of truth.</p></div>
+    </div>
+
+    <div class="callout risk">
+      <h3>Highest-consequence finding</h3>
+      <p>The Execution page's HTML still says there are “no commands, positions, or click-to-trade yet,” while <code>site/assets/execution.js</code> implements live bracket orders, flattening, cancellation/modification, account selection, and futures workflows. This is a safety defect in the product language. A user must never have to infer whether a surface can place real orders.</p>
+    </div>
+
+    <p>The recommended order of work is:</p>
+    <ol>
+      <li>Make the live-order boundary fail closed and make every label match reality.</li>
+      <li>Resolve the documented OVS Path-2 live/backtest divergence.</li>
+      <li>Create one pure, shared execution-policy layer and parity tests.</li>
+      <li>Reorganize the private site around daily decisions and freshness.</li>
+      <li>Then split monoliths, consolidate duplicate pages/docs, and move large generated data out of Git.</li>
+    </ol>
+  </section>
+
+  <section id="strengths">
+    <h2>What should be preserved</h2>
+    <div class="grid two">
+      <article class="card"><div class="rec-head"><h3>Explicit market-data basis contract</h3><span class="pill keep">KEEP</span></div><p>The frozen-dollar-level versus recomputed-relative-level distinction is correct, important, and backed by an ex-dividend regression test. Any refactor should make this contract more enforceable, not abstract it away.</p></article>
+      <article class="card"><div class="rec-head"><h3>Configuration-driven strategy book</h3><span class="pill keep">KEEP</span></div><p><code>strategy_config.py</code> gives the book a recognizable center. Risk multipliers, overlays, universes, and strategy metadata are more auditable than scattered UI constants would be.</p></article>
+      <article class="card"><div class="rec-head"><h3>Operational provenance</h3><span class="pill keep">KEEP</span></div><p>The ledger writer provenance, R2 cache distribution, serialized site deploy, idempotency IDs, HMAC relay, and “previous deploy stays up” behavior are thoughtful operational controls.</p></article>
+      <article class="card"><div class="rec-head"><h3>Graceful degradation with visible state</h3><span class="pill keep">KEEP</span></div><p>The site payload contract distinguishes failed signal fetches from genuinely empty tabs, and <code>health.json</code> already contains the raw material for a strong freshness experience.</p></article>
+      <article class="card"><div class="rec-head"><h3>Targeted parity regressions</h3><span class="pill keep">KEEP</span></div><p>Tests for ex-dividend fills, fragility bands, same-day derating, stop gaps, OLV fill windows, and EOD drawdown rules cover the exact places a trading system tends to drift.</p></article>
+      <article class="card"><div class="rec-head"><h3>Static-site delivery model</h3><span class="pill keep">KEEP</span></div><p>The built private site is only about 4.9 MB before the CDN-hosted Plotly library and cleanly separates generated JSON from committed frontend code. A framework rewrite is not necessary to improve it.</p></article>
+    </div>
+  </section>
+
+  <section id="critical">
+    <h2>Critical recommendations</h2>
+
+    <article class="rec" id="R01" data-priority="P0" data-area="security execution">
+      <div class="rec-head"><h3>R01 — Fail closed when Cloudflare Access verification is not configured</h3><span class="pill p0">P0</span></div>
+      <p class="evidence"><strong>Evidence:</strong> <code>functions/_access.js</code> returns <code>null</code> and allows the request when <code>ACCESS_TEAM_DOMAIN</code> or <code>ACCESS_AUD</code> is absent. This is explicitly fail-open for endpoints that can relay live orders.</p>
+      <p class="outcome"><strong>Proposal:</strong> for every <code>/exec-*</code> route, missing Access configuration should return 503/401. Add a deployment smoke test that calls the route without a JWT and requires denial. Keep a separately named local-development bypass only in a non-production environment.</p>
+    </article>
+
+    <article class="rec" id="R02" data-priority="P0" data-area="execution ux">
+      <div class="rec-head"><h3>R02 — Replace “unknown means assume live” with “unknown blocks mutations”</h3><span class="pill p0">P0</span></div>
+      <p class="evidence"><strong>Evidence:</strong> the client deliberately renders unknown mode as live-like but still leaves order controls usable. A stale/missing book should never be enough to permit a mutating request.</p>
+      <p class="outcome"><strong>Proposal:</strong> disable send, cancel, modify, and flatten unless the server supplies a fresh, signed mode and account snapshot. The server—not only the browser—must enforce this freshness. “Unknown” should remain visually alarming but operationally inert.</p>
+    </article>
+
+    <article class="rec" id="R03" data-priority="P0" data-area="execution correctness">
+      <div class="rec-head"><h3>R03 — Resolve the OVS Path-2 policy divergence before further sizing research</h3><span class="pill p0">P0</span></div>
+      <p class="evidence"><strong>Evidence:</strong> project guidance records that live execution retired mild-gap Path 2 while the ledger/backtest still models 407 Path-2 trades and roughly +82R over 24 years. This changes both expected return and capacity.</p>
+      <p class="outcome"><strong>Proposal:</strong> make an explicit product decision: re-enable Path 2 live or set production ledger/report builds to <code>ovs_p1_only</code>. Stamp the chosen policy version into every staged signal, ledger row, report, and site build. Do not leave this as a runtime default hidden in one caller.</p>
+    </article>
+
+    <article class="rec" id="R04" data-priority="P0" data-area="execution ux documentation">
+      <div class="rec-head"><h3>R04 — Correct all execution copy and introduce a preview/commit flow</h3><span class="pill p0">P0</span></div>
+      <p class="evidence"><strong>Evidence:</strong> <code>site/execution.html</code> describes a heartbeat-only Phase 2a, while the JavaScript implements live order actions. The current final control is a generic browser <code>confirm()</code>.</p>
+      <p class="outcome"><strong>Proposal:</strong> label the page “Live Execution Console” when armed. Use a server-validated preview showing account, side, symbol, quantity, entry, stop, target, maximum loss, notional, buying-power effect, order duration, and warnings. Commit the immutable preview token in a second step; require typed symbol confirmation for live entry/flatten operations.</p>
+    </article>
+  </section>
+
+  <section id="architecture">
+    <h2>Architecture and correctness</h2>
+
+    <article class="rec" id="R05" data-priority="P1" data-area="architecture correctness">
+      <div class="rec-head"><h3>R05 — Build a shared, pure execution-policy package</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> the project repeatedly says “change together” for daily scan, backtest engine, portfolio report, site, and external order staging. <code>OVERFLOW_RISK_OVERRIDES</code>, risk caps, fallbacks, overlay sequencing, and special strategy rules still exist at several call sites.</p>
+      <p class="outcome"><strong>Proposal:</strong> extract deterministic functions for eligibility, signal decision, staged sizing, overlap clamps, daily caps, and exit-policy construction. Inputs should be immutable typed records; outputs should include a policy version and a trace of every multiplier. Keep fill simulation separate because raw/adjusted bar basis differs by use case.</p>
+    </article>
+
+    <article class="rec" id="R06" data-priority="P1" data-area="data architecture">
+      <div class="rec-head"><h3>R06 — Centralize market-data access with an explicit price-basis type</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> dozens of direct <code>yf.download</code> calls remain across pages, jobs, and scripts. MultiIndex handling and <code>auto_adjust</code> choices are therefore enforced by convention rather than one adapter.</p>
+      <p class="outcome"><strong>Proposal:</strong> introduce <code>market_data.get_history(..., basis=ADJUSTED_TOTAL_RETURN|RAW_AS_TRADED)</code>, normalize MultiIndex output once, return a schema-checked frame, and reject unspecified basis. Add contract tests with multi-ticker, single-ticker, missing-ticker, timezone, dividend, and partial-session fixtures.</p>
+    </article>
+
+    <article class="rec" id="R07" data-priority="P1" data-area="architecture maintainability">
+      <div class="rec-head"><h3>R07 — Split the five largest decision functions before adding more strategies</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> AST inspection found <code>backtester.main</code> at 2,196 lines, <code>backtester.run_engine</code> at 1,262, <code>process_signals_fast</code> at 1,015, <code>strat_backtester.main</code> at 923, and <code>run_daily_scan</code> at 873. Several have 200–437 branch nodes.</p>
+      <p class="outcome"><strong>Proposal:</strong> separate orchestration, data preparation, signal evaluation, sizing, fill/exit simulation, portfolio caps, analytics, and rendering. First extract without behavior changes and lock results with golden fixtures. Target functions under roughly 100 lines for policy and under 200 for orchestration.</p>
+    </article>
+
+    <article class="rec" id="R08" data-priority="P1" data-area="observability data">
+      <div class="rec-head"><h3>R08 — Turn freshness metadata into pipeline gates</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> the reviewed build's <code>health.json</code> marked earnings and signals stale, with signals fetched on 28 June while the build was 9 July; <code>meta.json</code> consequently reported <code>signals:false</code>. Several build steps intentionally continue on error.</p>
+      <p class="outcome"><strong>Proposal:</strong> define artifact service-level objectives and severity: block trading/deployment for unsafe stale inputs, deploy with a large degraded banner for noncritical analytics, and allow quiet omission only for genuinely optional research. Publish the same health manifest to email, site, and workflow summaries.</p>
+    </article>
+
+    <article class="rec" id="R09" data-priority="P1" data-area="errors observability">
+      <div class="rec-head"><h3>R09 — Replace broad exception swallowing with typed degraded states</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> approximately 279 broad <code>except Exception</code> handlers exist outside scratch/presentation code, and the frontend uses <code>fetchJSONOrNull</code> at 42 call sites. Many are reasonable best-effort boundaries, but they erase the difference between absent, stale, corrupt, unauthorized, and failed.</p>
+      <p class="outcome"><strong>Proposal:</strong> keep best-effort behavior at explicitly named boundaries, but return structured status objects with source, last-good timestamp, error class, and safety impact. Log unexpected exceptions with context and fail closed for signal, sizing, order, and account-state paths.</p>
+    </article>
+
+    <article class="rec" id="R10" data-priority="P2" data-area="configuration">
+      <div class="rec-head"><h3>R10 — Validate strategy configuration against a schema</h3><span class="pill p2">P2</span></div>
+      <p class="evidence"><strong>Evidence:</strong> the strategy book is rich but dictionary-based, with many optional keys and fallback defaults distributed across consumers.</p>
+      <p class="outcome"><strong>Proposal:</strong> define dataclasses or a validation model for strategy settings, execution policy, sizing overlays, entry/exit rules, and universes. Validate at import/build time, reject unknown fields, and generate human-readable strategy documentation from the schema.</p>
+    </article>
+  </section>
+
+  <section id="site">
+    <h2>Private-site UI/UX proposal</h2>
+    <p>The site should be optimized around three time-sensitive user questions: <strong>What needs attention now?</strong>, <strong>What is the current risk?</strong>, and <strong>What action is safe to take?</strong> The current information architecture is a flat list of 12 peers and the landing page begins with a long-horizon portfolio laboratory.</p>
+
+    <div class="wire" aria-label="Proposed daily cockpit wireframe">
+      <strong>Proposed landing page: Daily Cockpit</strong>
+      <div class="row">
+        <div class="box"><b>Pipeline freshness</b><br><span class="small">prices · earnings · fragility · signals · ledger</span></div>
+        <div class="box"><b>Risk posture</b><br><span class="small">fragility · exposure · open risk · overnight stress</span></div>
+        <div class="box"><b>Today’s queue</b><br><span class="small">staged · working · filled · missing · exceptions</span></div>
+        <div class="box"><b>Execution state</b><br><span class="small">offline / dry-run / live · account · age</span></div>
+      </div>
+      <div class="row">
+        <div class="box" style="grid-column:span 2"><b>Attention feed</b><br><span class="small">failed fetches, stale artifacts, cap trims, overlaps, rejected orders, earnings conflicts</span></div>
+        <div class="box" style="grid-column:span 2"><b>Today’s signals and order chain</b><br><span class="small">decision-ready cards with a clear path to details or safe preview</span></div>
+      </div>
+    </div>
+
+    <article class="rec" id="R11" data-priority="P1" data-area="site information architecture">
+      <div class="rec-head"><h3>R11 — Replace the flat nav with task groups</h3><span class="pill p1">P1</span></div>
+      <p class="outcome"><strong>Proposal:</strong> group pages as <em>Today</em> (Cockpit, Signals, Orders), <em>Risk &amp; Portfolio</em> (Portfolio, Risk, Charts), <em>Research</em> (Ideas, Seasonal, Options, Entry Lab, Futures Lab), and <em>Operations</em> (Pipeline, Execution). Keep Execution visually isolated and badge it with OFFLINE/DRY-RUN/LIVE.</p>
+    </article>
+
+    <article class="rec" id="R12" data-priority="P1" data-area="site semantics">
+      <div class="rec-head"><h3>R12 — Remove stale policy prose and generate it from current config</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> the Portfolio page's fragility panel describes the retired book-wide ramp and says OVS is exempt, while current policy is a FAMILY4 high-fragility throttle. The JavaScript also contains generic midterm and fragility assumptions that no longer represent live policy.</p>
+      <p class="outcome"><strong>Proposal:</strong> distinguish “current production policy” from “research what-if.” Generate the production summary from the same policy manifest used by scan/ledger. Put experimental controls in a clearly watermarked Lab mode that cannot be mistaken for live parity.</p>
+    </article>
+
+    <article class="rec" id="R13" data-priority="P1" data-area="site safety">
+      <div class="rec-head"><h3>R13 — Make data age and source unavoidable</h3><span class="pill p1">P1</span></div>
+      <p class="outcome"><strong>Proposal:</strong> add a persistent status rail showing source, “as of,” build time, and freshness for every page. When data is stale, show age and operational consequence (“signals may exist but are not shown”), not merely a missing section. Add a one-click path to Pipeline diagnostics.</p>
+    </article>
+
+    <article class="rec" id="R14" data-priority="P1" data-area="site accessibility">
+      <div class="rec-head"><h3>R14 — Complete a keyboard and accessibility pass</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> pages lack <code>&lt;main&gt;</code> landmarks and skip links; nav lacks <code>aria-current</code>; sortable headers are mouse-only and lack <code>aria-sort</code>; many labels are not associated with inputs; 11–12px text is common; focus-visible and reduced-motion styles are absent; charts have little textual fallback.</p>
+      <p class="outcome"><strong>Proposal:</strong> meet WCAG AA basics: semantic landmarks, 16px base text, 44px touch targets for operational controls, explicit focus styles, keyboard sort/menu behavior, non-color status labels, chart summaries, reduced motion, and accessible live announcements for order results.</p>
+    </article>
+
+    <article class="rec" id="R15" data-priority="P2" data-area="site performance">
+      <div class="rec-head"><h3>R15 — Lazy-render the portfolio laboratory</h3><span class="pill p2">P2</span></div>
+      <p class="evidence"><strong>Evidence:</strong> the Portfolio page loads many payloads and renders a long sequence of Plotly charts/tables in one document. The payload size is acceptable, but eager rendering creates visual and cognitive load.</p>
+      <p class="outcome"><strong>Proposal:</strong> show summary, equity, open risk, and alerts first. Move deep analytics into tabs/accordions and create Plotly instances only when a section becomes visible. Preserve filters in the URL so views can be bookmarked and shared across pages.</p>
+    </article>
+
+    <article class="rec" id="R16" data-priority="P2" data-area="site design">
+      <div class="rec-head"><h3>R16 — Clarify simulation bases and units</h3><span class="pill p2">P2</span></div>
+      <p class="evidence"><strong>Evidence:</strong> the portfolio JavaScript computes on a $750k flat base, displays some curves from $10k, and retains $750k trade-level dollars. This is mathematically defensible but easy to misread.</p>
+      <p class="outcome"><strong>Proposal:</strong> use one visible “Simulation base” control and repeat the basis next to every dollar output. Separate normalized analytics (R, percent, Sharpe) from account-scale dollars. Never mix display bases inside one chart group without an explicit annotation.</p>
+    </article>
+
+    <article class="rec" id="R17" data-priority="P1" data-area="site security">
+      <div class="rec-head"><h3>R17 — Add browser security headers and reduce HTML injection surface</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> <code>site/_headers</code> currently sets robots, referrer, and cache controls but not CSP, frame protection, MIME sniffing protection, or a permissions policy. Frontend code contains roughly 120 <code>innerHTML</code> assignments and some inline handlers/styles.</p>
+      <p class="outcome"><strong>Proposal:</strong> add <code>Content-Security-Policy</code>, <code>frame-ancestors 'none'</code>, <code>X-Content-Type-Options: nosniff</code>, and a restrictive permissions policy. Remove inline handlers and prefer DOM text APIs/templates that escape by construction. If Plotly remains CDN-hosted, pin and integrity-check it or self-host the exact version.</p>
+    </article>
+  </section>
+
+  <section id="bloat">
+    <h2>Bloat and consolidation</h2>
+    <table>
+      <thead><tr><th>Area</th><th>Observed</th><th>Recommendation</th><th>Priority</th></tr></thead>
+      <tbody>
+        <tr><td>Tracked rank CSVs</td><td><code>seasonal_ranks.csv</code> 33.81 MB and <code>sznl_ranks.csv</code> 15.58 MB; Git packs total about 154.67 MiB.</td><td>Move immutable/versioned datasets to R2 or release artifacts with checksums and a bootstrap command. Keep a tiny fixture in Git. Do not remove until every consumer has a reliable fetch path.</td><td class="nowrap">P1</td></tr>
+        <tr><td>Duplicate Streamlit pages</td><td><code>macro_seasonality.py</code> and <code>equity_seasonals.py</code> are approximately 86% line-similar, including near-identical loaders and a 190-line renderer.</td><td>Extract a shared seasonal explorer component/data service; keep two thin page shells only if the navigation concepts are genuinely distinct.</td><td>P1</td></tr>
+        <tr><td>Duplicate guidance</td><td><code>CLAUDE.md</code> and <code>AGENTS.md</code> are approximately 99.4% line-similar and both about 788 lines.</td><td>Choose one canonical project guide and generate or link the compatibility file. Split historical strategy notes into dated decision records.</td><td>P1</td></tr>
+        <tr><td>Scratch workspace</td><td>Well over 100 untracked scripts, logs, images, parquet files, and reports appear under <code>scratch/</code>; the directory is not ignored.</td><td>Adopt <code>scratch/README.md</code> plus ignore rules for generated outputs. Promote durable research into <code>research/decisions/YYYY-MM-DD-*.md</code> and reproducible scripts; leave transient work local.</td><td>P1</td></tr>
+        <tr><td>Presentation artifacts</td><td>Untracked PPTX/PDF/PNG/HTML builds sit under <code>presentation/</code>.</td><td>Track source specs/scripts; publish binary builds as release/workflow artifacts or ignore them. Avoid committing both editable deck and multiple rendered copies unless they are deliberate deliverables.</td><td>P2</td></tr>
+        <tr><td>Potential orphan files</td><td><code>earnings_cache.json</code> has no code reference found; <code>market_dates.csv</code> is documented but no runtime reference was found. Deprecated wrappers and disabled scheduler scripts remain.</td><td>Use a manifest-driven artifact audit before removal. Mark owner, producer, consumers, cadence, and retention. Remove only after one release with deprecation telemetry.</td><td>P2</td></tr>
+        <tr><td>Frontend repetition</td><td>12 static HTML shells repeat head/body/footer structure; 120 <code>innerHTML</code> sites and extensive inline styles make consistency/security changes laborious.</td><td>Add a tiny build-time template system and reusable components; keep the deployed output static.</td><td>P2</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <h3>What not to remove</h3>
+      <p>Do not treat the R2 caches, compatibility wrappers, or strategy-specific tests as generic bloat. Several are intentional safety bridges. The deletion criterion should be “no consumer and a proven replacement,” not file age or size alone.</p>
+    </div>
+  </section>
+
+  <section id="quality">
+    <h2>Testing, reproducibility, and engineering quality</h2>
+
+    <article class="rec" id="R18" data-priority="P1" data-area="testing">
+      <div class="rec-head"><h3>R18 — Make the default test command trustworthy</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> repository-wide <code>pytest</code> collection imports <code>scratch/test_agent_option_spread.py</code>, which calls <code>sys.exit</code> at import time and aborts collection. Running only <code>tests/</code> produced 136 passed, 2 failed, 1 skipped, and 23 warnings.</p>
+      <p class="outcome"><strong>Proposal:</strong> add test configuration with <code>testpaths = tests</code>, prohibit executable work at import time, classify network/integration/research tests with markers, and make one documented command match CI exactly.</p>
+    </article>
+
+    <article class="rec" id="R19" data-priority="P1" data-area="testing overflow">
+      <div class="rec-head"><h3>R19 — Reconcile the two failing overflow-universe tests with the activation-gate contract</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> tests expect a supplied parquet path to load by default, but <code>load_overflow_universe</code> and <code>load_overflow_meta</code> now default to <code>respect_active=True</code>; with the live gate off they correctly return fallback/empty metadata. The tests do not opt out of the live gate.</p>
+      <p class="outcome"><strong>Proposal:</strong> decide the API contract explicitly. The cleaner test intent is probably <code>respect_active=False</code> for loader unit tests plus separate tests for gate-on and gate-off behavior. Do not weaken the live gate merely to satisfy old expectations.</p>
+    </article>
+
+    <article class="rec" id="R20" data-priority="P1" data-area="ci">
+      <div class="rec-head"><h3>R20 — Add a dedicated CI quality workflow</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> the workflow set is rich operationally but has no dedicated pull-request test/lint workflow. Site JavaScript passes <code>node --check</code>, but this is not continuously enforced.</p>
+      <p class="outcome"><strong>Proposal:</strong> on every pull request run fast unit/parity tests, Python lint/format checks, JavaScript syntax plus DOM tests, workflow linting, and a no-network site build against fixtures. Add slower ledger parity and security smoke tests on a schedule.</p>
+    </article>
+
+    <article class="rec" id="R21" data-priority="P1" data-area="dependencies reproducibility">
+      <div class="rec-head"><h3>R21 — Lock the runtime and unify workflow installs</h3><span class="pill p1">P1</span></div>
+      <p class="evidence"><strong>Evidence:</strong> most dependencies are unpinned, workflows use different install commands, and the ML model requires an exact scikit-learn version. This makes two jobs built from the same commit potentially run different libraries.</p>
+      <p class="outcome"><strong>Proposal:</strong> maintain a human-edited dependency declaration plus a generated lock/constraints file with hashes. Use it in every workflow and local setup. Treat the sklearn model and its feature schema as a versioned artifact; plan a newer-Python/model retraining migration as one controlled project.</p>
+    </article>
+
+    <article class="rec" id="R22" data-priority="P2" data-area="testing parity">
+      <div class="rec-head"><h3>R22 — Add golden “one signal, every surface” parity fixtures</h3><span class="pill p2">P2</span></div>
+      <p class="outcome"><strong>Proposal:</strong> for each special strategy path, feed the same frozen market/account state into scanner policy, ledger engine, portfolio report, and staging serializer. Assert eligibility, tradeable symbol, risk trace, quantity, entry/stop/target, caps, and policy version. Include dividends, earnings windows, ladder counts, overlap days, high fragility, clustered signals, and missing data.</p>
+    </article>
+  </section>
+
+  <section id="roadmap">
+    <h2>Sequenced implementation roadmap</h2>
+    <div class="grid three">
+      <article class="phase"><strong>Phase 0 · 1–3 days</strong><h3>Make current behavior safe and truthful</h3><ul><li>Fail closed on missing Access config.</li><li>Block mutations in unknown/stale mode.</li><li>Correct Execution and fragility copy.</li><li>Choose OVS Path-2 policy.</li><li>Fix default test discovery and overflow test contract.</li></ul></article>
+      <article class="phase"><strong>Phase 1 · 1–2 weeks</strong><h3>Install guardrails</h3><ul><li>Add PR CI and locked dependencies.</li><li>Add security headers and execution smoke tests.</li><li>Promote <code>health.json</code> into site/workflow gates.</li><li>Add a Daily Cockpit and grouped navigation.</li><li>Add policy-version stamps and parity fixtures.</li></ul></article>
+      <article class="phase"><strong>Phase 2 · 3–6 weeks</strong><h3>Reduce structural drift</h3><ul><li>Extract shared execution-policy functions.</li><li>Centralize market-data basis and normalization.</li><li>Split scanner and backtest monoliths.</li><li>Consolidate seasonal pages and project guides.</li><li>Move large generated datasets/artifacts out of Git.</li></ul></article>
+    </div>
+
+    <h3 style="margin-top:24px">Suggested success measures</h3>
+    <ul>
+      <li>One policy version produces identical sizing traces across scan, ledger, report, staging, and site.</li>
+      <li>No live-order endpoint is reachable when Access verification or agent mode is unknown.</li>
+      <li>The default test command runs cleanly from a fresh checkout and in CI.</li>
+      <li>The site landing page answers freshness, risk, attention, and execution state without scrolling.</li>
+      <li>No core policy function exceeds 200 lines; no UI page owns execution semantics.</li>
+      <li>Repository clones no longer carry generated rank/presentation history that can be fetched by checksum.</li>
+    </ul>
+  </section>
+
+  <section id="evidence">
+    <h2>Evidence, verification, and limitations</h2>
+    <table>
+      <tbody>
+        <tr><th>Repository state</th><td>The worktree already contained many user-owned untracked files. They were treated as read-only evidence and not modified.</td></tr>
+        <tr><th>Tests</th><td><code>python -m pytest -q -p no:cacheprovider tests</code>: 136 passed, 2 failed, 1 skipped, 23 warnings. Failures are the overflow activation-gate contract mismatch described in R19.</td></tr>
+        <tr><th>Default discovery</th><td>Repository-wide Pytest aborts during collection because a scratch test calls <code>sys.exit(0)</code> at import time.</td></tr>
+        <tr><th>Frontend syntax</th><td>Every committed <code>site/assets/*.js</code> file passed <code>node --check</code>.</td></tr>
+        <tr><th>Size</th><td>Current <code>dist/</code> is approximately 4.9 MB; two tracked rank CSVs total approximately 49.4 MB; Git packfiles total approximately 154.67 MiB.</td></tr>
+        <tr><th>UI review limitation</th><td>The in-app browser could not reach the local static server and local file URLs were blocked by browser policy. UI findings therefore come from the full HTML/CSS/JS source, navigation and interaction code, responsive rules, and the current generated JSON payload—not from a live authenticated visual session. Before implementation, do one desktop/mobile visual pass against the deployed Access-protected site.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <script type="application/json" id="recommendation-index">
+  {
+    "document": "New Seasonals codebase and private-site improvement proposal",
+    "review_date": "2026-07-10",
+    "recommendations": [
+      {"id":"R01","priority":"P0","area":"security","title":"Fail closed when Access verification is not configured"},
+      {"id":"R02","priority":"P0","area":"execution","title":"Block mutations when mode is unknown or stale"},
+      {"id":"R03","priority":"P0","area":"correctness","title":"Resolve OVS Path-2 live/backtest divergence"},
+      {"id":"R04","priority":"P0","area":"execution UX","title":"Correct execution copy and add preview/commit"},
+      {"id":"R05","priority":"P1","area":"architecture","title":"Build a shared execution-policy package"},
+      {"id":"R06","priority":"P1","area":"data","title":"Centralize market-data access and price basis"},
+      {"id":"R07","priority":"P1","area":"maintainability","title":"Split largest decision functions"},
+      {"id":"R08","priority":"P1","area":"observability","title":"Turn freshness metadata into pipeline gates"},
+      {"id":"R09","priority":"P1","area":"errors","title":"Use typed degraded states"},
+      {"id":"R10","priority":"P2","area":"configuration","title":"Validate strategy configuration against a schema"},
+      {"id":"R11","priority":"P1","area":"site IA","title":"Replace flat nav with task groups"},
+      {"id":"R12","priority":"P1","area":"site semantics","title":"Generate policy prose from current config"},
+      {"id":"R13","priority":"P1","area":"site freshness","title":"Make age and source unavoidable"},
+      {"id":"R14","priority":"P1","area":"accessibility","title":"Complete keyboard and accessibility pass"},
+      {"id":"R15","priority":"P2","area":"performance","title":"Lazy-render portfolio laboratory"},
+      {"id":"R16","priority":"P2","area":"semantics","title":"Clarify simulation bases and units"},
+      {"id":"R17","priority":"P1","area":"site security","title":"Add browser security headers and reduce injection surface"},
+      {"id":"R18","priority":"P1","area":"testing","title":"Make default test command trustworthy"},
+      {"id":"R19","priority":"P1","area":"testing","title":"Reconcile overflow tests with activation gate"},
+      {"id":"R20","priority":"P1","area":"CI","title":"Add dedicated CI quality workflow"},
+      {"id":"R21","priority":"P1","area":"dependencies","title":"Lock runtime and unify workflow installs"},
+      {"id":"R22","priority":"P2","area":"parity testing","title":"Add golden one-signal-every-surface fixtures"}
+    ]
+  }
+  </script>
+
+  <footer>
+    Standalone proposal document. It contains no external assets, scripts, trackers, or network dependencies. The embedded JSON recommendation index is provided for machine parsing.
+  </footer>
+</main>
+</body>
+</html>
