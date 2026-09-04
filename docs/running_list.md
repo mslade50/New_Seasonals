@@ -62,7 +62,12 @@ given), DONE (commit hash). Move items down, never delete them.
 
 - O35. CONCURRENT SESSION HAZARD (2026-09-04 ~07:50 ET): another session has STAGED (git add) a 562-line overlay-free-Portfolio change in this working tree (pages/strat_backtester.py +39, scripts/build_trade_ledger.py +271, scripts/build_site.py, site/*, three tests) while this session's builders edit strat_backtester.py (sizing) and build_trade_ledger.py (ledger sha). The mind commits its own work by explicit path only and will not commit those files until that session lands its change. OWNER: which session is that, and can it commit or unstage?
 
+- O38. `verify_olv_exit_fix` returned FAIL 2026-09-04 (three code defects: stacked-leg retry steals the sibling bracket; late-run sell against a flat position; reject inside the verify pause misread as UNKNOWN). Round 2 build launched on Opus (brief appended). A second verify follows; the task stays DISABLED until PASS.
+- O39. `verify_ops_supervisor` returned PASS with gaps (health/fallback-due crash on LockUnavailable; live-lease block counted as new failure; retry slot 05:30 vs 70-min lease; four doc contradictions). Round 2 build launched on Opus (brief appended). Round 1 stays uncommitted until round 2 verifies.
+- O40. `build_soxs_repair` (D13) launched on Opus 2026-09-04 after the sizing verify freed the price file.
+
 ## DONE
 
+- D-C. Sizing D3.1 + D3.2 committed 1efcdf14 (verify PASS, full-history replay); ledger_git_sha 47168088; dead wcds overlay-lab control removed and CLAUDE.md sizing note added (next commit).
 - D-B. harvest_fills empty-ring gap guard (`build_ops_fills_ledger`, half 1): committed by path 2026-09-04. Half 2 (ledger_git_sha from GITHUB_SHA in scripts/build_trade_ledger.py + tests/test_ledger_provenance.py) is built and tested in the worktree but HELD: that file carries another session's staged hunks (O35). Root cause of `unknown` confirmed: the deploy generator dir has no .git, so `git rev-parse` fails; reading GITHUB_SHA first fixes it with no workflow change.
 - D-A. Tests hygiene (`build_tests_hygiene`): 11 failures -> 0; 6 strict xfails, 1 skip; committed by path 2026-09-04.
