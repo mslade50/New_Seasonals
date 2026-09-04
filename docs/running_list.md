@@ -58,6 +58,8 @@ given), DONE (commit hash). Move items down, never delete them.
 - A12. Builders launched 2026-09-04 (second wave): `build_olv_exit_fix` (verify brief ready), `build_tests_hygiene`, `build_sizing_d31_d32`, `build_ops_supervisor`, `build_ops_fills_ledger`; study `study_olv_pivot_evidence`. `build_soxs_repair` written, held until the sizing verify completes.
 - A10. Builders launched 2026-09-04: `build_tests_hygiene`, `build_sizing_d31_d32` (verify brief `verify_sizing_d31_d32` ready), `build_ops_supervisor`, `build_ops_fills_ledger`.
 
+- O35. CONCURRENT SESSION HAZARD (2026-09-04 ~07:50 ET): another session has STAGED (git add) a 562-line overlay-free-Portfolio change in this working tree (pages/strat_backtester.py +39, scripts/build_trade_ledger.py +271, scripts/build_site.py, site/*, three tests) while this session's builders edit strat_backtester.py (sizing) and build_trade_ledger.py (ledger sha). The mind commits its own work by explicit path only and will not commit those files until that session lands its change. OWNER: which session is that, and can it commit or unstage?
+
 ## DONE
 
-- (none yet)
+- D-A. Tests hygiene (`build_tests_hygiene`): 11 failures -> 0; 6 strict xfails, 1 skip; committed by path 2026-09-04.
