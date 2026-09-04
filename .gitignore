@@ -169,3 +169,26 @@ data/health_check_state.json
 
 # local parquet backups (e.g. master_prices.parquet.bak_20260826)
 *.bak_*
+
+# --- 2026-09-04 worktree triage (artifacts/recon_2026-09-04/worktree/06_commit_plan.md step 1) ---
+# generated / R2-canonical state written by the AM job (event_sleeve_journal precedent)
+data/event_sleeve_state.json
+data/trend_sleeve_state.json
+# written by build_site.upload_universe() and uploaded to R2 universe/liquid.json
+data/universe_liquid.json
+data/*.pre_hotfix_*
+# research-only proxy ranks (scratch/backfill_proxy_data.py output)
+data/proxy_extra_ranks.csv
+# agent-morning throwaways outside their date folders
+scratch/_*
+# run captures inside the three check trees; the .py/.md drills stay tracked
+scratch/*_checks/**/*.txt
+scratch/*_checks/**/*.out
+scratch/*_checks/**/*.html
+scratch/*_checks/**/*.csv
+scratch/pitch_bakeoff/**/*.txt
+# live Sheets exports (positions, fills) pulled for research
+scratch/**/sheets_*.csv
+scratch/heartbeat_*
+*.stackdump
+credentials*.json
