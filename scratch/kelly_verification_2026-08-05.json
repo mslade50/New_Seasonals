@@ -1,0 +1,41 @@
+{
+  "study_date": "2026-08-05",
+  "checks": {
+    "daily_equals_replay_total": true,
+    "signal_pnl_equals_replay_total": true,
+    "trade_rows_match": true,
+    "collapsed_signals_match": true,
+    "components_match": true,
+    "fifteen_strategies_current": true,
+    "baseline_replay_exact": true,
+    "primary_budget_equality": true,
+    "primary_nonnegative": true,
+    "pilot_fixed_3x Bear ETF Overbot Fade": true,
+    "pilot_fixed_3x Leader Gap Fade": true,
+    "pilot_fixed_Monthly Weak Close": true,
+    "ovs_budget_OVS_Internal_LOYO_FixedRisk": true,
+    "ovs_budget_OVS_Internal_FullMean_FixedRisk": true,
+    "ovs_budget_OVS_Internal_CrisisCov_FixedRisk": true,
+    "ovs_budget_OVS_Internal_2018_FixedRisk": true,
+    "ovs_budget_OVS_Internal_LiquidSupportedMeans_FixedRisk": true,
+    "ovs_split_sign_reversal": true,
+    "current_passes_drawdown_gate": true,
+    "quarter_fails_drawdown_gate": true,
+    "half_fails_drawdown_gate": true,
+    "bisection_on_gate": true,
+    "engine_delta_components_reconcile": true,
+    "engine_proposal_near_equal_risk": true,
+    "engine_proposal_same_maxdd": true
+  },
+  "passed": 25,
+  "failed": [],
+  "headline_values": {
+    "current_bootstrap_p_dd20": 0.00155,
+    "quarter_kelly_bootstrap_p_dd20": 0.55115,
+    "half_kelly_bootstrap_p_dd20": 0.96735,
+    "drawdown_constrained_c": 0.11476440429687501,
+    "engine_delta_total_pnl": 13459.0,
+    "engine_delta_annual_pnl": 550.9532163742697,
+    "engine_delta_sharpe": 0.004368039365963972
+  }
+}

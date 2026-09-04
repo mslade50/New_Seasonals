@@ -1,0 +1,23 @@
+{
+ "asof": "2026-07-15",
+ "state": "ok",
+ "class_id": "DL_TAIL",
+ "class_set_version": "v1 (frozen 2026-07-16, screened post-hoc, one-shot)",
+ "flip_gate_passed": false,
+ "headline": "ELEVATED LEFT TAIL (LOW SAMPLE)",
+ "fired_line": "Defensive Leadership fired 2 sessions ago (now off). SPY within 2% of a 52-week high; above the 200-day.",
+ "dist_line": "In 13 prior episodes (2017\u201326): median 3-month return +3.8% (baseline +4.4%), mean +1.6% [-2.0%, +4.8%] vs +3.8%; 10th percentile -9.8% vs -5.6%; 23% saw a >=10% drawdown vs 10% baseline; mean excl. best episode +0.8%; episode-level t -0.9 vs baseline.",
+ "structure_line": "STRUCTURE CHECK (MODEL-PRICED, held to expiry): 3m 30\u0394/10\u0394 SPY put spread \u2248 1.5% of notional, EV -8% of debit [-87%, +83%], paid off 3 of 13. Tail puts: EV -33% of premium [-100%, +101%], paid off 1 of 13. Perfect exits would lift the spread to +24% \u2014 neither structure has cleared cost at model prices in this class this decade.",
+ "action_line": "Historical read: sample too thin for a verdict \u2014 descriptive only.",
+ "caveats": [
+  "N=13 episodes; one decade of history containing three real drawdowns (2018Q4, 2020, 2022).",
+  "No class is statistically distinct after a multiple-comparisons correction \u2014 these are conditional distributions, not proven edges.",
+  "Signal histories recomputed from today's code (lookahead PIT cannot cure).",
+  "Option EV is BS + static skew + 5%/side haircut \u2014 no real option chains; MODEL-PRICED throughout.",
+  "Display-only \u2014 nothing here feeds sizing or staging.",
+  "Stats vintage 2026-07-16 23:03 UTC, class set v1."
+ ],
+ "n_ep": 13,
+ "stats_built": "2026-07-16 23:03 UTC",
+ "stats_sha": "1df734e0c80f0b08"
+}

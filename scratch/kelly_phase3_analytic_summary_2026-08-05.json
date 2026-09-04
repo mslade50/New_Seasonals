@@ -1,0 +1,166 @@
+{
+  "study_date": "2026-08-05",
+  "objective": "annualized empirical log growth with shrunk LOYO means",
+  "components": [
+    "3x Bear ETF Overbot Fade",
+    "3x ETF Overbot Fade",
+    "3x Leader Gap Fade",
+    "52wh Breakout",
+    "ATR Extended Gap Up",
+    "Indices Oversold Bounce",
+    "LT Trend ST OS",
+    "Monday Dip",
+    "Monthly Weak Close",
+    "Overbot Vol Spike P1",
+    "Overbot Vol Spike P2",
+    "Oversold Low Volume",
+    "SPY QQQ MonFri Reversion",
+    "Sector BO",
+    "St OS Sznl",
+    "Weak Close Decent Sznls"
+  ],
+  "pilots_frozen": [
+    "3x Bear ETF Overbot Fade",
+    "3x Leader Gap Fade",
+    "Monthly Weak Close"
+  ],
+  "signal_count": 3585,
+  "daily_rows": 6156,
+  "crisis_definition": "2020-03 + 2022 + 2024-08 + 2025-04",
+  "crisis_days": 326,
+  "covariance": {
+    "full_ledoit_wolf_shrinkage": 0.04419921820225588,
+    "crisis_ledoit_wolf_shrinkage": 0.543395264585276,
+    "since_2018_ledoit_wolf_shrinkage": 0.17110236731830097,
+    "liquid_ledoit_wolf_shrinkage": 0.08476030145103644,
+    "pooled_ovs_ledoit_wolf_shrinkage": 0.048246706603841526
+  },
+  "eb_priors": {
+    "Full": {
+      "theta0": 0.5793387032197881,
+      "tau2": 0.1367317988713063,
+      "strength": 1.0
+    },
+    "LOYO": {
+      "theta0": 0.4905193315444529,
+      "tau2": 0.13369724195782384,
+      "strength": 1.0
+    },
+    "2018": {
+      "theta0": 0.6646956694288724,
+      "tau2": 0.14755873025005864,
+      "strength": 1.0
+    }
+  },
+  "eb_priors_liquid": {
+    "Full": {
+      "theta0": 0.6478462865385113,
+      "tau2": 0.17128208419258403,
+      "strength": 1.0
+    },
+    "LOYO": {
+      "theta0": 0.5188973535345439,
+      "tau2": 0.16386255191323157,
+      "strength": 1.0
+    },
+    "2018": {
+      "theta0": 0.7006049081196849,
+      "tau2": 0.14873568695390454,
+      "strength": 1.0
+    }
+  },
+  "eb_priors_shrink_sensitivity": {
+    "0.5": {
+      "Full": {
+        "theta0": 0.5793383846233938,
+        "tau2": 0.06836490374602533,
+        "strength": 0.5
+      },
+      "LOYO": {
+        "theta0": 0.4905193809513511,
+        "tau2": 0.06684893305638727,
+        "strength": 0.5
+      },
+      "2018": {
+        "theta0": 0.6646958998961227,
+        "tau2": 0.07378011097621041,
+        "strength": 0.5
+      }
+    },
+    "2.0": {
+      "Full": {
+        "theta0": 0.5793389323251034,
+        "tau2": 0.27346646182196843,
+        "strength": 2.0
+      },
+      "LOYO": {
+        "theta0": 0.4905194699841424,
+        "tau2": 0.26739798174299073,
+        "strength": 2.0
+      },
+      "2018": {
+        "theta0": 0.6646954546586613,
+        "tau2": 0.29511468032927934,
+        "strength": 2.0
+      }
+    }
+  },
+  "eb_prior_pooled_ovs": {
+    "Full": {
+      "theta0": 0.6094302015774207,
+      "tau2": 0.1370944449110883,
+      "strength": 1.0
+    },
+    "LOYO": {
+      "theta0": 0.5163645611897925,
+      "tau2": 0.13649326273754991,
+      "strength": 1.0
+    },
+    "2018": {
+      "theta0": 0.708581451030611,
+      "tau2": 0.13730547624265702,
+      "strength": 1.0
+    }
+  },
+  "optimizer": {
+    "conditional_full_kelly_empirical_growth": 1.7667064548782159,
+    "conditional_full_kelly_quadratic_growth": 1.693407731724157,
+    "equal_risk_empirical_growth": 0.2843233748869928,
+    "equal_risk_quadratic_growth": 0.28158873755445446
+  },
+  "current_location_on_kelly_ray": {
+    "c_risk_budget": 0.05235299592048264,
+    "c_variance": 0.05798251506487042,
+    "covariance_metric_cosine": 0.8462300596234438
+  },
+  "bootstrap": {
+    "simulations": 20000,
+    "horizon_td": 252,
+    "mean_block_td": 10,
+    "seed": 20260805,
+    "drawdown_limit_dollars": -150000.0,
+    "probability_limit": 0.05,
+    "current_book": {
+      "dd_median": -45558.42906381404,
+      "dd_p05": -91098.67546878543,
+      "dd_p01": -118559.70467313599,
+      "p_dd_gt_20pct": 0.00155,
+      "terminal_median": 162340.50469978363,
+      "terminal_p05": 40254.692433471755,
+      "p_terminal_negative": 0.01505
+    },
+    "largest_passing_c_on_0.05_grid": 0.1,
+    "first_crossing_c_bisection": 0.11476440429687501,
+    "probability_at_bisection_c": 0.04995
+  },
+  "outputs": {
+    "estimates": "scratch\\kelly_estimates_2026-08-05.csv",
+    "estimates_liquid": "scratch\\kelly_estimates_liquid_2026-08-05.csv",
+    "allocations": "scratch\\kelly_allocations_2026-08-05.csv",
+    "scenarios": "scratch\\kelly_scenario_multipliers_2026-08-05.csv",
+    "curve": "scratch\\kelly_growth_drawdown_curve_2026-08-05.csv",
+    "curve_png": "scratch\\kelly_growth_drawdown_curve_2026-08-05.png",
+    "correlation_full": "scratch\\kelly_corr_full_2026-08-05.csv",
+    "correlation_crisis": "scratch\\kelly_corr_crisis_2026-08-05.csv"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "generated_at": "2026-06-29 09:31:05",
+  "status": "needs_attention",
+  "n_problems": 1,
+  "headline": "1 order(s) need attention — see below.",
+  "div_adjust": null,
+  "accounts": [
+    {
+      "label": "Primary (TWS)", "base_note": "vs $750,000", "error": null,
+      "n": 3, "working": 2, "filled": 1, "problems": 0,
+      "total_risk": 3135.0, "total_bps": 41.8,
+      "orders": [
+        {"symbol":"USO","action":"BUY","qty":692,"lmt":104.80,"strat":"Oversold Low Volume","risk":1045.0,"bps":13.9,"entry_state":"working","entry_status":"PreSubmitted","found":["TARGET","STOP","TIME"],"missing":[],"n_exp":3},
+        {"symbol":"AAPL","action":"BUY","qty":108,"lmt":210.30,"strat":"LT Trend ST OS","risk":1045.0,"bps":13.9,"entry_state":"filled","entry_status":"Filled","found":["TARGET","STOP","TIME"],"missing":[],"n_exp":3},
+        {"symbol":"GS","action":"SELL","qty":40,"lmt":612.50,"strat":"Overbot Vol Spike","risk":1045.0,"bps":13.9,"entry_state":"working","entry_status":"Submitted","found":["STOP","TIME"],"missing":[],"n_exp":2}
+      ],
+      "by_strategy": [
+        {"strat":"Oversold Low Volume","risk":1045.0,"bps":13.9},
+        {"strat":"LT Trend ST OS","risk":1045.0,"bps":13.9},
+        {"strat":"Overbot Vol Spike","risk":1045.0,"bps":13.9}
+      ]
+    },
+    {
+      "label": "PA / small (Gateway)", "base_note": "vs live NLV $128,400", "error": null,
+      "n": 2, "working": 1, "filled": 0, "problems": 1,
+      "total_risk": 360.0, "total_bps": 28.0,
+      "orders": [
+        {"symbol":"USO","action":"BUY","qty":118,"lmt":104.80,"strat":"Oversold Low Volume","risk":180.0,"bps":14.0,"entry_state":"working","entry_status":"PreSubmitted","found":["TARGET","STOP","TIME"],"missing":[],"n_exp":3},
+        {"symbol":"GS","action":"SELL","qty":7,"lmt":612.50,"strat":"Overbot Vol Spike","risk":180.0,"bps":14.0,"entry_state":"missing","entry_status":"NOT FOUND","found":[],"missing":["STOP","TIME"],"n_exp":2}
+      ],
+      "by_strategy": [
+        {"strat":"Oversold Low Volume","risk":180.0,"bps":14.0},
+        {"strat":"Overbot Vol Spike","risk":180.0,"bps":14.0}
+      ]
+    }
+  ]
+}

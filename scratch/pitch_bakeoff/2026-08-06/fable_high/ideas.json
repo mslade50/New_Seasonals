@@ -1,0 +1,117 @@
+{
+  "asof": "2026-08-06",
+  "ideas": [
+    {
+      "title": "Fade the August payroll print: one-day SPY short into tomorrow's NFP",
+      "grade": "B",
+      "novelty_axis": "event_fingerprint",
+      "horizon_td": 1,
+      "legs": [
+        {"ticker": "SPY", "side": "SHORT", "weight": 1.0}
+      ],
+      "entry": {"type": "MOC"},
+      "exit": {"time_td": 1, "time_order": "MOC", "target_atr": null, "stop_atr": null},
+      "sizing": {"mode": "risk_bps", "risk_bps": 30, "stop_atr_for_sizing": 1.0},
+      "thesis": "The August NFP, the July reference month, is the calendar's worst payroll day for stocks: SPY averages -36 bps on the release day with 9 of 26 up, against +3 bps on all other NFP days and +2.5 bps on generic August days. The tape walks in maximally long, a 5.5% five-session melt-up to within 0.2% of the 52-week high with VIX crushed 23% on the week and the fragility dial in its high band. Variant perception: pricing treats tomorrow as a non-event (VIX 15.8, total put/call at its 4th percentile), while the calendar cell says the August print specifically gets sold, and the last four August NFPs closed -17, -45, -186 and -164 bps. On the other side are vol sellers and momentum chasers pressing the melt-up, underwriting event risk at the bottom of the vol range. The edge is strictly the release day, since the +1..+5 window after August NFPs runs positive, so the exit is tomorrow's close with no second day.",
+      "evidence": {
+        "summary": "Aug NFP day0: -35.8 bps, hit 35%, N=26 (2000-2025). All-months NFP day0 +3.3 bps (N=316); all August days +2.5 bps/day. The 5d-run-into-print interaction adds nothing (hot all-NFP -13 bps, t -0.49; Aug+hot cell N=2), so the plain August cell is the trade.",
+        "n": 26,
+        "t_stat": -1.78,
+        "window": "2000-2025",
+        "control": "All-months NFP day0 +3.3 bps (N=316) and all August days +2.5 bps: the effect is the August print, not payrolls generally or August drift",
+        "era_note": "Negative pre-2013 (-45 bps, hit 23%) and 2020+ (-65 bps, 5 of 6 down); flat 2013-2019 (+5 bps). Not era-clean, hence B",
+        "table": [
+          ["cohort", "N", "avg bps", "hit"],
+          ["Aug NFP day0", "26", "-36", "35%"],
+          ["all-months NFP day0", "316", "+3", "56%"],
+          ["Aug NFP +1..+5 (why 1-day only)", "26", "+27", "58%"]
+        ],
+        "script": "scratch/pitch_bakeoff/2026-08-06/fable_high/checks/spy_nfp_hot_tape.py"
+      },
+      "survived": "The 100th-percentile five-day run into the print could have flipped the cell to thrust continuation and killed a one-day short; checked both ways, hot-tape NFP days show no buy drift (-13 bps, N=26) and thrust-to-52w-high episodes show only +7 bps next day (N=5), so the melt-up does not contradict the short.",
+      "what_kills_it": "A print the market reads as rate cuts and buys. If SPY is up 0.5%+ mid-session after the release, the cell's losing years (2009 +131, 2012 +198) are the template; the MOC exit books it and there is no add, no roll, no second day.",
+      "overlap": "None live: no staged book signals this morning, the exposure overlay is at 0x, and the event sleeve's SPY trades are FOMC-anchored (next window September). Note idea 2 carries a long SPY leg, so approving both roughly nets the SPY exposure on day one and leaves its XLU short standing alone that day."
+    },
+    {
+      "title": "Utility washouts under a melt-up keep washing out: short XLU against SPY for a week",
+      "grade": "B",
+      "novelty_axis": "inversion",
+      "horizon_td": 5,
+      "legs": [
+        {"ticker": "XLU", "side": "SHORT", "weight": 1.0},
+        {"ticker": "SPY", "side": "LONG", "weight": 1.0}
+      ],
+      "entry": {"type": "MOC"},
+      "exit": {"time_td": 5, "time_order": "MOC", "target_atr": null, "stop_atr": null},
+      "sizing": {"mode": "risk_bps", "risk_bps": 30, "stop_atr_for_sizing": 1.0},
+      "thesis": "XLU sits at the 6th percentile of 21-day returns, four utilities carry z10 below -1.6, and SPY is 0.2% off its high; the reflex read is to buy the cheap defensive sector. The data says the opposite: in 25 prior episodes of a utilities washout with SPY within 2% of its 252-day high, XLU lagged SPY by a further 112 bps over the next five sessions, underperforming in 19 of 25. Variant perception: dip buyers price the washout as a stretched rubber band, while realized behavior is relative-strength continuation, because the rate pressure and risk appetite that built the lag persist through the week. The other side is mean-reversion and yield-seeking buyers averaging in, which is exactly the trade this check was written to validate before the data inverted it. Both legs at the close, five-day time stop, dollar-balanced.",
+      "evidence": {
+        "summary": "XLU 21d-return rank < 10 while SPY 21d rank > 50 AND SPY within 2% of its 252d high: fwd 5d XLU-SPY spread -111.8 bps, hit 24%, N=25 declustered (2005-2026). Without the market-at-high condition the spread is only -30 bps (N=114); the interaction concentrates the effect. The two 2026 episodes ran -276 and -188 bps.",
+        "n": 25,
+        "t_stat": -3.15,
+        "window": "2005-2026",
+        "control": "XLU washout alone (no market-at-high condition): spread -30 bps, N=114; XLU unconditional fwd-5d drift positive. The claimed cell beats both controls by an order of magnitude",
+        "era_note": "Pre-2018 -139 bps (hit 13%); 2018+ softer at -71 bps (hit 40%), with 2025 producing the two positive recent episodes and 2026 two strongly negative ones. Direction consistent, magnitude decayed, hence B",
+        "table": [
+          ["cohort", "N", "XLU-SPY 5d", "hit"],
+          ["washout + SPY near high", "25", "-112 bps", "24%"],
+          ["washout alone (control)", "114", "-30 bps", "46%"],
+          ["2018+ subset", "10", "-71 bps", "40%"]
+        ],
+        "script": "scratch/pitch_bakeoff/2026-08-06/fable_high/checks/xlu_washout.py"
+      },
+      "survived": "The check was built to validate buying the XLU dip; the long died in every cohort (outright -45 bps at 5d, spread -112), and the surviving short then had to pass its own era check, where 2018+ stays negative at -71 bps rather than flipping.",
+      "what_kills_it": "A hard yield reversal. If 10-year yields fall 10+ bps early in the window and XLU beats SPY by 50+ bps on two straight sessions, the rotation has started and the remaining days are the losing tail; the +159 bps episode of 2025-12-08 is the template.",
+      "overlap": "No book strategy trades sector relative value, and the SPY long leg is index beta the book currently holds nowhere (exposure overlay 0x, trend sleeve flat). Utilities earnings passing this week (SRE, ED, CNP just reported; PPL tomorrow) sit inside the short leg, but every XLU name is under 12% weight and the basket dilutes single prints. See idea 1's note on the offsetting SPY legs if both are approved.",
+      "changed_since": null
+    },
+    {
+      "title": "Washed-out dollar into payrolls: long DX futures for the NFP week",
+      "grade": "B",
+      "novelty_axis": "instrument_translation",
+      "horizon_td": 6,
+      "legs": [
+        {
+          "ticker": "DX",
+          "side": "LONG",
+          "weight": 1.0,
+          "sec_type": "FUT",
+          "contract": "DXU26 (ICE US Dollar Index, Sep 2026, $1,000 x index)",
+          "proxy_ticker": "DX-Y.NYB",
+          "multiplier": 1000
+        }
+      ],
+      "entry": {"type": "MOC"},
+      "exit": {"time_td": 6, "time_order": "MOC", "target_atr": null, "stop_atr": null},
+      "sizing": {"mode": "risk_bps", "risk_bps": 30, "stop_atr_for_sizing": 1.3},
+      "thesis": "The dollar walks into tomorrow's NFP washed out: DXY -1.1% over five sessions, 6th-percentile 5-day rank, z10 -1.59. After the 51 prior NFPs where the index fell at least 1% in the five sessions before the print, DXY rose 27 bps over the release week against a flat all-NFP control, and the washout alone does nothing: generic 1% five-day washouts drift -8 bps forward, so the event is what squares the positioning. Variant perception: a one-way dollar slide into a binary print treats the soft outcome as already settled, while historically the print forces position squaring more often than not, with a 69% weekly hit rate since 2018. On the other side are trend-following FX sellers pressing the move into the release. Expressed in DX futures because the same effect in UUP failed this desk's cost check.",
+      "evidence": {
+        "summary": "NFP events with DXY 5d return <= -1% into the print: day0..+5 +27.0 bps, hit 57%, N=51 (2000-2026); 2018+ subset +19 bps, hit 69%, N=13. Controls: all NFP day0..+5 +2.4 bps (N=316); ANY declustered 1% washout day fwd 5d -7.9 bps (N=396). Release-day-only cell died post-2018 (-3 bps), so the trade is the full week, not day0.",
+        "n": 51,
+        "t_stat": 1.55,
+        "window": "2000-2026",
+        "control": "All-NFP release weeks are flat (+2.4 bps, N=316) and event-independent washouts are negative (-7.9 bps fwd 5d, N=396): the NFP anchor is load-bearing, not cosmetic",
+        "era_note": "Day0 cell was pre-2018 only (-3 bps since); the week window holds both eras (+30 pre-2018, +19 after with hit 0.69 on N=13). Thin recent N, weakest of today's three",
+        "table": [
+          ["cohort", "N", "day0..+5", "hit"],
+          ["washed-out into NFP", "51", "+27 bps", "57%"],
+          ["all NFP weeks (control)", "316", "+2 bps", "51%"],
+          ["any washout day, fwd 5d (control)", "396", "-8 bps", "49%"]
+        ],
+        "script": "scratch/pitch_bakeoff/2026-08-06/fable_high/checks/dx_washout_nfp.py"
+      },
+      "survived": "The event-independent control could have shown that washed-out dollars simply bounce and the NFP conditioning was decoration; it showed the opposite (-8 bps forward on 396 generic washouts), and the idea also survived the vehicle check that killed its UUP form on cost.",
+      "what_kills_it": "The washout deepening after the catalyst passes: a post-print DXY close below the pre-NFP low (about 99.0) says the squaring thesis is spent and the trend has the week; the worst historical window is -224 bps and there is no reason to sit through it once the level breaks.",
+      "overlap": "None. The book holds no FX, the trend sleeve rejected UUP outright and is currently flat everywhere, and no sleeve anchors on NFP. Futures leg, manual entry by design; the card prints the contract."
+    }
+  ],
+  "killed": [
+    {"title": "Buy the XLU dip outright (mean-reversion form)", "reason": "Wrong-signed: outright XLU after a relative washout with SPY near highs runs -45 bps at 5d and the spread -112; the check inverted it into idea 2's short.", "novelty_axis": "relative_value"},
+    {"title": "Long AAPL / short QQQ snapback after extreme 5d divergence", "reason": "The tradeable-N cell (spread 2nd pctile, N=61) returns +28 bps, indistinguishable from the unconditional +37 bps AAPL-QQQ spread drift; the extreme-rank cell is N=4. No edge over baseline.", "novelty_axis": "relative_value"},
+    {"title": "TLT long for the August-NFP week", "reason": "The +50 bps / 75% hit NFP-week cell is legacy August bond seasonality in disguise, and that seasonal flipped negative from 2020 on (-6.9 bps/day; Augusts 2020-2023 all lost money). Era check kills it.", "novelty_axis": "event_fingerprint"},
+    {"title": "USO crash bounce after a -11% week", "reason": "Unconditional cell -58 bps across 57 crashes; the only positive sub-cell (up-regime 2018+, +256 bps) is N=11 with four of its episodes from 2026 itself. Mined and self-referential.", "novelty_axis": "historical_analogue"},
+    {"title": "GDX +7% spike follow-through", "reason": "Below the 200-day the spike cell is -27 bps noise (N=37) and the exact today-shape cell is N=7 at t -1.3. No evidence either direction.", "novelty_axis": "historical_analogue"},
+    {"title": "FXI 21d-momentum continuation", "reason": "+71 bps full-history collapses to +2 bps in 2018+ (N=28). Dead in the modern era.", "novelty_axis": "historical_analogue"},
+    {"title": "SPY thrust-at-high continuation long", "reason": "Only 5 declustered episodes of a +5% 5d run ending at a 52w high; unusable as a trade, retained only as context that nothing contradicts idea 1's one-day short.", "novelty_axis": "historical_analogue"}
+  ]
+}

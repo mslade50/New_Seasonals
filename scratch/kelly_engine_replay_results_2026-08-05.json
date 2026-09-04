@@ -1,0 +1,60 @@
+{
+  "study_date": "2026-08-05",
+  "selection_rule": "smallest liquid-supported rotation in strongest robust Kelly direction",
+  "proposal": {
+    "olv_liquid_nominal_bps_old": 35.0,
+    "olv_liquid_nominal_bps_new": 40.0,
+    "olv_overflow_nominal_bps": 25.0,
+    "wcds_nominal_bps_old": 35.0,
+    "wcds_nominal_bps_new": 34.24993607406956,
+    "wcds_multiplier": 0.9785696021162731,
+    "per_strategy_cap_bps": 250.0,
+    "pooled_caps": false
+  },
+  "baseline": {
+    "engine_rows": 4778,
+    "total_pnl": 4017313.0,
+    "annual_pnl": 164451.40935672514,
+    "annual_vol": 84944.6087017593,
+    "sharpe": 1.9359840709151348,
+    "sortino": 3.327664041629788,
+    "max_dd": -91098.67546878546,
+    "max_dd_pct_nav": -0.12146490062504728,
+    "worst_day": -44244.38585104266,
+    "best_day": 62873.87230661937,
+    "filled_risk_total": 9189108.789356574,
+    "annual_filled_risk_fraction": 0.5015497974697546
+  },
+  "proposal_metrics": {
+    "engine_rows": 4776,
+    "total_pnl": 4030772.0,
+    "annual_pnl": 165002.3625730994,
+    "annual_vol": 85037.32992523482,
+    "sharpe": 1.9403521102810988,
+    "sortino": 3.339407311731226,
+    "max_dd": -91098.67546878546,
+    "max_dd_pct_nav": -0.12146490062504728,
+    "worst_day": -43777.06057221553,
+    "best_day": 62873.87230661937,
+    "filled_risk_total": 9184147.762303429,
+    "annual_filled_risk_fraction": 0.5012790201647096
+  },
+  "delta": {
+    "engine_rows": -2,
+    "total_pnl": 13459.0,
+    "annual_pnl": 550.9532163742697,
+    "annual_vol": 92.72122347552795,
+    "sharpe": 0.004368039365963972,
+    "sortino": 0.011743270101438164,
+    "max_dd": 0.0,
+    "max_dd_pct_nav": 0.0,
+    "worst_day": 467.3252788271275,
+    "best_day": 0.0,
+    "filled_risk_total": -4961.027053145692,
+    "annual_filled_risk_fraction": -0.0002707773050449891
+  },
+  "outputs": {
+    "daily": "scratch\\kelly_engine_replay_daily_2026-08-05.parquet",
+    "components": "scratch\\kelly_engine_replay_components_2026-08-05.csv"
+  }
+}
