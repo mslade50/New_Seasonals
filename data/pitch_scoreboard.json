@@ -1,14 +1,14 @@
 {
- "generated": "2026-09-02 05:10:46",
- "asof": "2026-09-02",
+ "generated": "2026-09-04 05:10:48",
+ "asof": "2026-09-04",
  "rolling_60d": {
   "n": 5,
-  "graded": 4,
-  "fill_rate": 80.0,
-  "avg_r": 0.372,
-  "median_r": 0.276,
-  "hit_rate": 100.0,
-  "total_pnl": 2357.3,
+  "graded": 5,
+  "fill_rate": 100.0,
+  "avg_r": 0.174,
+  "median_r": 0.146,
+  "hit_rate": 80.0,
+  "total_pnl": 962.5,
   "by_grade": {
    "B": {
     "n": 3,
@@ -21,12 +21,12 @@
    },
    "C": {
     "n": 2,
-    "graded": 1,
-    "fill_rate": 50.0,
-    "avg_r": 0.146,
-    "median_r": 0.146,
-    "hit_rate": 100.0,
-    "total_pnl": 280.0
+    "graded": 2,
+    "fill_rate": 100.0,
+    "avg_r": -0.237,
+    "median_r": -0.237,
+    "hit_rate": 50.0,
+    "total_pnl": -1114.8
    }
   },
   "by_axis": {
@@ -50,12 +50,12 @@
    },
    "inversion": {
     "n": 1,
-    "graded": 0,
-    "fill_rate": 0.0,
-    "avg_r": null,
-    "median_r": null,
-    "hit_rate": null,
-    "total_pnl": 0
+    "graded": 1,
+    "fill_rate": 100.0,
+    "avg_r": -0.62,
+    "median_r": -0.62,
+    "hit_rate": 0.0,
+    "total_pnl": -1394.8
    },
    "relative_value": {
     "n": 1,
@@ -70,26 +70,26 @@
   "by_model": {
    "opus": {
     "n": 5,
-    "graded": 4,
-    "fill_rate": 80.0,
-    "avg_r": 0.372,
-    "median_r": 0.276,
-    "hit_rate": 100.0,
-    "total_pnl": 2357.3
+    "graded": 5,
+    "fill_rate": 100.0,
+    "avg_r": 0.174,
+    "median_r": 0.146,
+    "hit_rate": 80.0,
+    "total_pnl": 962.5
    }
   },
   "approved_vs_declined": null,
   "window_td": 60,
-  "since": "2026-06-08"
+  "since": "2026-06-10"
  },
  "lifetime": {
   "n": 5,
-  "graded": 4,
-  "fill_rate": 80.0,
-  "avg_r": 0.372,
-  "median_r": 0.276,
-  "hit_rate": 100.0,
-  "total_pnl": 2357.3,
+  "graded": 5,
+  "fill_rate": 100.0,
+  "avg_r": 0.174,
+  "median_r": 0.146,
+  "hit_rate": 80.0,
+  "total_pnl": 962.5,
   "by_grade": {
    "B": {
     "n": 3,
@@ -102,23 +102,23 @@
    },
    "C": {
     "n": 2,
-    "graded": 1,
-    "fill_rate": 50.0,
-    "avg_r": 0.146,
-    "median_r": 0.146,
-    "hit_rate": 100.0,
-    "total_pnl": 280.0
+    "graded": 2,
+    "fill_rate": 100.0,
+    "avg_r": -0.237,
+    "median_r": -0.237,
+    "hit_rate": 50.0,
+    "total_pnl": -1114.8
    }
   },
   "by_model": {
    "opus": {
     "n": 5,
-    "graded": 4,
-    "fill_rate": 80.0,
-    "avg_r": 0.372,
-    "median_r": 0.276,
-    "hit_rate": 100.0,
-    "total_pnl": 2357.3
+    "graded": 5,
+    "fill_rate": 100.0,
+    "avg_r": 0.174,
+    "median_r": 0.146,
+    "hit_rate": 80.0,
+    "total_pnl": 962.5
    }
   }
  }

@@ -8,7 +8,7 @@
    "script": "scratch/pitch_checks/2026-08-07/n3_midterm_kill_confirm.py",
    "source": "stand_down",
    "expires": "2027-02-15",
-   "note": "2026-09-02 verdict: PASS. Still midterm; NFP is +2 td (2026-09-04). Parks to 2027-01."
+   "note": "2026-09-04 verdict: PASS. Today IS the payrolls print and 2026 is midterm, so the cell is blocked on the leg it was parked on. Parks to 2027-01. A NEW route was opened and closed today: conditioning the same post-NFP duration cell on the PRIOR print's surprise instead of the price state (see the entry added today)."
   },
   {
    "added": "2026-08-10",
@@ -18,7 +18,7 @@
    "script": "scratch/pitch_checks/2026-08-10/d1_hyg_lqd_unanchored.py",
    "source": "near_miss",
    "expires": "2027-08-10",
-   "note": "2026-09-02 verdict: PASS. Episode count still 4 against the 8 required. State live and tighter than yesterday - HYG -0.80% off its high, LQD AT its 252d low - and still uncountable."
+   "note": "2026-09-04 verdict: PASS on the episode count, unchanged at 3 declustered against the 8 required. LQD +0.27% above its 252d low, HYG -0.35% off its high."
   },
   {
    "added": "2026-08-11",
@@ -28,7 +28,7 @@
    "script": "scratch/pitch_checks/2026-08-11/a1_svxy_overnight_variant.py",
    "source": "near_miss",
    "expires": "2027-02-11",
-   "note": "2026-09-02 verdict: PASS. CPI is 2026-09-11, +6 td, so the overnight entry is 5 sessions away."
+   "note": "2026-09-04 verdict: PASS. CPI is 2026-09-11, so the overnight entry is the 2026-09-10 close, four sessions out."
   },
   {
    "added": "2026-08-11",
@@ -38,7 +38,7 @@
    "script": "scratch/pitch_checks/2026-08-21/a1b_c1_gld_teardown.py",
    "source": "near_miss",
    "expires": "2026-11-11",
-   "note": "2026-09-02 verdict: PASS on the opposite side of the trigger. GDX r5 18.3 against the >=95 leg: the miners BROKE (-3.90% on the day, -10.28% over five) rather than thrust, and GLD is -19.99% off its high against the added within-10% leg. Separately closed today: the outright long-miner form is a class effect with a dispersion ratio BELOW 1 at every horizon (0.89/0.82/0.78 across 14 names) and today's GDX 5-day rank of 9.1 is below the historical minimum of the cell's own support."
+   "note": "2026-09-04 verdict: PASS, both legs failing. GDX r5 31.1 against >= 95; GLD -17.28% off its high against the added within-10% leg."
   },
   {
    "added": "2026-09-02",
@@ -48,7 +48,7 @@
    "script": "scratch/pitch_checks/2026-09-02/c1b_energy_band_r2.py",
    "source": "near_miss",
    "expires": "2027-09-02",
-   "note": "2026-09-02 verdict: ARM FIRED AND THE CELL DIED. See the re-armed trigger below."
+   "note": "2026-09-04 verdict: PASS. USO's 1-day move is +0.67%, nowhere near the [5,6)% band."
   },
   {
    "added": "2026-08-12",
@@ -58,7 +58,7 @@
    "script": "scratch/pitch_checks/2026-08-12/a6b_c4_tight_horizon_freshness.py",
    "source": "near_miss",
    "expires": "2027-02-12",
-   "note": "2026-09-02 verdict: PASS. TLT +1.02% above its 252d low against the <=0.5% rung; IEF +0.28% and LQD +0.00% both clear. Closer than yesterday's 1.44% and still the only failing leg."
+   "note": "2026-09-04 verdict: PASS, same single failing leg for a fourth session. TLT +1.27% above its 252d low against the <= 0.5% rung; IEF +0.47% and LQD +0.27% both clear."
   },
   {
    "added": "2026-08-12",
@@ -68,7 +68,7 @@
    "script": "scratch/pitch_checks/2026-08-12/c11b_skew_alone_probe.py",
    "source": "near_miss",
    "expires": "2027-02-12",
-   "note": "2026-09-02 verdict: PASS. ^SKEW r5 68.7 against the >=95 leg; midterm block stands."
+   "note": "2026-09-04 verdict: PASS. ^SKEW r5 57.0 against >= 95. Note the tape flags ^SKEW stale; the reading is 2026-09-03 either way, and its trailing-252 LEVEL percentile is 49.2."
   },
   {
    "added": "2026-08-12",
@@ -78,7 +78,7 @@
    "script": "scratch/pitch_checks/2026-08-12/b3_c7_uso_thrust_fade.py",
    "source": "near_miss",
    "expires": "2027-02-12",
-   "note": "2026-09-02 verdict: PASS. USO r63 53.2 against the <=20 leg - crude is thrusting from mid-range, not out of a base."
+   "note": "2026-09-04 verdict: PASS. USO r63 55.8 against the <= 20 deep-base leg; crude is thrusting from mid-range."
   },
   {
    "added": "2026-08-13",
@@ -88,7 +88,7 @@
    "script": "scratch/pitch_checks/2026-08-13/r1b_multiplicity_max_of_k.py",
    "source": "stand_down",
    "expires": "2027-02-13",
-   "note": "2026-09-02 verdict: PASS. IHI r21 44.8 against the rank-100 rung."
+   "note": "2026-09-04 verdict: PASS. IHI r21 59.8 against the rank-100 rung."
   },
   {
    "added": "2026-08-13",
@@ -98,7 +98,7 @@
    "script": "scratch/pitch_checks/2026-08-13/c8b_fxi_tight_teardown.py",
    "source": "stand_down",
    "expires": "2027-02-13",
-   "note": "2026-09-02 verdict: PASS. FXI r5 82.1 against the <=20 trigger."
+   "note": "2026-09-04 verdict: PASS. FXI r5 51.4 against the <= 20 break leg."
   },
   {
    "added": "2026-08-17",
@@ -108,7 +108,7 @@
    "script": "scratch/pitch_checks/2026-08-17/r1_verify_august_and_november.py",
    "source": "stand_down",
    "expires": "2026-12-01",
-   "note": "2026-09-02 verdict: PASS. Parks to trading days 4-12 of November 2026."
+   "note": "2026-09-04 verdict: PASS. Parks to trading days 4-12 of November 2026."
   },
   {
    "added": "2026-08-17",
@@ -118,7 +118,7 @@
    "script": "scratch/pitch_checks/2026-08-17/a4c_c12_gateb_short_side.py",
    "source": "stand_down",
    "expires": "2027-02-17",
-   "note": "2026-09-02 verdict: PASS. SPY -2.07% off its high against <=0.5%; TLT +1.02% above its low against <=1%."
+   "note": "2026-09-04 verdict: PASS, both legs failing. SPY -0.61% off its high against <= 0.5%, missing by 11bp; TLT +1.27% above its low against <= 1%."
   },
   {
    "added": "2026-08-18",
@@ -128,7 +128,7 @@
    "script": "scratch/pitch_checks/2026-08-18/b4c_c4_increment_t.py",
    "source": "near_miss",
    "expires": "2027-02-18",
-   "note": "2026-09-02 verdict: PASS, and note the pop legs DID fire (VIX +9.52%, SPY -0.69%) while the calm-tape leg failed hard: VIX's LEVEL sits at the 95.2nd percentile of its trailing 21 sessions and its 21-day return rank is 56.7, against a <=25 rung. A separate compressed-RANGE road to the same idea was swept and killed today at day-level Jaccard 0.008 from this entry, so this one is not affected either way."
+   "note": "2026-09-04 verdict: PASS, wrong-signed on the defining leg. ^VIX FELL -5.79% against a >= +5% pop, and its 21-day return rank is 29.9 against <= 25."
   },
   {
    "added": "2026-08-19",
@@ -138,7 +138,7 @@
    "script": "scratch/pitch_checks/2026-08-19/c7f_h1_and_reopen.py",
    "source": "stand_down",
    "expires": "2027-02-19",
-   "note": "2026-09-02 verdict: PASS. DX r21 43.7 against <=15, and the 21-session yield change is +11.0 bp against the +20 bp floor."
+   "note": "2026-09-04 verdict: PASS on the dollar leg for a sixth session. DX r21 33.1 against <= 15. The yield leg stays emphatically live, with ^TNX closing at its 252-day maximum for a fourth session."
   },
   {
    "added": "2026-08-19",
@@ -148,7 +148,7 @@
    "script": "scratch/pitch_checks/2026-08-19/a5b_c2_dropbest.py",
    "source": "stand_down",
    "expires": "2027-02-19",
-   "note": "2026-09-02 verdict: PASS. One-day XLV-XLK gap +2.20pp against the >=+3.0pp rung."
+   "note": "2026-09-04 verdict: PASS, and wrong-signed today. The one-day XLV minus XLK gap is -1.11pp against the >= +3.0pp rung."
   },
   {
    "added": "2026-08-19",
@@ -158,7 +158,7 @@
    "script": "scratch/pitch_checks/2026-08-19/c6e_lookback_fullpanel.py",
    "source": "stand_down",
    "expires": "2027-02-19",
-   "note": "2026-09-02 verdict: PASS. ^TNX r21 68.3 clears the >=65 leg for once, but DX r21 43.7 fails the <=20 leg."
+   "note": "2026-09-04 verdict: PASS. ^TNX r21 78.9 clears >= 65 for a fourth session; DX r21 33.1 fails <= 20."
   },
   {
    "added": "2026-08-20",
@@ -168,7 +168,7 @@
    "script": "scratch/pitch_checks/2026-08-20/a2b_c2_tlt_round2.py",
    "source": "stand_down",
    "expires": "2027-02-20",
-   "note": "2026-09-02 verdict: PASS. TLT 1d -0.41% against the >=+1.5% thrust rung."
+   "note": "2026-09-04 verdict: PASS. TLT 1-day +0.15% against the >= +1.5% thrust rung."
   },
   {
    "added": "2026-08-20",
@@ -178,7 +178,7 @@
    "script": "scratch/pitch_checks/2026-08-20/a3c_c7_kre_pair_teardown.py",
    "source": "stand_down",
    "expires": "2027-02-20",
-   "note": "2026-09-02 verdict: PASS. KRE r5 15.1; the arm is an ex-crisis cost threshold no new episode can move."
+   "note": "2026-09-04 verdict: PASS. The arm is an ex-crisis cost threshold that no single session moves."
   },
   {
    "added": "2026-09-01",
@@ -188,7 +188,7 @@
    "script": "scratch/pitch_checks/2026-09-01/a1_r2c_verdict.py",
    "source": "stand_down",
    "expires": "2027-09-01",
-   "note": "2026-09-02 verdict: PASS. 252-session yield change +62.0 bp against the +78 bp arm. ^TNX closed AT its 252d max again, so the proximity leg is not the binding one - the magnitude floor is, exactly as the 2026-09-01 re-arm intended."
+   "note": "2026-09-04 verdict: PASS on the magnitude floor. The 252-session yield change is +55.1bp against the +78bp arm. ^TNX closed at its 252d max again, so proximity is still not the binding leg."
   },
   {
    "added": "2026-08-24",
@@ -198,7 +198,7 @@
    "script": "scratch/pitch_checks/2026-08-24/b4_tail_risk_and_nearmiss.py",
    "source": "near_miss",
    "expires": "2027-02-24",
-   "note": "2026-09-02 verdict: PASS. Count of the 11-name complex at z10 >= 2.0 is 0 against the [2,3] arm (highest SLB +0.73), even on a session crude popped 5.46%."
+   "note": "2026-09-04 verdict: PASS. Count of the 11-name complex at z10 >= 2.0 is 0 (max VLO +1.45) against the [2,3] arm, a third straight session at zero with XLE, XOP, CVX and VLO all at or beside 52-week highs."
   },
   {
    "added": "2026-08-24",
@@ -208,7 +208,7 @@
    "script": "scratch/pitch_checks/2026-08-24/c2_c6_breadth_attribution.py",
    "source": "near_miss",
    "expires": "2027-02-24",
-   "note": "2026-09-02 verdict: PASS. SPY -2.07% off its high against >2.0%; raw-21d fragility 62.8 against <=50."
+   "note": "2026-09-04 verdict: PASS, both legs failing. SPY -0.61% off its high against > 2.0%; raw-21d fragility 63.1 against <= 50."
   },
   {
    "added": "2026-08-25",
@@ -218,7 +218,7 @@
    "script": "scratch/pitch_checks/2026-08-25/a3c_c9_h7_refclass.py",
    "source": "near_miss",
    "expires": "2027-02-25",
-   "note": "2026-09-02 verdict: PASS, and the family arm moved further away today. XLI r5 4.0 clears the washout leg but is -7.39% off its high against within-5%; XLRE clears both rungs and is outside the nine-SPDR family the entry is written on. A neighbouring triple-rank-floor form was swept today and its nine-SPDR fixed-effect common excess is NEGATIVE at -0.381pp (t -1.18), which is independent evidence against the pooled-family hope this entry parks on. Dial 87.5 against an episode max of 68.6."
+   "note": "2026-09-04 verdict: PASS. XLI r5 10.4 clears the washout leg but XLI is -6.41% off its high against the within-5% clause."
   },
   {
    "added": "2026-08-25",
@@ -228,7 +228,7 @@
    "script": "scratch/pitch_checks/2026-08-25/b1_c3_xlu_washout_tlt_fine.py",
    "source": "stand_down",
    "expires": "2027-02-25",
-   "note": "2026-09-02 verdict: PASS, rates leg wrong-signed a fifth straight session. XLU r21 10.3 against the <=5 leg, TLT r21 57.1 against the <25 rung."
+   "note": "2026-09-04 verdict: PASS, rates leg wrong-signed a seventh straight session. XLU r21 39.4 against <= 5, TLT r21 43.0 against < 25."
   },
   {
    "added": "2026-08-26",
@@ -238,7 +238,7 @@
    "script": "scratch/pitch_checks/2026-08-26/b1c_c3_nonmidterm_ladder.py",
    "source": "near_miss",
    "expires": "2027-06-30",
-   "note": "2026-09-02 verdict: PASS. Parks to a non-midterm year; DX r21 43.7 is not a washout in any case."
+   "note": "2026-09-04 verdict: PASS. Parks to a non-midterm year; DX r21 33.1 is not a washout in any case."
   },
   {
    "added": "2026-08-26",
@@ -248,7 +248,7 @@
    "script": "scratch/pitch_checks/2026-08-26/a6b_c6_round2.py",
    "source": "near_miss",
    "expires": "2027-02-26",
-   "note": "2026-09-02 verdict: PASS. SPY -2.07% off its high against the >=2.0% leg; dial ma10 87.5 against the <50 requirement."
+   "note": "2026-09-04 verdict: PASS, both legs failing. HYG -0.35% off its high against the <= 0.05% touch; dial ma10 87.8 against the < 50 requirement."
   },
   {
    "added": "2026-08-27",
@@ -258,7 +258,7 @@
    "script": "scratch/pitch_checks/2026-08-27/b2_c7_smh_refclass.py",
    "source": "near_miss",
    "expires": "2027-02-27",
-   "note": "2026-09-02 verdict: PASS. SMH r63 0.4 so the state is live, but r5 23.8 against the <15 arm and the 23-ETF Cochran Q is unmoved."
+   "note": "2026-09-04 verdict: PASS, and the closest single-leg miss on the list for a second session. SMH r63 0.8 so the floor is live; r5 15.5 against the < 15 still-falling arm, missing by half a rank point."
   },
   {
    "added": "2026-08-27",
@@ -268,7 +268,7 @@
    "script": "scratch/pitch_checks/2026-08-27/c8_rates_nocredit.py",
    "source": "near_miss",
    "expires": "2027-08-27",
-   "note": "2026-09-02 verdict: PASS. HYG -0.80% off its 252d high against the <=0.25% rung, so the tight rung is not live even though LQD closed AT its 252d low."
+   "note": "2026-09-04 verdict: PASS. HYG -0.35% off its 252d high against the <= 0.25% rung."
   },
   {
    "added": "2026-08-28",
@@ -278,7 +278,7 @@
    "script": "scratch/pitch_checks/2026-08-28/c6_post_jackson_hole.py",
    "source": "stand_down",
    "expires": "2027-09-15",
-   "note": "2026-09-02 verdict: PASS. Midterm, and the conference passed on 2026-08-28. Parks to 2027-09."
+   "note": "2026-09-04 verdict: PASS. Midterm-blocked and the anchor is six sessions gone."
   },
   {
    "added": "2026-08-28",
@@ -288,7 +288,7 @@
    "script": "scratch/pitch_checks/2026-08-28/b2b_c4_split_attribution.py",
    "source": "stand_down",
    "expires": "2027-02-28",
-   "note": "2026-09-02 verdict: PASS. No holder of r21>=90 AND r63<=10 anywhere in the 29-name pool today."
+   "note": "2026-09-04 verdict: PASS. No holder of r21 >= 90 AND r63 <= 10 anywhere in the 218-name tape."
   },
   {
    "title": "Short silver after the whole metals complex breaks together",
@@ -298,7 +298,7 @@
    "source": "stand_down",
    "expires": "2027-08-31",
    "added": "2026-08-31",
-   "note": "2026-09-02 verdict: PASS, and one of its two routes is now CLOSED. The three-name break was LIVE for the first time since 2026-08-28 (SLV -3.68%, GLD -2.86%, GDX -3.90%) but arm (a) needs a break of -4.00% or worse, so the depth bucket is unmet. The PARABOLIC-RUN route to paying the lag debt is now closed: gating the break on a miner 21-day rank >= 90 pays +0.185% on 4-8 against the bare parent's +0.454% on 87-90 and the discards' +0.521%, i.e. -0.270pp at h=1 and -1.344pp at h=5, monotone as the gate tightens, and the gated lag profile is still lag=0 -0.297% / lag=1 +0.185% / lag=2 -0.420%. Today's -3.68% break also sits in the losing half: breaks worse than -3.0% pay -0.716% on 1-6. (a1_c3_slv_parabolic_break.py)"
+   "note": "2026-09-04 verdict: PASS. The complex bounced again (SLV +2.51%, GDX +3.95%, GLD +1.85%); the depth arm needs a break of -4.00% or worse."
   },
   {
    "title": "Long duration with the ten-year at a yield high and bond vol MID-RANGE, not compressed",
@@ -308,7 +308,7 @@
    "source": "stand_down",
    "expires": "2028-08-31",
    "added": "2026-08-31",
-   "note": "2026-09-02 verdict: PASS. ^MOVE trailing-252 LEVEL percentile 79.0 against the [40,50) band."
+   "note": "2026-09-04 verdict: PASS. ^MOVE's trailing-252 LEVEL percentile is 62.7 against the [40,50) band."
   },
   {
    "title": "The small-cap month-end OVERNIGHT in December, as a scan-charged seasonal",
@@ -318,7 +318,7 @@
    "source": "stand_down",
    "expires": "2028-01-31",
    "added": "2026-08-31",
-   "note": "2026-09-02 verdict: PASS. Parks to a date."
+   "note": "2026-09-04 verdict: PASS. Parks to December."
   },
   {
    "title": "Energy closing at a fresh 52-week high on a session the INDEX fell, at h=21",
@@ -328,16 +328,17 @@
    "source": "stand_down",
    "expires": "2027-03-01",
    "added": "2026-09-01",
-   "note": "2026-09-02 verdict: PASS. The state IS live again (XLE closed AT its 252d max on a SPY -0.69% session) and the standing blocker is explicitly not a number and may not be waived. Second live instance in two sessions with no arm movement."
+   "note": "2026-09-04 verdict: PASS. XLE slipped to -0.74% off its 252d max so the at-a-high leg lapsed, and SPY rose +1.05% in any case."
   },
   {
-   "added": "2026-09-02",
-   "title": "Short volatility into the payrolls print out of a dead 21-day range",
-   "cell": "nfp x volatility, range-compression release at the print",
-   "trigger": "THE SESSION, and this one arms on a DATE rather than on a level, because the mechanism is real and today's entry was one session early. The paying cell enters MOC the session IMMEDIATELY BEFORE the print with the VIX 21-day high/low range (over its 21-day mean) in the bottom 15% of its trailing year, exits at the print close: SVXY +1.313% over 21 episodes, 15-6, t 2.539, sign p 0.039, excess +1.190pp, bootstrap P(mean<=0) 0.006, worst -4.125%; ^VIX -2.143% on a 22.2% up-rate over 45 episodes; UVXY -2.992%. Gate attribution is genuine - the 157 DISCARDED payroll anchors pay +0.248% and the compression state ALONE on 586 non-payroll days pays -0.018%, so neither leg works without the other - and the placebo ladder SUPPORTS it, which is rare here: across k=-8..+8 the true anchor ranks 1 of 17 (neighbours k=-3 -0.780pp, k=-1 -0.268pp). Robust to the range definition (absolute range +1.264% on n=31; SPY realised vol +0.974% on n=38) and the gate correctly excludes 2018-01-31 at a range percentile of 85.7, so Volmageddon is out of sample by construction. WHY IT WAS NOT TAKEN 2026-09-02: NFP was three sessions after the signal close, so the pitch entry was k=-3 h=2, a DIFFERENT cell paying +0.511% at a 54.5% hit, sign p 0.416 and bootstrap 0.208, and the extra session it buys costs -0.657% at a 50.0% hit with a -6.77% worst case. No horizon rescues k=-3. TURNS ON at the run whose entry session is the LAST SESSION BEFORE a payrolls print, provided the 21d-range / 21d-mean trailing-252 percentile closes at or below 15.0 on the signal day. The next such date is 2026-10-01 (entry) for the 2026-10-02 print, unless a rescheduled print lands sooner. THREE DEBTS THAT MUST BE DISCHARGED EVEN WHEN ARMED, none waivable. (1) The fragility dial: max ma10-63d on any of the 15 dial-covered gated anchors is 68.0 and only 1 of 15 is above 60, so a dial in the 80s puts the live reading outside the population. (2) IT IS NOT PAYROLLS: the family permutation across NFP, CPI, PPI and FOMC gives family-wise P 0.2766, with CPI at -1.662% and FOMC at -1.745% showing the same VIX drop out of a dead range and only PPI inverting, so the event label is arbitrary and multiplicity applies across four kinds. (3) The tradeable sample is 13: SVXY changed leverage from -1x to -0.5x on 2018-02-28 and the post-break record is 8-5, +0.785%, sign p 0.290 (the pre-break +2.171% halving is consistent with leverage rather than a regime break, but the current instrument's own record is thin). The exact live cell - a September print in a midterm year with the gate on - has N=0.",
-   "script": "scratch/pitch_checks/2026-09-02/c9b_vol_nfp_round2.py",
+   "added": "2026-09-03",
+   "title": "Long SVXY into a scheduled print out of a 21-day VIX range in the (5,15] band, with a clear calendar behind it",
+   "cell": "scheduled print x volatility, compression release on a clear calendar",
+   "trigger": "THE BAND, not the ceiling. This entry RE-ARMS after its date arm fired in full on 2026-09-03 and the cell died anyway, and it is reframed on both axes the morning settled. AXIS 1, the event: it is not payrolls, it is a CLEAR CALENDAR. PPI's median runway to the next scheduled print is 2 td (43.9% at <= 1) against NFP's 5 (87.5% at >= 3), and splitting on runway erases the inversion that produced the old multiplicity charge (gated PPI SVXY -2.150% -> -0.113%, short ^VIX -4.929% -> +0.374%), with the split reproducing on CPI and FOMC. The pooled clear-calendar cell (deduped by anchor date) pays SVXY +0.910% over 56 anchors at 38-17, sign p 0.005, and short ^VIX +1.975% over 114 at t 3.717, monotone in runway (<=1 -0.805, >=2 +0.625, >=3 +0.954, >=4 +0.900); inside that subset NFP's family-wise P is 0.6181, i.e. the event label does no work, which is the coherence signature rather than a charge. AXIS 2, and this is what killed it: THE COMPRESSION GATE IS BIMODAL. rel-range (0,5] pays -0.096% over 25 anchors at 13-11 (short ^VIX -0.046%), against +1.465% at an 82.4% hit for (5,10] and +2.034% at 78.6% for (10,15]. It holds in both eras (pre-2018 5-6, post-2018 8-5), and it is not the VIX level or the term structure: the 2x2 has (5,15] paying at both VIX-level buckets (+1.773 / +1.674) while (0,5] is dead at both (+0.054 / -0.259), and today's contango bucket [12,18)% is the cell's BEST at +0.804%. 2026-09-03 read 3.57. TURNS ON when the VIX 21-day relative-range percentile (21d max minus min over the 21d mean, trailing-252 rank) closes in (5.0, 15.0] on the k=-2 anchor of a scheduled print carrying >= 3 trading sessions of clear calendar to the next one. That arm: SVXY n=31, 25-6, +1.722%, t 4.943, sign p 0.0004, bootstrap P(mean<=0) 0.0000; short ^VIX +4.181%, t 4.552. Next qualifying anchors: CPI 2026-09-11 (runway 3), FOMC 2026-09-16 (runway 12), NFP 2026-10-02 (runway 7); PPI 2026-09-10 is disqualified at runway 1. THREE THINGS ALREADY SETTLED, do not re-run them. (1) The fragility dial is a headwind and not a kill: corr(dial, next-session long SVXY) is -0.0486 at t -2.41 over 2,458 days (LOYO -0.043..-0.060), but on a benign tape matching this state the dial adds nothing (+0.057% below 40, -0.019% at 40-70, +0.056% at 70+), and the endogeneity defence is FALSE (corr(gate, dial) -0.100, mean dial 19.0 ON vs 25.2 OFF, Jaccard 0.167 with the production VRC signal). (2) The vehicle is SVXY, not short UVXY: risk-adjusted per session 0.3771 vs 0.3652 at corr 0.976, per 1 ATR of risk +0.331 vs +0.246, and UVXY's borrow is a soft cost that can fail while its left tail is unbounded (worst -12.63% vs -4.85%). VXX, VIXY, SVIX and UVIX are NOT in master_prices. (3) Development is done: h=1 only (short-^VIX edge +2.184pp at h=1, +1.593 at h=2, +0.275 at h=3, negative beyond); MOC beats every close-anchored limit as a whole variant (+0.910% vs +0.772 / +0.756 / +0.531 / +0.511 at 0.10 / 0.25 / 0.40 / 0.60 ATR); time-only, since every target and stop ties or loses; losers are 17 of 114 anchors at a mean of -1.864%, worst 2025-07-30 at SVXY -4.13% on ^VIX +21.89%. ONE DEBT THAT SURVIVES THE ARM: the trade is substantially levered equity beta on the print session (corr(SPY h=1, SVXY h=1) +0.626 gated, beta 1.75, R-squared 0.392), so it can never be composed beside a long-SPY idea and the write-up owes the residual.",
+   "script": "scratch/pitch_checks/2026-09-03/a9_c1_live_rung_verdict.py",
    "source": "stand_down",
-   "expires": "2027-09-02"
+   "expires": "2027-09-03",
+   "note": "2026-09-04 verdict: PASS, second session in the dead half. Rel-range percentile 3.35, inside the (0,5] band that pays -0.096%. Today's OTHER volatility route, the holiday-closure anchor, was opened and killed outright (see the entry added today): ^VIX RISES +4.80% across a >= 3 calendar-day closure, so short vol into a long weekend is wrong-signed."
   },
   {
    "added": "2026-09-02",
@@ -346,7 +347,45 @@
    "trigger": "A REASON TO EXIST BESIDE THE BOOK, which is a harder arm than a number. The bare form is the strongest statistic produced on 2026-09-02: a sector at a 5, 21 AND 63-day rank floor simultaneously pays +1.131% at h=10 pooled over the nine SPDRs across 493 episodes, edge +0.732pp over all days, fixed-effect common excess +0.773pp at t +3.06, Cochran Q homogeneous with I-squared 0.0% - a genuine family effect rather than a best-of-K draw. It is not pitchable for two reasons that no threshold cures. (1) IT IS THE BOOK: 153 systematic signals fired inside a [-1,+11] td window around these episodes (Overbot Vol Spike 58, Oversold Low Volume 37, LT Trend ST OS 26), so the pooled bare floor is generic oversold mean reversion the scanner already harvests, and repeating the scanner has zero value here. (2) The NOVELTY that would distinguish it - the index-near-a-high gate - SUBTRACTS 0.733pp, taking XLI from +1.646% on 65 episodes at t 2.236 down to +0.913% on 11, and the nine-SPDR fixed-effect common excess of the GATED form is NEGATIVE at -0.381pp (t -1.18). TURNS ON if a future instance shows the near-high gate's h=10 attribution POSITIVE (today -0.733pp) - which would make the cell something other than the book's own oversold harvest - or if a conditioner is found that the scanner demonstrably does not trade, measured as under 20 book signals in the [-1,+11] td window against today's 153. Do NOT re-open this on the bare pooled statistic alone, however good it looks; that is the re-running-the-scanner failure and it is closed by design.",
    "script": "scratch/pitch_checks/2026-09-02/c5c7_supplement.py",
    "source": "stand_down",
-   "expires": "2027-03-02"
+   "expires": "2027-03-02",
+   "note": "2026-09-04 verdict: PASS, and the breadth has collapsed. Only XLI holds the 5, 21 and 63-day floor today, down from nine names, so the pooled form has nothing to trade."
+  },
+  {
+   "added": "2026-09-03",
+   "title": "Long SPY into a scheduled print out of a dead 21-day VIX range",
+   "cell": "us_large x volatility, the direction leg of the pre-print compression cross",
+   "trigger": "THE FRAGILITY DIAL, and secondarily a cost floor. The 2026-08-07 registry sweep covered POST-NFP equity direction and found it empty; the PRE-print session out of a dead range had never been measured and it is real at h=1: +0.236% over 45 episodes at 28-17, sign p 0.0676, an excess of +0.197pp over SPY's own drift and +0.218pp over a trading-day-of-month matched control, bootstrap P(mean<=0) 0.051, 11.8x cost. Gate attribution is positive (+0.183pp: gated +0.236% against gate-off +0.033%, and the rel>15 complement -0.015%), it is era-stable (+0.185% pre-2018, +0.363% after), it is NOT midterm-dead (+0.277% on 11), it is not a bull-tape selector at h=1 (below-200d gated pays +0.290%), and 50 of 54 neighbouring specifications are positive. The horizon scan puts the entire return on the print session (h=3 edge -0.113pp), which is the right shape for the mechanism. TURNS ON at the first pre-print session with the rel-range percentile <= 15 AND the fragility dial's ma10(63d) BELOW 50, where the gated cell pays +0.402% (n=11, dial < 30) and +0.237% (n=3, dial 30-50); on 2026-09-03 the dial read 87.9, the 95.4th percentile of its own series, and ZERO of the 15 gated anchors carrying a dial reading sit above 70, with the nearest available read (all payroll anchors at dial >= 70) at -0.331% on a 25% hit. SECOND BAR, both must clear: drop-best-3 has to reach 5x cost, and it is at 4.9x (+0.099% against a 2 bp round trip) with 61% of a +10.63pp total in three episodes and the cell carried by 2009 (+4.75 over 4) and 2023 (+3.89 over 3). TWO CAVEATS NO TRIGGER CURES. (a) It is not payroll-specific: the identical construction pays MORE into FOMC (+0.366%, n=28, 64.3%, sign p 0.0925) and is negative into PPI (-0.124%), so the event is a 1-of-4 pick and the 40-cell grid's Sidak bound is p 0.080; the honest form is probably the pooled clear-calendar version, which should be derived rather than assumed. (b) This entry and the SVXY entry above are ONE POSITION: corr(SPY h=1, SVXY h=1) is +0.626 on the gated set at beta 1.75, so they may never be composed together, and if both ever arm the vehicle question is which expresses the view better rather than which two ideas to ship. One neighbour note not to lean on: in the pitched definition the [0,5) rel-range bucket is the weakest of the three gated buckets (+0.090%, n=16, 9-7) against [10,15)'s +0.454%, but that inversion reverses under win=21/lb=504 and both absolute-range specs, so it is not load-bearing here the way it is for the SVXY entry.",
+   "script": "scratch/pitch_checks/2026-09-03/b5_c12_round2.py",
+   "source": "near_miss",
+   "expires": "2027-09-03",
+   "note": "2026-09-04 verdict: PASS. The dial is 87.8 against the arm, and the anchor was yesterday's session in any case; today is the print itself."
+  },
+  {
+   "title": "The risk premium carried ACROSS an extended market closure, short the index and long volatility",
+   "added": "2026-09-04",
+   "cell": "market-holiday closure x us_large / us_small / volatility",
+   "trigger": "A PRE-REGISTERED FORWARD TEST, because the number itself is already there and the problem is where it came from. ^VIX rises +4.80% across a >= 3 calendar-day closure over 180 gaps at 136-44, sign p 0.0000, against +2.19% across an ordinary weekend and -0.28% on a plain overnight, so the effect is monotone in the extra calendar day. Tradeable side 2018+: short SPY across the gap +0.251% at 37-22, sign p 0.034, 12.5x cost; short IWM +0.424% at 40-19, sign p 0.0043, 14.1x. Labor Day 2018+ is 8-for-8 on both, and ungating to all closures keeps most of the edge, so Labor Day is not the carrier and the object is the closure. It is NOT shippable as found: it surfaced inside the blockers run against C1 and C2 and is the exact opposite of both, which is the corpse-recovered sign flip the 2026-08-07 registry entry closed by name. TURNS ON when a rule written BEFORE the fact, naming vehicle, side, entry and exit with no re-optimisation, has cleared TWO new >= 3 calendar-day closures, AND the pooled 2018+ short-IWM overnight still means at least +0.424% at 14.1x cost once those two observations are added. The next closures are the 2026-11-26 Thanksgiving and 2026-12-25 Christmas boundaries; verify each gap against the master_prices index rather than assuming a calendar.",
+   "script": "scratch/pitch_checks/2026-09-04/a2b_gate_attrib_and_inversion.py",
+   "source": "stand_down",
+   "expires": "2027-09-04"
+  },
+  {
+   "title": "Post-NFP duration after a MODERATE prior payroll miss, with a CPI inside the hold",
+   "added": "2026-09-04",
+   "cell": "nfp x rates, conditioned on the PRIOR print's surprise",
+   "trigger": "THE BAND AND THE HOLD, and note this entry is narrower than the candidate that produced it. Long TLT entered MOC on the print session, h=3, conditioned on the prior NFP surprise: the (-100k,-50k] half pays +0.813% over 12 observations while the <= -100k half pays -0.175% over 19 at 10-9, so the dose response runs backwards and the shipped '<= -50k' cut was two different cells averaged. The whole gated edge is also CPI-in-hold, at +0.670% over 13 episodes at a 76.9% hit against -0.127% over 18 at 44.4%. Today failed both: the prior print was -103k and the h=3 hold to 2026-09-10 contains PPI but not the 09-11 CPI. TURNS ON when a payrolls print has a PRIOR surprise inside (-100k,-50k] AND a CPI lands inside the h=3 hold. Standing debt that must be paid at the same time: the cell's full +6.43pp is more than accounted for by 2021 alone at +7.51pp, so drop-2021 must be back above zero (it is currently -0.043% on 25 at a 52% hit) before this is pitchable. Placebo ladder ranks the live k=0 rung 5 of 17, which is a second standing debt. Conditioner is readable live: macro_release_history.parquet is frozen at 2026-08-07 but NFP is monthly, so the prior print is always in the file.",
+   "script": "scratch/pitch_checks/2026-09-04/b1b_c3_live_band_and_concentration.py",
+   "source": "stand_down",
+   "expires": "2027-09-04"
+  },
+  {
+   "title": "Long SVXY at the first close AFTER an extended closure, on a clear calendar",
+   "added": "2026-09-04",
+   "cell": "market-holiday closure x volatility, the k=+1 rung",
+   "trigger": "RUNWAY >= 4, plus a mechanism this entry does not yet have. The k=+1 rung was the one thing that separated from both blockers aimed at it: a >= 3-day closure that is not a print session with a clear calendar pays +0.710% at Welch t 2.34, and crossed with runway it adds on top, with closure >= 3 and runway >= 4 paying +0.684% against a plain weekend at the same runway paying -0.247%. It is NOT the pitched order: the eve MOC ranks 15 of 17 on the placebo ladder and pays -0.795% at a 42.0% hit post-2018, which is -9.9x an 8bp round trip, because the vol mark-down is taken intraday on the eve and reverses across the gap. TURNS ON at the first close after a >= 3 calendar-day closure with a runway of at least 4 sessions to the next scheduled print, and only once the entry carries a STATED mechanism for why buying vol cheap the session after a closure works when holding it through the closure loses. Note 2026-09-08 does NOT qualify: the runway from that close to PPI on 2026-09-10 is 2.",
+   "script": "scratch/pitch_checks/2026-09-04/a1b_svxy_gap_decomp.py",
+   "source": "stand_down",
+   "expires": "2027-09-04"
   }
  ],
  "expired": [
@@ -381,5 +420,6 @@
    "why": "window passed or cell adjudicated in the 2026-08-31 sweep"
   }
  ],
- "generated": "2026-09-01 05:43:57"
+ "generated": "2026-09-03",
+ "asof": "2026-09-04"
 }
