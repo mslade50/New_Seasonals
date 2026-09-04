@@ -64,7 +64,7 @@ def test_engine_and_cloud_bundle_expose_overlay_free_controls():
 
 def test_overlay_lab_has_unique_controls_for_every_current_overlay_family():
     ids = [spec["id"] for spec in OVERLAY_LAB_SPECS]
-    assert len(ids) == len(set(ids)) == 16
+    assert len(ids) == len(set(ids)) == 15  # wcds_seasonal_sizing retired 2026-09-04 (D3.1)
     production = build_full_strategy_book()
     assert all(_overlay_spec_active(spec, production) for spec in OVERLAY_LAB_SPECS)
     assert {

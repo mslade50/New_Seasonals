@@ -346,8 +346,25 @@ range: the setting is a clean risk-appetite dial, and 1.5 (~$157k/yr ann
 flat PnL at -12.6% worst DD) is defensible. Results:
 scratch/grm_replay_results.csv.
 
+**Base-bps tilt (D3.2, shipped 2026-09-04, `strategy_config.STRATEGY_BASE_TILT`)**:
+applied ONCE at import, after the GRM block, to `execution['risk_bps']` only
+and folded into `OVERFLOW_RISK_OVERRIDES`; never through the engine's
+`risk_multipliers` (that path scales the per-strategy cap), never on the
+earnings override, never on OVS `path1/path2_bps`. Table: 52wh Breakout
+0.70, Weak Close Decent Sznls 0.75, Sector BO 0.87, ATR Extended Gap Up
+1.10, 3x ETF Overbot Fade 1.27, SPY QQQ MonFri Reversion 1.30; every other
+strategy 1.0 (the dict is total over the book; a missing name defaults to
+1.0 with a loud `[TILT]` line; `tests/test_base_bps_tilt.py`). A Sharpe and
+drawdown lever, PnL-neutral: full-history replay 2010+ Sharpe 2.20 -> 2.30,
+maxDD -12.4% -> -11.2%, worst-21d -9.5% -> -7.2%, annual PnL -2.7%. Same
+day the Weak Close Decent Sznls seasonal-rank size tiers (1.5x >= 65,
+0.66x 33-50) were RETIRED on both sides (D3.1; inverted against the edge,
+`tests/test_wcds_size_tiers.py`). Evidence: sizing_due_diligence_2026-09-02
+and `artifacts/verify_2026-09-04/sizing_d31_d32/`. Fortnight authority:
+`docs/plan_2026-09-04.md`.
+
 daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
-base bps (tier x GRM) -> 2b fragility band -> 2c signal-recency ladder rung
+base bps (tier x GRM x tilt) -> 2b fragility band -> 2c signal-recency ladder rung
 (carrier: OLV {window_td: 21, mults: [0.5, 0.7, 1.0]} since 2026-07-30; the
 old open-position-count ladder machinery survives dormant, carrier-less) ->
 2c2 cycle-year mult -> 2d earnings size override (REPLACES the base but

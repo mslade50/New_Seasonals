@@ -30,3 +30,13 @@ No screenshots.
 
 ## Report
 Section 6 format. Handoff: the `git add` list; the exact operator steps for the v9 cutover (tag, prepare, cutover time window, the `wevtutil` command to enable the Task Scheduler Operational log which needs an admin shell, the prune command); anything the verify agent should attack first.
+
+## Round 2 (2026-09-04, after verify_ops_supervisor returned PASS with gaps)
+The worktree holds round 1 uncommitted (scripts/automation_supervisor.py, install_local_automation_tasks.ps1, run_local_automation.ps1, the fallback workflow, the doc, four tests). Build on it. Evidence: `artifacts/verify_2026-09-04/ops_supervisor/` (checks.json, attack_detail.json, findings 1-8).
+1. `health` and `fallback-due` must not crash on LockUnavailable: the health handler catches it, emits a FAIL line "primary still holds the supervisor lock since <lock mtime ET>", and still runs the battery parts that need no lock; the runner's health branch continues to the battery when fallback-due fails on the lock.
+2. A dependent blocked only by another writer's LIVE lease (outcome status "running") counts as preexisting for the scoped exit code.
+3. Move `premarket-retry` from 05:30 to 05:45 (master_prices_am lease is 70 min); window end stays 07:00.
+4. Installer: Prune message says "add -PruneSuperseded -WhatIf to list without deleting"; Copy-RetiredRuntimeLogs prints per-source counts; write the new cutover-state.json BEFORE Copy-RetiredRuntimeLogs so the enabled generation is mirrored at its own cutover.
+5. `resolve`'s printed fallback-due commands default `--ref` to the runtime marker's fallback_ref when the config root holds one, and warn when the ref would be `main`.
+6. Docs: "one lock covers every generation" -> "from v9 onward" plus a warning that hand-run supervisor commands from the dev checkout must pass --state-root elsewhere; fix the cutover-state mirror wording; in the workflow comment document the EDT 13:07Z tick landing at 09:07 ET inside the discretionary window and the off-window ticks.
+Re-run the five test files and the full suite; refresh checks.json; report in section 6 format with a diff summary.

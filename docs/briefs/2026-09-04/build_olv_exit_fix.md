@@ -29,3 +29,12 @@ No screenshots.
 
 ## Report
 Section 6 format. Handoff: what the verify agent should attack first; the exact operator step to reconcile any leg still open when the fix lands.
+
+## Round 2 (2026-09-04, after verify_olv_exit_fix returned FAIL)
+Apply these fixes in the same two files (backup already exists in `_backup_20260904_olv_exit_prepatch/`; take a second copy to `_backup_20260904_olv_exit_round1/` before editing). Evidence: `artifacts/verify_2026-09-04/olv_exit_fix/` (test_attack_sequences.py, checks.json, the report's F2-F5).
+- F2 (HIGH): on a same-day re-run, when `journal_rows` is non-empty, match the leg by the journaled identity (`source_client_id`, `source_order_id` from the latest row's detail) instead of `pick_time_leg`'s single-candidate date fallback; if no match, take `_retry_without_bracket`. A stacked sibling's bracket must never be cancelled under another row's identity.
+- F3 (HIGH): in `_execute_exit`, immediately before placing, re-read the exact held position and set `exit_qty = min(exit_qty, held_now - already_queued)`; if <= 0 journal `SKIPPED_FLAT` and return without placing. Applies on every path, including post-9:25 MKT DAY.
+- F4 (MEDIUM): after the reject-verify pause, re-read the placed trade's status before classifying, so a terminal status that arrives during the pause takes the FAILED_REARMED branch, not UNKNOWN.
+- F5 (LOW): survivor detection also matches on `_order_key(t.order) == _order_key(placed.order)` when `placed` is not None, not only on exact orderRef.
+- F6 (LOW): when a bracket AND a standalone sell are both working, print a `[WARN] two exits working` line (keep the leave-both behaviour).
+Add the verifier's four failing sequences to `test_olv_exits.py` (port them from `artifacts/verify_2026-09-04/olv_exit_fix/test_attack_sequences.py`) so they pass, keep every existing test green, refresh checks.json, report in section 6 format.

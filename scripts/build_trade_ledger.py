@@ -173,13 +173,9 @@ OVERLAY_LAB_SPECS = (
         "description": "Limit stacked OLV exposure in a single non-exempt ticker.",
         "execution_keys": ("ticker_notional_cap",),
     },
-    {
-        "id": "wcds_seasonal_sizing",
-        "label": "WCDS seasonal sizing tier",
-        "description": "Apply the Weak Close Decent Sznls seasonal-rank size tiers.",
-        "engine_overlay": "wcds_seasonal_sizing",
-        "strategy_names": ("Weak Close Decent Sznls",),
-    },
+    # "wcds_seasonal_sizing" was removed 2026-09-04 (plan D3.1): the engine no
+    # longer carries the Weak Close seasonal-rank size tiers, so the control
+    # replayed as a zero-delta pass.
     {
         "id": "ovs_path2_sizing",
         "label": "OVS mild-gap path sizing",
