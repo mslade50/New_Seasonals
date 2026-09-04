@@ -12,6 +12,18 @@ import pytest
 
 IBKR_DIR = os.path.join(os.path.expanduser("~"), "OneDrive", "trading_ibkr")
 
+# add_to_position / trim_readd were switched off by the 2026-09-02 guard
+# patch (commit 43521a51 acknowledges it). The tests below encode the
+# behaviour wanted once the feature returns; strict so that a restored
+# feature turns the xfail into a failure and the mark gets removed.
+DISABLED_BY_GUARD_PATCH = pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "disabled by 43521a51 until add_to_position / trim_readd have an "
+        "atomic exact-identity broker lifecycle; re-enable with that work"
+    ),
+)
+
 
 @pytest.fixture(scope="module")
 def executor():
@@ -77,6 +89,7 @@ def test_exposure_adding_actions_reject_target_only_exit(executor):
     )
 
 
+@DISABLED_BY_GUARD_PATCH
 @pytest.mark.parametrize("fraction", [0.25, 0.5])
 def test_executor_accepts_time_stop_only_for_add_and_readd(
         executor, monkeypatch, fraction):
@@ -142,6 +155,7 @@ def test_executor_accepts_time_stop_only_for_add_and_readd(
     assert readd_ctx["legs"][0]["good_after"] == scheduled.goodAfterTime
 
 
+@DISABLED_BY_GUARD_PATCH
 @pytest.mark.parametrize("fraction", [0.25, 0.5])
 def test_agent_accepts_time_stop_only_for_add_and_readd(
         agent, monkeypatch, fraction):

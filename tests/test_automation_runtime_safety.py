@@ -9,6 +9,8 @@ import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import automation_supervisor as sup
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,11 +35,38 @@ def _direct_script_env() -> dict[str, str]:
     return env
 
 
-def _run_supervisor_directly(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+def _offline_script_env() -> dict[str, str]:
+    """A child environment in which cache_io cannot resolve R2 credentials.
+
+    Popping the R2_* names is not enough: cache_io auto-loads the repo-root
+    `.env` (override=False), so a child on this machine gets the real
+    credentials back and `_pull-intraday` pulls the whole canonical intraday
+    cache over the network. python-dotenv skips a key that is already present
+    in os.environ, and cache_io treats an empty value as missing, so blanking
+    each name keeps the child offline without touching `.env`.
+    """
+
+    env = _direct_script_env()
+    for name in R2_ENV_NAMES:
+        env[name] = ""
+    return env
+
+
+def _r2_resolvable_by_child() -> bool:
+    """True when a direct child would resolve R2 credentials (env or `.env`)."""
+
+    import cache_io
+
+    return bool(cache_io.is_configured())
+
+
+def _run_supervisor_directly(
+    *args: str, cwd: Path, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(SUPERVISOR), *args],
         cwd=cwd,
-        env=_direct_script_env(),
+        env=_direct_script_env() if env is None else env,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -66,11 +95,33 @@ def test_direct_script_r2_download_imports_repo_module_without_pythonpath(tmp_pa
     assert not target.exists()
 
 
+@pytest.mark.skipif(
+    _r2_resolvable_by_child(),
+    reason=(
+        "R2 credentials are resolvable (env or repo-root .env): a direct "
+        "'_pull-intraday' child would pull the canonical intraday cache over "
+        "the network instead of failing on missing metadata; the offline "
+        "variant below covers the import-path contract"
+    ),
+)
 def test_direct_script_pull_intraday_imports_repo_module_without_pythonpath(tmp_path):
     result = _run_supervisor_directly("_pull-intraday", cwd=tmp_path)
 
     output = result.stdout + result.stderr
     assert result.returncode == 1
+    assert "canonical intraday metadata is unavailable" in output
+    assert "ModuleNotFoundError" not in output
+    assert "No module named 'cache_io'" not in output
+
+
+def test_direct_script_pull_intraday_imports_repo_module_offline(tmp_path):
+    result = _run_supervisor_directly(
+        "_pull-intraday", cwd=tmp_path, env=_offline_script_env()
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 1
+    assert "[cache_io] R2 not configured" in output
     assert "canonical intraday metadata is unavailable" in output
     assert "ModuleNotFoundError" not in output
     assert "No module named 'cache_io'" not in output

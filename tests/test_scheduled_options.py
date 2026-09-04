@@ -16,6 +16,18 @@ import pytest
 
 IBKR_DIR = os.path.join(os.path.expanduser("~"), "OneDrive", "trading_ibkr")
 
+# The scheduled-options executor was switched off by the 2026-09-02 guard
+# patch (commit 43521a51 acknowledges it). The two end-to-end tests below
+# encode the behaviour wanted once it returns; strict so that a restored
+# executor turns the xfail into a failure and the mark gets removed.
+DISABLED_BY_GUARD_PATCH = pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "disabled by 43521a51 until the scheduled-options executor has an "
+        "atomic broker lifecycle; re-enable with that work"
+    ),
+)
+
 
 @pytest.fixture(scope="module")
 def modules():
@@ -109,6 +121,7 @@ def test_schedule_persistence_marks_interrupted_execution_unknown(modules, monke
     assert "never auto-retried" in agent._SCHEDULES["sched-1"]["detail"]
 
 
+@DISABLED_BY_GUARD_PATCH
 def test_dynamic_executor_resolves_and_submits_market_order(
         modules, monkeypatch, capsys):
     _agent, executor = modules
@@ -177,6 +190,7 @@ def test_dynamic_executor_resolves_and_submits_market_order(
     assert order.totalQuantity == 8
 
 
+@DISABLED_BY_GUARD_PATCH
 def test_signed_command_handler_persists_and_cancels_schedule(
         modules, monkeypatch, tmp_path):
     agent, _executor = modules
