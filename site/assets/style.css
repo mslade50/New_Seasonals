@@ -340,6 +340,36 @@ table.tbl tbody tr:hover { background: #161c29; }
 .badge.dirS { background: rgba(255,93,93,.12); color: var(--red); }
 .badge.conv { background: rgba(77,163,255,.12); color: var(--accent); }
 
+/* ---------- Portfolio overlay lab ---------- */
+.overlay-lab { border-color: rgba(255,193,77,.32); }
+.overlay-lab-head { display: flex; align-items: start; justify-content: space-between;
+  gap: 12px; margin-bottom: 11px; }
+.overlay-lab-head p { margin: 4px 0 0; }
+.overlay-control-grid { display: grid;
+  grid-template-columns: repeat(4, minmax(190px, 1fr)); gap: 7px; }
+.overlay-control { display: grid; grid-template-columns: auto 1fr auto;
+  align-items: start; gap: 8px; min-width: 0; padding: 8px 9px;
+  background: var(--card2); border: 1px solid var(--border); border-radius: 7px;
+  cursor: pointer; }
+.overlay-control:hover { border-color: rgba(255,193,77,.55); }
+.overlay-control input { margin-top: 3px; accent-color: var(--amber); }
+.overlay-control .overlay-copy { min-width: 0; }
+.overlay-control .overlay-name { display: block; color: var(--text); font-size: 11.5px;
+  font-weight: 650; line-height: 1.25; }
+.overlay-control .overlay-desc { display: block; color: var(--faint); font-size: 9.5px;
+  line-height: 1.35; margin-top: 3px; }
+.overlay-control .overlay-state { min-width: 26px; color: var(--faint); font-size: 10px;
+  font-weight: 750; letter-spacing: .35px; text-align: right; }
+.overlay-control.is-on { border-color: rgba(255,193,77,.5); background: rgba(255,193,77,.055); }
+.overlay-control.is-on .overlay-state { color: var(--amber); }
+.overlay-lab-chart { min-height: 390px; margin-top: 10px; }
+@media (max-width: 1200px) { .overlay-control-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 850px) { .overlay-control-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) {
+  .overlay-control-grid { grid-template-columns: 1fr; }
+  .overlay-lab-head { align-items: stretch; flex-direction: column; }
+}
+
 /* ---------- ideas / risk specifics ---------- */
 .idea { margin-bottom: 14px; }
 .idea .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }

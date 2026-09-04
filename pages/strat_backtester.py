@@ -829,7 +829,7 @@ def _stop_fill_price(direction, stop_price, day_open,
     return fill * (1.0 + bps / 1e4), gapped         # short covers higher
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None, stop_gap_fill=True, stop_slip_bps=STOP_SLIP_BPS, stop_gap_slip_bps=STOP_GAP_SLIP_BPS, pc_fear_enabled=True, portfolio_overlays_enabled=True):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None, stop_gap_fill=True, stop_slip_bps=STOP_SLIP_BPS, stop_gap_slip_bps=STOP_GAP_SLIP_BPS, pc_fear_enabled=True, portfolio_overlays_enabled=True, portfolio_overlay_names=None):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
 
@@ -847,6 +847,21 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         return pd.DataFrame()
 
     candidates.sort(key=lambda x: x[0])
+
+    # Production and the all-off counterfactual use the legacy boolean.  The
+    # private site's Overlay Lab can instead enable one hard-coded portfolio
+    # overlay at a time, so each checkbox is backed by a real engine replay.
+    # Supplying portfolio_overlay_names deliberately takes precedence over the
+    # boolean; an empty collection therefore means all named overlays are off.
+    _named_portfolio_overlays = (
+        None if portfolio_overlay_names is None
+        else frozenset(portfolio_overlay_names)
+    )
+
+    def _portfolio_overlay_on(name):
+        if _named_portfolio_overlays is None:
+            return bool(portfolio_overlays_enabled)
+        return name in _named_portfolio_overlays
 
     # ----------------------------------------------------
     # PRE-PASS: earnings blackout (any strategy) + OVS path-2 aggregate cap
@@ -885,8 +900,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         _p2_bps = float(_exe.get('path2_bps', 8))
         _p2_mult = (_p2_bps / _p1_bps) if _p1_bps > 0 else 0.0
         _p2_cap_pct = float(_exe.get('path2_daily_cap_pct', 1.0))
-        _p2_cap_dollars = (starting_equity * _p2_cap_pct / 100.0 * _ovs_mult
-                           if portfolio_overlays_enabled else float('inf'))
+        _p2_cap_dollars = (
+            starting_equity * _p2_cap_pct / 100.0 * _ovs_mult
+            if _portfolio_overlay_on("ovs_path2_sizing") else float('inf')
+        )
         _ovs_cyc = _exe.get('cycle_risk_mults') or {}
     else:
         _p1_bps = _p2_bps = _p2_mult = _p2_cap_pct = _p2_cap_dollars = 0.0
@@ -936,7 +953,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 _recency_prior[(_si, _tc, _p)] = _k - _lo
 
     _atr_ext_keys = set()
-    if (portfolio_overlays_enabled and _ovs_strat is not None
+    if (_portfolio_overlay_on("ovs_atr_extended_precedence") and _ovs_strat is not None
             and any(s.get('name') == 'ATR Extended Gap Up' for s in strategies)):
         for cand in candidates:
             _sig_ts, _tkr, _t_clean, _strat_idx, _signal_idx = cand
@@ -1037,7 +1054,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     # over sig_df required both legs to FILL, booking the one-fills leg at
     # full size, and ran after the per-strategy cap — opposite of live.)
     # Applied in sizing step 3b3c. Mirrors daily_scan 5b; change together.
-    if portfolio_overlays_enabled:
+    if _portfolio_overlay_on("cross_strategy_overlap"):
         try:
             from strategy_config import CROSS_STRATEGY_OVERLAP_OVERRIDES as _CSOO
         except ImportError:
@@ -1298,8 +1315,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 _p2 = float(_exe.get('path2_bps', 8))
                 _p2_base_mult = (_p2 / _p1) if _p1 > 0 else 0.0
                 _p2_scale = _ovs_p2_scale_by_date.get(pd.Timestamp(signal_ts).normalize(), 1.0)
-                _ovs_size_mult = (_p2_base_mult * _p2_scale
-                                  if portfolio_overlays_enabled else 1.0)
+                _ovs_size_mult = (
+                    _p2_base_mult * _p2_scale
+                    if _portfolio_overlay_on("ovs_path2_sizing") else 1.0
+                )
                 if _ovs_size_mult <= 0:
                     continue  # degenerate P2 scale (zero cap) — nothing to stage
 
@@ -1310,7 +1329,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         # Overflow-tier override (was a dead parameter until 2026-08-12):
         # matches daily_scan's build_effective_strategy_book, so a UI
         # overflow run sizes OLV at 25 nominal instead of the liquid 35.
-        if portfolio_overlays_enabled and overflow_active and t_clean not in _LIQUID_SET:
+        if (_portfolio_overlay_on("overflow_risk_override")
+                and overflow_active and t_clean not in _LIQUID_SET):
             _obps = OVERFLOW_RISK_OVERRIDES.get(strat_name)
             if _obps is not None:
                 risk_bps = _obps * GLOBAL_RISK_MULTIPLIER
@@ -1318,7 +1338,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         base_risk = equity_for_sizing * risk_bps / 10000
         _nominal_risk = base_risk  # full-size baseline; Size_Mult = final / nominal (pre-cap)
         _vol_spike_skip_primary = False
-        if portfolio_overlays_enabled and strat_name == "Weak Close Decent Sznls":
+        if (_portfolio_overlay_on("wcds_seasonal_sizing")
+                and strat_name == "Weak Close Decent Sznls"):
             sznl_val = row_data['sznl']
             if sznl_val >= 65:
                 base_risk *= 1.5

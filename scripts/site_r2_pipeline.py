@@ -98,6 +98,11 @@ GENERATED_INPUTS: tuple[R2Input, ...] = (
         "backtest_daily_pnl_overlay_free.parquet",
         "data/backtest_daily_pnl_overlay_free.parquet",
     ),
+    R2Input(
+        "overlay_lab",
+        "backtest_overlay_lab.json",
+        "data/backtest_overlay_lab.json",
+    ),
     # Optional while no strategy carries ``sector_loss_gate``.  The ledger
     # builder intentionally omits this counterfactual in that state and the
     # site hides the retired gate-lab panel.  If a gate is reintroduced, the

@@ -47,6 +47,8 @@ const S = {
   mtmMain: new Map(),     // trade_id -> [startIdx, pnlVector] (flat $750k)
   mtmExt: new Map(),      // trade_id -> vector for the rebooked T+5 exit
   mtmGate: new Map(),     // Strategy|Tier|Ticker|SignalDate -> vector (blocked rows)
+  overlayLab: null,       // exact all-off/prod + one exact standalone run per overlay
+  overlaySelected: new Set(),
   // Research-only fragility counterfactual (off by default = today's exact-curve behavior).
   // step:  mult = boost below thr, floor at/above thr.
   // ramp:  boost at 0 -> 1.0 at thr, then linear down to floor at 100.
@@ -150,6 +152,8 @@ function portfolioFreshnessError(meta, health, positions) {
     return "Portfolio market-price cache is stale or missing";
   for (const name of ["strategy_daily", "positions", "exposure", "trade_mtm"])
     if (flags[name] !== true) return `Portfolio payload ${name} is unavailable`;
+  if (BOOK_MODE === "overlay_free" && flags.overlay_lab !== true)
+    return "Portfolio overlay-lab payload is unavailable";
   if (!positions) return "Open-position payload is missing";
   if (health.prev_td && (!positions.asof || positions.asof < health.prev_td))
     return `Open positions are stale (${positions.asof || "unknown"})`;
@@ -173,7 +177,7 @@ async function init() {
       const base = BOOK_MODE === "overlay_free" ? "data/overlay_free/" : "data/";
       const maybe = (name, path) => flags[name]
         ? fetchSitePayload(meta, path || `${base}${name}.json`) : null;
-      const [trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm] =
+      const [trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm, olab] =
         await Promise.all([
           fetchSitePayload(meta, `${base}trades.json`),
           maybe("strategy_daily"),
@@ -187,15 +191,17 @@ async function init() {
           maybe("gate_lab"),
           maybe("ext_lab"),
           maybe("trade_mtm"),
+          maybe("overlay_lab"),
         ]);
-      return { bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm };
+      return { bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm, olab };
     });
-    const { meta, bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm } = snapshot;
+    const { meta, bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm, olab } = snapshot;
     const health = meta.freshness;
     S.meta = bookMeta;
     S.trades = rowsFromColumnar(trades);
     S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.fragility = frag;
     S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr; S.gateLab = gl; S.extLab = xl;
+    S.overlayLab = olab;
     const freshnessError = portfolioFreshnessError(bookMeta, health, pos);
     if (freshnessError) throw new Error(`${freshnessError}; deployment was blocked for safety`);
     if (sf && sf.trades) S.sfRows = rowsFromColumnar(sf.trades);
@@ -232,6 +238,7 @@ async function init() {
       sd.dates.forEach((d, i) => { if (isMidYearStr(d)) S.midMask[i] = 1; });
     }
     buildPortfolioMode(bookMeta);
+    buildOverlayLab();
     setAsof(`${BOOK_MODE === "overlay_free" ? "overlay-free" : "production"} ledger thru ` +
             `${bookMeta.ledger_last_signal} · built ${meta.built_at}`);
     document.getElementById("subtitle").textContent =
@@ -281,7 +288,8 @@ function buildPortfolioMode(bookMeta) {
     const removed = bookMeta.removed_overlays || [];
     note.innerHTML = '<span class="badge warn">RESEARCH COUNTERFACTUAL</span> ' +
       "Core strategy signals, entries, exits, and base risk remain. Removed: " +
-      removed.join("; ") + ". Click <b>Production overlays</b> to restore every rule in one step.";
+      removed.join("; ") + ". Use the Overlay Lab below to add rules back individually, " +
+      "or click <b>Production overlays</b> to restore every rule in one step.";
   } else {
     note.innerHTML = '<span class="badge conv">PRODUCTION</span> ' +
       "Current signal gates and portfolio sizing/risk overlays are included. " +
@@ -290,6 +298,148 @@ function buildPortfolioMode(bookMeta) {
   document.querySelectorAll("[data-production-only]").forEach(el => {
     el.style.display = isOverlayFree ? "none" : "";
   });
+  document.querySelectorAll("[data-overlay-only]").forEach(el => {
+    el.style.display = isOverlayFree ? "" : "none";
+  });
+}
+
+/* ================= overlay lab ================= */
+function buildOverlayLab() {
+  if (BOOK_MODE !== "overlay_free") return;
+  const lab = S.overlayLab;
+  if (!lab || !Array.isArray(lab.dates) || !lab.dates.length ||
+      !Array.isArray(lab.all_off_pnl) || !Array.isArray(lab.production_pnl) ||
+      !Array.isArray(lab.overlays) || !lab.overlays.length)
+    throw new Error("The overlay-lab comparison payload is malformed");
+
+  const n = lab.dates.length;
+  if (lab.all_off_pnl.length !== n || lab.production_pnl.length !== n ||
+      lab.overlays.some(o => !Array.isArray(o.pnl) || o.pnl.length !== n))
+    throw new Error("The overlay-lab curves do not share one calendar");
+
+  S.overlaySelected.clear();
+  const host = document.getElementById("overlayLabControls");
+  host.innerHTML = "";
+  for (const overlay of lab.overlays) {
+    const row = document.createElement("label");
+    row.className = "overlay-control";
+    row.title = overlay.description || overlay.label;
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = false;
+    cb.value = overlay.id;
+    cb.setAttribute("aria-label", `Add ${overlay.label}`);
+
+    const copy = document.createElement("span");
+    copy.className = "overlay-copy";
+    const name = document.createElement("span");
+    name.className = "overlay-name";
+    name.textContent = overlay.label;
+    const desc = document.createElement("span");
+    desc.className = "overlay-desc";
+    desc.textContent = overlay.description || "";
+    copy.append(name, desc);
+
+    const state = document.createElement("span");
+    state.className = "overlay-state";
+    state.textContent = "NO";
+
+    cb.addEventListener("change", () => {
+      if (cb.checked) S.overlaySelected.add(overlay.id);
+      else S.overlaySelected.delete(overlay.id);
+      row.classList.toggle("is-on", cb.checked);
+      state.textContent = cb.checked ? "YES" : "NO";
+      renderOverlayLab();
+    });
+    row.append(cb, copy, state);
+    host.appendChild(row);
+  }
+
+  document.getElementById("overlayClear").addEventListener("click", () => {
+    S.overlaySelected.clear();
+    host.querySelectorAll("input[type=checkbox]").forEach(cb => { cb.checked = false; });
+    host.querySelectorAll(".overlay-control").forEach(row => row.classList.remove("is-on"));
+    host.querySelectorAll(".overlay-state").forEach(state => { state.textContent = "NO"; });
+    renderOverlayLab();
+  });
+  renderOverlayLab();
+}
+
+function overlayFlatEquity(pnl, lab) {
+  const scale = Number(lab.display_start_equity || DISPLAY_EQ) /
+    Number(lab.starting_equity || START_EQ);
+  let equity = Number(lab.display_start_equity || DISPLAY_EQ);
+  return Array.from(pnl, value => {
+    equity += Number(value || 0) * scale;
+    return equity;
+  });
+}
+
+function renderOverlayLab() {
+  if (BOOK_MODE !== "overlay_free" || !S.overlayLab) return;
+  const lab = S.overlayLab;
+  const base = Float64Array.from(lab.all_off_pnl, v => Number(v || 0));
+  const custom = Float64Array.from(base);
+  const selected = lab.overlays.filter(o => S.overlaySelected.has(o.id));
+  for (const overlay of selected) {
+    for (let i = 0; i < custom.length; i++)
+      custom[i] += Number(overlay.pnl[i] || 0) - base[i];
+  }
+
+  const allOffEq = overlayFlatEquity(base, lab);
+  const productionEq = overlayFlatEquity(lab.production_pnl, lab);
+  const customEq = overlayFlatEquity(custom, lab);
+  const traces = [
+    {
+      x: lab.dates, y: allOffEq, mode: "lines", name: "All overlays off (fixed)",
+      line: { color: "#8c96a8", width: 1.6, dash: "dot" },
+      hovertemplate: "%{x}<br>All off: $%{y:,.0f}<extra></extra>",
+    },
+    {
+      x: lab.dates, y: productionEq, mode: "lines", name: "Current production (fixed)",
+      line: { color: "#00d18f", width: 2.0 },
+      hovertemplate: "%{x}<br>Production: $%{y:,.0f}<extra></extra>",
+    },
+    {
+      x: lab.dates, y: customEq, mode: "lines", name: "Custom selection",
+      line: { color: "#ffc14d", width: 2.4 },
+      hovertemplate: "%{x}<br>Custom: $%{y:,.0f}<extra></extra>",
+    },
+  ];
+  Plotly.react(document.getElementById("overlayLabChart"), traces, plotLayout({
+    height: 390,
+    hovermode: "x unified",
+    legend: { orientation: "h", y: 1.08, x: 0 },
+    margin: { t: 38, r: 15, b: 45, l: 68 },
+    yaxis: {
+      tickformat: "$,.4~s",
+      title: { text: "Equity (flat sizing, $10k display base)", font: { size: 11 } },
+    },
+    shapes: [{
+      type: "line", xref: "paper", x0: 0, x1: 1,
+      y0: Number(lab.display_start_equity || DISPLAY_EQ),
+      y1: Number(lab.display_start_equity || DISPLAY_EQ),
+      line: { color: "#444c5c", width: 1, dash: "dot" },
+    }],
+  }), PLOT_CFG);
+
+  const cap = document.getElementById("overlayLabCaption");
+  const endings = `Ending equity — all off ${fmt.money(allOffEq[allOffEq.length - 1])}; ` +
+    `production ${fmt.money(productionEq[productionEq.length - 1])}; ` +
+    `custom ${fmt.money(customEq[customEq.length - 1])}. `;
+  if (!selected.length) {
+    cap.textContent = endings +
+      "No overlays selected, so Custom exactly overlaps All overlays off. " +
+      "Every curve uses flat $750k risk sizing normalized to a $10k display base.";
+  } else if (selected.length === 1) {
+    cap.textContent = endings + `Custom is the exact standalone engine replay for ${selected[0].label}.`;
+  } else {
+    cap.textContent = endings +
+      `Custom adds ${selected.length} exact standalone overlay effects to the all-off baseline. ` +
+      "Interactions among selected overlays are not replayed in that amber curve; " +
+      "Current production is the fixed, fully interacted benchmark.";
+  }
 }
 
 /* ================= filters ================= */

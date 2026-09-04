@@ -12,6 +12,9 @@ Outputs (dist/):
   - dist/data/trades.json          full trade ledger, columnar
   - dist/data/overlay_free/        complete second Portfolio bundle generated
                                    from core strategies with portfolio overlays off
+  - dist/data/overlay_free/overlay_lab.json
+                                   fixed all-off + production curves and exact
+                                   standalone curve for every overlay control
   - dist/data/strategy_daily.json  per Strategy||Tier daily MTM PnL (flat $750k basis)
                                    + total flat/compounded daily curves
   - dist/data/positions.json       open positions marked to latest close (flat basis)
@@ -101,6 +104,7 @@ OVSEXT = os.path.join(_ROOT, "data", "backtest_trades_ovsext.parquet")
 DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
 OVERLAY_FREE_DAILY = os.path.join(
     _ROOT, "data", "backtest_daily_pnl_overlay_free.parquet")
+OVERLAY_LAB = os.path.join(_ROOT, "data", "backtest_overlay_lab.json")
 FRAGILITY = os.path.join(_ROOT, "data", "rd2_fragility.parquet")
 IDEAS = os.path.join(_ROOT, "data", "daily_seasonal_ideas.json")
 RISK = os.path.join(_ROOT, "data", "site_risk.json")
@@ -2449,6 +2453,7 @@ def build_overlay_free_portfolio(df, md, data_dir):
         "gate_lab": False,
         "ext_lab": False,
         "trade_mtm": False,
+        "overlay_lab": False,
         "health": True,      # shared root health/freshness record
     }
 
@@ -2478,6 +2483,19 @@ def build_overlay_free_portfolio(df, md, data_dir):
         "trade_mtm",
         build_trade_mtm(df, md, include_counterfactuals=False),
     )
+    try:
+        with open(OVERLAY_LAB, encoding="utf-8") as handle:
+            overlay_lab = json.load(handle)
+    except Exception as exc:
+        raise RuntimeError(f"overlay-free Portfolio payload overlay_lab is unreadable: {exc}") from exc
+    if (
+        not isinstance(overlay_lab, dict)
+        or overlay_lab.get("combination_method") != "additive_standalone_deltas"
+        or not overlay_lab.get("dates")
+        or not overlay_lab.get("overlays")
+    ):
+        raise RuntimeError("overlay-free Portfolio payload overlay_lab is malformed")
+    required("overlay_lab", overlay_lab)
 
     strat_counts = (df.groupby(["Strategy", "Tier"]).size()
                     .reset_index(name="n").to_dict("records"))
@@ -2494,6 +2512,7 @@ def build_overlay_free_portfolio(df, md, data_dir):
         "date_max": df["Signal Date"].max().strftime("%Y-%m-%d"),
         "account_value": float(ACCOUNT_VALUE),
         "strategies": strat_counts,
+        "overlay_controls": int(len(overlay_lab["overlays"])),
         "payloads": flags,
         "removed_overlays": [
             "Risk-dial signal gates",

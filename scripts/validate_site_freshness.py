@@ -32,6 +32,7 @@ OVERLAY_FREE_PORTFOLIO_PAYLOADS = (
     "drawdowns",
     "sector_risk",
     "trade_mtm",
+    "overlay_lab",
 )
 
 PAGE_BUILD_PAYLOADS = (

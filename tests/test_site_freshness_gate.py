@@ -55,7 +55,7 @@ def _site(tmp_path: Path):
                     for name in (
                         "strategy_daily", "positions", "exposure",
                         "correlation", "stopfills", "drawdowns",
-                        "sector_risk", "trade_mtm", "health",
+                        "sector_risk", "trade_mtm", "overlay_lab", "health",
                     )
                 },
             },
@@ -114,7 +114,7 @@ def _site(tmp_path: Path):
     overlay = data / "overlay_free"
     for name in (
         "trades", "strategy_daily", "exposure", "correlation", "stopfills",
-        "drawdowns", "sector_risk", "trade_mtm",
+        "drawdowns", "sector_risk", "trade_mtm", "overlay_lab",
     ):
         _write(overlay / f"{name}.json", _stamped({}))
     _write(overlay / "positions.json", _stamped({

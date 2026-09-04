@@ -27,6 +27,7 @@ PnL_compounded follows the realistic growing-equity path the live report uses.
 import argparse
 import copy
 import datetime
+import json
 import os
 import socket
 import subprocess
@@ -67,6 +68,7 @@ OUT_PCSHADOW = os.path.join(_ROOT, "data", "backtest_trades_pcfear_shadow.parque
 OUT_DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
 OUT_OVERLAY_FREE_DAILY = os.path.join(
     _ROOT, "data", "backtest_daily_pnl_overlay_free.parquet")
+OUT_OVERLAY_LAB = os.path.join(_ROOT, "data", "backtest_overlay_lab.json")
 OUT_SUMMARY = os.path.join(_HERE, "trade_ledger_summary.csv")
 DATA_START = datetime.date(2000, 1, 1)   # history for percentile/SMA warmup
 BT_START = datetime.date(2003, 1, 1)     # first eligible signal date
@@ -104,6 +106,119 @@ OVERLAY_EXECUTION_KEYS = frozenset({
     "ticker_notional_cap",
 })
 
+# Overlay Lab controls.  Each row becomes one exact standalone engine replay
+# against the all-off book, plus one checkbox in the private site.  The client
+# may add standalone deltas together for fast multi-checkbox attribution, but
+# it always preserves the actual production curve alongside that estimate.
+OVERLAY_LAB_SPECS = (
+    {
+        "id": "risk_dial_gates",
+        "label": "Risk-dial signal gates",
+        "description": "Block 52wh Breakout and St OS Sznl signals when their production risk-dial thresholds fail.",
+        "settings_keys": ("dial_filters",),
+        "regenerate_candidates": True,
+    },
+    {
+        "id": "t1_gap_kill",
+        "label": "T+1 gap-kill filter",
+        "description": "Drop the configured Friday SPY/QQQ reversion signals after an adverse T+1 opening gap.",
+        "settings_keys": ("use_t1_gap_kill",),
+        "regenerate_candidates": True,
+    },
+    {
+        "id": "earnings_blackouts",
+        "label": "Earnings blackouts",
+        "description": "Suppress configured OVS and LT Trend ST OS signals near earnings dates.",
+        "execution_keys": ("earnings_blackout_td",),
+    },
+    {
+        "id": "fragility_pc_sizing",
+        "label": "Fragility + put/call sizing",
+        "description": "Apply the production fragility bands and their put/call fear-state table selection.",
+        "execution_keys": ("frag_risk_bands", "pc_fear_bands"),
+    },
+    {
+        "id": "earnings_size_overrides",
+        "label": "Earnings size overrides",
+        "description": "Replace normal risk with the configured reduced size near earnings.",
+        "execution_keys": ("earnings_size_override",),
+    },
+    {
+        "id": "cycle_year_sizing",
+        "label": "Cycle-year sizing",
+        "description": "Apply the OVS midterm-year risk reduction.",
+        "execution_keys": ("cycle_risk_mults",),
+    },
+    {
+        "id": "signal_recency_sizing",
+        "label": "Signal-recency ladder",
+        "description": "Scale OLV risk by its recent same-ticker signal count.",
+        "execution_keys": ("signal_recency_ladder", "ladder_multipliers"),
+    },
+    {
+        "id": "same_day_signal_sizing",
+        "label": "Same-day signal de-rate",
+        "description": "Reduce risk when a configured strategy produces several signals on the same day.",
+        "execution_keys": ("same_day_signal_derate", "same_day_derate_floor"),
+    },
+    {
+        "id": "gap_size_derates",
+        "label": "Opening-gap size de-rates",
+        "description": "Reduce configured trade sizes after a large T+1 opening gap.",
+        "execution_keys": ("gap_size_derate",),
+    },
+    {
+        "id": "ticker_notional_caps",
+        "label": "Per-ticker notional cap",
+        "description": "Limit stacked OLV exposure in a single non-exempt ticker.",
+        "execution_keys": ("ticker_notional_cap",),
+    },
+    {
+        "id": "wcds_seasonal_sizing",
+        "label": "WCDS seasonal sizing tier",
+        "description": "Apply the Weak Close Decent Sznls seasonal-rank size tiers.",
+        "engine_overlay": "wcds_seasonal_sizing",
+        "strategy_names": ("Weak Close Decent Sznls",),
+    },
+    {
+        "id": "ovs_path2_sizing",
+        "label": "OVS mild-gap path sizing",
+        "description": "Downsize OVS mild-gap entries and enforce their aggregate daily path-2 cap.",
+        "engine_overlay": "ovs_path2_sizing",
+        "strategy_names": ("Overbot Vol Spike",),
+    },
+    {
+        "id": "ovs_atr_extended_precedence",
+        "label": "ATR Gap / OVS precedence",
+        "description": "Drop OVS when ATR Extended Gap Up fires on the same symbol and date.",
+        "engine_overlay": "ovs_atr_extended_precedence",
+        "strategy_names": ("Overbot Vol Spike", "ATR Extended Gap Up"),
+        "require_all_strategy_names": True,
+    },
+    {
+        "id": "cross_strategy_overlap",
+        "label": "Cross-strategy overlap clamp",
+        "description": "Clamp paired strategies when both fire on the same tradeable ticker and date.",
+        "engine_overlay": "cross_strategy_overlap",
+        "strategy_names": ("Indices Oversold Bounce", "SPY QQQ MonFri Reversion"),
+        "require_all_strategy_names": True,
+    },
+    {
+        "id": "overflow_risk_override",
+        "label": "Overflow risk override",
+        "description": "Apply the production OLV risk rate to overflow-universe signals.",
+        "engine_overlay": "overflow_risk_override",
+        "strategy_names": ("Oversold Low Volume",),
+        "overflow_active": True,
+    },
+    {
+        "id": "per_strategy_daily_cap",
+        "label": "250 bps daily strategy cap",
+        "description": "Pro-rata cap each strategy's staged risk on a signal date at 250 bps of equity.",
+        "cap_bps": 250,
+    },
+)
+
 
 def strip_portfolio_overlays(book):
     """Deep-copy ``book`` and retain only core strategy mechanics.
@@ -133,6 +248,151 @@ def strip_portfolio_overlays(book):
         if base_risk is not None:
             execution["risk_bps"] = base_risk
     return clean
+
+
+def _overlay_spec_active(spec, full_book):
+    """Return whether a lab control has a live carrier in this book."""
+    settings_keys = spec.get("settings_keys", ())
+    execution_keys = spec.get("execution_keys", ())
+    if settings_keys and not any(
+            any((s.get("settings") or {}).get(k) for k in settings_keys)
+            for s in full_book):
+        return False
+    if execution_keys and not any(
+            any((s.get("execution") or {}).get(k) for k in execution_keys)
+            for s in full_book):
+        return False
+
+    required_names = set(spec.get("strategy_names", ()))
+    if required_names:
+        present_names = {s.get("name") for s in full_book}
+        if spec.get("require_all_strategy_names"):
+            if not required_names.issubset(present_names):
+                return False
+        elif not (required_names & present_names):
+            return False
+
+    if spec.get("overflow_active") and len(full_book) <= len(STRATEGY_BOOK):
+        return False
+    return True
+
+
+def _book_with_single_overlay(clean_book, full_book, spec):
+    """Restore one config-backed overlay onto the clean book by pass index."""
+    variant = copy.deepcopy(clean_book)
+    if len(variant) != len(full_book):
+        raise ValueError("overlay lab book variants are not index-aligned")
+
+    for clean_strat, prod_strat in zip(variant, full_book):
+        for key in spec.get("settings_keys", ()):
+            prod_settings = prod_strat.get("settings") or {}
+            if key in prod_settings:
+                clean_strat.setdefault("settings", {})[key] = copy.deepcopy(
+                    prod_settings[key])
+        for key in spec.get("execution_keys", ()):
+            prod_execution = prod_strat.get("execution") or {}
+            if key in prod_execution:
+                clean_strat.setdefault("execution", {})[key] = copy.deepcopy(
+                    prod_execution[key])
+    return variant
+
+
+def _json_pnl_values(series, dates):
+    values = series.reindex(dates).fillna(0.0).to_numpy(dtype=float)
+    return [round(float(v), 2) if np.isfinite(v) else 0.0 for v in values]
+
+
+def build_overlay_lab(processed, full_book, clean_book, sznl_map,
+                      starting_equity, md, clean_candidates,
+                      clean_signal_data, clean_sig_flat,
+                      production_sig_flat):
+    """Build exact standalone flat-PnL replays for every active overlay.
+
+    A browser cannot replay path-dependent portfolio logic from one static
+    ledger.  The cloud build therefore runs each overlay exactly against the
+    all-off book.  The site can display any single switch exactly and combine
+    several standalone deltas for fast attribution, while the actual fully
+    interacted production curve remains visible as the truth benchmark.
+    """
+    base_pnl = get_daily_mtm_series(clean_sig_flat, md, start_date=BT_START)
+    production_pnl = get_daily_mtm_series(
+        production_sig_flat, md, start_date=BT_START)
+    overlay_runs = []
+
+    for spec in OVERLAY_LAB_SPECS:
+        if not _overlay_spec_active(spec, full_book):
+            continue
+        variant_book = _book_with_single_overlay(clean_book, full_book, spec)
+
+        if spec.get("regenerate_candidates"):
+            print(f"  Generating candidates [overlay lab: {spec['label']}] ...")
+            variant_candidates, variant_signal_data = generate_candidates_fast(
+                processed, variant_book, sznl_map, BT_START)
+        else:
+            variant_candidates = clean_candidates.copy()
+            variant_signal_data = clean_signal_data
+
+        engine_overlay = spec.get("engine_overlay")
+        enabled_names = (engine_overlay,) if engine_overlay else ()
+        print(f"  Processing trades [overlay lab: {spec['label']}] ...")
+        sig_flat = process_signals_fast(
+            variant_candidates.copy(), variant_signal_data, processed,
+            variant_book, starting_equity,
+            cap_bps=spec.get("cap_bps", 0),
+            flat_sizing=True,
+            overflow_active=bool(spec.get("overflow_active")),
+            max_long_risk_bps=None,
+            max_short_risk_bps=None,
+            portfolio_overlays_enabled=False,
+            portfolio_overlay_names=enabled_names,
+        )
+        if sig_flat.empty:
+            raise RuntimeError(
+                f"overlay lab run {spec['id']} produced no executed trades")
+        pnl = get_daily_mtm_series(sig_flat, md, start_date=BT_START)
+        overlay_runs.append((spec, sig_flat, pnl))
+        print(f"    {len(sig_flat)} trades")
+
+    if not overlay_runs:
+        raise RuntimeError("overlay lab found no active production overlays")
+
+    dates = base_pnl.index.union(production_pnl.index)
+    for _, _, pnl in overlay_runs:
+        dates = dates.union(pnl.index)
+    dates = dates.sort_values()
+
+    provenance = _provenance_meta(len(production_sig_flat))
+    payload = {
+        "schema_version": 1,
+        "generated_utc": provenance["ledger_build_utc"],
+        "ledger_source": provenance["ledger_source"],
+        "ledger_git_sha": provenance["ledger_git_sha"],
+        "basis": "flat_750k",
+        "starting_equity": float(starting_equity),
+        "display_start_equity": 10000.0,
+        "combination_method": "additive_standalone_deltas",
+        "dates": [pd.Timestamp(d).strftime("%Y-%m-%d") for d in dates],
+        "all_off_pnl": _json_pnl_values(base_pnl, dates),
+        "production_pnl": _json_pnl_values(production_pnl, dates),
+        "all_off_trade_count": int(len(clean_sig_flat)),
+        "production_trade_count": int(len(production_sig_flat)),
+        "overlays": [],
+    }
+    for spec, sig_flat, pnl in overlay_runs:
+        payload["overlays"].append({
+            "id": spec["id"],
+            "label": spec["label"],
+            "description": spec["description"],
+            "trade_count": int(len(sig_flat)),
+            "pnl": _json_pnl_values(pnl, dates),
+        })
+
+    os.makedirs(os.path.dirname(OUT_OVERLAY_LAB), exist_ok=True)
+    with open(OUT_OVERLAY_LAB, "w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"), ensure_ascii=False)
+    print(f"  Wrote {len(payload['overlays'])} overlay-lab curves -> "
+          f"{OUT_OVERLAY_LAB}")
+    return payload
 
 
 def _provenance_meta(n_rows):
@@ -485,7 +745,8 @@ def build_ovsext_counterfactual(df, md):
 
 
 def build_overlay_free_counterfactual(processed, full_book, sznl_map,
-                                      starting_equity, md):
+                                      starting_equity, md,
+                                      production_sig_flat=None):
     """Build the private site's full-book, all-portfolio-overlays-off ledger."""
     clean_book = strip_portfolio_overlays(full_book)
     print("\n  Generating candidates [all portfolio overlays off] ...")
@@ -540,6 +801,11 @@ def build_overlay_free_counterfactual(processed, full_book, sznl_map,
     daily["equity_flat"] = starting_equity + daily["pnl_flat"].cumsum()
     daily.reset_index().to_parquet(OUT_OVERLAY_FREE_DAILY, index=False)
     print(f"  Wrote {len(daily)} overlay-free daily rows -> {OUT_OVERLAY_FREE_DAILY}")
+
+    if production_sig_flat is not None:
+        build_overlay_lab(
+            processed, full_book, clean_book, sznl_map, starting_equity, md,
+            candidates, signal_data, sig_flat, production_sig_flat)
     return df
 
 
@@ -674,7 +940,8 @@ def main(upload=False):
     # intentionally required (not best effort): a production deploy must never
     # advertise the overlay-free mode while serving an absent/stale bundle.
     overlay_free_df = build_overlay_free_counterfactual(
-        processed, full_book, sznl_map, starting_equity, md)
+        processed, full_book, sznl_map, starting_equity, md,
+        production_sig_flat=sig_flat)
     print(f"  Overlay-free comparison: {len(overlay_free_df)} trades")
 
     # Mirror the production ledger only after every required comparison

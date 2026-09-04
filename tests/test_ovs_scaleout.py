@@ -197,6 +197,19 @@ def test_overlay_free_mode_keeps_both_strategies_and_full_sizes_ovs_path2():
     assert abs(ovs['Risk $'].sum() - 400.0) < 1e-6
 
 
+def test_named_overlay_switch_replays_only_requested_hardcoded_rule():
+    candidates, signal_data, processed = _build_inputs(n_strats=2)
+    sig_df = process_signals_fast(
+        candidates, signal_data, processed,
+        [_ovs_strategy(), _atr_ext_strategy()],
+        starting_equity=100_000,
+        portfolio_overlays_enabled=False,
+        portfolio_overlay_names={"ovs_atr_extended_precedence"},
+    )
+
+    assert set(sig_df['Strategy']) == {'ATR Extended Gap Up'}
+
+
 def test_config_scaleout_fields_not_grm_scaled():
     ovs = next(s for s in STRATEGY_BOOK if s['name'] == 'Overbot Vol Spike')
     exe = ovs['execution']
