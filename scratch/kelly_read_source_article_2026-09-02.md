@@ -35,8 +35,8 @@ Now take two positions with the same edge μ and the same vol σ, but whose retu
 The right size for each of the two becomes:
 f = μ / σ²(1 + ρ)
 — the solo formula, with the denominator grown by (1 + ρ). Don't take it on faith — check it at the corners, where you already know the answer:
-ρ = 0: the denominator is just σ², so each gets its full solo size. That's Rung 2 exactly. ✓
-ρ = 1: the denominator doubles, so each gets half its solo size — meaning the two together add up to exactly one solo position. The formula has recognized that two perfectly correlated stocks are one bet with two line items. Two tickets on the same horse don't double your edge; they just split one wager across two pieces of paper. ✓
+ρ = 0: the denominator is just σ², so each gets its full solo size. That's Rung 2 exactly.. Checks out.
+ρ = 1: the denominator doubles, so each gets half its solo size — meaning the two together add up to exactly one solo position. The formula has recognized that two perfectly correlated stocks are one bet with two line items. Two tickets on the same horse don't double your edge; they just split one wager across two pieces of paper.. Checks out.
 ρ = 0.5: the denominator is 1.5 σ², so each position shrinks by a third — bigger than half a bet each (they're not clones) but well short of full size (they're not new ideas either).
 ρ = −0.5: the denominator is 0.5 σ², so each position gets double its solo size. The formula rewards hedged exposure with more capital, because offsetting swings cancel part of the compounding tax. This is why a hedged long/short pair can responsibly run much bigger gross than the same two positions ever could on the same side — the math agrees with the instinct every pairs trader already has.
 One formula, and it reproduces everything you already believed at the corners. That's your license to trust it in between.

@@ -32,6 +32,8 @@ given), DONE (commit hash). Move items down, never delete them.
 - A1. Plan files (`docs/plan_2026-09-04.md`, `docs/running_list.md`, `docs/briefs/2026-09-04/`) committed. Mind.
 - A2. Recon wave launched 2026-09-04: `docs/briefs/2026-09-04/recon_onedrive.md`, `recon_parity.md`, `recon_data_window.md`, `recon_worktree.md`. Read-only, scratch output only.
 - A3. Freeze (D1) in force from 2026-09-04.
+- A4. 2026-09-04 04:10 v8 premarket verified: cboe_am, master_prices_am, risk_am, event_sleeve_am, scan_am all `success local`; both AM site deploys `success github` (supervisor `status --date 2026-09-04`, read-only). First real test of the 09-03 stall fix passed.
+- A5. D8 study brief `docs/briefs/2026-09-04/study_pcfear_review.md`; D9 study brief `docs/briefs/2026-09-04/study_ovs_liquid.md`; incident write-up brief `docs/briefs/2026-09-04/doc_incident_0903.md`. Launched 2026-09-04.
 
 ## DONE
 
