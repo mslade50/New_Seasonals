@@ -65,7 +65,7 @@ given), DONE (commit hash). Move items down, never delete them.
 
 - O38. `verify_olv_exit_fix` returned FAIL 2026-09-04 (three code defects: stacked-leg retry steals the sibling bracket; late-run sell against a flat position; reject inside the verify pause misread as UNKNOWN). Round 2 build launched on Opus (brief appended). A second verify follows; the task stays DISABLED until PASS.
 - O39. `verify_ops_supervisor` returned PASS with gaps (health/fallback-due crash on LockUnavailable; live-lease block counted as new failure; retry slot 05:30 vs 70-min lease; four doc contradictions). Round 2 build launched on Opus (brief appended). Round 1 stays uncommitted until round 2 verifies.
-- O40. `build_soxs_repair` (D13) launched on Opus 2026-09-04 after the sizing verify freed the price file.
+- O40. `build_soxs_repair` (D13) round 1 DONE 2026-09-04: local parquet repaired (46 SOXS rows / 15.0139, mirror-validated; vendor ratio 15.0139 confirms), backup `data/master_prices.parquet.bak_20260904_soxs`, `scripts/repair_price_island.py` + segment guard in the updater, 25 tests. Dry run: yfinance STILL serves the island; guard rejects it. Mind decisions: (1) segment-only row drop, not whole-ticker (round 2 sent to the builder), (2) R2 UPLOAD ONLY AFTER the v9 cutover puts the new updater in the pinned runtime (the old median guard would re-import the island at 17:10). Upload command: `python -c "from cache_io import upload_from_local; print(upload_from_local('data/master_prices.parquet','master_prices.parquet'))"`. The 126d window enters the island ~09-18; v9 must land before then.
 
 ## DONE
 
