@@ -1,0 +1,159 @@
+{
+  "window_start": "2023-09-04",
+  "yf_date_min": "2023-09-05",
+  "n_liquid_signals": 85,
+  "n_ok": 85,
+  "n_missing_series": 0,
+  "engine_vs_cache_full_reproduced": 85,
+  "n_full_context_both": 78,
+  "primary_cache_win_vs_yf_full_context": {
+    "n_signals": 78,
+    "n_affected_on_cache": 19,
+    "n_flips_among_affected": 1,
+    "flip_share_of_affected": 0.05263157894736842,
+    "n_affected_union": 20,
+    "n_flips_union": 2,
+    "flip_share_union": 0.1,
+    "n_any_signal_rule_change": 2,
+    "crosstab": {
+      "above_high_2_3": {
+        "above_high_2_3": 2,
+        "above_high_4_5": 0,
+        "above_high_gt5": 0,
+        "default": 0
+      },
+      "above_high_4_5": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 6,
+        "above_high_gt5": 0,
+        "default": 1
+      },
+      "above_high_gt5": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 1,
+        "above_high_gt5": 10,
+        "default": 0
+      },
+      "default": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 0,
+        "above_high_gt5": 0,
+        "default": 58
+      }
+    }
+  },
+  "cache_win_vs_yf_all": {
+    "n_signals": 85,
+    "n_affected_on_cache": 19,
+    "n_flips_among_affected": 1,
+    "flip_share_of_affected": 0.05263157894736842,
+    "n_affected_union": 20,
+    "n_flips_union": 2,
+    "flip_share_union": 0.1,
+    "n_any_signal_rule_change": 2,
+    "crosstab": {
+      "above_high_2_3": {
+        "above_high_2_3": 2,
+        "above_high_4_5": 0,
+        "above_high_gt5": 0,
+        "default": 0
+      },
+      "above_high_4_5": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 6,
+        "above_high_gt5": 0,
+        "default": 1
+      },
+      "above_high_gt5": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 1,
+        "above_high_gt5": 10,
+        "default": 0
+      },
+      "default": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 0,
+        "above_high_gt5": 0,
+        "default": 65
+      }
+    }
+  },
+  "cache_full_vs_yf_all": {
+    "n_signals": 85,
+    "n_affected_on_cache": 20,
+    "n_flips_among_affected": 2,
+    "flip_share_of_affected": 0.1,
+    "n_affected_union": 21,
+    "n_flips_union": 3,
+    "flip_share_union": 0.14285714285714285,
+    "n_any_signal_rule_change": 3,
+    "crosstab": {
+      "above_high_2_3": {
+        "above_high_2_3": 2,
+        "above_high_4_5": 0,
+        "above_high_gt5": 0,
+        "default": 0
+      },
+      "above_high_4_5": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 6,
+        "above_high_gt5": 0,
+        "default": 1
+      },
+      "above_high_gt5": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 1,
+        "above_high_gt5": 10,
+        "default": 0
+      },
+      "default": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 0,
+        "above_high_gt5": 1,
+        "default": 64
+      }
+    }
+  },
+  "cache_full_vs_cache_win_all": {
+    "n_signals": 85,
+    "n_affected_on_cache": 20,
+    "n_flips_among_affected": 1,
+    "flip_share_of_affected": 0.05,
+    "n_affected_union": 20,
+    "n_flips_union": 1,
+    "flip_share_union": 0.05,
+    "n_any_signal_rule_change": 1,
+    "crosstab": {
+      "above_high_2_3": {
+        "above_high_2_3": 2,
+        "above_high_4_5": 0,
+        "above_high_gt5": 0,
+        "default": 0
+      },
+      "above_high_4_5": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 7,
+        "above_high_gt5": 0,
+        "default": 0
+      },
+      "above_high_gt5": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 0,
+        "above_high_gt5": 10,
+        "default": 0
+      },
+      "default": {
+        "above_high_2_3": 0,
+        "above_high_4_5": 0,
+        "above_high_gt5": 1,
+        "default": 65
+      }
+    }
+  },
+  "abs_dist_shift_win_vs_yf_full_context": {
+    "median": 1.1993729254200503e-06,
+    "p90": 2.2585049126710995e-05,
+    "max": 6.034013513014111
+  },
+  "median_ratio_cache_over_yf_at_signal": 1.0
+}

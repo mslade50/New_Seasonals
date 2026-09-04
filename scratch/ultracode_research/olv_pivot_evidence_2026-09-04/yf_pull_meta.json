@@ -1,0 +1,12 @@
+{
+  "pulled_utc": "2026-09-04T11:57:20.613468Z",
+  "yfinance_version": "1.4.1",
+  "n_tickers_requested": 197,
+  "n_tickers_returned": 197,
+  "failed": [],
+  "start": "2023-09-04",
+  "end": "2026-09-04",
+  "date_min": "2023-09-05",
+  "date_max": "2026-09-03",
+  "auto_adjust": true
+}

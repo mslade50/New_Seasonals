@@ -1,0 +1,91 @@
+{
+  "evidence_found": true,
+  "evidence_location": "artifacts/olv-pivot-age-252-20260901/summary.json policy_counterfactual (gitignored, untracked): age-capped policy total_r 247.474 minus unlimited-age policy total_r 238.791 = +8.68R on the 359 completed OLV fills of the 2026-08-31 ledger (artifacts/olv-level-proximity-20260831); it is policy-v2 vs policy-v1, NOT policy vs no-policy (no-policy baseline on the same sample 253.354R)",
+  "with_policy": {
+    "2010": {
+      "signals_total": 495,
+      "signals_staged": 428,
+      "fills_completed": 291,
+      "avgR": 0.8097811016978707,
+      "pnl_per_unit_risk": 0.8351000875608348,
+      "total_flat_pnl": 406575.0,
+      "worst_21d_flat_pnl": -37370.49680624688,
+      "max_dd_flat_pnl": -40578.47275069787
+    },
+    "2016H2": {
+      "signals_total": 427,
+      "signals_staged": 371,
+      "fills_completed": 251,
+      "avgR": 0.8410369421361217,
+      "pnl_per_unit_risk": 0.8346127221244548,
+      "total_flat_pnl": 349438.0,
+      "worst_21d_flat_pnl": -37370.49680624688,
+      "max_dd_flat_pnl": -40578.47275069787
+    },
+    "2024": {
+      "signals_total": 228,
+      "signals_staged": 194,
+      "fills_completed": 122,
+      "avgR": 0.6360278790079074,
+      "pnl_per_unit_risk": 0.6283956173051795,
+      "total_flat_pnl": 136032.0,
+      "worst_21d_flat_pnl": -37370.49680624688,
+      "max_dd_flat_pnl": -40578.472750697794
+    }
+  },
+  "without_policy": {
+    "2010": {
+      "signals_total": 495,
+      "signals_staged": 495,
+      "fills_completed": 349,
+      "avgR": 0.6884159652287354,
+      "pnl_per_unit_risk": 0.7122300460654655,
+      "total_flat_pnl": 408745.0,
+      "worst_21d_flat_pnl": -59608.40397558892,
+      "max_dd_flat_pnl": -65063.51327231951
+    },
+    "2016H2": {
+      "signals_total": 427,
+      "signals_staged": 427,
+      "fills_completed": 301,
+      "avgR": 0.7113246034939427,
+      "pnl_per_unit_risk": 0.696793316078337,
+      "total_flat_pnl": 345523.0,
+      "worst_21d_flat_pnl": -59608.40397558891,
+      "max_dd_flat_pnl": -65063.51327231951
+    },
+    "2024": {
+      "signals_total": 228,
+      "signals_staged": 228,
+      "fills_completed": 150,
+      "avgR": 0.49532613419173754,
+      "pnl_per_unit_risk": 0.46061403195873407,
+      "total_flat_pnl": 117131.0,
+      "worst_21d_flat_pnl": -59608.40397558891,
+      "max_dd_flat_pnl": -65063.5132723195
+    }
+  },
+  "affected_signals_n": 100,
+  "affected_diff_R": -4.609444484353741,
+  "affected_t_clustered_2010": -0.3267061252250965,
+  "affected_t_clustered_2016": -0.23055430602342958,
+  "skipped_n": 64,
+  "skipped_wouldbe_R": 11.932217817687073,
+  "basis_flip_share": 0.05263157894736842,
+  "basis_flips_n": 1,
+  "live_nondefault_n": 39,
+  "live_flips_n": 3,
+  "_notes": {
+    "affected_definition": "candidates whose proposed matched_rule != default (2-3, 4-5, >5 bands), signal date 2010-01-01..2026-08-31, censored-on-either-arm excluded",
+    "affected_diff_R": "sum over affected signals of R_with (0 if skipped/unfilled) - R_without (0 if unfilled); flat $750k basis",
+    "basis_flip_share": "share of liquid-tier signals since 2023-09-04 that are non-default on the cache (same yf window) whose band differs on the yf auto_adjust series, restricted to signals with >= 300 yf bars of context",
+    "basis_flip_share_all_windows": 0.05263157894736842,
+    "basis_flip_share_production_vs_yf": 0.1,
+    "live_prev_session_2026-09-02_close": {
+      "nondefault_n": 36,
+      "flips_n": 0
+    },
+    "live_latest_close": "2026-09-03",
+    "policy_off_value": "execution['pivot_entry_policy']['enabled'] = False"
+  }
+}

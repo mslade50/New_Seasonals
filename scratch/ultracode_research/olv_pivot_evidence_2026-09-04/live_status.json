@@ -1,0 +1,682 @@
+{
+  "2026-09-03_scan_AM": {
+    "close_date": "2026-09-02",
+    "n_universe": 197,
+    "n_no_bar_cache": 1,
+    "n_no_bar_yf": 1,
+    "n_nondefault_cache": 36,
+    "n_flips_among_nondefault": 0,
+    "n_nondefault_yf": 37,
+    "n_rule_changes_any": 1,
+    "fired_olv_names": [
+      "SNA"
+    ],
+    "fired_nondefault": [],
+    "fired_flips": [],
+    "nondefault_cache": [
+      {
+        "ticker": "AAPL",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.842,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.879,
+        "fired_olv": false
+      },
+      {
+        "ticker": "ALL",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 10.026,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 10.209,
+        "fired_olv": false
+      },
+      {
+        "ticker": "AMGN",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.23,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.472,
+        "fired_olv": false
+      },
+      {
+        "ticker": "BAC",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.427,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.427,
+        "fired_olv": false
+      },
+      {
+        "ticker": "BAX",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.005,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.017,
+        "fired_olv": false
+      },
+      {
+        "ticker": "BMY",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.016,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.483,
+        "fired_olv": false
+      },
+      {
+        "ticker": "CRM",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.244,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.244,
+        "fired_olv": false
+      },
+      {
+        "ticker": "CVS",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 7.063,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 7.319,
+        "fired_olv": false
+      },
+      {
+        "ticker": "DIA",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 8.095,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 8.596,
+        "fired_olv": false
+      },
+      {
+        "ticker": "HPQ",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.115,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.115,
+        "fired_olv": false
+      },
+      {
+        "ticker": "IBB",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 8.0,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 8.0,
+        "fired_olv": false
+      },
+      {
+        "ticker": "IWM",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 8.319,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 8.319,
+        "fired_olv": false
+      },
+      {
+        "ticker": "IYR",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.908,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.908,
+        "fired_olv": false
+      },
+      {
+        "ticker": "JNJ",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.06,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.279,
+        "fired_olv": false
+      },
+      {
+        "ticker": "JPM",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.345,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.623,
+        "fired_olv": false
+      },
+      {
+        "ticker": "KO",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.473,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.473,
+        "fired_olv": false
+      },
+      {
+        "ticker": "LEG",
+        "cache_rule": "no_bar",
+        "cache_distance": NaN,
+        "yf_rule": "no_bar",
+        "yf_distance": NaN,
+        "fired_olv": false
+      },
+      {
+        "ticker": "MET",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 8.415,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 8.696,
+        "fired_olv": false
+      },
+      {
+        "ticker": "MRK",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.095,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.095,
+        "fired_olv": false
+      },
+      {
+        "ticker": "MS",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.08,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.313,
+        "fired_olv": false
+      },
+      {
+        "ticker": "NSC",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.83,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.997,
+        "fired_olv": false
+      },
+      {
+        "ticker": "PFE",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.33,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.33,
+        "fired_olv": false
+      },
+      {
+        "ticker": "REGN",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.116,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.164,
+        "fired_olv": false
+      },
+      {
+        "ticker": "RHI",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.541,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.826,
+        "fired_olv": false
+      },
+      {
+        "ticker": "SPG",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 9.274,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 9.274,
+        "fired_olv": false
+      },
+      {
+        "ticker": "STT",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 13.116,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 13.277,
+        "fired_olv": false
+      },
+      {
+        "ticker": "SWK",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.643,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.643,
+        "fired_olv": false
+      },
+      {
+        "ticker": "TMO",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.745,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.745,
+        "fired_olv": false
+      },
+      {
+        "ticker": "TRV",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 9.478,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 9.478,
+        "fired_olv": false
+      },
+      {
+        "ticker": "UNH",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.324,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.324,
+        "fired_olv": false
+      },
+      {
+        "ticker": "UNP",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 8.709,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 8.876,
+        "fired_olv": false
+      },
+      {
+        "ticker": "USB",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.366,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.812,
+        "fired_olv": false
+      },
+      {
+        "ticker": "XBI",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.856,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.856,
+        "fired_olv": false
+      },
+      {
+        "ticker": "XLE",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.685,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.685,
+        "fired_olv": false
+      },
+      {
+        "ticker": "XLF",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.48,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.794,
+        "fired_olv": false
+      },
+      {
+        "ticker": "XLV",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.218,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.279,
+        "fired_olv": false
+      }
+    ],
+    "flips": [],
+    "newly_nondefault_on_yf": [
+      {
+        "ticker": "VNQ",
+        "cache_rule": "default",
+        "cache_distance": 1.363,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.971
+      }
+    ]
+  },
+  "2026-09-03_scan_PM_and_2026-09-04_scan_AM": {
+    "close_date": "2026-09-03",
+    "n_universe": 197,
+    "n_no_bar_cache": 1,
+    "n_no_bar_yf": 1,
+    "n_nondefault_cache": 39,
+    "n_flips_among_nondefault": 3,
+    "n_nondefault_yf": 37,
+    "n_rule_changes_any": 3,
+    "fired_olv_names": [
+      "RTX"
+    ],
+    "fired_nondefault": [],
+    "fired_flips": [],
+    "nondefault_cache": [
+      {
+        "ticker": "AAPL",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.098,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.133,
+        "fired_olv": false
+      },
+      {
+        "ticker": "ALL",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 10.129,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 10.3,
+        "fired_olv": false
+      },
+      {
+        "ticker": "AMGN",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.347,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.588,
+        "fired_olv": false
+      },
+      {
+        "ticker": "BAC",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.749,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.749,
+        "fired_olv": false
+      },
+      {
+        "ticker": "BAX",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.643,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.655,
+        "fired_olv": false
+      },
+      {
+        "ticker": "BMY",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.243,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.702,
+        "fired_olv": false
+      },
+      {
+        "ticker": "CRM",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.84,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.84,
+        "fired_olv": false
+      },
+      {
+        "ticker": "CVS",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 7.229,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 7.492,
+        "fired_olv": false
+      },
+      {
+        "ticker": "DIA",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 8.925,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 9.384,
+        "fired_olv": false
+      },
+      {
+        "ticker": "GS",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.882,
+        "yf_rule": "default",
+        "yf_distance": 3.072,
+        "fired_olv": false
+      },
+      {
+        "ticker": "HPQ",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.109,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.109,
+        "fired_olv": false
+      },
+      {
+        "ticker": "IBB",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 7.98,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 7.98,
+        "fired_olv": false
+      },
+      {
+        "ticker": "IWM",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 8.644,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 8.644,
+        "fired_olv": false
+      },
+      {
+        "ticker": "IYR",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.753,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.751,
+        "fired_olv": false
+      },
+      {
+        "ticker": "JNJ",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.445,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.654,
+        "fired_olv": false
+      },
+      {
+        "ticker": "JPM",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.28,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.551,
+        "fired_olv": false
+      },
+      {
+        "ticker": "KO",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.748,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.745,
+        "fired_olv": false
+      },
+      {
+        "ticker": "LEG",
+        "cache_rule": "no_bar",
+        "cache_distance": NaN,
+        "yf_rule": "no_bar",
+        "yf_distance": NaN,
+        "fired_olv": false
+      },
+      {
+        "ticker": "MET",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 9.277,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 9.534,
+        "fired_olv": false
+      },
+      {
+        "ticker": "MRK",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.12,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.12,
+        "fired_olv": false
+      },
+      {
+        "ticker": "MS",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.028,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.251,
+        "fired_olv": false
+      },
+      {
+        "ticker": "MSFT",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.824,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.824,
+        "fired_olv": false
+      },
+      {
+        "ticker": "NSC",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.488,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.655,
+        "fired_olv": false
+      },
+      {
+        "ticker": "RHI",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.666,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.953,
+        "fired_olv": false
+      },
+      {
+        "ticker": "SCHW",
+        "cache_rule": "above_high_4_5",
+        "cache_distance": 4.65,
+        "yf_rule": "above_high_4_5",
+        "yf_distance": 4.776,
+        "fired_olv": false
+      },
+      {
+        "ticker": "SPG",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 10.096,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 10.095,
+        "fired_olv": false
+      },
+      {
+        "ticker": "SPY",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.822,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.822,
+        "fired_olv": false
+      },
+      {
+        "ticker": "STT",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 13.81,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 13.966,
+        "fired_olv": false
+      },
+      {
+        "ticker": "SWK",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.404,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.404,
+        "fired_olv": false
+      },
+      {
+        "ticker": "TMO",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.105,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.105,
+        "fired_olv": false
+      },
+      {
+        "ticker": "TRV",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 10.031,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 10.031,
+        "fired_olv": false
+      },
+      {
+        "ticker": "UNH",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 6.3,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.3,
+        "fired_olv": false
+      },
+      {
+        "ticker": "UNP",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 8.79,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 8.961,
+        "fired_olv": false
+      },
+      {
+        "ticker": "USB",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.974,
+        "yf_rule": "default",
+        "yf_distance": 3.412,
+        "fired_olv": false
+      },
+      {
+        "ticker": "VNQ",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.228,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.718,
+        "fired_olv": false
+      },
+      {
+        "ticker": "XBI",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.686,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.685,
+        "fired_olv": false
+      },
+      {
+        "ticker": "XLE",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.27,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.27,
+        "fired_olv": false
+      },
+      {
+        "ticker": "XLV",
+        "cache_rule": "above_high_gt5",
+        "cache_distance": 5.217,
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 5.275,
+        "fired_olv": false
+      },
+      {
+        "ticker": "^GSPC",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.47,
+        "yf_rule": "above_high_2_3",
+        "yf_distance": 2.47,
+        "fired_olv": false
+      }
+    ],
+    "flips": [
+      {
+        "ticker": "GS",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.882,
+        "cache_nearest": "High",
+        "yf_rule": "default",
+        "yf_distance": 3.072,
+        "yf_nearest": "High",
+        "close_cache": 1037.93,
+        "close_yf": 1037.93
+      },
+      {
+        "ticker": "USB",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.974,
+        "cache_nearest": "High",
+        "yf_rule": "default",
+        "yf_distance": 3.412,
+        "yf_nearest": "High",
+        "close_cache": 63.53,
+        "close_yf": 63.53
+      },
+      {
+        "ticker": "VNQ",
+        "cache_rule": "above_high_2_3",
+        "cache_distance": 2.228,
+        "cache_nearest": "High",
+        "yf_rule": "above_high_gt5",
+        "yf_distance": 6.718,
+        "yf_nearest": "High",
+        "close_cache": 96.66,
+        "close_yf": 96.66
+      }
+    ],
+    "newly_nondefault_on_yf": []
+  }
+}

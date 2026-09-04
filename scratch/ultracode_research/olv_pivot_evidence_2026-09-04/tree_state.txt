@@ -1,0 +1,76 @@
+run_utc: 2026-09-04T12:01:06.865999Z
+HEAD: 26ddad069970558c6197ee13db08423f7b942bb5
+git diff --stat:
+ .github/workflows/local_automation_fallback.yml |   9 +
+ daily_scan.py                                   |  63 ++++--
+ data/cboe_putcall.parquet                       | Bin 67362 -> 67416 bytes
+ data/exposure_state.json                        |  32 +--
+ data/pitch_journal.jsonl                        |  19 ++
+ data/pitch_negative_registry.md                 | 251 +++++++++++++++++++++
+ data/pitch_scoreboard.json                      |  90 ++++----
+ data/pitch_watchlist.json                       | 122 +++++++----
+ data/posts_journal.jsonl                        |  14 ++
+ data/posts_scoreboard.json                      |  14 +-
+ data/rd2_environment.json                       |  50 ++---
+ data/rd2_fragility.parquet                      | Bin 70293 -> 70367 bytes
+ docs/local_automation_task_scheduler.md         | 160 ++++++++++++--
+ fundamental/config.py                           |   3 +-
+ fundamental/reference/founder_ceos.json         |   7 +-
+ fundamental/universe.py                         |  10 +-
+ pages/strat_backtester.py                       |  21 +-
+ pitch_lab.py                                    |  40 ++++
+ requirements.txt                                |   2 +
+ scripts/automation_supervisor.py                | 279 +++++++++++++++++++++++-
+ scripts/build_trade_ledger.py                   |  27 ++-
+ scripts/install_local_automation_tasks.ps1      | 247 ++++++++++++++++++++-
+ scripts/run_local_automation.ps1                |  27 ++-
+ strategy_config.py                              |  59 +++++
+ tests/test_automation_runtime_safety.py         |   5 +-
+ tests/test_fundamental_sleeve.py                |  23 +-
+ tests/test_local_automation_powershell.py       |  35 ++-
+ tests/test_local_automation_workflows.py        |   5 +
+ tests/test_pitch_lab.py                         |  61 ++++++
+ 29 files changed, 1453 insertions(+), 222 deletions(-)
+
+git status --short (money-path files):
+ M daily_scan.py
+ M pages/strat_backtester.py
+ M strategy_config.py
+
+OLV execution pivot_entry_policy as loaded:
+{
+ "enabled": true,
+ "version": "olv_close_pivot_40_v2_20260901",
+ "left_bars": 40,
+ "right_bars": 40,
+ "max_source_age_bars": 252,
+ "default_offset_atr": 0.25,
+ "rules": [
+  {
+   "name": "above_high_gt5",
+   "min_exclusive": 5.0,
+   "action": "skip"
+  },
+  {
+   "name": "above_high_4_5",
+   "min_exclusive": 4.0,
+   "max_inclusive": 5.0,
+   "offset_atr": 0.75
+  },
+  {
+   "name": "above_high_2_3",
+   "min_exclusive": 2.0,
+   "max_inclusive": 3.0,
+   "offset_atr": 0.5
+  }
+ ]
+}
+OLV risk_bps (GRM-scaled): 52.5
+OLV signal_recency_ladder: {'window_td': 21, 'mults': [0.5, 0.7, 1.0]}
+OLV fill_window_days: 3
+OLV stop_mode: vol_confirm_close
+OLV ticker_notional_cap: {'pct_nav': 0.5, 'exempt': ['CEF', 'DBC', 'DIA', 'EEM', 'EFA', 'EWZ', 'FXI', 'GDX', 'GDXJ', 'GLD', 'HYG', 'IBB', 'IEF', 'IHI', 'ITA', 'ITB', 'IWM', 'IYR', 'KRE', 'LQD', 'OIH', 'QQQ', 'SLV', 'SMH', 'SPY', 'TLT', 'UNG', 'USO', 'UVXY', 'VNQ', 'XBI', 'XHB', 'XLB', 'XLC', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT', '^GSPC', '^NDX']}
+OLV frag_risk_bands: None
+GLOBAL_RISK_MULTIPLIER: 1.5
+ACCOUNT_VALUE: 750000
+master_prices mtime: 2026-09-04T09:10:30.764026Z

@@ -1,0 +1,186 @@
+{
+  "git_head": "26ddad069970558c6197ee13db08423f7b942bb5",
+  "git_log_S": {
+    "8.68 (tracked py/md only)": "ec5b06f0 Decisions D13-D15 (SOXS repair, OLV exit incident, SPG/UNH = pivot policy); four briefs; owner items O24-O34\n03d9e21a P/C-fear post-ship review part 1 (all legs stand); 09-03 incident record; five build/verify briefs\na3036527 Expire stale OLV pivot levels\ndd715d8d Daily Pitch 2026-08-17: stand-down, and the August duration seasonal closed\n5d3704ee Daily Pitch: commit 2026-08-10's audit trail\n6d30c20d Daily Pitch 2026-08-07: stand-down, and the cell the AM run missed",
+    "ClosePivot": "ec5b06f0 Decisions D13-D15 (SOXS repair, OLV exit incident, SPG/UNH = pivot policy); four briefs; owner items O24-O34\na3036527 Expire stale OLV pivot levels\ndec62f06 Add OLV pivot-aware live entries",
+    "pivot_entry_policy": "ec5b06f0 Decisions D13-D15 (SOXS repair, OLV exit incident, SPG/UNH = pivot policy); four briefs; owner items O24-O34\n1119efae Clarify OLV pivot signal emails\ndec62f06 Add OLV pivot-aware live entries"
+  },
+  "policy_commits": {
+    "dec62f06": "dec62f0627c285e893b1bbc11b7afd0c9bf2c3fc McKinley 2026-08-31 15:54:14 -0400 Add OLV pivot-aware live entries",
+    "a3036527": "a30365270eb4fe6630ca93776bf8c192d6875f65 McKinley 2026-09-01 13:31:02 -0400 Expire stale OLV pivot levels",
+    "1119efae": "1119efae430e606e57cc0aa68ccb1713a0299f88 McKinley 2026-09-02 21:29:26 -0400 Clarify OLV pivot signal emails"
+  },
+  "artifacts_gitignored": ".gitignore:44:artifacts/\tartifacts/olv-pivot-age-252-20260901/summary.json",
+  "claim_comment_introduced_by": "a3036527 Expire stale OLV pivot levels",
+  "artifact_dirs": {
+    "level_proximity": {
+      "path": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\olv-level-proximity-20260831",
+      "exists": true,
+      "files": [
+        "__pycache__",
+        "analyze_olv_levels.py",
+        "continuous_distance_stats.csv",
+        "definition_sensitivity.csv",
+        "excluded_censored_trades.csv",
+        "feature_spearman_correlation.csv",
+        "fixed_band_performance.csv",
+        "olv_level_proximity_report.html",
+        "olv_trades_with_level_features.csv",
+        "pivot_type_contrasts_bootstrap.csv",
+        "pivot_type_quintile_performance.csv",
+        "pivot_type_stability.csv",
+        "quintile_performance.csv",
+        "render_report.py",
+        "report_full.png",
+        "report_opening.png",
+        "report_pivot_section.png",
+        "report_qa_section.png",
+        "report_stability_section.png",
+        "segment_robustness.csv",
+        "side_segment_robustness.csv",
+        "summary.json",
+        "tail_contrasts_bootstrap.csv",
+        "validation.json",
+        "yearly_tail_performance.csv"
+      ]
+    },
+    "pivot_high_threshold": {
+      "path": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\olv-pivot-high-threshold-20260831",
+      "exists": true,
+      "files": [
+        "__pycache__",
+        "analyze_thresholds.py",
+        "fixed_distance_bands.csv",
+        "summary.json",
+        "threshold_segment_comparison.csv",
+        "threshold_sweep.csv",
+        "threshold_yearly_comparison.csv"
+      ]
+    },
+    "pivot_20_vs_40": {
+      "path": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\olv-pivot-20-vs-40-20260831",
+      "exists": true,
+      "files": [
+        "__pycache__",
+        "absolute_high_proximity_comparison.csv",
+        "classification_comparison.csv",
+        "compare_pivot_windows.py",
+        "contrast_comparison.csv",
+        "direct_level_quintile_comparison.csv",
+        "nearest_tail_type_composition.csv",
+        "pivot_20_40_trade_audit.csv",
+        "quintile_comparison.csv",
+        "stability_comparison.csv",
+        "summary.json",
+        "validate_against_original.py"
+      ]
+    },
+    "pivot_entry_path": {
+      "path": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\olv-pivot-entry-path-20260831",
+      "exists": true,
+      "files": [
+        "__pycache__",
+        "analyze_entry_path.py",
+        "deeper_limit_missed_outcomes.csv",
+        "entry_depth_by_pivot_distance_band.csv",
+        "paired_depth_sensitivity.csv",
+        "path_by_pivot_distance_band.csv",
+        "summary.json",
+        "trade_path_and_entry_audit.csv"
+      ]
+    },
+    "pivot_age_252": {
+      "path": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\olv-pivot-age-252-20260901",
+      "exists": true,
+      "files": [
+        "analyze_pivot_age_cap.py",
+        "classification_and_policy_changes.csv",
+        "fixed_distance_bands_comparison.csv",
+        "hard_252_contrasts_bootstrap.csv",
+        "hard_252_entry_replay.csv",
+        "hard_252_path_diagnostics.csv",
+        "policy_counterfactual_comparison.csv",
+        "policy_counterfactual_fill_audit.csv",
+        "policy_group_comparison.csv",
+        "summary.json",
+        "trade_audit_with_hard_252.csv"
+      ]
+    },
+    "below_second_pivot": {
+      "path": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\olv-below-second-pivot-20260904",
+      "exists": true,
+      "files": [
+        "__pycache__",
+        "analyze_below_second_pivot.py",
+        "cohort_performance.csv",
+        "contrasts_bootstrap.csv",
+        "summary.json",
+        "trade_audit.csv",
+        "yearly_performance.csv"
+      ]
+    }
+  },
+  "sample_definition": {
+    "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\olv-level-proximity-20260831\\summary.json",
+    "completed_trades": 359,
+    "excluded_censored_trades": 15,
+    "signal_date_min": "2005-05-12",
+    "signal_date_max": "2026-08-19",
+    "price_cache_max_date": "2026-08-29",
+    "ledger_vintage": {
+      "ledger_git_sha": "unknown",
+      "ledger_build_utc": "2026-08-31T13:07:26Z",
+      "ledger_rows": "4755",
+      "ledger_source": "gha:33394874677"
+    },
+    "baseline_no_policy": {
+      "n": 359,
+      "tickers": 195,
+      "avg_r": 0.705720147881801,
+      "median_r": 1.2172366292981949,
+      "win_rate": 70.19498607242339,
+      "profit_factor": 2.872322047252922,
+      "total_r": 253.35353308956658,
+      "avg_return_pct": 2.888848709341554,
+      "target_rate": 44.01114206128134,
+      "stop_rate": 17.270194986072422,
+      "max_drawdown_r": -24.38623698378504
+    },
+    "censor_rule": "analyze_olv_levels.py load_completed_olv: drop rows with Exit Type == Time and Exit Date < Time Stop"
+  },
+  "claim_reconstruction": {
+    "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\olv-pivot-age-252-20260901\\summary.json",
+    "policy_v1_unlimited_age": {
+      "definition": "Unlimited age",
+      "candidate_n": 359,
+      "filled_n": 290,
+      "skipped_n": 63,
+      "deeper_limit_no_fill_n": 6,
+      "avg_r_per_fill": 0.8234165025168552,
+      "total_r": 238.790785729888,
+      "win_rate_pct": 73.79310344827587,
+      "profit_factor": 3.6170018926525223,
+      "max_drawdown_r": -11.458109900019082
+    },
+    "policy_v2_age_capped_252": {
+      "definition": "Hard source-age <=252",
+      "candidate_n": 359,
+      "filled_n": 299,
+      "skipped_n": 56,
+      "deeper_limit_no_fill_n": 4,
+      "avg_r_per_fill": 0.8276732741727287,
+      "total_r": 247.47430897764588,
+      "win_rate_pct": 73.91304347826086,
+      "profit_factor": 3.607048234012215,
+      "max_drawdown_r": -11.458109900019082
+    },
+    "difference_total_r_v2_minus_v1": 8.683523247757876,
+    "classification_changes": 23,
+    "policy_decision_changes": 12,
+    "no_policy_baseline_total_r_same_sample": 253.35353308956658,
+    "no_policy_baseline_avg_r_same_sample": 0.705720147881801,
+    "no_policy_baseline_max_dd_r": -24.38623698378504,
+    "policy_v2_minus_no_policy_total_r": -5.879224111920706,
+    "method_note": "Post-hoc rebook on the 2026-08-31 ledger's 359 completed OLV fills: deeper limits re-filled from daily bars over T+1..T+3, exits re-simulated with the current OLV exit model (artifacts/olv-pivot-entry-path-20260831/summary.json method block); NOT an engine replay, no per-strategy cap, no recency ladder, no notional cap."
+  }
+}
