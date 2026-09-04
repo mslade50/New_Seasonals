@@ -9,6 +9,7 @@ import pytz
 import sys
 import os
 import json
+import re
 import html as html_lib
 import smtplib
 from email.mime.text import MIMEText
@@ -48,6 +49,7 @@ try:
         CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES,
         CROSS_STRATEGY_OVERLAP_OVERRIDES,
         GLOBAL_RISK_MULTIPLIER,
+        STRATEGY_BASE_TILT,
         same_day_derate_mult,
     )
 except ImportError:
@@ -58,6 +60,7 @@ except ImportError:
     CSV_UNIVERSE = []
     LIQUID_PLUS_COMMODITIES = []
     GLOBAL_RISK_MULTIPLIER = 1.0
+    STRATEGY_BASE_TILT = {}
     CROSS_STRATEGY_OVERLAP_OVERRIDES = []
 
     def same_day_derate_mult(execution, n_signals):
@@ -885,9 +888,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
             # so we can see at-a-glance why the staged risk isn't just base 1.0x.
             # OLV gets a dedicated entry-effect line sourced from its Pivot_*
             # audit fields; its raw diagnostic chain is intentionally omitted.
-            if (not is_olv and sizing_notes
-                    and sizing_notes != "Standard (1.0x)"
-                    and "Standard (1.0x) |" not in sizing_notes):
+            if not is_olv and sizing_chain_visible(sizing_notes):
                 notes_parts.append(f"[SIZING] Sizing: {sizing_notes}")
             if exit_notes and not is_olv:
                 notes_parts.append(f"[RUN] {exit_notes}")
@@ -1934,11 +1935,41 @@ def get_sizing_variable(strat_name, last_row):
         is_ath_l10 = bool(last_row.get('is_ath', False))  # simplified; full check in main loop
         is_52w = bool(last_row.get('is_52w_high', False))
         return f"ATH Today: {'Y' if last_row.get('is_ath', False) else 'N'} | 52w High: {'Y' if is_52w else 'N'}"
-    elif strat_name == "Weak Close Decent Sznls":
-        sznl = last_row.get('Sznl', 0)
-        return f"Seasonal Rank: {sznl:.0f}"
+    # Weak Close Decent Sznls used to report its seasonal rank here because the
+    # rank drove a 1.5x/0.66x size tier; that tier was retired 2026-09-04 (D3.1,
+    # inverted against the edge), so seasonal rank no longer drives sizing.
     else:
         return None
+
+
+def sizing_chain_visible(sizing_notes):
+    """Should the scan email print a [SIZING] line for this Sizing_Notes?
+
+    True when the note carries anything beyond the plain base label and its
+    ' | Risk: ...' suffix. The 2026-04-23 predicate (`"Standard (1.0x) |" not
+    in notes`) hid EVERY chain whose base was Standard once the risk suffix
+    was appended, so " | Frag band" / " | Recency rung" / the D3.2
+    " | tilt 0.70x" fragments never reached the email. Tightened 2026-09-04
+    so the tilt (and those chains) show, per the brief's "the scan email
+    shows it".
+    """
+    if not sizing_notes:
+        return False
+    chain = re.sub(r" \| Risk: [^|]*", "", str(sizing_notes)).strip()
+    return chain != "Standard (1.0x)"
+
+
+def base_tilt_note(strat_name):
+    """Sizing-note fragment for the D3.2 base-bps tilt, '' when the tilt is 1.0.
+
+    The tilt is already inside execution['risk_bps'] / risk_per_trade at import
+    (strategy_config.STRATEGY_BASE_TILT); this only makes it visible in the
+    scan email's sizing chain.
+    """
+    tilt = float(STRATEGY_BASE_TILT.get(strat_name, 1.0))
+    if tilt == 1.0:
+        return ""
+    return f" | tilt {tilt:.2f}x"
 
 def build_live_filters(strat, last_row, df):
     """
@@ -3234,6 +3265,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     risk = base_risk 
 
                     sizing_note = "Standard (1.0x)"
+                    # D3.2 base-bps tilt (2026-09-04): already folded into
+                    # risk_per_trade at import; surface it in the note so
+                    # the scan email shows why the base isn't the old bps.
+                    sizing_note += base_tilt_note(strat['name'])
                     if _pivot_entry is not None and _pivot_entry['policy_enabled']:
                         _pdist = _pivot_entry['distance_atr']
                         _pdist_txt = f"{_pdist:.2f}" if _pdist is not None else "N/A"
@@ -3255,17 +3290,11 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                                 + "/".join(_expired_sides)
                             )
 
-                    if strat['name'] == "Weak Close Decent Sznls":
-                        sznl_val = last_row.get('Sznl', 0)
-                        if sznl_val >= 65:
-                            risk = risk * 1.5
-                            sizing_note = f"High Sznl ({sznl_val:.0f}) = 1.5x"
-                        elif sznl_val >= 50:
-                            risk = risk * 1.0
-                            sizing_note = f"Med Sznl ({sznl_val:.0f}) = 1.0x"
-                        elif sznl_val >= 33:
-                            risk = risk * 0.66
-                            sizing_note = f"Low Sznl ({sznl_val:.0f}) = 0.66x"
+                    # (The Weak Close Decent Sznls seasonal-rank size tier —
+                    # 1.5x at rank >= 65, 0.66x at 33-50 — was RETIRED here
+                    # 2026-09-04, D3.1: the 2026-09-02 due diligence measured
+                    # it inverted against the edge. WCDS sizes at 1.0x at
+                    # every seasonal rank; mirrored in strat_backtester.)
 
                     # OVS sizing is governed by the 2-path scheme in
                     # order_staging.py: path-1 (decisive 0.25 ATR gap) → 40 bps,

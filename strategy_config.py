@@ -33,6 +33,38 @@ ACCOUNT_VALUE = 750000  # Adjust this to your current account size
 # for prod-default sizing; raise to lever up, lower to throttle the whole book.
 GLOBAL_RISK_MULTIPLIER = 1.5
 
+# Per-strategy base-bps tilt (D3.2, 2026-09-04). Applied ONCE at import, after
+# the GRM block, to execution['risk_bps'] ONLY (and folded into
+# OVERFLOW_RISK_OVERRIDES for any strategy listed there). Deliberately NOT
+# applied to the earnings_size_override (an appetite haircut frozen in
+# effective bps), NOT to OVS path1/path2 bps (OVS is 1.0), and NEVER routed
+# through the engine's risk_multipliers= path, which would scale the
+# per-strategy daily cap with it (MonFri would get a 325 bps engine cap
+# against a fixed 250 live). Evidence: the keep-adjusted allocation study and
+# its engine replay (Sharpe 2.17 -> 2.26, maxDD -15.2 -> -13.1, worst-21d
+# -10.1 -> -8.0, PnL-neutral; sizing_due_diligence_2026-09-02.html). The dict
+# is TOTAL over the book on purpose -- every strategy is listed, 1.0 included,
+# so a new strategy has to declare its tilt (a missing name defaults to 1.0x
+# with a loud [TILT] line at import, never a raise; the totality guard is
+# tests/test_base_bps_tilt.py).
+STRATEGY_BASE_TILT = {
+    "52wh Breakout": 0.70,
+    "Weak Close Decent Sznls": 0.75,
+    "Oversold Low Volume": 1.0,
+    "Overbot Vol Spike": 1.0,
+    "LT Trend ST OS": 1.0,
+    "St OS Sznl": 1.0,
+    "3x ETF Overbot Fade": 1.27,
+    "3x Bear ETF Overbot Fade": 1.0,
+    "3x Leader Gap Fade": 1.0,
+    "Indices Oversold Bounce": 1.0,
+    "SPY QQQ MonFri Reversion": 1.30,
+    "Sector BO": 0.87,
+    "Monday Dip": 1.0,
+    "ATR Extended Gap Up": 1.10,
+    "Monthly Weak Close": 1.0,
+}
+
 # ============================================
 # TICKER UNIVERSES
 # ============================================
@@ -69,6 +101,9 @@ CROSS_STRATEGY_OVERLAP_OVERRIDES = [
 # by GLOBAL_RISK_MULTIPLIER at use. Single source for daily_scan,
 # daily_portfolio_report and the engine's overflow_active path. OVS uses
 # path-1 nominal (40 bps) for both universes — see order_staging.py.
+# The STRATEGY_BASE_TILT of each listed strategy is folded into these values
+# at import (same block as the GRM scaling below), so the three consumers
+# stay tilt-consistent without edits. OLV's tilt is 1.0 -> 25 stays 25.
 OVERFLOW_RISK_OVERRIDES = {
     "Oversold Low Volume": 25,  # vs liquid 35 (signal-recency ladder applies on both tiers)
 }
@@ -2290,6 +2325,30 @@ if GLOBAL_RISK_MULTIPLIER != 1.0:
     for _ovr in CROSS_STRATEGY_OVERLAP_OVERRIDES:
         _ovr['risk_bps_when_overlapping'] = (
             _ovr['risk_bps_when_overlapping'] * GLOBAL_RISK_MULTIPLIER)
+
+# ============================================
+# APPLY PER-STRATEGY BASE-BPS TILT (D3.2, 2026-09-04) — after GRM, in-place
+# ============================================
+# Same idempotence mechanism as the GRM block: this mutates the
+# _STRATEGY_BOOK_RAW literals defined in this module body, so one module
+# execution applies it exactly once (a second import is a sys.modules hit;
+# a reload rebuilds the literals before re-applying). risk_bps ONLY —
+# path1/path2 bps, path2_daily_cap_pct, the earnings override and the
+# overlap clamp are untouched by design.
+# A strategy missing from the dict defaults to 1.0x with ONE loud line: a
+# dict omission must never kill the 04:47 scan (coordinator, 2026-09-04).
+# The totality guard is tests/test_base_bps_tilt.py -- it fails CI, not prod.
+for _s in _STRATEGY_BOOK_RAW:
+    if _s['name'] not in STRATEGY_BASE_TILT:
+        print(f"[TILT] {_s['name']} missing from STRATEGY_BASE_TILT; "
+              f"defaulting to 1.0x")
+    _tilt = float(STRATEGY_BASE_TILT.get(_s['name'], 1.0))
+    if _tilt != 1.0:
+        _s['execution']['risk_bps'] = _s['execution']['risk_bps'] * _tilt
+for _name in list(OVERFLOW_RISK_OVERRIDES):
+    _tilt = float(STRATEGY_BASE_TILT.get(_name, 1.0))
+    if _tilt != 1.0:
+        OVERFLOW_RISK_OVERRIDES[_name] = OVERFLOW_RISK_OVERRIDES[_name] * _tilt
 
 # ============================================
 # DEFAULT EXPORT

@@ -1338,13 +1338,11 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         base_risk = equity_for_sizing * risk_bps / 10000
         _nominal_risk = base_risk  # full-size baseline; Size_Mult = final / nominal (pre-cap)
         _vol_spike_skip_primary = False
-        if (_portfolio_overlay_on("wcds_seasonal_sizing")
-                and strat_name == "Weak Close Decent Sznls"):
-            sznl_val = row_data['sznl']
-            if sznl_val >= 65:
-                base_risk *= 1.5
-            elif sznl_val >= 33:
-                base_risk *= 0.66 if sznl_val < 50 else 1.0
+        # (The Weak Close Decent Sznls seasonal-rank size tier — 1.5x at
+        # rank >= 65, 0.66x at 33-50, formerly overlay "wcds_seasonal_sizing"
+        # — was RETIRED 2026-09-04, D3.1: inverted against the edge per the
+        # 2026-09-02 due diligence. WCDS is 1.0x at every rank; mirrored in
+        # daily_scan sizing step 2.)
         # Signal-recency ladder (OLV, 2026-07-30): rung from the pre-pass
         # count of prior signal days in the trailing window. Mirrors
         # daily_scan sizing 2c; the mult is kept so 3b composes with it.
@@ -1451,15 +1449,18 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
 
         # --- 3c. User-configured per-strategy risk multiplier (size-up dial) ---
         # Applied as the FINAL sizing step so it scales whichever rule won
-        # above (OVS gap-tier, ladder, WCDS sznl tier, OLV earnings override,
-        # plain risk_bps). Post-loop daily cap scales by the same factor.
+        # above (OVS gap-tier, ladder, OLV earnings override, plain
+        # risk_bps). Post-loop daily cap scales by the same factor — which is
+        # why the D3.2 base-bps tilt lives in strategy_config at import and
+        # NOT here (a 1.30x MonFri tilt through this path would also lift its
+        # engine daily cap to 325 bps against a fixed 250 live).
         _strat_mult = float(_rm.get(strat_name, 1.0))
         if _strat_mult != 1.0:
             base_risk *= _strat_mult
 
         # Per-trade sizing multiplier vs the full-size nominal (pre-cap): 1.0 for a
         # normal full-size trade, < 1 for deliberate downsizes (OLV pre-earnings,
-        # OVS path-2 gap, OVS midterm tilt, WCDS sznl tier, ladder). Lets the site
+        # OVS path-2 gap, OVS midterm tilt, ladder). Lets the site
         # show an "actual return" = R_Multiple x Size_Mult. Excludes the post-loop
         # daily cap + net-exposure cap (portfolio-level, not the trade's decision).
         _size_mult = (base_risk / _nominal_risk) if _nominal_risk > 0 else 1.0
