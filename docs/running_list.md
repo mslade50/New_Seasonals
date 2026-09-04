@@ -62,4 +62,5 @@ given), DONE (commit hash). Move items down, never delete them.
 
 ## DONE
 
+- D-B. harvest_fills empty-ring gap guard (`build_ops_fills_ledger`, half 1): committed by path 2026-09-04. Half 2 (ledger_git_sha from GITHUB_SHA in scripts/build_trade_ledger.py + tests/test_ledger_provenance.py) is built and tested in the worktree but HELD: that file carries another session's staged hunks (O35). Root cause of `unknown` confirmed: the deploy generator dir has no .git, so `git rev-parse` fails; reading GITHUB_SHA first fixes it with no workflow change.
 - D-A. Tests hygiene (`build_tests_hygiene`): 11 failures -> 0; 6 strict xfails, 1 skip; committed by path 2026-09-04.
