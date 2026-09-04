@@ -72,6 +72,7 @@ given), DONE (commit hash). Move items down, never delete them.
 
 ## DONE
 
+- D-F. SOXS island repair + segment-aware basis guard (D13) committed 2026-09-04 (verify PASS + round 3: length-rule tol 0.10, --only-tickers implies --no-upload; 39 tests). Local parquet repaired (backup `data/master_prices.parquet.bak_20260904_soxs`); R2 upload pending the v9 cutover (command in O40).
 - D-E. OLV pre-market exit runner FIXED 2026-09-04 (D14): OneDrive `olv_exit_moo.py` sha256 3e8c1ad9..., `test_olv_exits.py` b393adc8... (40 tests); backups `_backup_20260904_olv_exit_{prepatch,round1,round2}/`; second verifier PASS + round-3 hardenings (recycled-id cross-check, SKIPPED_FLAT emails, positive orderId, anchored leg suffix, retry identity carried) with 26/26 verifier sequences. Mind's call: SKIPPED_FLAT stays exit 0 but always emails. OWNER re-enables the task (command in O41); Monday operator check in `artifacts/verify_2026-09-04/olv_exit_fix/` report. Not in git until O25 (trading_ibkr baseline).
 - D-D. Worktree safe-now plan, 8 commits 2026-09-04: 5089603e .gitignore; 80ed495c pitch_lab anchor_positions; c98c44fb fundamental v2.1 + roster; 83e6e53a drill scripts + context journal/flag state; 7f408472 data sync (minus rd2_environment.json); c8ad7bfa two research folders; 0fb243d6 cited scratch evidence; 86c5706d root design records. Untracked entries 395 -> 17.
 - D-C. Sizing D3.1 + D3.2 committed 1efcdf14 (verify PASS, full-history replay); ledger_git_sha 47168088; dead wcds overlay-lab control removed and CLAUDE.md sizing note added (next commit).
