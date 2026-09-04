@@ -205,6 +205,46 @@ def era_split(dates: pd.DatetimeIndex, vals: np.ndarray,
             summarize(np.asarray(vals)[~m], f"{cut[:4]}+")]
 
 
+def anchor_positions(idx: pd.DatetimeIndex, dates,
+                     offset: int = 0) -> tuple[list[int], pd.DatetimeIndex]:
+    """Trading-day positions of each event date shifted by `offset`, with the
+    anchors that survive. Use this instead of a bare ``searchsorted`` whenever
+    an event calendar is aligned to an instrument's own index.
+
+    TWO guards, and BOTH have shipped bugs here:
+
+    1. ``loc >= len(idx)`` — an unrealised future event resolves to the end of
+       the index and mints a spurious recent anchor (2026-08-11).
+    2. ``d < idx[0]`` — ``searchsorted`` returns 0 for EVERY date before the
+       instrument's first bar, so all pre-inception anchors collapse onto its
+       opening sessions. Found 2026-08-28 on the post-Jackson-Hole sweep: 11
+       pre-2011 conferences landed on SVXY's first bars, one early value was
+       counted twelve times, and the h=7 cell read **+11.24% at t 4.64 on
+       n=26** against a real history of 14 Augusts. Late-inception vehicles
+       (SVXY 2011, XLRE 2015, UUP 2007, GDX 2006) make this routine.
+
+    Returns ``(positions, kept_anchor_dates)`` so a caller can report how many
+    anchors it actually measured rather than how many the calendar holds.
+    """
+    idx = pd.DatetimeIndex(idx)
+    positions: list[int] = []
+    kept: list[pd.Timestamp] = []
+    if len(idx) == 0:
+        return positions, pd.DatetimeIndex(kept)
+    lo, hi = idx[0], idx[-1]
+    for d in pd.DatetimeIndex(dates):
+        if d < lo or d > hi:
+            continue
+        loc = int(idx.searchsorted(d))
+        if loc >= len(idx):
+            continue
+        p = loc + offset
+        if 0 <= p < len(idx):
+            positions.append(p)
+            kept.append(d)
+    return positions, pd.DatetimeIndex(kept)
+
+
 def event_in_window(anchor: pd.DatetimeIndex, all_dates: pd.DatetimeIndex,
                     h: int, lag: int = 1,
                     kinds: tuple[str, ...] = ("cpi",)) -> np.ndarray:
