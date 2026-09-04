@@ -403,19 +403,32 @@ def _provenance_meta(n_rows):
         source = f"gha:{os.environ.get('GITHUB_RUN_ID', 'unknown-run')}"
     else:
         source = f"local:{socket.gethostname()}"
-    try:
-        sha = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=_ROOT,
-            capture_output=True, text=True, timeout=10).stdout.strip()
-    except Exception:
-        sha = ""
     return {
         "ledger_build_utc": datetime.datetime.now(datetime.timezone.utc)
                             .strftime("%Y-%m-%dT%H:%M:%SZ"),
         "ledger_source": source,
-        "ledger_git_sha": sha or "unknown",
+        "ledger_git_sha": _git_sha(),
         "ledger_rows": str(n_rows),
     }
+
+
+def _git_sha():
+    """Commit the ledger was built from: GITHUB_SHA first, then the working
+    tree's HEAD, else 'unknown'. GITHUB_SHA comes first because the deploy
+    builds inside `generator/`, a git-ls-files copy with NO .git directory,
+    so `git rev-parse` there fails and every CI vintage carried 'unknown'
+    (2026-09-04 parity recon)."""
+    sha = (os.environ.get("GITHUB_SHA") or "").strip()
+    if sha:
+        return sha
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=_ROOT,
+            capture_output=True, text=True, timeout=10)
+        sha = (out.stdout or "").strip() if out.returncode == 0 else ""
+    except Exception:
+        sha = ""
+    return sha or "unknown"
 
 
 def _write_ledger_with_meta(df, path, meta):
