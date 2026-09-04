@@ -324,9 +324,12 @@ def test_task_runner_sets_and_restores_utf8_and_runtime_state_environment():
         (
             "NEW_SEASONALS_AUTOMATION_STATE_ROOT",
             "$previousAutomationStateRoot",
+            # 2026-09-04 (build_ops_supervisor): the state root moved from the
+            # pinned runtime worktree to the stable config root so runtime
+            # logs survive a cutover.
             (
                 "$env:NEW_SEASONALS_AUTOMATION_STATE_ROOT = "
-                "(Join-Path $RuntimeRoot 'artifacts\\automation')"
+                "(Join-Path $ConfigRoot 'artifacts\\automation')"
             ),
         ),
     )

@@ -66,6 +66,19 @@ def test_only_guarded_controller_retains_a_cron_for_migrated_jobs() -> None:
     fallback = _text("local_automation_fallback.yml")
     assert "  schedule:" in fallback
     assert "- cron: '47 * * * *'" in fallback
+    # 2026-09-04 (incident 2026-09-03): ~20-minute spacing across the premarket
+    # fallback window 05:20-08:55 ET in both DST regimes (09-13 UTC covers
+    # EDT 09:20-12:55 and EST 10:20-13:55), weekdays only.
+    assert "- cron: '7 9-13 * * 1-5'" in fallback
+    assert "- cron: '27 9-13 * * 1-5'" in fallback
+    # 2026-09-04 round 2: the six off-window ticks and, by name, the EDT
+    # 13:07Z tick that lands at 09:07 ET inside the discretionary window under
+    # the 'general' concurrency group, are documented where the crons live.
+    assert "13:07Z tick lands at 09:07 ET" in fallback
+    assert "08:50-09:20 ET" in fallback
+    assert "'general' concurrency group" in fallback
+    for off_window in ("EDT 05:07", "09:27", "EST 04:07", "04:27"):
+        assert off_window in fallback
     assert "- cron: '50 12,13 * * 1-5'" in fallback
     assert (
         'scripts/automation_supervisor.py fallback-due --pipeline "$PIPELINE" '

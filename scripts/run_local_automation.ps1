@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('premarket', 'discretionary', 'execution', 'postclose', 'indicator', 'weekly-rundown', 'health')]
+    [ValidateSet('premarket', 'premarket-retry', 'discretionary', 'execution', 'postclose', 'indicator', 'weekly-rundown', 'health')]
     [string]$Pipeline,
 
     [Parameter(Mandatory = $true)]
@@ -125,7 +125,15 @@ try {
     $env:LOCAL_AUTOMATION_RUN_TOKEN = [Guid]::NewGuid().ToString('N')
     $env:PYTHONIOENCODING = 'utf-8'
     $env:PYTHONUTF8 = '1'
-    $env:NEW_SEASONALS_AUTOMATION_STATE_ROOT = (Join-Path $RuntimeRoot 'artifacts\automation')
+    # Runtime logs, the supervisor lock, and the health receipt cache live under
+    # the CONFIG root (the stable development checkout), not the pinned runtime
+    # worktree: the 2026-09-03 incident could not be reconstructed because the
+    # v6 worktree, and every log in it, was deleted at the next cutover. The
+    # installer's Cutover phase copies an outgoing generation's in-worktree logs
+    # into this same root. The supervisor receives the identical path through
+    # --state-root; the environment copy is for scripts/repo_health_check.py.
+    $stateRoot = (Join-Path $ConfigRoot 'artifacts\automation')
+    $env:NEW_SEASONALS_AUTOMATION_STATE_ROOT = (Join-Path $ConfigRoot 'artifacts\automation')
     if ([string]::IsNullOrWhiteSpace($previousGhToken)) {
         $userPat = [Environment]::GetEnvironmentVariable('GH_PAT_NEW_SEASONALS', 'User')
         if (-not [string]::IsNullOrWhiteSpace($userPat)) {
@@ -142,9 +150,20 @@ try {
         # probe for the AM scanner only. Prerequisites are checked through their
         # receipts; event staging, site deploys, and broker/order tasks are not in
         # this targeted job closure.
-        & $pythonExecutable -u $supervisor fallback-due --pipeline premarket --job scan_am --config-root $ConfigRoot --ref ([string]$marker.fallback_ref)
-        $recoveryExitCode = $LASTEXITCODE
-        & $pythonExecutable -u $supervisor health --config-root $ConfigRoot --ref ([string]$marker.fallback_ref)
+        # The recovery probe must never cost us the battery. A hung 04:10
+        # primary holding the supervisor lock is exactly when the health
+        # battery matters most, so a non-zero exit (or a terminating native
+        # error under a PowerShell that maps one) is recorded and execution
+        # continues to the battery below (2026-09-04 verify finding 1).
+        try {
+            & $pythonExecutable -u $supervisor fallback-due --pipeline premarket --job scan_am --config-root $ConfigRoot --ref ([string]$marker.fallback_ref) --state-root $stateRoot
+            $recoveryExitCode = $LASTEXITCODE
+        }
+        catch {
+            Write-Output "Premarket scan recovery probe failed: $($_.Exception.Message)"
+            $recoveryExitCode = 1
+        }
+        & $pythonExecutable -u $supervisor health --config-root $ConfigRoot --ref ([string]$marker.fallback_ref) --state-root $stateRoot
         $healthExitCode = $LASTEXITCODE
         if ($recoveryExitCode -ne 0 -or $healthExitCode -ne 0) {
             $exitCode = 1
@@ -153,8 +172,17 @@ try {
             $exitCode = 0
         }
     }
+    elseif ($Pipeline -eq 'premarket-retry') {
+        # Local second chance for the 04:10 premarket run (weekdays 05:45 ET).
+        # Needs nothing from GitHub. The supervisor walks today's receipts:
+        # every job already successful is a no-op, an expired pre-side-effect
+        # lease (the 2026-09-03 stall shape) is re-run, an indeterminate
+        # receipt is never re-run. Outside 05:45-07:00 ET it prints No action.
+        & $pythonExecutable -u $supervisor run-pipeline --pipeline premarket --retry --config-root $ConfigRoot --ref ([string]$marker.fallback_ref) --state-root $stateRoot
+        $exitCode = $LASTEXITCODE
+    }
     else {
-        & $pythonExecutable -u $supervisor run-pipeline --pipeline $Pipeline --config-root $ConfigRoot --ref ([string]$marker.fallback_ref)
+        & $pythonExecutable -u $supervisor run-pipeline --pipeline $Pipeline --config-root $ConfigRoot --ref ([string]$marker.fallback_ref) --state-root $stateRoot
         $exitCode = $LASTEXITCODE
     }
 }

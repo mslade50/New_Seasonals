@@ -8,6 +8,27 @@ run-name: "Local Automation Guarded Fallback — ${{ inputs.pipeline || 'all' }}
 on:
   schedule:
     - cron: '47 * * * *'
+    # GitHub sheds most scheduled ticks under load (2026-09-03: one tick in
+    # 5h14m across the premarket window). Extra ticks at :07 and :27 inside
+    # the premarket fallback window (05:20-08:55 ET = 09:20-12:55 UTC in EDT,
+    # 10:20-13:55 UTC in EST) give ~20-minute spacing with the :47 line in
+    # both DST regimes, so one dropped tick is not a lost morning. In-window
+    # ticks: 05:27 05:47 06:07 06:27 06:47 07:07 07:27 07:47 08:07 08:27 08:47
+    # ET, identical in both regimes (max gap 20 min).
+    #
+    # Six of the twenty ticks fall OUTSIDE 05:20-08:55 ET and cost nothing --
+    # they exit "No pipeline is inside its ET fallback window" (EDT 05:07,
+    # 09:07, 09:27; EST 04:07, 04:27, 05:07). One of them is worth naming: in
+    # EDT the 13:07Z tick lands at 09:07 ET, INSIDE the 08:50-09:20 ET
+    # discretionary recovery window, and it carries PIPELINE=all in the
+    # 'general' concurrency group, which the 08:50 probe below deliberately
+    # keeps separate. It is a benign extra chance at the discretionary
+    # backup, not a second writer (R2 receipt CAS arbitrates every claim and
+    # concurrency queues at most one behind a live controller) -- but if the
+    # discretionary window ever needs an isolated controller, this tick is
+    # the one that breaks that isolation.
+    - cron: '7 9-13 * * 1-5'
+    - cron: '27 9-13 * * 1-5'
     # The research-only discretionary recovery window is 08:50-09:20 ET,
     # which no hourly :47 tick can enter. One DST-safe 08:50 ET probe (plus
     # the out-of-window companion) leaves the backup its full delivery window.

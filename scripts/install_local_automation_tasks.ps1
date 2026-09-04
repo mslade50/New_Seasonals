@@ -1,7 +1,7 @@
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Prepare', 'RegisterDisabled', 'Cutover', 'Status')]
+    [ValidateSet('Prepare', 'RegisterDisabled', 'Cutover', 'Status', 'Prune')]
     [string]$Phase,
 
     [string]$SourceRepository = (Split-Path -Parent $PSScriptRoot),
@@ -24,22 +24,39 @@ param(
 
     [string]$BootstrapPython,
 
-    [switch]$ConfirmCutover
+    [switch]$ConfirmCutover,
+
+    # Default OFF. Unregisters every disabled, idle `New Seasonals Local*`
+    # generation that is neither the current -TaskNamePrefix nor the
+    # -RetireTaskNamePrefix rollback set. Pair with -WhatIf for a listing.
+    [switch]$PruneSuperseded
 )
 
 # Installs the local-primary scheduler in explicit, reversible phases:
 #   Prepare          creates a pinned branch worktree and its own venv;
-#   RegisterDisabled registers all seven tasks disabled and can safely resume
+#   RegisterDisabled registers all eight tasks disabled and can safely resume
 #                    an exact partially completed disabled set;
-#   Cutover          validates/enables them, then disables an optional prior
-#                    local prefix plus the fixed superseded tasks (deletes none);
-#   Status           is read-only.
-# Nothing in this script runs automatically merely because it is checked out.
+#   Cutover          validates/enables them, copies the outgoing generation's
+#                    runtime logs into the stable state root, then disables an
+#                    optional prior local prefix plus the fixed superseded
+#                    tasks (deletes none unless -PruneSuperseded);
+#   Status           is read-only;
+#   Prune            with -PruneSuperseded deletes disabled, idle, non-current
+#                    generations; with -WhatIf it only lists them.
+# -WhatIf is honoured by RegisterDisabled, Cutover, and Prune (listing only,
+# no elevation required). Nothing in this script runs automatically merely
+# because it is checked out.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $PipelineSpecs = @(
     [pscustomobject]@{ Id = 'premarket';       Time = '04:10:00'; DaysMask = 62; Description = 'Weekday premarket cache, risk, signal, and cloud-deploy handoff pipeline' },
+    # Local second chance for the premarket run (2026-09-03 stall): re-walks the
+    # same receipts; success is a no-op, an expired pre-side-effect lease is
+    # re-run, indeterminate is never re-run. Needs nothing from GitHub.
+    # 05:45, not 05:30: master_prices_am holds a 70-minute lease, so a 04:10
+    # claim is still live at 05:30 and the retry would skip the stalled job.
+    [pscustomobject]@{ Id = 'premarket-retry'; Time = '05:45:00'; DaysMask = 62; Description = 'Weekday premarket local second chance (receipt-gated re-run, no GitHub dependency)' },
     [pscustomobject]@{ Id = 'discretionary';   Time = '08:35:00'; DaysMask = 62; Description = 'Weekday research-only discretionary focus pipeline' },
     [pscustomobject]@{ Id = 'execution';       Time = '16:30:00'; DaysMask = 62; Description = 'Weekday execution reporting pipeline' },
     [pscustomobject]@{ Id = 'postclose';       Time = '17:10:00'; DaysMask = 62; Description = 'Weekday post-close data, reports, signals, and cloud-deploy handoff pipeline' },
@@ -121,11 +138,190 @@ function Assert-EasternLocalClock {
 }
 
 function Assert-Administrator {
+    if ([bool]$WhatIfPreference) {
+        # A -WhatIf listing mutates nothing and reads the scheduler as the
+        # current user; elevation is required only for the real change.
+        return
+    }
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        throw 'RegisterDisabled and Cutover must run from an elevated Windows PowerShell session'
+        throw 'RegisterDisabled, Cutover and Prune must run from an elevated Windows PowerShell session'
     }
+}
+
+function Get-StableStateRoot {
+    # Mirrors scripts/run_local_automation.ps1: runtime logs, the supervisor
+    # lock, and the health receipt cache live under the CONFIG root so they
+    # survive the deletion of a retired runtime worktree.
+    return (Join-Path $script:ConfigRoot 'artifacts\automation')
+}
+
+function Get-RuntimeRootFromTask {
+    param([Parameter(Mandatory = $true)]$Task)
+    # The registered action carries -RuntimeRoot "<path>"; that is the only
+    # durable record of where a retired generation wrote its logs.
+    try {
+        $definition = $Task.Definition
+        if ([int]$definition.Actions.Count -lt 1) { return $null }
+        $arguments = [string]$definition.Actions.Item(1).Arguments
+    }
+    catch {
+        return $null
+    }
+    if ($arguments -match '-RuntimeRoot "([^"]+)"') {
+        return [IO.Path]::GetFullPath($Matches[1]).TrimEnd('\')
+    }
+    return $null
+}
+
+function Copy-RetiredRuntimeLogs {
+    param([Parameter(Mandatory = $true)]$RootFolder)
+    # F4 (2026-09-03): every cutover left the previous worktree, and with it
+    # the only record of the failed 04:10 run, to be deleted by hand. Copy the
+    # outgoing generation's in-worktree logs into the stable state root first.
+    # Existing files are never overwritten; a missing source is not an error.
+    $stableLogs = Join-Path (Get-StableStateRoot) 'logs'
+    $sources = New-Object 'System.Collections.Generic.List[string]'
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    if (-not [string]::IsNullOrWhiteSpace($RetireTaskNamePrefix)) {
+        foreach ($spec in $PipelineSpecs) {
+            $taskName = $RetireTaskNamePrefix + $spec.Id
+            $task = Get-TaskOrNull -RootFolder $RootFolder -Name $taskName
+            if ($null -eq $task) { continue }
+            $root = Get-RuntimeRootFromTask -Task $task
+            if ($root) {
+                if ($seen.Add($root)) { $sources.Add($root) }
+            }
+            else {
+                # The registered action is the ONLY durable record of where a
+                # retired generation wrote its logs. Losing that must be loud,
+                # not a silent drop from the source list (2026-09-04 verify).
+                Write-Output "Log copy-forward: retired task '$taskName' carries no quoted -RuntimeRoot in its action; its runtime logs cannot be located and are NOT copied forward"
+            }
+        }
+    }
+    # The generation being enabled may itself hold in-worktree logs from a
+    # pre-stable-root runtime (v8 wrote under its own artifacts/automation).
+    if ($seen.Add($script:RuntimeRoot)) { $sources.Add($script:RuntimeRoot) }
+    foreach ($root in $sources) {
+        # Counters are per SOURCE: a run that copies six files from a retired
+        # v8 worktree and none from the incoming one must say so, not report a
+        # running total against the last path it printed (2026-09-04 verify).
+        $copied = 0
+        $skipped = 0
+        $sourceLogs = Join-Path $root 'artifacts\automation\logs'
+        if ($sourceLogs.Equals($stableLogs, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        # The cutover-state mirror runs BEFORE the missing-logs guard: the
+        # generation being enabled is a freshly prepared worktree that has
+        # just had its cutover-state.json written and has no logs directory at
+        # all (it writes its logs to the stable state root), so a mirror block
+        # after the guard never ran for it (2026-09-04 verify, finding 1).
+        $stateFile = Join-Path $root 'artifacts\automation\cutover-state.json'
+        if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+            $historyDir = Join-Path (Get-StableStateRoot) 'cutovers'
+            $historyTarget = Join-Path $historyDir ((Split-Path -Leaf $root) + '-cutover-state.json')
+            if (-not (Test-Path -LiteralPath $historyTarget -PathType Leaf)) {
+                if ([bool]$WhatIfPreference) {
+                    Write-Output "WhatIf: would copy $stateFile -> $historyTarget"
+                }
+                else {
+                    New-Item -ItemType Directory -Path $historyDir -Force | Out-Null
+                    Copy-Item -LiteralPath $stateFile -Destination $historyTarget
+                }
+            }
+        }
+        if (-not (Test-Path -LiteralPath $sourceLogs -PathType Container)) {
+            Write-Output "Log copy-forward: no runtime logs under $sourceLogs (nothing to copy)"
+            continue
+        }
+        $files = @(Get-ChildItem -LiteralPath $sourceLogs -Recurse -File)
+        foreach ($file in $files) {
+            $relative = $file.FullName.Substring($sourceLogs.Length).TrimStart('\')
+            $target = Join-Path $stableLogs $relative
+            if (Test-Path -LiteralPath $target -PathType Leaf) { $skipped += 1; continue }
+            if ([bool]$WhatIfPreference) {
+                Write-Output "WhatIf: would copy $($file.FullName) -> $target"
+                $copied += 1
+                continue
+            }
+            $targetDir = Split-Path -Parent $target
+            if (-not (Test-Path -LiteralPath $targetDir -PathType Container)) {
+                New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+            }
+            Copy-Item -LiteralPath $file.FullName -Destination $target
+            $copied += 1
+        }
+        $copyVerb = if ([bool]$WhatIfPreference) { 'would be copied' } else { 'copied' }
+        Write-Output "Log copy-forward from $sourceLogs -> $stableLogs : $copied file(s) $copyVerb, $skipped already present"
+    }
+}
+
+function Get-PruneCandidates {
+    param([Parameter(Mandatory = $true)]$RootFolder)
+    # Every registered task that looks like a local-primary generation
+    # ('New Seasonals Local - x' for v1, 'New Seasonals Local vN - x' after)
+    # and is not the current prefix. The -RetireTaskNamePrefix generation is
+    # the rollback path and is protected. Enabled or non-idle tasks are never
+    # deletion candidates: enabled means somebody's live writer.
+    $rows = @()
+    foreach ($task in @($RootFolder.GetTasks(1))) {
+        $name = [string]$task.Name
+        if ($name -notmatch '^New Seasonals Local( v\d+)? - ') { continue }
+        if ($name.StartsWith($TaskNamePrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $enabled = [bool]$task.Enabled
+        $state = [int]$task.State
+        $action = 'delete'
+        if (-not [string]::IsNullOrWhiteSpace($RetireTaskNamePrefix) -and
+            $name.StartsWith($RetireTaskNamePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            $action = 'keep: rollback generation (-RetireTaskNamePrefix)'
+        }
+        elseif ($enabled) {
+            $action = 'keep: ENABLED (never pruned; disable it through a cutover first)'
+        }
+        elseif ($state -eq 2 -or $state -eq 4) {
+            $action = 'keep: queued or running'
+        }
+        $rows += [pscustomobject]@{ Name = $name; Enabled = $enabled; State = $state; Action = $action }
+    }
+    return @($rows | Sort-Object Name)
+}
+
+function Invoke-Prune {
+    if (-not $PruneSuperseded) {
+        throw 'Prune requires the explicit -PruneSuperseded switch (add -PruneSuperseded -WhatIf to list without deleting)'
+    }
+    Assert-Administrator
+    $scheduler = Connect-TaskScheduler
+    $candidates = Get-PruneCandidates -RootFolder $scheduler.Root
+    if ($candidates.Count -eq 0) {
+        Write-Output "Prune: no superseded 'New Seasonals Local*' tasks outside prefix '$TaskNamePrefix'."
+        return
+    }
+    $deleted = 0
+    foreach ($row in $candidates) {
+        if ($row.Action -ne 'delete') {
+            Write-Output "Prune: $($row.Name) : $($row.Action)"
+            continue
+        }
+        if ([bool]$WhatIfPreference) {
+            Write-Output "WhatIf: would unregister disabled task '$($row.Name)'"
+            $deleted += 1
+            continue
+        }
+        # Re-read immediately before the mutation; refuse if anything changed.
+        $current = $scheduler.Root.GetTask($row.Name)
+        if ([bool]$current.Enabled) { throw "Prune refused: task became enabled: $($row.Name)" }
+        Assert-TaskIdle -Task $current -Label "prune candidate $($row.Name)"
+        $scheduler.Root.DeleteTask($row.Name, 0)
+        if ($null -ne (Get-TaskOrNull -RootFolder $scheduler.Root -Name $row.Name)) {
+            throw "Prune failed: task still registered after DeleteTask: $($row.Name)"
+        }
+        Write-Output "Unregistered disabled task: $($row.Name)"
+        $deleted += 1
+    }
+    $verb = if ([bool]$WhatIfPreference) { 'would unregister' } else { 'unregistered' }
+    Write-Output "Prune complete: $verb $deleted task(s); current prefix '$TaskNamePrefix' untouched."
 }
 
 function Invoke-GitCapture {
@@ -329,6 +525,15 @@ function Register-DisabledTasks {
     foreach ($spec in $PipelineSpecs) {
         $taskName = $TaskNamePrefix + $spec.Id
         $existing = Get-TaskOrNull -RootFolder $scheduler.Root -Name $taskName
+        if ([bool]$WhatIfPreference) {
+            if ($null -ne $existing) {
+                Write-Output "WhatIf: already registered (enabled=$($existing.Enabled)); would validate, not overwrite: $taskName"
+            }
+            else {
+                Write-Output "WhatIf: would register disabled S4U task '$taskName' at $($spec.Time) local Eastern, DaysOfWeek mask $($spec.DaysMask): $(Get-ExpectedTaskArguments -Spec $spec)"
+            }
+            continue
+        }
         if ($null -ne $existing) {
             # A prior interrupted registration may have completed a prefix of
             # the set. Resume only across exact, still-disabled definitions;
@@ -390,6 +595,36 @@ function Register-DisabledTasks {
     }
 }
 
+function Show-CutoverPlan {
+    param([Parameter(Mandatory = $true)]$RootFolder)
+    # -WhatIf view of Cutover: what would be enabled, disabled, copied, pruned.
+    foreach ($spec in $PipelineSpecs) {
+        $taskName = $TaskNamePrefix + $spec.Id
+        $task = Get-TaskOrNull -RootFolder $RootFolder -Name $taskName
+        if ($null -eq $task) { Write-Output "WhatIf: would FAIL, required registered task is missing: $taskName" }
+        else { Write-Output "WhatIf: would enable $taskName (currently enabled=$($task.Enabled))" }
+    }
+    foreach ($name in (Get-SupersededTaskNames)) {
+        $task = Get-TaskOrNull -RootFolder $RootFolder -Name $name
+        if ($null -eq $task) { Write-Output "WhatIf: superseded task not present (nothing changed): $name" }
+        else { Write-Output "WhatIf: would disable superseded task $name (currently enabled=$($task.Enabled))" }
+    }
+    # Same order as the real Cutover: the incoming cutover-state.json is
+    # written before the log copy-forward, and the copy-forward mirrors each
+    # source's cutover-state.json before its missing-logs guard, so a freshly
+    # prepared runtime with no logs directory is still mirrored in this run.
+    # -WhatIf writes nothing, so the incoming file does not exist yet and only
+    # the RETIRED generations' state files appear in the listing below.
+    Write-Output "WhatIf: cutover-state.json would be written under $(Join-Path $script:RuntimeRoot 'artifacts\automation') first, then mirrored to $(Join-Path (Get-StableStateRoot) 'cutovers') by the log copy-forward below; a -WhatIf run does not write it, so only already-existing state files are listed"
+    Copy-RetiredRuntimeLogs -RootFolder $RootFolder
+    if ($PruneSuperseded) {
+        foreach ($row in (Get-PruneCandidates -RootFolder $RootFolder)) {
+            if ($row.Action -eq 'delete') { Write-Output "WhatIf: would unregister disabled task '$($row.Name)' after cutover" }
+            else { Write-Output "WhatIf: prune keeps $($row.Name) : $($row.Action)" }
+        }
+    }
+}
+
 function Invoke-Cutover {
     if (-not $ConfirmCutover) {
         throw 'Cutover requires the explicit -ConfirmCutover switch'
@@ -398,6 +633,10 @@ function Invoke-Cutover {
     Assert-EasternLocalClock
     $marker = Assert-PinnedRuntime
     $scheduler = Connect-TaskScheduler
+    if ([bool]$WhatIfPreference) {
+        Show-CutoverPlan -RootFolder $scheduler.Root
+        return
+    }
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $identityName = $identity.Name
     $identitySid = $identity.User.Value
@@ -437,6 +676,12 @@ function Invoke-Cutover {
         $current = $scheduler.Root.GetTask($entry.name)
         Assert-TaskIdle -Task $current -Label "superseded task $($entry.name)"
     }
+    # Write the incoming generation's cutover-state.json FIRST, then copy
+    # logs forward: Copy-RetiredRuntimeLogs mirrors every source's
+    # cutover-state.json into the stable state root, and the incoming runtime
+    # is one of its sources. Written afterwards it would only be mirrored at
+    # the NEXT cutover, so this generation's own record was missing from
+    # <state root>\cutovers for its whole life (2026-09-04 verify).
     $stateDir = Join-Path $script:RuntimeRoot 'artifacts\automation'
     New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     [pscustomobject]@{
@@ -447,6 +692,11 @@ function Invoke-Cutover {
         })
         legacy_tasks = $supersededState
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stateDir 'cutover-state.json') -Encoding UTF8
+
+    # Every task is idle, so no log is mid-write: preserve the outgoing
+    # generation's runtime logs (and both generations' cutover state) before
+    # any writer changes hands.
+    Copy-RetiredRuntimeLogs -RootFolder $scheduler.Root
 
     # Availability first: enable and verify every local primary task before
     # disabling superseded tasks. Any exception rolls both sets back to their
@@ -489,6 +739,10 @@ function Invoke-Cutover {
         throw "Cutover failed and task enabled states were rolled back: $cutoverError"
     }
     Write-Output "Cutover complete at pinned commit $($marker.pinned_sha). No tasks were deleted."
+    if ($PruneSuperseded) {
+        # Only after a fully successful cutover, and never the rollback set.
+        Invoke-Prune
+    }
 }
 
 function Show-TaskStatus {
@@ -508,6 +762,9 @@ function Show-TaskStatus {
         if ($null -eq $task) { Write-Output "$name : NOT PRESENT" }
         else { Write-Output "$name : enabled=$($task.Enabled)" }
     }
+    Write-Output "Stable state root (logs, lock, health receipts): $(Get-StableStateRoot)"
+    $others = @(Get-PruneCandidates -RootFolder $scheduler.Root)
+    Write-Output "Other 'New Seasonals Local*' generations registered: $($others.Count) (list with -Phase Prune -PruneSuperseded -WhatIf)"
 }
 
 $SourceRepository = Resolve-AbsoluteDirectory -Path $SourceRepository -Label 'SourceRepository' -MustExist
@@ -523,8 +780,13 @@ $script:GitExecutable = $gitCommand.Source
 $script:RuntimeRoot = $RuntimeRoot
 $script:ConfigRoot = $ConfigRoot
 
+if ($PruneSuperseded -and $Phase -notin @('Cutover', 'Prune')) {
+    throw '-PruneSuperseded is only meaningful with -Phase Cutover or -Phase Prune'
+}
+
 switch ($Phase) {
     'Prepare' {
+        if ([bool]$WhatIfPreference) { throw 'Prepare does not support -WhatIf (it creates a worktree and a venv)' }
         if (-not $PinnedSha) { throw 'Prepare requires -PinnedSha with the tested origin/main commit' }
         if (-not $FallbackRef) { throw 'Prepare requires -FallbackRef with an immutable remote tag at PinnedSha' }
         if (-not (Test-Path -LiteralPath (Join-Path $SourceRepository '.git'))) {
@@ -647,4 +909,5 @@ switch ($Phase) {
     'RegisterDisabled' { Register-DisabledTasks }
     'Cutover' { Invoke-Cutover }
     'Status' { Show-TaskStatus }
+    'Prune' { Invoke-Prune }
 }

@@ -16,6 +16,56 @@ Safety properties:
 
 Run ``python scripts/automation_supervisor.py --help`` for the operational
 commands.  ``plan`` and ``run --dry-run`` have no external side effects.
+
+Receipt state table (what ``run_job`` does with the existing ``latest.json``
+for the job and ET date it is asked to run; the same table governs the
+04:10 primary, the 05:45 ``run-pipeline --retry`` second chance, and the
+GitHub-only ``fallback-due`` controller):
+
+===============================  ==========  ======================================
+existing latest receipt          effective   action
+===============================  ==========  ======================================
+absent                           missing     claim and run (local) / dispatch (github)
+success (any source)             success     skip; nothing runs, nothing is written
+indeterminate (manual_review,    indeterm.   skip; NEVER re-run. A side effect may
+  or the local_side_effect                    have happened. Only ``resolve`` clears
+  marker written before the                   it. Pre-existing ones are reported and
+  first side-effecting step)                  do not fail a retry/controller run.
+running, lease live              running     skip ("live lease"); another writer owns it
+running, lease expired,          expired     adopt the GitHub run by token; never a
+  phase github_reconcile                      second dispatch
+running, lease expired, phase    expired     RE-RUN with a new token. The child never
+  local_pre_side_effect /                     reached its side-effecting step (the
+  local_retryable                             2026-09-03 scan_am shape), so a fresh
+                                              run is safe and is the whole point of
+                                              the 05:45 retry task.
+failure (retryable, or an        failure     re-run with a new token
+  operator retryable_failure)
+===============================  ==========  ======================================
+
+``effective_status`` is the read-side normalisation used by ``status``; a
+``running`` receipt whose lease has passed reads ``expired`` there, in the
+run log ("expired <job>: ... reclaiming"), and in the health battery
+(``scripts/repo_health_check.py`` reports an EXPIRED running lease as FAIL).
+The receipt itself is never rewritten by a reader.
+
+Exit codes: ``run-pipeline`` (primary) fails on any failure/blocked/
+indeterminate outcome. ``run-pipeline --retry`` and ``fallback-due`` fail only
+on outcomes THIS invocation produced; a receipt that was already
+indeterminate before the run started is printed with the ``resolve`` command
+and does not turn the run red (an older ambiguity is the operator's, not the
+controller's). A dependent blocked only by another writer's LIVE lease is
+pre-existing too: leaving a live claim alone is the correct action.
+
+A held supervisor lock is never a traceback. ``run-pipeline --retry`` prints
+``No action`` and exits 0 (the primary is still working); ``fallback-due`` and
+``health`` print a FAIL line naming how long the lock has been held and exit
+1, and ``health`` still runs its read-only battery without the lock.
+
+Runtime logs go to ``<state-root>/logs/<ET date>/<pipeline>-<stub>.log``.
+The Task Scheduler runner passes ``--state-root <ConfigRoot>/artifacts/automation``
+so logs, the lock, and the health receipt cache live OUTSIDE the pinned
+runtime worktree and survive a cutover.
 """
 
 from __future__ import annotations
@@ -157,6 +207,12 @@ class PipelineSpec:
     fallback_at_et: dt.time
     fallback_until_et: dt.time
     jobs: tuple[JobSpec, ...]
+    # Optional local second-chance window (``run-pipeline --retry``). It may
+    # overlap the GitHub fallback window: the R2 receipt CAS arbitrates, a
+    # live lease from either side blocks the other, and an expired
+    # pre-side-effect lease is reclaimed by whichever wakes first.
+    retry_at_et: dt.time | None = None
+    retry_until_et: dt.time | None = None
 
     def active_on(self, day: dt.date) -> bool:
         if self.cadence == "weekdays":
@@ -193,6 +249,24 @@ class PipelineSpec:
         return (
             self.active_on(local.date())
             and self.run_at_et <= clock < self.fallback_at_et
+        )
+
+    def retry_is_due(self, now_et: dt.datetime) -> bool:
+        """Whether the local second-chance task may re-examine today's receipts.
+
+        Bounded like ``local_is_due`` so a ``StartWhenAvailable`` replay hours
+        late cannot start a premarket pipeline at lunchtime. Pipelines without
+        a retry window never return True.
+        """
+        if self.retry_at_et is None or self.retry_until_et is None:
+            return False
+        if now_et.tzinfo is None:
+            raise ValueError("retry due checks require a timezone-aware datetime")
+        local = now_et.astimezone(ET)
+        clock = local.timetz().replace(tzinfo=None)
+        return (
+            self.active_on(local.date())
+            and self.retry_at_et <= clock < self.retry_until_et
         )
 
 
@@ -288,6 +362,14 @@ def build_catalog() -> dict[str, PipelineSpec]:
         run_at_et=dt.time(4, 10),
         fallback_at_et=dt.time(5, 20),
         fallback_until_et=dt.time(8, 55),
+        # Local second chance (2026-09-03 stall): the 05:45 ET S4U task re-runs
+        # this pipeline through the receipt table; every success is a no-op.
+        # 05:45, not 05:30: master_prices_am holds a 70-minute lease, so a
+        # 04:10 claim is still live at 05:30 and the retry would skip the very
+        # job most likely to have stalled. Late replays past 07:00 leave
+        # recovery to the 07:30 health probe and the GitHub controller.
+        retry_at_et=dt.time(5, 45),
+        retry_until_et=dt.time(7, 0),
         jobs=(
             JobSpec(
                 id="cboe_am",
@@ -1064,7 +1146,27 @@ class GlobalFileLock:
                 self._handle = None
                 raise LockUnavailable(f"another automation supervisor holds {self.path}")
             time.sleep(self.poll_seconds)
+        # Stamp the mtime on every successful acquire so a blocked reader can
+        # say how long the CURRENT holder has held it (the file itself is
+        # created once and outlives every generation). Best effort: a failure
+        # here must never cost the caller its lock.
+        try:
+            os.utime(self.path, None)
+        except OSError:  # pragma: no cover - filesystem refusal is not fatal
+            pass
         return self
+
+    def holder_since_et(self) -> str | None:
+        """ET timestamp of the last successful acquire, or None if unknowable."""
+        try:
+            stamp = self.path.stat().st_mtime
+        except OSError:
+            return None
+        return (
+            dt.datetime.fromtimestamp(stamp, tz=UTC)
+            .astimezone(ET)
+            .strftime("%Y-%m-%d %H:%M:%S ET")
+        )
 
     def release(self) -> None:
         if self._handle is None:
@@ -1121,6 +1223,35 @@ class RunLogger:
         tb: TracebackType | None,
     ) -> None:
         self.close()
+
+
+class StdoutLogger:
+    """Last-resort logger when the run log cannot be opened.
+
+    An unusable state root (``logs`` occupied by a file, a revoked ACL, a full
+    disk) must never swallow a FAIL line: the health probe still has to say why
+    the morning is red. Interface-compatible with ``RunLogger``; writes nowhere
+    but stdout.
+    """
+
+    path = None
+
+    def line(self, value: str = "") -> None:
+        print(value.rstrip("\r\n"), flush=True)
+
+    def close(self) -> None:
+        return None
+
+    def __enter__(self) -> StdoutLogger:  # noqa: PYI034
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        return None
 
 
 @dataclass(frozen=True)
@@ -1376,6 +1507,23 @@ class Receipt:
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=UTC)
         return now_utc.astimezone(UTC) >= expires.astimezone(UTC)
+
+
+def effective_status(receipt: Receipt | None, now_utc: dt.datetime) -> str:
+    """Read-side normalisation shared by every reporter of a receipt.
+
+    ``running`` with a lease that has already passed reads ``expired``: the
+    claim is reclaimable (see ``ReceiptStore.claim``) and the health battery
+    counts it as FAIL, so ``status`` must not print it as a live ``running``.
+    Nothing is written; the receipt stays exactly as R2 holds it. An
+    unparseable lease is treated as live, matching ``Receipt.lease_expired``
+    (the claim path never reclaims what it cannot date).
+    """
+    if receipt is None:
+        return "missing"
+    if receipt.status == "running" and receipt.lease_expired(now_utc):
+        return "expired"
+    return receipt.status
 
 
 class ReceiptStore(Protocol):
@@ -1847,6 +1995,10 @@ class JobOutcome:
     status: str
     source: str | None = None
     detail: str | None = None
+    # True when the outcome merely restates a receipt that existed before this
+    # invocation started (or is blocked only by such receipts). A retry or
+    # controller run must not turn red for an ambiguity it did not create.
+    preexisting: bool = False
 
     @property
     def satisfied(self) -> bool:
@@ -2089,14 +2241,22 @@ class AutomationSupervisor:
     ) -> JobOutcome:
         existing = self.receipts.latest(run_date, job.id)
         if existing and existing.status in {"success", "indeterminate"}:
+            note = ""
+            if existing.status == "indeterminate":
+                note = (
+                    "; pre-existing, never re-run automatically; clear with: "
+                    f"resolve --pipeline {pipeline.id} --job {job.id} --date {run_date} "
+                    "--disposition success|retryable_failure --reason ..."
+                )
             logger.line(
                 f"skip {job.id}: {existing.status} receipt from {existing.source} "
-                f"token={existing.automation_token}"
+                f"token={existing.automation_token}{note}"
             )
             return JobOutcome(
                 job.id, existing.status,
                 existing.source,
                 "existing receipt",
+                preexisting=True,
             )
         if existing and existing.status == "running":
             if not existing.lease_expired(self.now().astimezone(UTC)):
@@ -2104,7 +2264,14 @@ class AutomationSupervisor:
                     f"skip {job.id}: live running lease from {existing.source} "
                     f"token={existing.automation_token}"
                 )
-                return JobOutcome(job.id, "running", existing.source, "live lease")
+                # Another writer owns it and its lease has not passed: the
+                # correct action is to leave it alone, so neither this job nor
+                # anything blocked behind it is a failure THIS run produced.
+                # (2026-09-04 verify: a live lease on scan_am turned the 05:45
+                # retry and every controller tick red while nothing was wrong.)
+                return JobOutcome(
+                    job.id, "running", existing.source, "live lease", preexisting=True
+                )
             if existing.phase == "github_reconcile":
                 logger.line(
                     f"reconcile {job.id}: expired GitHub lease "
@@ -2116,6 +2283,14 @@ class AutomationSupervisor:
                     receipt=existing,
                     logger=logger,
                 )
+            # Same vocabulary as ``status``/health: the local claim died before
+            # its side-effecting step (phase local_pre_side_effect) or is
+            # rerun-safe (local_retryable), and its lease has passed. Reclaim.
+            logger.line(
+                f"expired {job.id}: {existing.phase} lease from {existing.source} "
+                f"expired at {existing.lease_expires_at_utc} "
+                f"token={existing.automation_token}; reclaiming"
+            )
 
         if github_only and job.workflow is None:
             # A local-only job (no migrated workflow) has no GitHub backup to
@@ -2369,7 +2544,14 @@ class AutomationSupervisor:
             if unsatisfied:
                 detail = f"unsatisfied dependencies: {', '.join(unsatisfied)}"
                 logger.line(f"skip {job.id}: {detail}")
-                outcomes[job.id] = JobOutcome(job.id, "blocked", detail=detail)
+                # Blocked only by receipts that predate this run is itself a
+                # pre-existing condition, not a new failure of this run.
+                inherited = all(
+                    dep in outcomes and outcomes[dep].preexisting for dep in unsatisfied
+                )
+                outcomes[job.id] = JobOutcome(
+                    job.id, "blocked", detail=detail, preexisting=inherited
+                )
                 continue
             outcomes[job.id] = self.run_job(
                 pipeline,
@@ -2395,6 +2577,14 @@ def render_plan(pipeline: PipelineSpec, *, python_executable: str = "python") ->
             f"{_format_time(pipeline.fallback_at_et)}-{_format_time(pipeline.fallback_until_et)}"
         ),
     ]
+    if pipeline.retry_at_et is not None and pipeline.retry_until_et is not None:
+        # The local second chance is a real scheduled writer; a plan that hides
+        # it under-describes who can claim these receipts (2026-09-04 verify).
+        lines.append(
+            "  local retry window: "
+            f"{_format_time(pipeline.retry_at_et)}-{_format_time(pipeline.retry_until_et)}"
+            f" (run-pipeline --pipeline {pipeline.id} --retry)"
+        )
     for job in pipeline.jobs:
         mode = "GITHUB-DISPATCH-ONLY" if job.dispatch_only else "LOCAL-PRIMARY"
         flags = []
@@ -2431,6 +2621,136 @@ def _et_run_date(now: dt.datetime) -> str:
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     return now.astimezone(ET).date().isoformat()
+
+
+def _utc_now() -> dt.datetime:
+    """Clock seam for ``main`` so window gates are testable without patching datetime."""
+    return dt.datetime.now(tz=UTC)
+
+
+def _dependents_of(pipeline: PipelineSpec, job_id: str) -> list[JobSpec]:
+    """Jobs downstream of ``job_id`` in catalog order (transitive closure)."""
+    downstream: set[str] = {job_id}
+    ordered: list[JobSpec] = []
+    for job in pipeline.jobs:
+        if job.id != job_id and any(dep in downstream for dep in job.depends_on):
+            downstream.add(job.id)
+            ordered.append(job)
+    return ordered
+
+
+RUNTIME_MARKER_RELPATH = Path(".local") / "automation-runtime.json"
+DEFAULT_REF = "main"
+
+
+def _marker_fallback_ref(*roots: str | None) -> str | None:
+    """The pinned immutable tag from the first runtime marker found in ``roots``.
+
+    The marker lives under the RUNTIME root -- ``install_local_automation_tasks.ps1``
+    writes ``<RuntimeRoot>\\.local\\automation-runtime.json`` and
+    ``run_local_automation.ps1`` reads it there -- so callers pass the runtime
+    root first and the config root second (a development checkout may hold one,
+    the production config root does not). Returns None when no marker is
+    present, none can be parsed, or the ref names a branch rather than a
+    tag-shaped ref. Never raises: this only decorates a printed hint.
+    """
+    for root in roots:
+        if not root:
+            continue
+        try:
+            marker = json.loads(
+                (Path(root) / RUNTIME_MARKER_RELPATH).read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            continue
+        candidate = marker.get("fallback_ref") if isinstance(marker, Mapping) else None
+        if not isinstance(candidate, str) or not candidate or candidate == DEFAULT_REF:
+            continue
+        if not all(ch.isalnum() or ch in "._/-" for ch in candidate):
+            continue
+        return candidate
+    return None
+
+
+def _print_due_after_resolution(
+    *,
+    pipeline: PipelineSpec,
+    job_id: str,
+    run_date: str,
+    disposition: str,
+    receipts: ReceiptStore,
+    now_utc: dt.datetime,
+    config_root: str | None,
+    ref: str | None,
+    runtime_root: str | None = None,
+) -> list[str]:
+    """After ``resolve``, name what is now due and the exact command. Never dispatches.
+
+    Returns the job ids printed as due (for tests). A success resolution
+    unblocks the job's dependents; a retryable_failure resolution makes the
+    job itself due again.
+    """
+    if disposition == "success":
+        candidates = _dependents_of(pipeline, job_id)
+    else:
+        candidates = [job for job in pipeline.jobs if job.id == job_id]
+    due: list[str] = []
+    for job in candidates:
+        state = effective_status(receipts.latest(run_date, job.id), now_utc)
+        if state in {"missing", "failure", "expired"}:
+            due.append(job.id)
+    if not due:
+        print(f"Nothing downstream of {job_id} is due for {run_date}.")
+        return due
+    window = (
+        f"{_format_time(pipeline.fallback_at_et)}-{_format_time(pipeline.fallback_until_et)}"
+    )
+    in_window = pipeline.fallback_is_due(now_utc)
+    print(
+        f"Now due for {run_date} ({pipeline.id}): {', '.join(due)}. "
+        "Not dispatched. Run by hand (each command dispatches that job plus its "
+        "prerequisite closure, honouring existing receipts):"
+    )
+    # The printed command is meant to be pasted. An explicit ``--ref`` is
+    # honoured verbatim -- including ``--ref main``, which only earns a warning.
+    # When none was given, fall back to the pinned immutable tag in the runtime
+    # marker (runtime root first, then the config root), because that is what
+    # every scheduled dispatch resolves (2026-09-04 verify).
+    searched = [runtime_root, config_root]
+    marker_ref = _marker_fallback_ref(*searched) if ref is None else None
+    effective_ref = ref or marker_ref or DEFAULT_REF
+    config = f" --config-root {config_root}" if config_root else ""
+    for dependent in due:
+        print(
+            f"  python scripts/automation_supervisor.py fallback-due "
+            f"--pipeline {pipeline.id} --job {dependent} --date {run_date}"
+            f"{config} --ref {effective_ref}"
+        )
+    looked_in = ", ".join(
+        str(Path(root) / RUNTIME_MARKER_RELPATH) for root in searched if root
+    ) or str(RUNTIME_MARKER_RELPATH)
+    if marker_ref:
+        print(
+            f"  --ref {marker_ref} taken from the runtime marker under "
+            f"{looked_in} (the immutable tag the tasks and the controller "
+            "dispatch)."
+        )
+    elif effective_ref == DEFAULT_REF:
+        print(
+            f"  WARNING: --ref {DEFAULT_REF} is a moving branch, not the pinned "
+            "immutable tag the scheduled runs dispatch. The marker lives at "
+            f"<RuntimeRoot>\\{RUNTIME_MARKER_RELPATH}; none was readable at "
+            f"{looked_in}. Read fallback_ref from the enabled generation's "
+            "marker and pass it explicitly before running these."
+        )
+    if not in_window:
+        print(
+            f"  NOTE: fallback-due acts only inside the {pipeline.id} ET fallback "
+            f"window {window}; outside it the command prints 'No pipeline is inside "
+            "its ET fallback window' and does nothing. Use the child workflow's "
+            "workflow_dispatch by hand instead, or wait for the window."
+        )
+    return due
 
 
 def _make_runtime(
@@ -2473,7 +2793,7 @@ def _make_runtime(
         repo_root=repo_root,
         env=env,
         repository=args.repository,
-        ref=args.ref,
+        ref=args.ref or DEFAULT_REF,
     )
     supervisor = AutomationSupervisor(
         catalog=CATALOG,
@@ -2500,7 +2820,11 @@ def _add_runtime_arguments(
     parser.add_argument("--exec-env", help="optional external exec_agent.env path override")
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--repository", default="mslade50/New_Seasonals")
-    parser.add_argument("--ref", default="main")
+    # Default None, not "main": ``resolve`` must be able to tell an operator
+    # who typed ``--ref main`` (honoured verbatim, with a warning) from one who
+    # gave no ref at all (the runtime marker's pinned tag is substituted). Every
+    # dispatch path reads ``args.ref or DEFAULT_REF``.
+    parser.add_argument("--ref", default=None)
     parser.add_argument(
         "--cutover-date-et",
         default=os.environ.get(
@@ -2584,6 +2908,16 @@ def build_parser() -> argparse.ArgumentParser:
     run_pipeline.add_argument("--date", help="ET receipt date override (YYYY-MM-DD)")
     run_pipeline.add_argument("--dry-run", action="store_true", help="print plan only; no secrets or I/O")
     run_pipeline.add_argument("--no-fallback", action="store_true")
+    run_pipeline.add_argument(
+        "--retry",
+        action="store_true",
+        help=(
+            "local second-chance mode: gated by the pipeline's retry window instead "
+            "of its primary window; every job with a success receipt is a no-op, an "
+            "expired pre-side-effect lease is re-run, indeterminate is never re-run; "
+            "pre-existing indeterminate receipts do not fail the run"
+        ),
+    )
 
     fallback = sub.add_parser(
         "fallback-due", help="dispatch missing jobs during their bounded ET fallback window"
@@ -2654,8 +2988,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(render_plan(CATALOG[args.pipeline], python_executable=args.python))
         return 0
 
-    now = dt.datetime.now(tz=UTC)
+    now = _utc_now()
     run_date = getattr(args, "date", None) or _et_run_date(now)
+    retry_mode = bool(getattr(args, "retry", False))
     if args.command in {"run", "run-pipeline", "fallback-due", "resolve", "health"}:
         try:
             selected_day = dt.date.fromisoformat(run_date)
@@ -2676,7 +3011,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise AutomationError(
                 f"job {args.job!r} is not in pipeline {args.pipeline!r}"
             )
-    if args.command == "run-pipeline":
+    if args.command == "run-pipeline" and retry_mode:
+        pipeline = CATALOG[args.pipeline]
+        if pipeline.retry_at_et is None or pipeline.retry_until_et is None:
+            raise AutomationError(f"pipeline {pipeline.id} has no local retry window")
+        if not pipeline.retry_is_due(now.astimezone(ET)):
+            print(
+                f"No action: retry launch for {pipeline.id} is outside its local "
+                f"retry ET window {pipeline.retry_at_et.strftime('%H:%M')}-"
+                f"{pipeline.retry_until_et.strftime('%H:%M')} or active cadence."
+            )
+            return 0
+    elif args.command == "run-pipeline":
         pipeline = CATALOG[args.pipeline]
         now_et = now.astimezone(ET)
         if not pipeline.local_is_due(now_et):
@@ -2706,9 +3052,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             health_argv.append("--skip-tests")
         if args.skip_automation:
             health_argv.append("--skip-automation")
-        with GlobalFileLock(state_root / "automation_supervisor.lock"):
-            with RunLogger(log_path) as logger:
+        # The battery itself only READS (R2 receipts, local files, the test
+        # collector), so a held lock is not a reason to skip it. It is a
+        # finding: at 07:30 ET a live lock means the 04:10 primary never
+        # returned. Report that as FAIL, run the battery anyway, stay red.
+        # (2026-09-04 verify: an uncaught LockUnavailable made a hung primary
+        # invisible to the health task -- no battery, no log line, only Task
+        # Scheduler's 0x1.)
+        rc = 1  # bound before anything can raise: a red default, never NameError
+        lock = GlobalFileLock(state_root / "automation_supervisor.lock")
+        locked_out: str | None = None
+        try:
+            lock.acquire()
+        except LockUnavailable as exc:
+            since = lock.holder_since_et() or "an unknown time"
+            locked_out = (
+                f"FAIL health: primary still holds the supervisor lock since "
+                f"{since} ({exc}); running the read-only battery without it"
+            )
+            # Straight to stdout FIRST. The run log lives under the state root,
+            # and an unusable state root is exactly the case where the finding
+            # must survive (2026-09-04 verify, finding 3).
+            print(locked_out, flush=True)
+        try:
+            try:
+                run_logger: RunLogger | StdoutLogger = RunLogger(log_path)
+            except OSError as exc:
+                print(
+                    f"WARN health: cannot open the run log {log_path} ({exc}); "
+                    "logging to stdout only",
+                    flush=True,
+                )
+                run_logger = StdoutLogger()
+            with run_logger as logger:
                 logger.line(f"health date_et={run_date} log={log_path}")
+                if locked_out and not isinstance(logger, StdoutLogger):
+                    logger.line(locked_out)  # already on stdout; this is the file copy
                 rc = supervisor.process.stream(
                     health_argv,
                     cwd=Path(args.repo_root).resolve(),
@@ -2716,6 +3095,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     timeout_seconds=3600,
                     logger=logger,
                 )
+        finally:
+            lock.release()
+        if locked_out:
+            return 1
         return 0 if rc == 0 else 1
 
     if args.command == "status":
@@ -2724,11 +3107,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         for pipeline_id in pipeline_ids:
             for job in CATALOG[pipeline_id].jobs:
                 receipt = receipts.latest(run_date, job.id)
+                # ``status`` is the normalised view (an expired running lease
+                # reads ``expired``); ``receipt_status`` is the raw R2 field.
                 rows.append(
                     {
                         "pipeline": pipeline_id,
                         "job_id": job.id,
-                        "status": receipt.status if receipt else "missing",
+                        "status": effective_status(receipt, now),
+                        "receipt_status": receipt.status if receipt else "missing",
+                        "phase": receipt.phase if receipt else None,
+                        "lease_expires_at_utc": (
+                            receipt.lease_expires_at_utc if receipt else None
+                        ),
                         "source": receipt.source if receipt else None,
                         "updated_at_utc": receipt.updated_at_utc if receipt else None,
                         "automation_token": receipt.automation_token if receipt else None,
@@ -2779,6 +3169,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"Resolved {args.pipeline}/{args.job} {run_date} as "
             f"{resolved.status}: {args.reason}"
         )
+        # F10 (2026-09-03): the AM site deploys stayed `missing` all day after
+        # the operator resolved scan_am. Say what is due now; never dispatch.
+        _print_due_after_resolution(
+            pipeline=CATALOG[args.pipeline],
+            job_id=args.job,
+            run_date=run_date,
+            disposition=args.disposition,
+            receipts=receipts,
+            now_utc=now,
+            config_root=args.config_root,
+            ref=args.ref,
+            # Under a scheduled task ``--repo-root`` IS the pinned runtime
+            # worktree, which is where the marker lives.
+            runtime_root=args.repo_root,
+        )
         return 0
 
     lock = GlobalFileLock(state_root / "automation_supervisor.lock")
@@ -2797,13 +3202,46 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("No pipeline is inside its ET fallback window.")
             return 0
 
+    # A retry or controller run answers for what IT did. A receipt that was
+    # already indeterminate when it started is reported, not counted (F2: the
+    # 2026-09-02 execution_report ambiguity turned every later controller tick
+    # red while each tick did nothing).
+    scoped_exit = args.command == "fallback-due" or retry_mode
+    mode = "retry" if retry_mode else args.command
     failures = 0
-    with lock:
+    try:
+        lock.acquire()
+    except LockUnavailable as exc:
+        since = lock.holder_since_et() or "an unknown time"
+        if retry_mode:
+            print(
+                f"No action: {exc}; the primary run still holds the supervisor "
+                f"lock since {since}.",
+                flush=True,
+            )
+            return 0
+        if args.command == "fallback-due":
+            # The 07:30 health task runs this first. A traceback there hid a
+            # hung primary from both the recovery and the battery (2026-09-04
+            # verify). Say it plainly and stay red; never a stack trace, and
+            # straight to stdout (the run log lives under the state root, which
+            # is itself a thing that can be unusable).
+            print(
+                f"FAIL fallback-due: primary still holds the supervisor lock "
+                f"since {since} ({exc}); no job was inspected or dispatched.",
+                flush=True,
+            )
+            return 1
+        raise
+    try:
         for pipeline_id in pipeline_ids:
             token_stub = uuid.uuid4().hex[:8]
             log_path = state_root / "logs" / run_date / f"{pipeline_id}-{token_stub}.log"
+            reported: list[str] = []
             with RunLogger(log_path) as logger:
-                logger.line(f"pipeline={pipeline_id} date_et={run_date} log={log_path}")
+                logger.line(
+                    f"pipeline={pipeline_id} date_et={run_date} mode={mode} log={log_path}"
+                )
                 outcomes = supervisor.run_pipeline(
                     pipeline_id,
                     run_date=run_date,
@@ -2816,10 +3254,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ),
                     logger=logger,
                 )
-                failures += sum(
-                    outcome.status in {"failure", "blocked", "indeterminate"}
-                    for outcome in outcomes
-                )
+                for outcome in outcomes:
+                    if outcome.status not in {"failure", "blocked", "indeterminate"}:
+                        continue
+                    if scoped_exit and outcome.preexisting:
+                        reported.append(f"{pipeline_id}/{outcome.job_id} ({outcome.status})")
+                        continue
+                    failures += 1
+                if reported:
+                    logger.line(
+                        f"reported, not counted against this {mode} run for {run_date}: "
+                        + ", ".join(reported)
+                        + " (pre-existing receipts; operator resolution required)"
+                    )
+    finally:
+        lock.release()
     return 1 if failures else 0
 
 

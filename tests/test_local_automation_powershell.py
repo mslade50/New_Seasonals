@@ -57,6 +57,26 @@ def test_runner_calls_only_the_pinned_supervisor_contract():
         in RUNNER
     )
     assert "fallback_ref" in RUNNER
+    # 2026-09-04: local second chance + stable state root outside the worktree.
+    assert "'premarket-retry'" in RUNNER
+    assert (
+        "run-pipeline --pipeline premarket --retry --config-root $ConfigRoot --ref"
+        in RUNNER
+    )
+    assert "$stateRoot = (Join-Path $ConfigRoot 'artifacts\\automation')" in RUNNER
+    assert RUNNER.count("--state-root $stateRoot") == 4
+    # 2026-09-04 round 2: a hung primary holding the supervisor lock is exactly
+    # when the battery matters, so the recovery probe can never abort the task
+    # before it (verify finding 1).
+    health_branch = RUNNER.split("if ($Pipeline -eq 'health') {", 1)[1].split(
+        "elseif ($Pipeline -eq 'premarket-retry')", 1
+    )[0]
+    assert "try {" in health_branch
+    assert "catch {" in health_branch
+    assert health_branch.index("catch {") < health_branch.index(
+        "health --config-root $ConfigRoot"
+    )
+    assert "$recoveryExitCode = 1" in health_branch
     assert "LOCAL_AUTOMATION_PRIMARY" in RUNNER
     assert "LOCAL_AUTOMATION_RUN_TOKEN" in RUNNER
     assert "[Guid]::NewGuid()" in RUNNER
@@ -76,6 +96,7 @@ def test_scheduled_runner_never_mutates_or_updates_code():
 def test_installer_defines_the_required_local_clock_schedule():
     for pipeline, at, mask in (
         ("premarket", "04:10:00", "62"),
+        ("premarket-retry", "05:45:00", "62"),
         ("discretionary", "08:35:00", "62"),
         ("execution", "16:30:00", "62"),
         ("postclose", "17:10:00", "62"),
@@ -108,9 +129,58 @@ def test_cutover_is_explicit_and_preserves_task_objects():
     assert "Repo Health Check" in INSTALLER
     assert "FallbackRef" in INSTALLER
     assert "Unregister-ScheduledTask" not in INSTALLER
-    assert "DeleteTask" not in INSTALLER
+    # Deletion exists only behind the explicit -PruneSuperseded switch, inside
+    # Invoke-Prune (2026-09-04). Nothing else in the installer may delete.
+    outside_prune = INSTALLER.replace(_extract_function("Invoke-Prune"), "")
+    assert "DeleteTask" not in outside_prune
+    assert "DeleteTask" in _extract_function("Invoke-Prune")
     assert "TASK_CREATE (not" in INSTALLER
     assert "task enabled states were rolled back" in INSTALLER
+
+
+def test_prune_switch_is_default_off_and_whatif_lists_only():
+    assert "[switch]$PruneSuperseded" in INSTALLER
+    assert "$PruneSuperseded = $true" not in INSTALLER
+    assert "SupportsShouldProcess = $true" in INSTALLER
+    prune = _extract_function("Invoke-Prune")
+    # The refusal has to name the exact listing command, switch included
+    # (2026-09-04 round 2): -WhatIf alone still throws.
+    assert (
+        "Prune requires the explicit -PruneSuperseded switch "
+        "(add -PruneSuperseded -WhatIf to list without deleting)"
+    ) in prune
+    assert "WhatIf: would unregister disabled task" in prune
+    candidates = _extract_function("Get-PruneCandidates")
+    assert "StartsWith($TaskNamePrefix" in candidates
+    assert "keep: rollback generation" in candidates
+    assert "keep: ENABLED" in candidates
+    cutover = _extract_function("Invoke-Cutover")
+    assert "Copy-RetiredRuntimeLogs" in cutover
+    assert cutover.index("Copy-RetiredRuntimeLogs") < cutover.index("$entry.task.Enabled = $true")
+    assert "if ($PruneSuperseded)" in cutover
+    # 2026-09-04 round 2: the incoming generation's cutover-state.json is
+    # written BEFORE the copy-forward, so the copy mirrors it at its own
+    # cutover instead of at the next one.
+    assert cutover.index("'cutover-state.json'") < cutover.index(
+        "Copy-RetiredRuntimeLogs -RootFolder"
+    )
+    # Per-source counters: a running total would misreport the second source.
+    copy_logs = _extract_function("Copy-RetiredRuntimeLogs")
+    assert copy_logs.index("foreach ($root in $sources)") < copy_logs.index("$copied = 0")
+    assert copy_logs.index("$copied = 0") < copy_logs.index("$sourceLogs = Join-Path")
+    # 2026-09-04 round 3: the cutover-state mirror runs BEFORE the missing-logs
+    # guard, or the freshly prepared incoming generation (no logs directory at
+    # all) is never mirrored at its own cutover.
+    assert copy_logs.index("cutover-state.json") < copy_logs.index(
+        "no runtime logs under"
+    )
+    assert copy_logs.index("cutover-state.json") < copy_logs.index(
+        "Get-ChildItem -LiteralPath $sourceLogs"
+    )
+    # A retired task whose action carries no quoted -RuntimeRoot is announced,
+    # never dropped from the source list in silence.
+    assert "carries no quoted -RuntimeRoot in its action" in copy_logs
+    assert copy_logs.count("Write-Output") >= 3
 
 
 def test_cutover_accepts_a_distinct_prior_local_prefix_and_keeps_fixed_legacy_tasks():
@@ -289,6 +359,7 @@ def _run_cutover_simulation(
             Set-StrictMode -Version Latest
             $ErrorActionPreference = 'Stop'
             $ConfirmCutover = $true
+            $PruneSuperseded = $false
             $PipelineSpecs = @(
                 [pscustomobject]@{{ Id = 'premarket' }},
                 [pscustomobject]@{{ Id = 'postclose' }}
@@ -302,6 +373,8 @@ def _run_cutover_simulation(
             {_extract_function('Get-SupersededTaskNames')}
             {_extract_function('Assert-TaskIdle')}
             {_extract_function('Invoke-Cutover')}
+            function Copy-RetiredRuntimeLogs {{ param($RootFolder) }}
+            function Invoke-Prune {{ throw 'prune must not run in this simulation' }}
 
             function New-FakeTask {{
                 param(
@@ -425,6 +498,56 @@ def test_cutover_refuses_to_mutate_when_a_superseded_task_is_running(tmp_path):
         "Fixed Legacy One": True,
         "Fixed Legacy Two": False,
     }
+
+
+@REQUIRES_WINDOWS_POWERSHELL
+def test_prune_candidates_protect_current_rollback_enabled_and_running_tasks(tmp_path):
+    harness = tmp_path / "prune_candidates.ps1"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            Set-StrictMode -Version Latest
+            $ErrorActionPreference = 'Stop'
+            $TaskNamePrefix = 'New Seasonals Local v9 - '
+            $RetireTaskNamePrefix = 'New Seasonals Local v8 - '
+            {_extract_function('Get-PruneCandidates')}
+            function New-FakeTask {{
+                param([string]$Name, [bool]$Enabled, [int]$State = 3)
+                return [pscustomobject]@{{ Name = $Name; Enabled = $Enabled; State = $State }}
+            }}
+            $tasks = @(
+                (New-FakeTask -Name 'New Seasonals Local v9 - premarket' -Enabled $true),
+                (New-FakeTask -Name 'New Seasonals Local v8 - premarket' -Enabled $false),
+                (New-FakeTask -Name 'New Seasonals Local v7 - premarket' -Enabled $false),
+                (New-FakeTask -Name 'New Seasonals Local v6 - health' -Enabled $true),
+                (New-FakeTask -Name 'New Seasonals Local v5 - postclose' -Enabled $false -State 4),
+                (New-FakeTask -Name 'New Seasonals Local - premarket' -Enabled $false),
+                (New-FakeTask -Name 'IBKR Daily Order Chain' -Enabled $true),
+                (New-FakeTask -Name 'Trigger Daily Screener (GHA workflow_dispatch)' -Enabled $false)
+            )
+            $root = [pscustomobject]@{{ Items = $tasks }}
+            $root | Add-Member -MemberType ScriptMethod -Name GetTasks -Value {{ param($flags) return $this.Items }}
+            $rows = @(Get-PruneCandidates -RootFolder $root)
+            $rows | ForEach-Object {{ [pscustomobject]@{{ Name = $_.Name; Action = $_.Action }} }} | ConvertTo-Json -Compress
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = _run_powershell(harness)
+    assert result.returncode == 0, result.stdout + result.stderr
+    rows = {row["Name"]: row["Action"] for row in json.loads(result.stdout.strip().splitlines()[-1])}
+    assert rows == {
+        "New Seasonals Local - premarket": "delete",
+        "New Seasonals Local v5 - postclose": "keep: queued or running",
+        "New Seasonals Local v6 - health": "keep: ENABLED (never pruned; disable it through a cutover first)",
+        "New Seasonals Local v7 - premarket": "delete",
+        "New Seasonals Local v8 - premarket": "keep: rollback generation (-RetireTaskNamePrefix)",
+    }
+    # The current generation and every non-generation task never appear.
+    assert "New Seasonals Local v9 - premarket" not in rows
+    assert "IBKR Daily Order Chain" not in rows
+    assert "Trigger Daily Screener (GHA workflow_dispatch)" not in rows
 
 
 def test_automation_requirements_are_explicit():
