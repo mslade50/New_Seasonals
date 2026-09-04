@@ -90,6 +90,15 @@ def test_normalize_parses_the_ref_into_its_own_columns():
     assert df.loc[0, "ref_action"] == "BUY"
 
 
+def test_normalize_tolerates_a_broker_row_missing_an_int_column():
+    # Found 2026-09-04 building the gap-guard checks: a payload without e.g.
+    # con_id crashed normalize (scalar pd.NA cannot .astype("Int64")).
+    slim = {"exec_id": "x", "time": "2026-09-02T19:59:00+00:00", "symbol": "LUV"}
+    df = hf.normalize([slim])
+    assert tuple(df.columns) == hf.COLUMNS
+    assert pd.isna(df.loc[0, "con_id"]) and str(df["con_id"].dtype) == "Int64"
+
+
 def test_normalize_requires_exec_id_and_time():
     with pytest.raises(ValueError):
         hf.normalize([{"symbol": "LUV", "time": "2026-09-02T19:59:00+00:00"}])
@@ -202,3 +211,103 @@ def test_gap_when_rows_aged_out_between_harvests():
 def test_first_run_is_never_a_gap():
     ring = hf.normalize([_row("b", time="2026-08-20T19:59:00+00:00")])
     assert hf.detect_gap(hf.empty_frame(), ring)["gap"] is False
+
+
+# --- empty ring (2026-09-04) --------------------------------------------------
+#
+# Zero rows in the ring is ambiguous: a no-trade fortnight and "everything
+# aged out of the 14-day ring unseen" look identical. The store decides. With
+# retention 14 the window is today minus 13 trading sessions; a Friday
+# 2026-09-04 anchor puts that threshold at Tue 2026-08-18 (no closures in
+# that stretch; the calendar matters in the Labor Day case below).
+
+TODAY = "2026-09-04"
+
+
+def _store(session_utc):
+    return hf.normalize([_row("a", time=session_utc)])
+
+
+def test_empty_ring_with_an_old_store_is_a_gap():
+    stored = _store("2026-08-03T19:59:00+00:00")
+    info = hf.detect_gap(stored, hf.empty_frame(), retention_days=14, today=TODAY)
+    assert info["gap"] is True
+    assert info["ring_oldest"] is None
+    assert info["stored_newest"] == "2026-08-03"
+    # Every session strictly after 08-03 through today could hold lost fills.
+    assert info["missing_business_days"] == len(
+        pd.date_range("2026-08-04", TODAY, freq=hf.TRADING_DAY))
+    assert "2026-08-03" in info["reason"] and TODAY in info["reason"]
+
+
+def test_empty_ring_with_a_recent_store_is_a_quiet_fortnight():
+    stored = _store("2026-08-26T19:59:00+00:00")
+    info = hf.detect_gap(stored, hf.empty_frame(), retention_days=14, today=TODAY)
+    assert info["gap"] is False
+    assert info["missing_business_days"] == 0
+    assert "no-trade" in info["reason"]
+
+
+def test_empty_ring_threshold_is_retention_minus_one_trading_sessions():
+    # 13 sessions before Fri 2026-09-04 is Tue 2026-08-18: a store whose
+    # newest session IS the threshold day is inside the window; one session
+    # earlier (Mon 08-17) is outside it.
+    threshold = pd.Timestamp(TODAY) - 13 * hf.TRADING_DAY
+    assert threshold == pd.Timestamp("2026-08-18")
+    on = _store("2026-08-18T19:59:00+00:00")
+    before = _store("2026-08-17T19:59:00+00:00")
+    assert hf.detect_gap(on, hf.empty_frame(), retention_days=14, today=TODAY)["gap"] is False
+    assert hf.detect_gap(before, hf.empty_frame(), retention_days=14, today=TODAY)["gap"] is True
+
+
+def test_empty_ring_window_counts_trading_sessions_not_calendar_days():
+    # Anchor after Labor Day (Mon 2026-09-07 is an NYSE closure). 13 sessions
+    # before Tue 2026-09-08 is 2026-08-19; a calendar-day count would land on
+    # 08-26, and pd.bdate_range (no holidays) on 08-20.
+    today = "2026-09-08"
+    assert pd.Timestamp(today) - 13 * hf.TRADING_DAY == pd.Timestamp("2026-08-19")
+    inside = _store("2026-08-19T19:59:00+00:00")
+    outside = _store("2026-08-18T19:59:00+00:00")
+    assert hf.detect_gap(inside, hf.empty_frame(), retention_days=14, today=today)["gap"] is False
+    assert hf.detect_gap(outside, hf.empty_frame(), retention_days=14, today=today)["gap"] is True
+
+
+def test_empty_ring_and_empty_store_is_a_clean_first_run():
+    info = hf.detect_gap(hf.empty_frame(), hf.empty_frame(), retention_days=14, today=TODAY)
+    assert info["gap"] is False and info["stored_newest"] is None
+
+
+def test_empty_ring_defaults_to_the_documented_retention_when_payload_omits_it():
+    stored = _store("2026-08-03T19:59:00+00:00")
+    info = hf.detect_gap(stored, hf.empty_frame(), retention_days=None, today=TODAY)
+    assert info["retention_days"] == hf.DEFAULT_RETENTION_DAYS == 14
+    assert info["gap"] is True
+
+
+def test_empty_ring_defaults_today_to_the_eastern_session(monkeypatch):
+    # Without an explicit anchor the detector asks for today's Eastern date.
+    monkeypatch.setattr(hf, "_today_eastern", lambda: pd.Timestamp(TODAY))
+    stored = _store("2026-08-03T19:59:00+00:00")
+    assert hf.detect_gap(stored, hf.empty_frame(), retention_days=14)["gap"] is True
+
+
+def test_nonempty_ring_ignores_retention_and_today():
+    # The non-empty branch is byte-for-byte the pre-2026-09-04 rule: the
+    # ring's oldest session vs our newest, and nothing else.
+    stored = hf.normalize([_row("a", time="2026-08-03T19:59:00+00:00")])
+    ring = hf.normalize([_row("b", time="2026-08-20T19:59:00+00:00")])
+    a = hf.detect_gap(stored, ring)
+    b = hf.detect_gap(stored, ring, retention_days=1, today="2030-01-01")
+    for k in ("gap", "ring_oldest", "stored_newest", "missing_business_days"):
+        assert a[k] == b[k]
+    assert a["gap"] is True
+    touch = hf.normalize([_row("b", time="2026-08-04T19:59:00+00:00")])
+    assert hf.detect_gap(stored, touch, retention_days=1, today="2030-01-01")["gap"] is False
+
+
+def test_assert_no_gap_exits_3_on_an_empty_ring_gap():
+    gap = {"gap": True, "ring_oldest": None}
+    ns = type("NS", (), {"assert_no_gap": True})()
+    assert hf._gap_exit(gap, ns) == 3
+    ns.assert_no_gap = False
+    assert hf._gap_exit(gap, ns) == 0

@@ -20,7 +20,10 @@ Two properties matter more than speed:
 2. **Loud on gaps.** If the machine is off for longer than the retention
    window, rows are lost silently. The oldest row in the ring is compared to
    the newest row we hold: a hole raises a GAP warning (and exits non-zero
-   under --assert-no-gap) instead of a green run over missing history.
+   under --assert-no-gap) instead of a green run over missing history. An
+   EMPTY ring is a gap too whenever our newest stored session is older than
+   the ring's window (today minus `retention_days - 1` trading sessions):
+   only a store still inside that window proves the silence was real.
 
 `order_ref` carries the book's `SYMBOL|ACTION|Strategy|Date` contract, so the
 strategy, side and signal date are parsed into their own columns here -- that
@@ -49,11 +52,16 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from trading_calendar import TRADING_DAY  # noqa: E402
+
 DEFAULT_BROKER_URL = "https://execution-broker.mckinleyslade.workers.dev"
 LOCAL_PATH = _ROOT / "data" / "live_fills.parquet"
 R2_KEY = "live_fills.parquet"
 STATUS_R2_KEY = "live_fills_status.json"
 ET = "America/New_York"
+# The broker DO's documented retention. Used only when the payload does not
+# carry `retention_days`; the empty-ring gap test needs SOME window.
+DEFAULT_RETENTION_DAYS = 14
 
 # Frozen schema. New columns from the broker are DROPPED rather than silently
 # widening the store (the fragility-parquet convention); add them here first.
@@ -149,7 +157,9 @@ def normalize(rows: list[dict]) -> pd.DataFrame:
         out[col] = pd.to_numeric(df[col], errors="coerce") if col in df.columns else pd.NA
         out[col] = pd.to_numeric(out[col], errors="coerce").astype("float64")
     for col in _INT_COLS:
-        raw = pd.to_numeric(df[col], errors="coerce") if col in df.columns else pd.NA
+        # A column the broker omits entirely must become an all-NA Series, not
+        # a scalar: pd.to_numeric(pd.NA) is a scalar and cannot .astype("Int64").
+        raw = df[col] if col in df.columns else pd.Series(pd.NA, index=df.index, dtype="object")
         out[col] = pd.to_numeric(raw, errors="coerce").astype("Int64")
 
     out["harvested_at_utc"] = pd.Timestamp.now(tz="UTC")
@@ -238,21 +248,65 @@ def merge_fills(existing: pd.DataFrame, incoming: pd.DataFrame) -> tuple[pd.Data
     return combined, stats
 
 
-def detect_gap(existing: pd.DataFrame, incoming: pd.DataFrame) -> dict:
+def _today_eastern() -> pd.Timestamp:
+    return pd.Timestamp.now(tz=ET).tz_localize(None).normalize()
+
+
+def detect_gap(existing: pd.DataFrame, incoming: pd.DataFrame,
+               retention_days: int | None = None,
+               today: pd.Timestamp | str | None = None) -> dict:
     """Compare the ring's oldest session to our newest: a hole means lost rows.
 
     The ring keeps ~14 calendar days. If nothing harvested for longer than
     that, executions expired unseen and only an IBKR Flex pull can recover
     them, so this has to be loud rather than a green no-op.
+
+    An EMPTY ring is the ambiguous case (2026-09-04): "nothing traded for a
+    fortnight" and "everything aged out unseen" both come back as zero rows.
+    They are told apart by the store: if our newest session is still inside
+    the ring's window (today minus ``retention_days - 1`` trading sessions),
+    any later fill would still be in the ring, so an empty ring is a genuine
+    no-trade stretch. If our newest session is OLDER than that window, the
+    ring has already dropped whatever happened after it, and that is a gap.
+    Session arithmetic uses the NYSE trading calendar, not calendar days.
     """
-    info = {"gap": False, "ring_oldest": None, "stored_newest": None, "missing_business_days": 0}
+    info = {"gap": False, "ring_oldest": None, "stored_newest": None,
+            "missing_business_days": 0, "reason": None,
+            "retention_days": int(retention_days) if retention_days else DEFAULT_RETENTION_DAYS}
+    store_empty = existing is None or existing.empty
+    stored_newest = None if store_empty else str(existing["session_date"].dropna().max())
+
     if incoming is None or incoming.empty:
+        if store_empty or not stored_newest or stored_newest == "nan":
+            info["reason"] = "first run: nothing stored and nothing in the ring"
+            return info
+        info["stored_newest"] = stored_newest
+        today_ts = pd.Timestamp(today) if today is not None else _today_eastern()
+        today_ts = today_ts.normalize()
+        window = max(int(info["retention_days"]) - 1, 0)
+        threshold = today_ts - window * TRADING_DAY
+        newest_ts = pd.Timestamp(stored_newest)
+        if newest_ts < threshold:
+            # Sessions strictly after our newest stored session, through today.
+            span = pd.date_range(newest_ts + pd.Timedelta(days=1), today_ts, freq=TRADING_DAY)
+            info["missing_business_days"] = int(len(span))
+            info["gap"] = True
+            info["reason"] = (
+                f"ring is EMPTY and our newest stored session {stored_newest} is older "
+                f"than the ring window (today {today_ts.date()} minus {window} sessions "
+                f"= {threshold.date()}); fills after {stored_newest} aged out unseen"
+            )
+        else:
+            info["reason"] = (
+                f"ring is empty but our newest stored session {stored_newest} is inside "
+                f"the ring window (from {threshold.date()}): a genuine no-trade stretch"
+            )
         return info
+
     ring_oldest = str(incoming["session_date"].dropna().min())
     info["ring_oldest"] = ring_oldest
-    if existing is None or existing.empty:
+    if store_empty:
         return info
-    stored_newest = str(existing["session_date"].dropna().max())
     info["stored_newest"] = stored_newest
     if not stored_newest or not ring_oldest:
         return info
@@ -264,6 +318,10 @@ def detect_gap(existing: pd.DataFrame, incoming: pd.DataFrame) -> dict:
     )
     info["missing_business_days"] = int(len(span))
     info["gap"] = len(span) > 0
+    if info["gap"]:
+        info["reason"] = (
+            f"ring starts {ring_oldest} but our newest session is {stored_newest}"
+        )
     return info
 
 
@@ -353,11 +411,16 @@ def main(argv: list[str] | None = None) -> int:
     existing = load_existing(pull_r2=True)
     print(f"  stored: {len(existing)} rows")
 
-    gap = detect_gap(existing, incoming)
-    if gap["gap"]:
+    gap = detect_gap(existing, incoming, retention_days=retention)
+    if gap["gap"] and gap["ring_oldest"] is None:
+        print(f"  GAP: {gap['reason']} - up to {gap['missing_business_days']} session(s) "
+              f"unaccounted for. Only an IBKR Flex/activity pull can recover them.")
+    elif gap["gap"]:
         print(f"  GAP: ring starts {gap['ring_oldest']} but our newest session is "
               f"{gap['stored_newest']} - {gap['missing_business_days']} business day(s) "
               f"aged out unseen. Only an IBKR Flex/activity pull can recover them.")
+    elif gap["reason"]:
+        print(f"  ring: {gap['reason']}")
     merged, stats = merge_fills(existing, incoming)
     print(f"  merged: +{stats['rows_new']} new, {stats['rows_updated']} re-seen, "
           f"{stats['rows_after']} total")
