@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "provider": "official_x_readonly_adapter_NOT_IMPLEMENTED",
+  "provider_version": "example-1",
+  "sources": [
+    {
+      "source_id": "x:example_quant_account",
+      "platform": "X",
+      "discovery_only": true,
+      "locator": {
+        "kind": "ACCOUNT",
+        "value": "@example_quant_account"
+      },
+      "capture_id": "capture-example-20260905",
+      "captured_at": "2026-09-05T21:05:00+00:00",
+      "window": {
+        "start": "2026-09-04T21:00:00+00:00",
+        "end": "2026-09-05T21:00:00+00:00"
+      },
+      "cursor": {
+        "in": null,
+        "out": "example-next-cursor",
+        "exhausted": true
+      },
+      "provider_status": "OK",
+      "expected_item_count": 1,
+      "expected_min_items": 0,
+      "observed_item_count": 1
+    }
+  ]
+}
