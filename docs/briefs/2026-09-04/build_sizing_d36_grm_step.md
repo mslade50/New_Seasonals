@@ -99,4 +99,3 @@ Write the exact-edit plan before source edits to
 ## Report
 
 Use section 6 of `docs/plan_2026-09-04.md` verbatim.
-

@@ -65,4 +65,3 @@ Write an attack plan to
 
 Use section 6 of `docs/plan_2026-09-04.md` verbatim. Verdict must be exactly
 PASS or FAIL; an unclosed gap is a FAIL.
-

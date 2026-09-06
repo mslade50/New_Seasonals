@@ -1,17 +1,17 @@
 # Quant controls and research automation plan — 2026-09-05
 
-Status: antagonist-reviewed; repo-local implementation in progress. Live
-broker, email, X access, scheduler and production-data activation are excluded
-until the owner gates below are closed.
+Status: repo-local implementation complete and independently verified. Live
+broker, email, X access, scheduler and production-data activation remain
+excluded until the owner gates below are closed.
 
 ## Executive decision
 
-Proceed now with five bounded changes:
+Delivered five bounded changes:
 
 1. change only liquid OVS from 0.5x to the owner-directed 0.7x and independently
    verify the money path;
-2. correct and guard OLV's actual sizing/entry semantics without changing its
-   live risk policy;
+2. validate and regression-guard OLV's actual sizing/entry semantics without
+   changing its live risk policy;
 3. build a file-only, non-authoritative expected-flat evaluator and daily
    JSON/Markdown/HTML report;
 4. build a file-only, non-authoritative strategy-discovery funnel and daily
@@ -200,6 +200,25 @@ Three high-confidence green-on-failure paths are in scope:
   upload. A nonempty, already-current, zero-added fetch may pass when freshness
   is proven. Partial coverage is reported; no unregistered threshold is added.
 
+## Implementation and verification record
+
+All evidence below is repo-local. No broker, Google Sheets, R2, email,
+scheduler, X, or production-system write was performed by this slice.
+
+| Workstream | Delivered result | Independent or focused proof |
+|---|---|---|
+| OLV policy audit | Confirmed tier × recency × earnings replacement sizing, ATR-normalized shares, exact pivot boundaries, cap ordering and live/engine sub-dollar difference; no live risk-policy change | 104 focused tests passed; audit in `artifacts/task_worktrees/olv-sizing-audit-20260905/artifacts/audits/2026-09-05/olv-sizing-audit.md` |
+| Liquid OVS 0.7x | Changed only the liquid tier multiplier; overflow, rank, cycle, P1/P2 and cap contracts remain unchanged | Independent money-path PASS; 75 focused tests; 24,676 replay candidates and 4,700 rows per arm reconciled |
+| Expected-flat control | Added exact, correction-aware, account-contract reconciliation; immutable local JSON/Markdown/HTML bundle; fail-closed source authority; no order path | 80 focused tests and independent round-two antagonist PASS |
+| Strategy discovery | Added offline source/cursor/catalog contracts, proposal grammar, lifecycle authority, committed run identities, append-only journal and human daily bundle; no network or production activation path | Final antagonist PASS on `9ac98408b03072b961967b469f66e0913940de06`; 302 tests; 10/10 identity mutations rejected |
+| Green-on-failure hygiene | Portfolio report exits nonzero before side effects; intraday all-empty runs fail before publish; receipt checks use NYSE sessions and sufficient lookback; price-island regression is deterministic | Independent PASS: 52 focused plus 4 calendar tests |
+| Integrated branch | All repo-local changes together | 1,756 passed, 1 skipped, 6 expected failures; fatal Ruff rules passed |
+
+The two new daily controls are production-shaped but intentionally offline:
+they create deterministic, structured reports for operator review, yet they do
+not collect broker/X data, schedule themselves, or send email. Activation is a
+separate operational change after the owner decisions and shadow gates below.
+
 ## Owner decision and activation register
 
 | Item | Consequence today | Recommendation / decision needed | Activation blocker |
@@ -219,7 +238,7 @@ Three high-confidence green-on-failure paths are in scope:
 
 ## Acceptance and handoff
 
-The repo-local slice is complete only when:
+The repo-local slice was accepted after:
 
 - each workstream's focused tests pass;
 - the full suite is run and any baseline failure is independently reproduced;

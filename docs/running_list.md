@@ -52,6 +52,34 @@ given), DONE (commit hash). Move items down, never delete them.
   isolated worktree; D3.1-D3.5 and all failure evidence were preserved.
 - O46. DONE 2026-09-05 (see D-N): OWNER superseded liquid OVS 0.5x with
   0.7x. Overflow, rank-mean, cycle, P1/P2 and cap policies are unchanged.
+- O47. OWNER activation decisions for the post-close expected-flat control:
+  name every account and signal producer; choose the authoritative broker
+  position/fill feed, cutoff (recommended 16:35-16:40 ET), recipients,
+  baseline/adjustment owner, correction policy, and whether a missing intent
+  write blocks that producer. Recommendation: email one daily report for every
+  scheduled run (including CLEAR), page ALERT/UNKNOWN, never auto-flatten, and
+  require 10-20 consecutive shadow sessions with complete receipts and exact
+  reconciliation before LIVE authority.
+- O48. OWNER activation decisions for daily strategy discovery: approve the
+  unattended X source (recommended official read-only API, otherwise a manual
+  deterministic export), cost ceiling, source/query allowlist, collection and
+  content-retention policy, weekday/weekend cadence, recipients, supported
+  equities/ETF universe, and model/time budget. Keep X as discovery only;
+  require independent data and reproducible after-cost validation plus 20
+  shadow sessions before any automated owner-review email.
+- O49. Code-audit remediation queue. First batch: F1 scanner requested/resolved
+  universe coverage gate; F2 atomic or recoverable Sheets generation switch;
+  F4 systemic fill-data outage as DATA_UNAVAILABLE + nonzero. Next batch: F5
+  broker-truth OLV/D3.4 state, F6 version the OneDrive executor under Git/CI,
+  F7 point-in-time universes/delistings, F10 locked dependencies, F11 retired
+  scheduler fail-fast, and F12 dynamic-overflow ADV/cap ordering parity. Each
+  money-path or operational change needs its own frozen contract and antagonist
+  verification.
+- O50. SECURITY, OWNER: revoke and rotate the plaintext Gmail application
+  credential found in the external OneDrive reporting script, then store its
+  replacement in approved secret storage. Do this before enabling any new SMTP
+  sender. Removing the exposed value from backups or history is separate,
+  destructive work and requires an explicit cleanup scope and approval.
 
 ## AGREED
 
@@ -85,6 +113,25 @@ given), DONE (commit hash). Move items down, never delete them.
 - O40. `build_soxs_repair` (D13) round 1 DONE 2026-09-04: local parquet repaired (46 SOXS rows / 15.0139, mirror-validated; vendor ratio 15.0139 confirms), backup `data/master_prices.parquet.bak_20260904_soxs`, `scripts/repair_price_island.py` + segment guard in the updater, 25 tests. Dry run: yfinance STILL serves the island; guard rejects it. Mind decisions: (1) segment-only row drop, not whole-ticker (round 2 sent to the builder), (2) R2 UPLOAD ONLY AFTER the v9 cutover puts the new updater in the pinned runtime (the old median guard would re-import the island at 17:10). Upload command: `python -c "from cache_io import upload_from_local; print(upload_from_local('data/master_prices.parquet','master_prices.parquet'))"`. The 126d window enters the island ~09-18; v9 must land before then.
 
 ## DONE
+
+- D-P. Repository-wide quality audit and safe remediation slice completed
+  2026-09-05. Audited 351 non-scratch Python files with zero AST syntax errors
+  and clean fatal Ruff rules. Closed deterministic failure semantics in the
+  portfolio report, intraday updater and local receipt health check, and made
+  the price-island regression date-deterministic. Independent verifier PASS:
+  52 focused plus 4 calendar tests. Integrated branch: 1,756 passed, 1 skipped,
+  6 expected failures. High-severity decision work remains visible in O49.
+
+- D-O. Offline daily-control foundations completed and antagonist-verified
+  2026-09-05. Expected-flat reconciliation writes immutable structured local
+  JSON/Markdown/HTML, uses exact quantities and fail-closed evidence authority,
+  and has no order path (80 focused tests; round-two independent PASS).
+  Strategy discovery v1.0.6 binds source, catalogs, exact research specs and
+  lifecycle events into a reconciled run transaction; the final independent
+  review passed exact revision `9ac98408b03072b961967b469f66e0913940de06`
+  with 302 tests and 10/10 identity attacks rejected. Neither control has
+  broker, X, email, scheduler, Sheets, R2 or production authority; activation
+  gates are O47/O48/O50.
 
 - D-N. Liquid-tier OVS 0.7x OWNER OVERRIDE implemented 2026-09-05. The
   D9/D12 0.5x study and D3.5 verification remain frozen history; this is an
