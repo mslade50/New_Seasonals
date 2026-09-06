@@ -27,10 +27,35 @@ TIMINGS = {"PREOPEN", "OPEN", "INTRADAY", "CLOSE", "CLOSE_FINAL"}
 LOCATOR_KINDS = {"ACCOUNT", "LIST", "SEARCH"}
 PROVIDER_STATUSES = {"OK", "PARTIAL", "ERROR"}
 MEMBERSHIP_MODES = {"POINT_IN_TIME", "FIXED_INSTRUMENTS", "CURRENT_STATIC"}
+CONDITION_OPERATORS = {
+    "!=",
+    "<",
+    "<=",
+    "==",
+    ">",
+    ">=",
+    "between",
+    "crosses_above",
+    "crosses_below",
+    "in",
+    "not_in",
+}
+ORDER_TYPES = {
+    "LIMIT",
+    "LOC",
+    "LOO",
+    "MARKET",
+    "MOC",
+    "MOO",
+    "STOP",
+    "STOP_LIMIT",
+}
 LIFECYCLES = {"DISCOVERED", "RESEARCH_READY", "VALIDATED_RESEARCH", "OWNER_REVIEW"}
+MAX_ABS_NUMERIC = 10**18
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 POST_ID_RE = re.compile(r"^[A-Za-z0-9:_-]+$")
 HANDLE_RE = re.compile(r"^@[A-Za-z0-9_]{1,30}$")
+FIELD_IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,127}$")
 PERMALINK_RE = re.compile(
     r"^https://(?:www\.)?(?:x\.com|twitter\.com)/"
     r"(?P<handle>[A-Za-z0-9_]{1,30})/status/"
@@ -45,13 +70,18 @@ class ContractError(ValueError):
 def canonical_json(value: Any) -> str:
     """Stable JSON used for digests, fingerprints, and journal hashes."""
 
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
+    try:
+        result = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        result.encode("utf-8", errors="strict")
+    except (OverflowError, TypeError, UnicodeError, ValueError) as exc:
+        raise ContractError("value cannot be encoded as canonical UTF-8 JSON") from exc
+    return result
 
 
 def sha256_json(value: Any) -> str:
@@ -59,13 +89,29 @@ def sha256_json(value: Any) -> str:
 
 
 def _reject_nonfinite(value: Any, path: str) -> None:
-    if isinstance(value, float) and not math.isfinite(value):
-        raise _where(path, "NaN and Infinity are forbidden")
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as exc:
+            raise _where(path, "must contain valid Unicode scalar text") from exc
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            raise _where(path, "NaN and Infinity are forbidden")
+        if abs(value) > MAX_ABS_NUMERIC:
+            raise _where(path, f"numeric magnitude must be <= {MAX_ABS_NUMERIC}")
+    elif type(value) is int and abs(value) > MAX_ABS_NUMERIC:
+        raise _where(path, f"numeric magnitude must be <= {MAX_ABS_NUMERIC}")
     if isinstance(value, list):
         for i, child in enumerate(value):
             _reject_nonfinite(child, f"{path}[{i}]")
     elif isinstance(value, dict):
         for key, child in value.items():
+            if not isinstance(key, str):
+                raise _where(path, "object keys must be strings")
+            try:
+                key.encode("utf-8", errors="strict")
+            except UnicodeEncodeError as exc:
+                raise _where(path, "object key must contain valid Unicode scalar text") from exc
             _reject_nonfinite(child, f"{path}.{key}")
 
 
@@ -103,6 +149,10 @@ def _strict(
 def _string(value: Any, path: str, *, nonempty: bool = True) -> str:
     if not isinstance(value, str):
         raise _where(path, "must be a string")
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise _where(path, "must contain valid Unicode scalar text") from exc
     if nonempty and not value.strip():
         raise _where(path, "must not be empty")
     return value
@@ -122,15 +172,24 @@ def _integer(value: Any, path: str, *, minimum: int | None = None) -> int:
     return value
 
 
-def _number(value: Any, path: str, *, minimum: float | None = None) -> float:
+def _number(
+    value: Any,
+    path: str,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> int | float:
     if type(value) not in (int, float):
         raise _where(path, "must be a number")
-    result = float(value)
-    if not math.isfinite(result):
+    if isinstance(value, float) and not math.isfinite(value):
         raise _where(path, "must be finite")
-    if minimum is not None and result < minimum:
+    if abs(value) > MAX_ABS_NUMERIC:
+        raise _where(path, f"numeric magnitude must be <= {MAX_ABS_NUMERIC}")
+    if minimum is not None and value < minimum:
         raise _where(path, f"must be >= {minimum}")
-    return result
+    if maximum is not None and value > maximum:
+        raise _where(path, f"must be <= {maximum}")
+    return value
 
 
 def _enum(value: Any, allowed: set[str], path: str) -> str:
@@ -320,6 +379,58 @@ def _validate_metric(raw: Any, path: str, *, internal: bool) -> None:
                 _string(metric[key], f"{path}.{key}")
 
 
+def _validate_condition_value(operator: str, value: Any, path: str) -> None:
+    """Enforce an unambiguous operator/value grammar."""
+
+    scalar_types = (str, int, float, bool)
+
+    def validate_scalar(raw: Any, scalar_path: str) -> None:
+        if not isinstance(raw, scalar_types):
+            raise _where(scalar_path, "must be a scalar")
+        if type(raw) in (int, float):
+            _number(
+                raw,
+                scalar_path,
+                minimum=-MAX_ABS_NUMERIC,
+                maximum=MAX_ABS_NUMERIC,
+            )
+        elif isinstance(raw, str):
+            _string(raw, scalar_path)
+
+    def value_domain(raw: Any) -> str:
+        if isinstance(raw, bool):
+            return "boolean"
+        if type(raw) in (int, float):
+            return "number"
+        return "text"
+
+    if operator in {"between", "in", "not_in"}:
+        values = _list(value, path)
+        if operator == "between" and len(values) != 2:
+            raise _where(path, "between requires exactly two ordered bounds")
+        if operator in {"in", "not_in"} and not values:
+            raise _where(path, f"{operator} requires at least one member")
+        for index, member in enumerate(values):
+            validate_scalar(member, f"{path}[{index}]")
+        domains = {value_domain(member) for member in values}
+        if len(domains) != 1:
+            raise _where(path, f"{operator} members must have one homogeneous type")
+        if operator == "between":
+            if domains != {"number"}:
+                raise _where(path, "between requires two numeric bounds")
+            if values[0] >= values[1]:
+                raise _where(path, "between bounds must be strictly increasing")
+        return
+    if isinstance(value, list):
+        raise _where(path, f"operator {operator} requires one scalar value")
+    validate_scalar(value, path)
+    if (
+        operator in {"<", "<=", ">", ">=", "crosses_above", "crosses_below"}
+        and type(value) not in (int, float)
+    ):
+        raise _where(path, f"operator {operator} requires a numeric value")
+
+
 def _validate_proposal(raw: Any, path: str) -> None:
     proposal = _object(raw, path)
     _strict(
@@ -417,14 +528,18 @@ def _validate_proposal(raw: Any, path: str) -> None:
         cpath = f"{path}.signal.conditions[{i}]"
         condition = _object(raw_condition, cpath)
         _strict(condition, cpath, {"field", "operator", "value", "unit", "lookback_sessions"})
-        _string(condition["field"], f"{cpath}.field")
-        _string(condition["operator"], f"{cpath}.operator")
-        if not isinstance(condition["value"], (str, int, float, bool, list)):
-            raise _where(f"{cpath}.value", "must be scalar or array")
-        if isinstance(condition["value"], list):
-            for j, value in enumerate(condition["value"]):
-                if not isinstance(value, (str, int, float, bool)):
-                    raise _where(f"{cpath}.value[{j}]", "must be scalar")
+        field = _string(condition["field"], f"{cpath}.field")
+        if not FIELD_IDENTIFIER_RE.fullmatch(field):
+            raise _where(
+                f"{cpath}.field",
+                "must be a bounded machine-readable field identifier",
+            )
+        operator = _enum(
+            condition["operator"],
+            CONDITION_OPERATORS,
+            f"{cpath}.operator",
+        )
+        _validate_condition_value(operator, condition["value"], f"{cpath}.value")
         if condition["unit"] is not None:
             _string(condition["unit"], f"{cpath}.unit")
         if condition["lookback_sessions"] is not None:
@@ -434,7 +549,7 @@ def _validate_proposal(raw: Any, path: str) -> None:
     _strict(entry, f"{path}.entry", {"session_offset", "timing", "order_type", "price_rule"})
     _integer(entry["session_offset"], f"{path}.entry.session_offset", minimum=0)
     _enum(entry["timing"], TIMINGS - {"CLOSE_FINAL"}, f"{path}.entry.timing")
-    _string(entry["order_type"], f"{path}.entry.order_type")
+    _enum(entry["order_type"], ORDER_TYPES, f"{path}.entry.order_type")
     if entry["price_rule"] is not None:
         _string(entry["price_rule"], f"{path}.entry.price_rule")
 
@@ -818,6 +933,7 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         "report",
         {
             "schema_version",
+            "processor_version",
             "report_type",
             "run_id",
             "run_mode",
@@ -835,6 +951,7 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
     )
     if report["schema_version"] != SCHEMA_VERSION:
         raise _where("report.schema_version", f"must equal {SCHEMA_VERSION}")
+    _string(report["processor_version"], "report.processor_version")
     if report["report_type"] != "STRATEGY_DISCOVERY":
         raise _where("report.report_type", "must equal STRATEGY_DISCOVERY")
     run_id = _string(report["run_id"], "report.run_id")
@@ -1347,8 +1464,9 @@ def load_json(path: Path) -> Any:
         return json.loads(
             path.read_text(encoding="utf-8"),
             parse_constant=_reject_json_constant,
+            object_pairs_hook=_strict_json_object,
         )
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
         raise ContractError(f"{path}: unreadable JSON ({exc})") from exc
 
 
@@ -1357,15 +1475,22 @@ def load_jsonl(path: Path) -> list[Any]:
     records: list[Any] = []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise ContractError(f"{path}: unreadable JSONL ({exc})") from exc
     for i, line in enumerate(lines, 1):
         if not line.strip():
             continue
         try:
-            records.append(json.loads(line, parse_constant=_reject_json_constant))
-        except json.JSONDecodeError as exc:
-            raise ContractError(f"{path}:{i}: invalid JSON ({exc.msg})") from exc
+            records.append(
+                json.loads(
+                    line,
+                    parse_constant=_reject_json_constant,
+                    object_pairs_hook=_strict_json_object,
+                )
+            )
+        except (UnicodeError, ValueError) as exc:
+            detail = exc.msg if isinstance(exc, json.JSONDecodeError) else str(exc)
+            raise ContractError(f"{path}:{i}: invalid JSON ({detail})") from exc
     return records
 
 
@@ -1386,3 +1511,12 @@ def _validate_local_json_path(path: Path, *, jsonl: bool = False) -> None:
 
 def _reject_json_constant(value: str) -> None:
     raise ContractError(f"non-finite JSON numeric constant is forbidden: {value}")
+
+
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ContractError(f"duplicate JSON object key is forbidden: {key!r}")
+        result[key] = value
+    return result

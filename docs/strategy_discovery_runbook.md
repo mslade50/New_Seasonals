@@ -20,6 +20,11 @@ append-only journal:
 - `latest.json` is replaced last. It points to a complete generation and the
   verified journal head; an unreferenced generation is not a committed run.
 
+The report and run content ID include an explicit processor version. Any
+content-affecting contract/classification/rendering release must bump it, so a
+new implementation cannot collide with an immutable generation produced by an
+older one from identical input snapshots.
+
 The human report is deliberately ordered as a decision funnel:
 
 1. run mode, authority boundary, and `COMPLETE | PARTIAL | UNKNOWN` status;
@@ -157,6 +162,11 @@ observation timing, entry, bounded exits, data requirements, numeric costs,
 borrow, capacity, point-in-time universe/delisting basis, why-now, variant
 wedge, investability conditions, explicit unknowns, downstream workflow,
 portfolio-role hypothesis, and falsifiers are all explicit.
+Strings containing only common sentinels such as `TBD`, `unknown`, `N/A`,
+`none`, or `not applicable` never satisfy a readiness gate. This applies to
+every proposal merged into a structural candidate, including nested condition
+arrays and every falsifier; a complete primary post cannot launder an
+incomplete corroborating post.
 
 ### Catalog snapshots
 
@@ -193,12 +203,17 @@ The automatic research gate blocks or quarantines:
 - instruction-like/prompt-injection payloads;
 - missing/placeholder signal fields or values, unsupported operators, or empty
   condition arrays;
+- operator/value type mismatches: relational and crossing operators require one
+  numeric scalar, `between` requires two increasing numeric bounds, and
+  membership arrays must have one homogeneous scalar type;
 - no bounded exit;
 - final-close data used to enter at that same close;
 - open/intraday data used to claim the already-fixed same-session open;
 - same-session close execution without at least five minutes of declared lead;
 - same-session intraday observation and entry without explicit ordered clocks
   (the V1 schema has no clock fields, so this remains `NEEDS_SPEC`);
+- an unknown entry order type, a MOO/LOO or MOC/LOC timing mismatch, a missing
+  price rule for a limit/stop order, or an ignored price rule on a market order;
 - missing or placeholder commission, slippage, or market-impact assumptions;
 - shorts without explicit availability and borrow-fee assumptions;
 - missing or placeholder data field/cadence/availability declarations;
@@ -212,6 +227,11 @@ The automatic research gate blocks or quarantines:
 
 Passing these gates means only “ready to spend research time.” It is not a
 positive expected-return finding.
+
+All accepted numeric values have a finite magnitude bound before canonical
+JSON or hashing. Invalid UTF-8, lone Unicode surrogates, non-finite numbers,
+extreme integers, and duplicate JSON object keys become controlled
+`ContractError` failures rather than tracebacks.
 
 ## Run the example
 

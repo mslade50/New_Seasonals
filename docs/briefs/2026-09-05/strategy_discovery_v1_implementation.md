@@ -47,7 +47,11 @@ The implementation enforces the antagonist-approved authority model:
   freshness checks and no strategy/order-module imports;
 - prompt-injection quarantine plus signal, bounded-exit, causality/timing,
   cost, market-impact, borrow, data, point-in-time universe/delisting, capacity,
-  and investability gates;
+  substantive rationale/falsifier, and investability gates; every proposal in a
+  deduplicated group must pass rather than inheriting the primary item's gates;
+- explicit condition operator/value grammar, entry order/timing/price-rule
+  semantics, bounded numeric magnitudes, and controlled invalid-Unicode/JSON
+  failures;
 - portfolio-role hypotheses, why-now, variant wedge, numeric research
   assumptions, falsifiers, explicit unknowns, downstream workflow, first
   rejection, and next-research step in the human report;
@@ -68,14 +72,14 @@ Focused adversarial suite:
 
 ```text
 python -m pytest -q tests\test_strategy_discovery.py
-81 passed in 1.89s
+120 passed in 1.89s
 ```
 
 Focused plus adjacent Daily Posts/pitch grammar regression suite:
 
 ```text
 python -m pytest -q tests\test_strategy_discovery.py tests\test_daily_posts.py tests\test_pitch_grammar.py
-223 passed in 3.21s
+262 passed in 3.39s
 ```
 
 Syntax and patch hygiene:
@@ -103,8 +107,10 @@ remote-content neutralization, HTML escaping, local/UNC/path-collision
 enforcement, immutable generation failure/tamper behavior, exact research-spec
 authority, multi-spec rejection, strict nested report validation, strict
 unknown-field rejection, digest failure, out-of-window items, timestamps after
-the reporting boundary, inactive/future catalog records, placeholder signal
-grammar, ambiguous intraday timing, and non-X links.
+the reporting boundary, inactive/future catalog records, table-driven
+placeholder rationale/falsifier/signal/data/investability controls, ambiguous
+operator/value and entry-order semantics, bounded extreme numbers, invalid
+Unicode/UTF-8/duplicate JSON, ambiguous intraday timing, and non-X links.
 
 Fixture CLI proof, first run:
 

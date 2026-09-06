@@ -83,7 +83,7 @@ def load_journal(path: Path) -> list[dict[str, Any]]:
         return []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise ContractError(f"journal {path}: unreadable ({exc})") from exc
     records: list[dict[str, Any]] = []
     expected_prev = GENESIS
@@ -100,8 +100,11 @@ def load_journal(path: Path) -> list[dict[str, Any]]:
                     line_no=line_no,
                 ),
             )
-        except json.JSONDecodeError as exc:
-            raise ContractError(f"journal {path}:{line_no}: invalid JSON ({exc.msg})") from exc
+        except ValueError as exc:
+            detail = exc.msg if isinstance(exc, json.JSONDecodeError) else str(exc)
+            raise ContractError(
+                f"journal {path}:{line_no}: invalid JSON ({detail})"
+            ) from exc
         if not isinstance(record, dict) or set(record) != RECORD_KEYS:
             raise ContractError(f"journal {path}:{line_no}: invalid record contract")
         if type(record["sequence"]) is not int or record["sequence"] != line_no:
@@ -219,7 +222,7 @@ def _validate_lock_lease(lock: _JournalLease, expected_path: Path) -> None:
         raise ContractError("journal lock lease belongs to a different lock domain")
     try:
         payload = json.loads(lock.path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         raise ContractError("journal lock lease is no longer verifiable") from exc
     if payload.get("nonce") != lock.nonce:
         raise ContractError("journal lock lease ownership mismatch")
@@ -241,6 +244,7 @@ def exclusive_lock(path: Path, *, timeout_seconds: float = 10.0):
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     deadline = time.monotonic() + timeout_seconds
     descriptor = -1
+    payload: str | None = None
     while descriptor < 0:
         try:
             descriptor = os.open(path, flags, 0o600)
@@ -255,7 +259,10 @@ def exclusive_lock(path: Path, *, timeout_seconds: float = 10.0):
         payload = canonical_json(
             {"pid": os.getpid(), "lock_path": str(path), "nonce": nonce}
         ) + "\n"
-        os.write(descriptor, payload.encode("utf-8"))
+        payload_bytes = payload.encode("utf-8")
+        written = os.write(descriptor, payload_bytes)
+        if written != len(payload_bytes):
+            raise OSError(f"short lock write: {written}/{len(payload_bytes)} bytes")
         os.fsync(descriptor)
         os.close(descriptor)
         descriptor = -1
@@ -267,7 +274,7 @@ def exclusive_lock(path: Path, *, timeout_seconds: float = 10.0):
             current = path.read_text(encoding="utf-8")
         except OSError:
             current = None
-        if current == payload:
+        if payload is not None and current == payload:
             try:
                 path.unlink()
             except FileNotFoundError:

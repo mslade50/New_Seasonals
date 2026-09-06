@@ -12,6 +12,8 @@ from typing import Any
 
 from .contracts import (
     COMPLETENESS,
+    CONDITION_OPERATORS,
+    ORDER_TYPES,
     ContractError,
     canonical_json,
     parse_timestamp,
@@ -33,6 +35,7 @@ from .journal import (
 )
 
 STATUS_ORDER = {"COMPLETE": 0, "PARTIAL": 1, "UNKNOWN": 2}
+PROCESSOR_VERSION = "1.0.3"
 INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+|previous\s+)*instructions", re.IGNORECASE),
     re.compile(r"(?:system|developer)\s+prompt", re.IGNORECASE),
@@ -53,21 +56,6 @@ PLACEHOLDER_VALUES = {
     "tbd",
     "unknown",
 }
-CONDITION_OPERATORS = {
-    "!=",
-    "<",
-    "<=",
-    "==",
-    ">",
-    ">=",
-    "between",
-    "crosses_above",
-    "crosses_below",
-    "in",
-    "not_in",
-}
-
-
 def _normalize_text(value: str) -> str:
     return " ".join(value.casefold().split())
 
@@ -90,6 +78,14 @@ def _normalize_value(value: Any) -> Any:
 
 def _is_substantive(value: str | None) -> bool:
     return value is not None and _normalize_text(value) not in PLACEHOLDER_VALUES
+
+
+def _value_is_substantive(value: Any) -> bool:
+    if isinstance(value, str):
+        return _is_substantive(value)
+    if isinstance(value, list):
+        return bool(value) and all(_value_is_substantive(member) for member in value)
+    return value is not None
 
 
 def structural_spec(proposal: dict[str, Any]) -> dict[str, Any]:
@@ -244,10 +240,10 @@ def feasibility_gates(
     conditions_ok = bool(conditions) and all(
         _is_substantive(condition["field"])
         and _normalize_text(condition["operator"]) in CONDITION_OPERATORS
-        and not (isinstance(condition["value"], list) and not condition["value"])
-        and not (
-            isinstance(condition["value"], str)
-            and not _is_substantive(condition["value"])
+        and _value_is_substantive(condition["value"])
+        and (
+            condition["unit"] is None
+            or _is_substantive(condition["unit"])
         )
         for condition in conditions
     )
@@ -262,7 +258,21 @@ def feasibility_gates(
     bounded_exit = exit_spec["time_stop_sessions"] is not None or any(
         _is_substantive(exit_spec[key]) for key in ("stop_rule", "target_rule")
     )
-    entry_spec_ok = _is_substantive(proposal["entry"]["order_type"])
+    entry = proposal["entry"]
+    order_type = entry["order_type"]
+    price_rule_required = order_type in {"LIMIT", "LOC", "LOO", "STOP", "STOP_LIMIT"}
+    price_rule_forbidden = order_type in {"MARKET", "MOC", "MOO"}
+    order_timing_ok = not (
+        (order_type in {"MOO", "LOO"} and entry["timing"] != "OPEN")
+        or (order_type in {"MOC", "LOC"} and entry["timing"] != "CLOSE")
+    )
+    entry_spec_ok = (
+        order_type in ORDER_TYPES
+        and order_timing_ok
+        and (entry["price_rule"] is None or _is_substantive(entry["price_rule"]))
+        and (not price_rule_required or _is_substantive(entry["price_rule"]))
+        and (not price_rule_forbidden or entry["price_rule"] is None)
+    )
     gate(
         "ENTRY_EXIT_SPEC",
         bounded_exit and entry_spec_ok,
@@ -271,38 +281,49 @@ def feasibility_gates(
         else "Entry order or bounded time-stop/stop/target specification is missing or placeholder.",
     )
     signal = proposal["signal"]
-    entry = proposal["entry"]
     impossible_close = (
         signal["observation_timing"] in {"CLOSE", "CLOSE_FINAL"}
         and entry["session_offset"] == 0
     )
-    impossible_open = (
-        signal["observation_timing"] in {"OPEN", "INTRADAY"}
-        and entry["session_offset"] == 0
-        and entry["timing"] == "OPEN"
+    same_session = entry["session_offset"] == 0
+    observation_timing = signal["observation_timing"]
+    entry_timing = entry["timing"]
+    impossible_earlier_boundary = same_session and (
+        (observation_timing == "PREOPEN" and entry_timing == "PREOPEN")
+        or (
+            observation_timing == "OPEN"
+            and entry_timing in {"PREOPEN", "OPEN"}
+        )
+        or (
+            observation_timing == "INTRADAY"
+            and entry_timing in {"PREOPEN", "OPEN"}
+        )
     )
     insufficient_lead = (
         signal["observation_timing"] == "INTRADAY"
-        and entry["session_offset"] == 0
+        and same_session
         and entry["timing"] == "CLOSE"
         and (signal["decision_lead_minutes"] is None or signal["decision_lead_minutes"] < 5)
     )
     ambiguous_intraday_order = (
         signal["observation_timing"] == "INTRADAY"
-        and entry["session_offset"] == 0
+        and same_session
         and entry["timing"] == "INTRADAY"
     )
     timing_ok = (
         not impossible_close
-        and not impossible_open
+        and not impossible_earlier_boundary
         and not insufficient_lead
         and not ambiguous_intraday_order
     )
     timing_reason = "Signal is available before the proposed execution boundary."
     if impossible_close:
         timing_reason = "Final-close data cannot cause an entry at that same close."
-    elif impossible_open:
-        timing_reason = "Open or intraday observations cannot cause an entry at the already-fixed same-session open."
+    elif impossible_earlier_boundary:
+        timing_reason = (
+            "A signal cannot cause an entry at the same or an already-fixed "
+            "same-session execution boundary."
+        )
     elif insufficient_lead:
         timing_reason = "Same-session close execution needs at least five minutes of declared decision lead."
     elif ambiguous_intraday_order:
@@ -312,9 +333,38 @@ def feasibility_gates(
         )
     gate("TIMING_FEASIBILITY", timing_ok, timing_reason)
 
+    rationale_values = [
+        proposal["name"],
+        proposal["thesis"],
+        proposal["why_now"],
+        proposal["variant_wedge"],
+        proposal["portfolio_fit_hypothesis"],
+        proposal["universe"]["scope"],
+    ]
+    rationale_ok = all(_is_substantive(value) for value in rationale_values)
+    gate(
+        "RESEARCH_RATIONALE",
+        rationale_ok,
+        "Name, thesis, why-now, wedge, portfolio role, and universe scope are substantive."
+        if rationale_ok
+        else "Decision-useful strategy rationale contains a missing or placeholder value.",
+    )
+    falsifiers_ok = bool(proposal["falsifiers"]) and all(
+        _is_substantive(value) for value in proposal["falsifiers"]
+    )
+    gate(
+        "FALSIFIERS",
+        falsifiers_ok,
+        "Every declared kill criterion is substantive."
+        if falsifiers_ok
+        else "Every falsifier/kill criterion must be substantive, not a placeholder.",
+    )
+
     costs = proposal["costs"]
     costs_ok = bool(
         costs
+        and 0 <= costs["commission_bps"] <= 10_000
+        and 0 <= costs["slippage_bps"] <= 10_000
         and _is_substantive(costs["market_impact_model"])
     )
     gate(
@@ -334,6 +384,7 @@ def feasibility_gates(
             and borrow["required"] is True
             and _is_substantive(borrow["availability_check"])
             and borrow["fee_assumption_bps_annual"] is not None
+            and 0 <= borrow["fee_assumption_bps_annual"] <= 1_000_000
         )
         borrow_reason = (
             "Borrow availability and fee assumptions are explicit."
@@ -368,6 +419,10 @@ def feasibility_gates(
     ) or (
         membership_mode == "FIXED_INSTRUMENTS"
         and bool(proposal["universe"]["instruments"])
+        and all(
+            _is_substantive(instrument)
+            for instrument in proposal["universe"]["instruments"]
+        )
         and _is_substantive(history["evidence_reference"])
     )
     pit_reason = (
@@ -382,9 +437,11 @@ def feasibility_gates(
     capacity_ok = bool(
         capacity
         and capacity["median_daily_dollar_volume_usd"] > 0
+        and capacity["median_daily_dollar_volume_usd"] <= 10**15
         and 0 < capacity["max_participation_rate_pct"] <= 100
         and capacity["estimated_strategy_capacity_usd"] is not None
         and capacity["estimated_strategy_capacity_usd"] > 0
+        and capacity["estimated_strategy_capacity_usd"] <= 10**15
         and _is_substantive(capacity["methodology"])
     )
     investment_case_ok = (
@@ -718,7 +775,32 @@ def _candidate_groups(
         proposal = primary["strategy_proposal"]
         injection_results = [_contains_prompt_injection(item) for item in group]
         injected = next((result for result in injection_results if result[0]), (False, None))
-        gates = feasibility_gates(proposal, prompt_injection=injected)
+        per_item_gates = [
+            feasibility_gates(
+                item["strategy_proposal"],
+                prompt_injection=injection_result,
+            )
+            for item, injection_result in zip(
+                group,
+                injection_results,
+                strict=True,
+            )
+        ]
+        gates: list[dict[str, str]] = []
+        for gate_index, primary_gate in enumerate(per_item_gates[0]):
+            observed = [item_gates[gate_index] for item_gates in per_item_gates]
+            if any(gate["gate"] != primary_gate["gate"] for gate in observed):
+                raise AssertionError("feasibility gate ordering diverged")
+            failures = sorted(
+                {gate["reason"] for gate in observed if gate["status"] == "FAIL"}
+            )
+            gates.append(
+                {
+                    "gate": primary_gate["gate"],
+                    "status": "FAIL" if failures else "PASS",
+                    "reason": "; ".join(failures) if failures else primary_gate["reason"],
+                }
+            )
         gates.append(
             {
                 "gate": "RESEARCH_SPEC_CONSISTENCY",
@@ -1371,6 +1453,7 @@ def run_discovery(
         ),
     )
     run_material = {
+        "processor_version": PROCESSOR_VERSION,
         "config": normalized_config,
         "manifest": normalized_manifest,
         "items": normalized_items,
@@ -1422,6 +1505,7 @@ def run_discovery(
     }
     report = {
         "schema_version": "1.0",
+        "processor_version": PROCESSOR_VERSION,
         "report_type": "STRATEGY_DISCOVERY",
         "run_id": run_id,
         "run_mode": mode,
@@ -1465,6 +1549,7 @@ def run_discovery(
             "event_type": "RUN",
             "payload": {
                 "run_id": run_id,
+                "processor_version": PROCESSOR_VERSION,
                 "run_mode": mode,
                 "as_of": config["as_of"],
                 "completeness": completeness,

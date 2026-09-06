@@ -61,6 +61,7 @@ def markdown_text(report: dict[str, Any]) -> str:
         f"> {MODE_BANNERS[report['run_mode']]}",
         "",
         f"**As of:** {_md(report['as_of'])}  ",
+        f"**Processor:** {_md(report['processor_version'])}  ",
         f"**Run:** `{report['run_id']}`  ",
         f"**Completeness:** **{report['completeness']}**  ",
         "**Authority:** research only; X is discovery-only; trading and strategy mutation are disabled.",
@@ -417,6 +418,7 @@ code{{overflow-wrap:anywhere}} a{{color:#135e96}}
 <h1>{esc(report['title'])}</h1>
 <div class="banner">{esc(MODE_BANNERS[report['run_mode']])}</div>
 <div class="meta"><strong>As of:</strong> {esc(report['as_of'])}<br>
+<strong>Processor:</strong> {esc(report['processor_version'])}<br>
 <strong>Completeness:</strong> {esc(report['completeness'])}<br>
 <strong>Authority:</strong> research only; X is discovery-only; trading and strategy mutation are disabled.<br>
 <strong>Run:</strong> <code>{esc(report['run_id'])}</code></div>

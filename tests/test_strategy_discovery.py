@@ -541,6 +541,21 @@ class TestCanonicalizationAndDedupe:
         two["portfolio_fit_hypothesis"] = "A different portfolio-role hypothesis."
         assert research_spec_digest(one) == research_spec_digest(two)
 
+    def test_group_cannot_launder_a_placeholder_narrative_through_primary_item(self):
+        one = proposal()
+        two = copy.deepcopy(one)
+        two["thesis"] = "unknown"
+        report, _ = run(
+            items=[item(proposal_value=one), item(post_id="101", proposal_value=two)],
+            src_manifest=manifest(source(count=2, expected=2)),
+        )
+        candidate = report["candidates"][0]
+        rationale = next(
+            gate for gate in candidate["gates"] if gate["gate"] == "RESEARCH_RATIONALE"
+        )
+        assert rationale["status"] == "FAIL"
+        assert candidate["lifecycle"] == "DISCOVERED"
+
     def test_inconsistent_research_specs_cannot_inherit_validation_lifecycle(
         self,
         tmp_path,
@@ -798,13 +813,14 @@ class TestResearchGates:
         p["signal"]["conditions"] = [
             {
                 "field": "unknown",
-                "operator": "TBD",
-                "value": [],
+                "operator": "==",
+                "value": "N/A",
                 "unit": None,
                 "lookback_sessions": None,
             }
         ]
-        p["entry"]["order_type"] = "unknown"
+        p["entry"]["order_type"] = "LIMIT"
+        p["entry"]["price_rule"] = "unknown"
         p["borrow"] = {
             "required": True,
             "availability_check": "NOT_APPLICABLE",
@@ -818,6 +834,121 @@ class TestResearchGates:
         assert statuses["ENTRY_EXIT_SPEC"] == "FAIL"
         assert statuses["BORROW"] == "FAIL"
         assert report["candidates"][0]["lifecycle"] == "DISCOVERED"
+
+    @pytest.mark.parametrize(
+        ("field_path", "placeholder", "expected_gate"),
+        [
+            (("name",), "TBD", "RESEARCH_RATIONALE"),
+            (("thesis",), "unknown", "RESEARCH_RATIONALE"),
+            (("why_now",), "N/A", "RESEARCH_RATIONALE"),
+            (("variant_wedge",), "not applicable", "RESEARCH_RATIONALE"),
+            (("portfolio_fit_hypothesis",), "TBD", "RESEARCH_RATIONALE"),
+            (("universe", "scope"), "unknown", "RESEARCH_RATIONALE"),
+            (("falsifiers", 0), "TBD", "FALSIFIERS"),
+            (("universe", "instruments", 0), "N/A", "PIT_UNIVERSE_AND_DELISTING"),
+            (("universe_history", "evidence_reference"), "unknown", "PIT_UNIVERSE_AND_DELISTING"),
+            (("signal", "conditions", 0, "field"), "unknown", "SIGNAL_SPEC"),
+            (("signal", "conditions", 0, "value"), "TBD", "SIGNAL_SPEC"),
+            (("signal", "conditions", 0, "unit"), "unknown", "SIGNAL_SPEC"),
+            (("data_requirements", 0, "field"), "not applicable", "DATA_FEASIBILITY"),
+            (("costs", "market_impact_model"), "none", "COST_MODEL"),
+            (("capacity", "methodology"), "TBD", "CAPACITY_AND_INVESTABILITY"),
+            (("investable_if", 0), "unknown", "CAPACITY_AND_INVESTABILITY"),
+            (("explicit_unknowns", 0), "N/A", "CAPACITY_AND_INVESTABILITY"),
+            (("downstream_workflow", 0), "not applicable", "CAPACITY_AND_INVESTABILITY"),
+        ],
+    )
+    def test_placeholder_decision_fields_never_reach_research_ready(
+        self,
+        field_path,
+        placeholder,
+        expected_gate,
+    ):
+        p = proposal()
+        target = p
+        for part in field_path[:-1]:
+            target = target[part]
+        target[field_path[-1]] = placeholder
+        if field_path == ("signal", "conditions", 0, "value"):
+            p["signal"]["conditions"][0]["operator"] = "=="
+        report, _ = run(items=[item(proposal_value=p)])
+        candidate = report["candidates"][0]
+        gate = next(value for value in candidate["gates"] if value["gate"] == expected_gate)
+        assert gate["status"] == "FAIL"
+        assert candidate["lifecycle"] == "DISCOVERED"
+
+    def test_placeholder_in_signal_member_array_cannot_promote(self):
+        p = proposal()
+        p["signal"]["conditions"][0]["operator"] = "in"
+        p["signal"]["conditions"][0]["value"] = ["liquid", "N/A"]
+        report, _ = run(items=[item(proposal_value=p)])
+        candidate = report["candidates"][0]
+        signal_gate = next(
+            value for value in candidate["gates"] if value["gate"] == "SIGNAL_SPEC"
+        )
+        assert signal_gate["status"] == "FAIL"
+        assert candidate["lifecycle"] == "DISCOVERED"
+
+    @pytest.mark.parametrize(
+        ("operator", "value"),
+        [
+            ("TBD", 5),
+            ("between", 5),
+            ("<", [1, 2]),
+            ("<", True),
+            ("between", [1, "2"]),
+            ("between", [2, 1]),
+            ("in", [1, "x"]),
+        ],
+    )
+    def test_condition_operator_value_grammar_rejects_ambiguous_specs(
+        self,
+        operator,
+        value,
+    ):
+        p = proposal()
+        p["signal"]["conditions"][0]["operator"] = operator
+        p["signal"]["conditions"][0]["value"] = value
+        with pytest.raises(ContractError):
+            run(items=[item(proposal_value=p)])
+
+    @pytest.mark.parametrize("field", ["order_type", "timing"])
+    def test_entry_enums_reject_unknown_values(self, field):
+        p = proposal()
+        p["entry"][field] = "BANANA"
+        with pytest.raises(ContractError):
+            run(items=[item(proposal_value=p)])
+
+    @pytest.mark.parametrize(
+        ("order_type", "timing", "price_rule"),
+        [
+            ("MARKET", "OPEN", "close plus one percent"),
+            ("MOO", "CLOSE", None),
+            ("MOC", "OPEN", None),
+            ("LIMIT", "OPEN", None),
+            ("STOP", "INTRADAY", "TBD"),
+        ],
+    )
+    def test_entry_order_semantics_must_be_implementable(
+        self,
+        order_type,
+        timing,
+        price_rule,
+    ):
+        p = proposal()
+        p["entry"] = {
+            "session_offset": 1,
+            "timing": timing,
+            "order_type": order_type,
+            "price_rule": price_rule,
+        }
+        report, _ = run(items=[item(proposal_value=p)])
+        candidate = report["candidates"][0]
+        gate = next(
+            value for value in candidate["gates"] if value["gate"] == "ENTRY_EXIT_SPEC"
+        )
+        assert gate["status"] == "FAIL"
+        assert candidate["lifecycle"] == "DISCOVERED"
 
     def test_static_current_constituents_cannot_be_research_ready(self):
         p = proposal()
@@ -1738,6 +1869,35 @@ class TestStrictContracts:
     def test_nonfinite_direct_contract_input_is_rejected_cleanly(self):
         bad = item(claims=[source_claim(float("nan"))])
         with pytest.raises(ContractError, match="NaN and Infinity"):
+            run(items=[bad])
+
+    def test_extreme_integer_is_a_controlled_contract_error(self):
+        bad = proposal()
+        bad["capacity"]["estimated_strategy_capacity_usd"] = 10**10000
+        with pytest.raises(ContractError, match="numeric magnitude"):
+            run(items=[item(proposal_value=bad)])
+
+    def test_extreme_integer_json_is_a_controlled_loader_error(self, tmp_path):
+        path = tmp_path / "huge.json"
+        path.write_text('{"value":1' + "0" * 10000 + "}\n", encoding="utf-8")
+        with pytest.raises(ContractError, match="unreadable JSON"):
+            load_json(path)
+
+    def test_duplicate_json_keys_are_rejected(self, tmp_path):
+        path = tmp_path / "duplicate.json"
+        path.write_text('{"mode":"SHADOW","mode":"LIVE"}\n', encoding="utf-8")
+        with pytest.raises(ContractError, match="duplicate JSON object key"):
+            load_json(path)
+
+    def test_invalid_utf8_is_a_controlled_loader_error(self, tmp_path):
+        path = tmp_path / "invalid.json"
+        path.write_bytes(b'{"text":"\xff"}\n')
+        with pytest.raises(ContractError, match="unreadable JSON"):
+            load_json(path)
+
+    def test_lone_unicode_surrogate_is_a_controlled_contract_error(self):
+        bad = item(text="bad-surrogate-\ud800")
+        with pytest.raises(ContractError, match="valid Unicode"):
             run(items=[bad])
 
     def test_capture_timestamps_after_asof_or_manifest_are_unknown(self):
