@@ -21,12 +21,12 @@ append-only journal:
   verified journal head; an unreferenced generation is not a committed run.
 
 The report and run content ID include an explicit processor version (currently
-`1.0.4`). Any
+`1.0.5`). Any
 content-affecting contract/classification/rendering release must bump it, so a
 new implementation cannot collide with an immutable generation produced by an
 older one from identical input snapshots.
 
-Development journals written before `1.0.4` do not carry the required
+Development journals written before `1.0.5` do not carry the required
 run-bound source events and event-specific payload contracts. They are
 incompatible and must not be reused as shadow-acceptance evidence. Preserve
 them as development artifacts if needed; begin shadow acceptance with a new,
@@ -305,6 +305,17 @@ from a prior run, and a human transition still requires exact-spec
 `DISCOVERED/NEEDS_COVERAGE` even when older validation exists. Replays may be
 idempotent, but a later append cannot backfill a child into an already recorded
 run.
+
+Before a run group can seed any later lifecycle, its required-source registry
+must reconcile to its source children, `COMPLETE` requires every source child
+to be complete, and `PARTIAL` forbids an unknown source child. The journal also
+recomputes every candidate-derived summary count from the candidate children.
+Validation artifacts, human transitions, and all three authority-bearing
+candidate states (`RESEARCH_READY`, `VALIDATED_RESEARCH`, `OWNER_REVIEW`) are
+accepted only inside an enabled `COMPLETE` run. Candidate and validation state
+is committed to the in-memory authority history only after all sibling/source/
+summary checks for that run have passed; an inconsistent run cannot seed the
+next transition.
 
 ## Future official X adapter: required design
 

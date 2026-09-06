@@ -53,9 +53,10 @@ def _journal_run_event(label: str) -> dict:
         "payload": {
             "run_id": run_id,
             "processor_version": "test",
-            "run_mode": "FIXTURE",
+            "run_mode": "DISABLED",
             "as_of": AS_OF,
-            "completeness": "COMPLETE",
+            "completeness": "UNKNOWN",
+            "required_source_ids": [],
             "summary": {
                 "raw_item_count": 0,
                 "canonical_item_count": 0,
@@ -1402,6 +1403,195 @@ class TestJournalAndCursor:
         assert candidate["validation_artifacts"] == []
         append_events(journal_path, partial_events, recorded_at=partial["as_of"])
 
+    def test_incomplete_run_cannot_attach_validation_or_seed_later_owner(
+        self,
+        tmp_path,
+    ):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, ready_events = run(artifact_root=artifact_root)
+        append_events(journal_path, ready_events, recorded_at=ready["as_of"])
+        prior = load_journal(journal_path)
+        outage_manifest = manifest(
+            source(
+                status="ERROR",
+                capture_id="capture-2",
+                cursor_in="cursor-1",
+                cursor_out="cursor-2",
+            )
+        )
+        outage_items = [item(post_id="101", capture_id="capture-2")]
+        with pytest.raises(ContractError, match="COMPLETE enabled discovery run"):
+            run(
+                src_manifest=outage_manifest,
+                items=outage_items,
+                journal=prior,
+                artifacts=artifact_manifest,
+                artifact_root=artifact_root,
+            )
+
+        outage, outage_events = run(
+            src_manifest=outage_manifest,
+            items=outage_items,
+            journal=prior,
+            artifact_root=artifact_root,
+        )
+        forged = copy.deepcopy(outage_events)
+        candidate_index = next(
+            index
+            for index, event in enumerate(forged)
+            if event["event_type"] == "CANDIDATE_OBSERVED"
+        )
+        artifact_row = artifact_manifest["artifacts"][0]
+        forged.insert(
+            candidate_index,
+            {
+                "event_key": f"validation:{artifact_row['artifact_id']}",
+                "event_type": "VALIDATION_ATTACHED",
+                "payload": artifact_row,
+            },
+        )
+        forged[-1]["payload"].update(
+            {
+                "disposition": "NEW_RESEARCH_CANDIDATE",
+                "lifecycle": "VALIDATED_RESEARCH",
+            }
+        )
+        forged[0]["payload"]["summary"].update(
+            {"validated_research": 1, "needs_coverage": 0}
+        )
+        with pytest.raises(ContractError, match="COMPLETE enabled RUN"):
+            append_events(journal_path, forged, recorded_at=outage["as_of"])
+        assert load_journal(journal_path) == prior
+        with pytest.raises(ContractError, match="prior journaled VALIDATED_RESEARCH"):
+            run(
+                journal=load_journal(journal_path),
+                transitions=[transition(fp)],
+                artifact_root=artifact_root,
+            )
+
+    def test_incomplete_run_cannot_attach_owner_transition(self, tmp_path):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, events, recorded_at=validated["as_of"])
+        prior = load_journal(journal_path)
+        outage_manifest = manifest(
+            source(
+                status="ERROR",
+                capture_id="capture-2",
+                cursor_in="cursor-1",
+                cursor_out="cursor-2",
+            )
+        )
+        outage_items = [item(post_id="101", capture_id="capture-2")]
+        with pytest.raises(ContractError, match="COMPLETE enabled discovery run"):
+            run(
+                src_manifest=outage_manifest,
+                items=outage_items,
+                journal=prior,
+                transitions=[transition(fp)],
+                artifact_root=artifact_root,
+            )
+        outage, outage_events = run(
+            src_manifest=outage_manifest,
+            items=outage_items,
+            journal=prior,
+            artifact_root=artifact_root,
+        )
+        forged = copy.deepcopy(outage_events)
+        candidate_index = next(
+            index
+            for index, event in enumerate(forged)
+            if event["event_type"] == "CANDIDATE_OBSERVED"
+        )
+        transition_row = transition(fp)
+        forged.insert(
+            candidate_index,
+            {
+                "event_key": f"owner_transition:{transition_row['transition_id']}",
+                "event_type": "OWNER_TRANSITION",
+                "payload": transition_row,
+            },
+        )
+        forged[-1]["payload"].update(
+            {
+                "disposition": "NEW_RESEARCH_CANDIDATE",
+                "lifecycle": "OWNER_REVIEW",
+            }
+        )
+        forged[0]["payload"]["summary"].update(
+            {"owner_review": 1, "needs_coverage": 0}
+        )
+        with pytest.raises(ContractError, match="COMPLETE enabled RUN"):
+            append_events(journal_path, forged, recorded_at=outage["as_of"])
+        assert load_journal(journal_path) == prior
+
+    def test_validation_event_requires_matching_validated_candidate_sibling(
+        self,
+        tmp_path,
+    ):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        forged = copy.deepcopy(events)
+        candidate_event = next(
+            event for event in forged if event["event_type"] == "CANDIDATE_OBSERVED"
+        )
+        candidate_event["payload"]["lifecycle"] = "RESEARCH_READY"
+        forged[0]["payload"]["summary"].update(
+            {"new_research_ready": 1, "validated_research": 0}
+        )
+        with pytest.raises(ContractError, match="matching validated candidate"):
+            append_events(journal_path, forged, recorded_at=validated["as_of"])
+
+    def test_owner_event_requires_matching_owner_candidate_sibling(self, tmp_path):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, events, recorded_at=validated["as_of"])
+        owner, events = run(
+            journal=load_journal(journal_path),
+            transitions=[transition(fp)],
+            artifact_root=artifact_root,
+        )
+        forged = copy.deepcopy(events)
+        candidate_event = next(
+            event for event in forged if event["event_type"] == "CANDIDATE_OBSERVED"
+        )
+        candidate_event["payload"]["lifecycle"] = "VALIDATED_RESEARCH"
+        forged[0]["payload"]["summary"].update(
+            {"validated_research": 1, "owner_review": 0}
+        )
+        with pytest.raises(ContractError, match="matching OWNER_REVIEW candidate"):
+            append_events(journal_path, forged, recorded_at=owner["as_of"])
+
     def test_historical_transition_for_absent_candidate_does_not_break_zero_run(self, tmp_path):
         fp = structural_fingerprint(proposal())
         artifact_root = tmp_path / "validation"
@@ -1728,6 +1918,117 @@ class TestJournalAndCursor:
             append_events(
                 tmp_path / "journal.jsonl",
                 forged,
+                recorded_at=report["as_of"],
+            )
+
+    @pytest.mark.parametrize(
+        ("summary_key", "incorrect_value"),
+        [
+            ("candidate_count", 0),
+            ("new_research_ready", 0),
+            ("validated_research", 1),
+            ("owner_review", 1),
+            ("needs_spec", 1),
+            ("needs_coverage", 1),
+            ("quarantined", 1),
+            ("known_or_dead_end", 1),
+        ],
+    )
+    def test_run_summary_must_match_candidate_children(
+        self,
+        tmp_path,
+        summary_key,
+        incorrect_value,
+    ):
+        report, events = run()
+        forged = copy.deepcopy(events)
+        forged[0]["payload"]["summary"][summary_key] = incorrect_value
+        with pytest.raises(ContractError, match=rf"summary\.{summary_key} does not match"):
+            append_events(
+                tmp_path / f"{summary_key}.jsonl",
+                forged,
+                recorded_at=report["as_of"],
+            )
+
+    def test_complete_run_rejects_noncomplete_source_sibling(self, tmp_path):
+        report, events = run()
+        forged = copy.deepcopy(events)
+        source_event = next(
+            event for event in forged if event["event_type"] == "SOURCE_CAPTURE"
+        )
+        source_event["payload"]["status"] = "PARTIAL"
+        with pytest.raises(ContractError, match="every child source.*COMPLETE"):
+            append_events(
+                tmp_path / "journal.jsonl",
+                forged,
+                recorded_at=report["as_of"],
+            )
+
+    def test_partial_run_rejects_unknown_source_sibling(self, tmp_path):
+        partial, events = run(src_manifest=manifest(source(exhausted=False)))
+        forged = copy.deepcopy(events)
+        source_event = next(
+            event for event in forged if event["event_type"] == "SOURCE_CAPTURE"
+        )
+        source_event["payload"]["status"] = "UNKNOWN"
+        with pytest.raises(ContractError, match="PARTIAL RUN cannot contain an UNKNOWN"):
+            append_events(
+                tmp_path / "journal.jsonl",
+                forged,
+                recorded_at=partial["as_of"],
+            )
+
+    def test_partial_catalog_run_may_have_complete_source_siblings(self, tmp_path):
+        partial, events = run(strategy_generated="2026-07-01T20:00:00+00:00")
+        assert partial["completeness"] == "PARTIAL"
+        assert next(
+            event["payload"]["status"]
+            for event in events
+            if event["event_type"] == "SOURCE_CAPTURE"
+        ) == "COMPLETE"
+        assert append_events(
+            tmp_path / "journal.jsonl",
+            events,
+            recorded_at=partial["as_of"],
+        ) > 0
+
+    def test_complete_enabled_run_requires_a_source_sibling(self, tmp_path):
+        report, events = run()
+        without_source = [
+            event for event in events if event["event_type"] != "SOURCE_CAPTURE"
+        ]
+        with pytest.raises(ContractError, match="requires source observations"):
+            append_events(
+                tmp_path / "journal.jsonl",
+                without_source,
+                recorded_at=report["as_of"],
+            )
+
+    def test_complete_run_requires_every_declared_source_sibling(self, tmp_path):
+        cfg = config(required=["x:alpha", "x:beta"])
+        beta = source(
+            count=0,
+            expected=0,
+            capture_id="capture-beta",
+            source_id="x:beta",
+            locator_value="@beta",
+        )
+        report, events = run(
+            cfg=cfg,
+            src_manifest=manifest(source(), beta),
+        )
+        without_beta = [
+            event
+            for event in events
+            if not (
+                event["event_type"] == "SOURCE_CAPTURE"
+                and event["payload"]["source_id"] == "x:beta"
+            )
+        ]
+        with pytest.raises(ContractError, match="observe every required source sibling"):
+            append_events(
+                tmp_path / "journal.jsonl",
+                without_beta,
                 recorded_at=report["as_of"],
             )
 

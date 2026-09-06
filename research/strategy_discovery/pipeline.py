@@ -36,7 +36,7 @@ from .journal import (
 )
 
 STATUS_ORDER = {"COMPLETE": 0, "PARTIAL": 1, "UNKNOWN": 2}
-PROCESSOR_VERSION = "1.0.4"
+PROCESSOR_VERSION = "1.0.5"
 INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+|previous\s+)*instructions", re.IGNORECASE),
     re.compile(r"(?:system|developer)\s+prompt", re.IGNORECASE),
@@ -1208,6 +1208,14 @@ def run_discovery(
         "SHADOW",
         "LIVE",
     }
+    if artifact_wrapper["artifacts"] and not promotion_allowed:
+        raise ContractError(
+            "validation artifacts require a COMPLETE enabled discovery run"
+        )
+    if new_transitions and not promotion_allowed:
+        raise ContractError(
+            "OWNER_REVIEW transitions require a COMPLETE enabled discovery run"
+        )
     promotion_reason = (
         "All configured source windows and injected catalogs are COMPLETE."
         if promotion_allowed
@@ -1438,6 +1446,40 @@ def run_discovery(
         promotion_allowed,
         promotion_reason,
     )
+    attached_artifact_ids = {
+        artifact["artifact_id"]
+        for candidate in candidates
+        for artifact in candidate["validation_artifacts"]
+    }
+    unattached_artifacts = sorted(
+        artifact["artifact_id"]
+        for artifact in artifact_wrapper["artifacts"]
+        if artifact["artifact_id"] not in attached_artifact_ids
+    )
+    if unattached_artifacts:
+        raise ContractError(
+            "validation artifacts do not attach to an eligible current candidate: "
+            f"{unattached_artifacts}"
+        )
+    owner_candidate_specs = {
+        (candidate["fingerprint"], candidate["research_spec_digests"][0])
+        for candidate in candidates
+        if candidate["lifecycle"] == "OWNER_REVIEW"
+    }
+    unattached_transitions = sorted(
+        transition["transition_id"]
+        for transition in new_transitions
+        if (
+            transition["candidate_fingerprint"],
+            transition["research_spec_digest"],
+        )
+        not in owner_candidate_specs
+    )
+    if unattached_transitions:
+        raise ContractError(
+            "OWNER_REVIEW transitions do not attach to an eligible current candidate: "
+            f"{unattached_transitions}"
+        )
     normalized_config = deepcopy(config)
     normalized_config["required_source_ids"] = sorted(config["required_source_ids"])
     normalized_manifest = deepcopy(manifest)
@@ -1562,6 +1604,7 @@ def run_discovery(
                 "run_mode": mode,
                 "as_of": config["as_of"],
                 "completeness": completeness,
+                "required_source_ids": sorted(config["required_source_ids"]),
                 "summary": summary,
             },
         }

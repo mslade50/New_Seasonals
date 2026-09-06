@@ -157,7 +157,15 @@ def _validate_journal_event(
     if event_type == "RUN":
         payload = _exact_object(
             payload,
-            {"run_id", "processor_version", "run_mode", "as_of", "completeness", "summary"},
+            {
+                "run_id",
+                "processor_version",
+                "run_mode",
+                "as_of",
+                "completeness",
+                "required_source_ids",
+                "summary",
+            },
             "RUN payload",
         )
         run_id = _journal_digest(payload["run_id"], "RUN.run_id")
@@ -170,9 +178,30 @@ def _validate_journal_event(
             raise ContractError("RUN.completeness is invalid")
         if parse_timestamp(payload["as_of"], "RUN.as_of") > recorded_time:
             raise ContractError("RUN.as_of cannot be after journal recorded_at")
+        source_ids = payload["required_source_ids"]
+        if not isinstance(source_ids, list):
+            raise ContractError("RUN.required_source_ids must be an array")
+        for index, source_id in enumerate(source_ids):
+            _journal_string(source_id, f"RUN.required_source_ids[{index}]")
+        if source_ids != sorted(set(source_ids)):
+            raise ContractError("RUN.required_source_ids must be sorted and unique")
+        if payload["run_mode"] == "DISABLED" and source_ids:
+            raise ContractError("DISABLED RUN cannot declare required sources")
+        if payload["run_mode"] != "DISABLED" and not source_ids:
+            raise ContractError("enabled RUN requires at least one required source")
         summary = _exact_object(payload["summary"], SUMMARY_KEYS, "RUN.summary")
         if any(type(value) is not int or value < 0 for value in summary.values()):
             raise ContractError("RUN.summary values must be non-negative integers")
+        if summary["canonical_item_count"] > summary["raw_item_count"]:
+            raise ContractError("RUN.summary canonical items cannot exceed raw items")
+        if summary["repost_count"] > summary["canonical_item_count"]:
+            raise ContractError("RUN.summary reposts cannot exceed canonical items")
+        if summary["candidate_count"] > summary["canonical_item_count"]:
+            raise ContractError("RUN.summary candidates cannot exceed canonical items")
+        if summary["duplicate_post_ids"] > summary["raw_item_count"]:
+            raise ContractError("RUN.summary duplicate IDs cannot exceed raw items")
+        if summary["conflicting_post_ids"] > summary["raw_item_count"]:
+            raise ContractError("RUN.summary conflicts cannot exceed raw items")
         return
     if event_type == "SOURCE_CAPTURE":
         payload = _exact_object(
@@ -305,6 +334,150 @@ def _validate_journal_event(
     raise ContractError(f"unknown journal event_type: {event_type}")
 
 
+def _derived_candidate_summary(
+    candidates: list[dict[str, Any]],
+) -> dict[str, int]:
+    return {
+        "candidate_count": len(candidates),
+        "new_research_ready": sum(
+            candidate["lifecycle"] == "RESEARCH_READY" for candidate in candidates
+        ),
+        "validated_research": sum(
+            candidate["lifecycle"] == "VALIDATED_RESEARCH"
+            for candidate in candidates
+        ),
+        "owner_review": sum(
+            candidate["lifecycle"] == "OWNER_REVIEW" for candidate in candidates
+        ),
+        "needs_spec": sum(
+            candidate["disposition"] == "NEEDS_SPEC" for candidate in candidates
+        ),
+        "needs_coverage": sum(
+            candidate["disposition"] == "NEEDS_COVERAGE"
+            for candidate in candidates
+        ),
+        "quarantined": sum(
+            candidate["disposition"] == "QUARANTINED" for candidate in candidates
+        ),
+        "known_or_dead_end": sum(
+            candidate["disposition"] in {"KNOWN_STRATEGY", "KNOWN_DEAD_END"}
+            for candidate in candidates
+        ),
+    }
+
+
+def _finalize_run_group(
+    run: dict[str, Any] | None,
+    sources: list[dict[str, Any]],
+    validations: set[tuple[str, str]],
+    transitions: set[tuple[str, str]],
+    candidates: list[dict[str, Any]],
+) -> tuple[
+    set[tuple[str, str, str]],
+    set[tuple[str, str, str]],
+    set[tuple[str, str]],
+    set[tuple[str, str]],
+]:
+    """Reconcile one complete journal transaction before it can seed state."""
+
+    if run is None:
+        if sources or validations or transitions or candidates:
+            raise ContractError("journal child event lacks a RUN transaction")
+        return set(), set(), set(), set()
+
+    mode = run["run_mode"]
+    completeness = run["completeness"]
+    enabled = mode != "DISABLED"
+    authority_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate["lifecycle"] != "DISCOVERED"
+    ]
+    if (validations or transitions or authority_candidates) and (
+        not enabled or completeness != "COMPLETE"
+    ):
+        raise ContractError(
+            "authority-bearing journal events require a COMPLETE enabled RUN"
+        )
+
+    if not enabled:
+        if completeness != "UNKNOWN":
+            raise ContractError("DISABLED RUN completeness must be UNKNOWN")
+        if sources or validations or transitions or candidates:
+            raise ContractError("DISABLED RUN cannot contain child events")
+        if any(run["summary"].values()):
+            raise ContractError("DISABLED RUN summary must be all zero")
+    elif completeness in {"COMPLETE", "PARTIAL"} and not sources:
+        raise ContractError(f"{completeness} enabled RUN requires source observations")
+
+    required_source_ids = set(run["required_source_ids"])
+    observed_source_ids = [source["source_id"] for source in sources]
+    if len(observed_source_ids) != len(set(observed_source_ids)):
+        raise ContractError("RUN cannot contain duplicate source observation siblings")
+    if not set(observed_source_ids) <= required_source_ids:
+        raise ContractError("RUN contains an unregistered source observation sibling")
+    if completeness in {"COMPLETE", "PARTIAL"} and set(
+        observed_source_ids
+    ) != required_source_ids:
+        raise ContractError(
+            f"{completeness} RUN must observe every required source sibling"
+        )
+    source_statuses = {source["status"] for source in sources}
+    if completeness == "COMPLETE" and source_statuses != {"COMPLETE"}:
+        raise ContractError(
+            "COMPLETE RUN requires every child source observation to be COMPLETE"
+        )
+    if completeness == "PARTIAL" and "UNKNOWN" in source_statuses:
+        raise ContractError("PARTIAL RUN cannot contain an UNKNOWN source observation")
+
+    derived = _derived_candidate_summary(candidates)
+    for key, value in derived.items():
+        if run["summary"][key] != value:
+            raise ContractError(
+                f"RUN.summary.{key} does not match CANDIDATE_OBSERVED children"
+            )
+
+    candidate_lifecycles: dict[tuple[str, str], str] = {}
+    for candidate in candidates:
+        if len(candidate["research_spec_digests"]) != 1:
+            continue
+        spec = (
+            candidate["candidate_fingerprint"],
+            candidate["research_spec_digests"][0],
+        )
+        candidate_lifecycles[spec] = candidate["lifecycle"]
+    if any(
+        candidate_lifecycles.get(spec)
+        not in {"VALIDATED_RESEARCH", "OWNER_REVIEW"}
+        for spec in validations
+    ):
+        raise ContractError(
+            "validation event lacks a matching validated candidate in its RUN"
+        )
+    if any(candidate_lifecycles.get(spec) != "OWNER_REVIEW" for spec in transitions):
+        raise ContractError(
+            "owner transition lacks a matching OWNER_REVIEW candidate in its RUN"
+        )
+
+    run_id = run["run_id"]
+    ready = {
+        (candidate["candidate_fingerprint"], candidate["research_spec_digests"][0])
+        for candidate in candidates
+        if candidate["lifecycle"] == "RESEARCH_READY"
+    }
+    validated = {
+        (candidate["candidate_fingerprint"], candidate["research_spec_digests"][0])
+        for candidate in candidates
+        if candidate["lifecycle"] == "VALIDATED_RESEARCH"
+    }
+    return (
+        {(fingerprint, digest, run_id) for fingerprint, digest in ready},
+        {(fingerprint, digest, run_id) for fingerprint, digest in validated},
+        validations,
+        transitions,
+    )
+
+
 def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
     """Validate provenance and lifecycle ordering across journal events.
 
@@ -326,6 +499,11 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
     owner_specs: set[tuple[str, str]] = set()
     previous_recorded_at = None
     current_run_id: str | None = None
+    current_run: dict[str, Any] | None = None
+    current_sources: list[dict[str, Any]] = []
+    current_validations: set[tuple[str, str]] = set()
+    current_transitions: set[tuple[str, str]] = set()
+    current_candidates: list[dict[str, Any]] = []
     current_phase = -1
     phase_by_type = {
         "RUN": 0,
@@ -334,6 +512,31 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
         "OWNER_TRANSITION": 3,
         "CANDIDATE_OBSERVED": 4,
     }
+
+    def finalize_current() -> None:
+        nonlocal current_run
+        nonlocal current_sources
+        nonlocal current_validations
+        nonlocal current_transitions
+        nonlocal current_candidates
+        ready, validated, validations, transitions = _finalize_run_group(
+            current_run,
+            current_sources,
+            current_validations,
+            current_transitions,
+            current_candidates,
+        )
+        for fingerprint, digest, run_id in ready:
+            ready_spec_runs.setdefault((fingerprint, digest), set()).add(run_id)
+        for fingerprint, digest, run_id in validated:
+            validated_spec_runs.setdefault((fingerprint, digest), set()).add(run_id)
+        validation_specs.update(validations)
+        owner_specs.update(transitions)
+        current_run = None
+        current_sources = []
+        current_validations = set()
+        current_transitions = set()
+        current_candidates = []
 
     for record in records:
         event_type = record["event_type"]
@@ -357,9 +560,11 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
             current_phase = phase
 
         if event_type == "RUN":
+            finalize_current()
             runs[payload["run_id"]] = payload
             run_recorded_at[payload["run_id"]] = recorded_at
             current_run_id = payload["run_id"]
+            current_run = payload
             continue
 
         if event_type in {"SOURCE_CAPTURE", "CANDIDATE_OBSERVED"}:
@@ -409,12 +614,8 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
                             "source continuity anchor conflicts with its prior capture"
                         )
 
-            if payload["status"] == "COMPLETE":
+            if payload["status"] == "COMPLETE" and prior_observation is None:
                 current = latest_accepted.get(payload["source_id"])
-                if prior_observation is not None:
-                    # A later run may replay an already accepted capture for
-                    # audit provenance, but it cannot roll the cursor head back.
-                    continue
                 if current is None:
                     if context["basis"] != "GENESIS":
                         raise ContractError(
@@ -431,14 +632,20 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
                                 "new accepted source capture does not continue the accepted head"
                             )
                 latest_accepted[payload["source_id"]] = content
+            current_sources.append(payload)
             continue
 
         if event_type == "VALIDATION_ATTACHED":
             if current_run_id is None:
                 raise ContractError("validation artifact lacks a current RUN")
+            run = runs[current_run_id]
+            if run["completeness"] != "COMPLETE" or run["run_mode"] == "DISABLED":
+                raise ContractError(
+                    "validation artifact requires a COMPLETE enabled RUN"
+                )
             if (
                 parse_timestamp(payload["created_at"], "validation.created_at")
-                > parse_timestamp(runs[current_run_id]["as_of"], "RUN.as_of")
+                > parse_timestamp(run["as_of"], "RUN.as_of")
             ):
                 raise ContractError("validation artifact cannot postdate RUN.as_of")
             spec = (
@@ -451,15 +658,20 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
                 raise ContractError(
                     "validation artifact lacks a prior-run exact-spec RESEARCH_READY observation"
                 )
-            validation_specs.add(spec)
+            current_validations.add(spec)
             continue
 
         if event_type == "OWNER_TRANSITION":
             if current_run_id is None:
                 raise ContractError("owner transition lacks a current RUN")
+            run = runs[current_run_id]
+            if run["completeness"] != "COMPLETE" or run["run_mode"] == "DISABLED":
+                raise ContractError(
+                    "owner transition requires a COMPLETE enabled RUN"
+                )
             if (
                 parse_timestamp(payload["recorded_at"], "transition.recorded_at")
-                > parse_timestamp(runs[current_run_id]["as_of"], "RUN.as_of")
+                > parse_timestamp(run["as_of"], "RUN.as_of")
             ):
                 raise ContractError("owner transition cannot postdate RUN.as_of")
             spec = (
@@ -477,9 +689,9 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
                 raise ContractError(
                     "owner transition lacks prior-run exact-spec validated research evidence"
                 )
-            if spec in owner_specs:
+            if spec in owner_specs or spec in current_transitions:
                 raise ContractError("owner transition duplicates an accepted exact-spec decision")
-            owner_specs.add(spec)
+            current_transitions.add(spec)
             continue
 
         if event_type == "CANDIDATE_OBSERVED":
@@ -492,33 +704,33 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
                 raise ContractError(
                     "authority-bearing candidate lifecycle requires one exact research spec"
                 )
-            if lifecycle == "RESEARCH_READY":
+            if lifecycle != "DISCOVERED":
                 run = runs[payload["run_id"]]
                 if run["completeness"] != "COMPLETE" or run["run_mode"] == "DISABLED":
                     raise ContractError(
-                        "RESEARCH_READY requires a COMPLETE enabled run"
+                        "authority-bearing candidate requires a COMPLETE enabled RUN"
                     )
-                for spec in specs:
-                    ready_spec_runs.setdefault(spec, set()).add(payload["run_id"])
-            elif lifecycle == "VALIDATED_RESEARCH":
+            if lifecycle == "VALIDATED_RESEARCH":
                 if any(
-                    spec not in ready_spec_runs or spec not in validation_specs
+                    spec not in ready_spec_runs
+                    or spec not in validation_specs | current_validations
                     for spec in specs
                 ):
                     raise ContractError(
                         "VALIDATED_RESEARCH lacks prior exact-spec preregistration and validation"
                     )
-                for spec in specs:
-                    validated_spec_runs.setdefault(spec, set()).add(payload["run_id"])
-            elif lifecycle == "OWNER_REVIEW":
-                if any(
-                    spec not in validated_spec_runs or spec not in owner_specs
-                    for spec in specs
-                ):
-                    raise ContractError(
-                        "OWNER_REVIEW lacks prior exact-spec validation and human transition"
-                    )
+            elif lifecycle == "OWNER_REVIEW" and any(
+                spec not in validated_spec_runs
+                or spec not in owner_specs | current_transitions
+                for spec in specs
+            ):
+                raise ContractError(
+                    "OWNER_REVIEW lacks prior exact-spec validation and human transition"
+                )
+            current_candidates.append(payload)
             continue
+
+    finalize_current()
 
 
 def _reject_journal_constant(value: str, *, path: Path, line_no: int) -> None:

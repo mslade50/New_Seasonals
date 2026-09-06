@@ -46,7 +46,7 @@ The implementation enforces the antagonist-approved authority model:
 - injected, SHA-256-digested strategy-book and dead-end snapshots with
   freshness checks and no strategy/order-module imports; catalog type,
   snapshot ID, records digest, generated timestamp, and point-in-time timestamp
-  all bind the `1.0.4` run content ID;
+  all bind the `1.0.5` run content ID;
 - prompt-injection quarantine plus signal, bounded-exit, causality/timing,
   cost, market-impact, borrow, data, point-in-time universe/delisting, capacity,
   substantive rationale/falsifier, and investability gates; every proposal in a
@@ -63,9 +63,10 @@ The implementation enforces the antagonist-approved authority model:
   provenance and state that integrity was verified without executing replay;
 - append-only, idempotent, SHA-256 hash-chained journal with strict
   event-specific payload/key validation, current-run child binding,
-  prior-run cursor/lifecycle provenance, no historical-run backfill, one lock
-  namespace across every writer, safe cursor-anchor state, and bounded
-  interprocess locking across verify-plus-append;
+  prior-run cursor/lifecycle provenance, required-source/status sibling and
+  candidate-summary reconciliation, complete-run-only authority, no
+  historical-run backfill, one lock namespace across every writer, safe
+  cursor-anchor state, and bounded interprocess locking across verify-plus-append;
 - repo-artifact-root-only CLI with `.json`/`.jsonl` input enforcement, UNC and
   collision rejection, immutable run generations, and a last-written,
   journal-bound `latest.json` commit pointer.
@@ -76,14 +77,14 @@ Focused adversarial suite:
 
 ```text
 python -m pytest -q tests\test_strategy_discovery.py
-137 passed in 2.49s
+154 passed in 2.49s
 ```
 
 Focused plus adjacent Daily Posts/pitch grammar regression suite:
 
 ```text
 python -m pytest -q tests\test_strategy_discovery.py tests\test_daily_posts.py tests\test_pitch_grammar.py
-279 passed in 3.81s
+296 passed in 3.96s
 ```
 
 Syntax and patch hygiene:
@@ -109,6 +110,8 @@ and content-ID state binding, event-payload/key contracts, current-run child
 grouping, prior-run anchor provenance, lifecycle/disposition consistency,
 catalog-freshness content IDs, prerequisite lifecycle runs,
 an end-to-end CLI READY-to-VALIDATED-to-OWNER three-run sequence,
+incomplete-run validation/owner shortcut attacks, candidate-summary mismatch,
+and COMPLETE/PARTIAL required-source/status sibling contradictions,
 real artifact path/hash/time/root checks, PIT/survivorship gating, Markdown
 remote-content neutralization, HTML escaping, local/UNC/path-collision
 enforcement, immutable generation failure/tamper behavior, exact research-spec
@@ -123,7 +126,7 @@ Fixture CLI proof, first run:
 
 ```text
 strategy discovery SHADOW COMPLETE: 1 candidate(s), 1 research-ready
-journal: ...\artifacts\strategy_discovery\example_run_v5\journal.jsonl (3 new event(s))
+journal: ...\artifacts\strategy_discovery\example_run_v6\journal.jsonl (3 new event(s))
 report: ...\runs\<run_id>\strategy_discovery_report.json
 report: ...\runs\<run_id>\strategy_discovery_report.md
 report: ...\runs\<run_id>\strategy_discovery_report.html
@@ -134,7 +137,7 @@ Exact replay of the same capture:
 
 ```text
 strategy discovery SHADOW COMPLETE: 1 candidate(s), 1 research-ready
-journal: ...\artifacts\strategy_discovery\example_run_v5\journal.jsonl (0 new event(s))
+journal: ...\artifacts\strategy_discovery\example_run_v6\journal.jsonl (0 new event(s))
 ```
 
 The ignored fixture output visibly separates the author's claimed 58% win rate
@@ -183,7 +186,7 @@ should record `OWNER_REVIEW`.
 The SHA-256 journal chain is tamper-evident, not an authenticated signature. A
 local principal able to replace the full journal can recompute the chain, so
 production activation still requires write-identity isolation and audit/backup
-controls; signing is a separate design decision. Pre-`1.0.4` development
+controls; signing is a separate design decision. Pre-`1.0.5` development
 journals lack the run-bound event schema and are incompatible with shadow
 acceptance. They must be preserved separately rather than migrated or reused.
 
