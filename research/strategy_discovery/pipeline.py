@@ -21,17 +21,20 @@ from .contracts import (
     validate_transition,
     validate_validation_artifacts,
 )
-from .journal import accepted_owner_transitions, accepted_validations, latest_source_captures
-
+from .journal import (
+    accepted_owner_transitions,
+    accepted_validations,
+    latest_source_captures,
+)
 
 STATUS_ORDER = {"COMPLETE": 0, "PARTIAL": 1, "UNKNOWN": 2}
 INJECTION_PATTERNS = (
-    re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+|previous\s+)*instructions", re.I),
-    re.compile(r"(?:system|developer)\s+prompt", re.I),
-    re.compile(r"reveal.{0,40}(?:secret|password|api[- ]?key|token)", re.I | re.S),
-    re.compile(r"(?:run|execute)\s+(?:this\s+)?(?:command|powershell|cmd|bash|curl|python)", re.I),
-    re.compile(r"<\s*script\b", re.I),
-    re.compile(r"begin\s+(?:system|developer)\s+message", re.I),
+    re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+|previous\s+)*instructions", re.IGNORECASE),
+    re.compile(r"(?:system|developer)\s+prompt", re.IGNORECASE),
+    re.compile(r"reveal.{0,40}(?:secret|password|api[- ]?key|token)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"(?:run|execute)\s+(?:this\s+)?(?:command|powershell|cmd|bash|curl|python)", re.IGNORECASE),
+    re.compile(r"<\s*script\b", re.IGNORECASE),
+    re.compile(r"begin\s+(?:system|developer)\s+message", re.IGNORECASE),
 )
 
 
@@ -773,8 +776,10 @@ def run_discovery(
             "X content is untrusted discovery input, never evidence of edge.",
             "Source-claimed metrics are not recomputed or promoted.",
             "No network, email, storage, scheduler, strategy, order, or broker action occurs here.",
-            "COMPLETE describes configured source-window capture, not completeness "
-            "of all X or all possible strategies.",
+            (
+                "COMPLETE describes configured source-window capture, not completeness "
+                "of all X or all possible strategies."
+            ),
         ],
     }
 

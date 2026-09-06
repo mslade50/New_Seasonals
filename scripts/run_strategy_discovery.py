@@ -13,14 +13,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from research.strategy_discovery.contracts import (  # noqa: E402
+from research.strategy_discovery.contracts import (
     ContractError,
     load_json,
     load_jsonl,
 )
-from research.strategy_discovery.journal import append_events, load_journal  # noqa: E402
-from research.strategy_discovery.pipeline import run_discovery  # noqa: E402
-from research.strategy_discovery.render import write_report_bundle  # noqa: E402
+from research.strategy_discovery.journal import (
+    append_events,
+    load_journal,
+)
+from research.strategy_discovery.pipeline import run_discovery
+from research.strategy_discovery.render import write_report_bundle
 
 
 def _local_output_dir(raw: str) -> Path:

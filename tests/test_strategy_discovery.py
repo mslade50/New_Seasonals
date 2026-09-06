@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import sys
 from pathlib import Path
 
@@ -13,24 +12,27 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from research.strategy_discovery.contracts import (  # noqa: E402
+from run_strategy_discovery import main as cli_main
+
+from research.strategy_discovery.contracts import (
     ContractError,
     load_json,
     sha256_json,
     validate_item,
 )
-from research.strategy_discovery.journal import append_events, load_journal  # noqa: E402
-from research.strategy_discovery.pipeline import (  # noqa: E402
+from research.strategy_discovery.journal import (
+    append_events,
+    load_journal,
+)
+from research.strategy_discovery.pipeline import (
     run_discovery,
     structural_fingerprint,
 )
-from research.strategy_discovery.render import (  # noqa: E402
+from research.strategy_discovery.render import (
     html_text,
     json_text,
     markdown_text,
 )
-from run_strategy_discovery import main as cli_main  # noqa: E402
-
 
 AS_OF = "2026-09-05T21:30:00+00:00"
 

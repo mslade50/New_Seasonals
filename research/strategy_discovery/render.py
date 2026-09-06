@@ -11,7 +11,6 @@ from typing import Any
 
 from .contracts import canonical_json, validate_report
 
-
 MODE_BANNERS = {
     "DISABLED": "DISABLED — no source capture was processed; absence cannot be inferred.",
     "FIXTURE": "FIXTURE OUTPUT — synthetic/offline test data; not an operating research report.",

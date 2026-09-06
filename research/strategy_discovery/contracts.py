@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
 
 SCHEMA_VERSION = "1.0"
 RUN_MODES = {"DISABLED", "FIXTURE", "SHADOW", "LIVE"}
@@ -109,7 +109,7 @@ def _number(value: Any, path: str, *, minimum: float | None = None) -> float:
     if type(value) not in (int, float):
         raise _where(path, "must be a number")
     result = float(value)
-    if result != result or result in (float("inf"), float("-inf")):
+    if not math.isfinite(result):
         raise _where(path, "must be finite")
     if minimum is not None and result < minimum:
         raise _where(path, f"must be >= {minimum}")
