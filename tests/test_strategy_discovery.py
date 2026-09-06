@@ -45,18 +45,42 @@ from research.strategy_discovery.render import (
 AS_OF = "2026-09-05T21:30:00+00:00"
 
 
+def _journal_run_event(label: str) -> dict:
+    run_id = sha256_json({"journal_test_run": label})
+    return {
+        "event_key": f"run:{run_id}",
+        "event_type": "RUN",
+        "payload": {
+            "run_id": run_id,
+            "processor_version": "test",
+            "run_mode": "FIXTURE",
+            "as_of": AS_OF,
+            "completeness": "COMPLETE",
+            "summary": {
+                "raw_item_count": 0,
+                "canonical_item_count": 0,
+                "repost_count": 0,
+                "duplicate_post_ids": 0,
+                "conflicting_post_ids": 0,
+                "candidate_count": 0,
+                "new_research_ready": 0,
+                "validated_research": 0,
+                "owner_review": 0,
+                "needs_spec": 0,
+                "needs_coverage": 0,
+                "quarantined": 0,
+                "known_or_dead_end": 0,
+            },
+        },
+    }
+
+
 def _append_worker(journal_text: str, event_key: str, start, results) -> None:
     start.wait(10)
     try:
         count = append_events(
             Path(journal_text),
-            [
-                {
-                    "event_key": event_key,
-                    "event_type": "RUN",
-                    "payload": {"writer": event_key},
-                }
-            ],
+            [_journal_run_event(event_key)],
             recorded_at=AS_OF,
         )
         results.put(("ok", count))
@@ -423,11 +447,13 @@ class TestCompleteness:
         assert missing["status"] == "UNKNOWN"
 
     def test_stale_catalog_is_partial(self):
+        fresh, _ = run()
         report, _ = run(strategy_generated="2026-07-01T20:00:00+00:00")
         assert report["completeness"] == "PARTIAL"
         assert any(row["status"] == "PARTIAL" for row in report["catalog_health"])
         assert report["candidates"][0]["disposition"] == "NEEDS_COVERAGE"
         assert report["candidates"][0]["lifecycle"] == "DISCOVERED"
+        assert report["run_id"] != fresh["run_id"]
 
     def test_manifest_count_mismatch_is_unknown(self):
         report, _ = run(src_manifest=manifest(source(count=0, expected=1)))
@@ -1339,6 +1365,43 @@ class TestJournalAndCursor:
         )
         assert persisted["candidates"][0]["lifecycle"] == "OWNER_REVIEW"
 
+    def test_incomplete_run_does_not_render_prior_validation_as_current_authority(
+        self,
+        tmp_path,
+    ):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, events, recorded_at=validated["as_of"])
+
+        partial_manifest = manifest(
+            source(
+                exhausted=False,
+                capture_id="capture-2",
+                cursor_in="cursor-1",
+                cursor_out="cursor-2",
+            )
+        )
+        partial, partial_events = run(
+            src_manifest=partial_manifest,
+            items=[item(post_id="101", capture_id="capture-2")],
+            journal=load_journal(journal_path),
+            artifact_root=artifact_root,
+        )
+        candidate = partial["candidates"][0]
+        assert candidate["disposition"] == "NEEDS_COVERAGE"
+        assert candidate["lifecycle"] == "DISCOVERED"
+        assert candidate["validation_artifacts"] == []
+        append_events(journal_path, partial_events, recorded_at=partial["as_of"])
+
     def test_historical_transition_for_absent_candidate_does_not_break_zero_run(self, tmp_path):
         fp = structural_fingerprint(proposal())
         artifact_root = tmp_path / "validation"
@@ -1462,6 +1525,212 @@ class TestJournalAndCursor:
         with pytest.raises(ContractError, match="record_hash mismatch"):
             load_journal(journal_path)
 
+    def test_hash_valid_malformed_event_payload_fails_closed(self, tmp_path):
+        journal_path = tmp_path / "journal.jsonl"
+        body = {
+            "sequence": 1,
+            "event_key": "candidate:forged",
+            "event_type": "CANDIDATE_OBSERVED",
+            "recorded_at": AS_OF,
+            "payload": {"candidate_fingerprint": "0" * 64, "lifecycle": "RESEARCH_READY"},
+            "prev_hash": "GENESIS",
+        }
+        record = {**body, "record_hash": sha256_json(body)}
+        journal_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        with pytest.raises(ContractError, match="invalid fields"):
+            load_journal(journal_path)
+        with pytest.raises(ContractError, match="invalid fields"):
+            run(journal=[record])
+
+    @pytest.mark.parametrize("event_type", ["SOURCE_CAPTURE", "CANDIDATE_OBSERVED"])
+    def test_observation_must_bind_a_prior_or_same_batch_run(self, tmp_path, event_type):
+        report, events = run()
+        orphan = next(event for event in events if event["event_type"] == event_type)
+        with pytest.raises(ContractError, match="must begin with exactly one RUN"):
+            append_events(
+                tmp_path / f"{event_type}.jsonl",
+                [orphan],
+                recorded_at=report["as_of"],
+            )
+
+    @pytest.mark.parametrize("event_type", ["SOURCE_CAPTURE", "CANDIDATE_OBSERVED"])
+    def test_hash_valid_child_cannot_backfill_an_earlier_run(self, tmp_path, event_type):
+        journal_path = tmp_path / "journal.jsonl"
+        earlier_run = _journal_run_event("earlier")
+        current_run = _journal_run_event("current")
+        append_events(journal_path, [earlier_run], recorded_at=AS_OF)
+        append_events(journal_path, [current_run], recorded_at=AS_OF)
+
+        _, generated = run()
+        child = copy.deepcopy(
+            next(event for event in generated if event["event_type"] == event_type)
+        )
+        child["payload"]["run_id"] = earlier_run["payload"]["run_id"]
+        if event_type == "SOURCE_CAPTURE":
+            child["event_key"] = (
+                f"source_capture:{earlier_run['payload']['run_id']}:"
+                f"{child['payload']['source_id']}:{child['payload']['capture_id']}"
+            )
+        else:
+            child["event_key"] = (
+                f"candidate:{earlier_run['payload']['run_id']}:"
+                f"{child['payload']['candidate_fingerprint']}"
+            )
+        records = load_journal(journal_path)
+        body = {
+            "sequence": len(records) + 1,
+            "event_key": child["event_key"],
+            "event_type": child["event_type"],
+            "recorded_at": AS_OF,
+            "payload": child["payload"],
+            "prev_hash": records[-1]["record_hash"],
+        }
+        record = {**body, "record_hash": sha256_json(body)}
+        journal_path.write_text(
+            journal_path.read_text(encoding="utf-8") + json.dumps(record) + "\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ContractError, match="current open RUN"):
+            load_journal(journal_path)
+
+    def test_source_capture_anchor_must_bind_prior_accepted_observation(self, tmp_path):
+        report, events = run()
+        run_event = next(event for event in events if event["event_type"] == "RUN")
+        source_event = copy.deepcopy(
+            next(event for event in events if event["event_type"] == "SOURCE_CAPTURE")
+        )
+        source_event["payload"]["cursor_in"] = "fabricated-cursor"
+        source_event["payload"]["continuity_context"] = {
+            "basis": "ACCEPTED_CAPTURE",
+            "anchor": {
+                "source_id": "x:alpha",
+                "capture_id": "capture-never-observed",
+                "capture_digest": "0" * 64,
+                "cursor_out": "fabricated-cursor",
+                "status": "COMPLETE",
+            },
+        }
+        with pytest.raises(ContractError, match="prior accepted capture"):
+            append_events(
+                tmp_path / "journal.jsonl",
+                [run_event, source_event],
+                recorded_at=report["as_of"],
+            )
+
+    def test_validated_candidate_requires_prior_exact_spec_authority(self, tmp_path):
+        report, events = run()
+        forged = copy.deepcopy(events)
+        candidate_event = next(
+            event for event in forged if event["event_type"] == "CANDIDATE_OBSERVED"
+        )
+        candidate_event["payload"]["lifecycle"] = "VALIDATED_RESEARCH"
+        with pytest.raises(ContractError, match="preregistration and validation"):
+            append_events(
+                tmp_path / "journal.jsonl",
+                forged,
+                recorded_at=report["as_of"],
+            )
+
+    def test_validation_cannot_use_same_run_ready_observation(self, tmp_path):
+        report, events = run()
+        fp = structural_fingerprint(proposal())
+        artifact_row = artifact(fp, tmp_path / "validation")["artifacts"][0]
+        forged = copy.deepcopy(events)
+        candidate_index = next(
+            index
+            for index, event in enumerate(forged)
+            if event["event_type"] == "CANDIDATE_OBSERVED"
+        )
+        forged.insert(
+            candidate_index,
+            {
+                "event_key": f"validation:{artifact_row['artifact_id']}",
+                "event_type": "VALIDATION_ATTACHED",
+                "payload": artifact_row,
+            }
+        )
+        with pytest.raises(ContractError, match="prior-run exact-spec RESEARCH_READY"):
+            append_events(
+                tmp_path / "journal.jsonl",
+                forged,
+                recorded_at=report["as_of"],
+            )
+
+    def test_owner_transition_cannot_use_same_run_validated_observation(self, tmp_path):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, ready_events = run(artifact_root=artifact_root)
+        append_events(journal_path, ready_events, recorded_at=ready["as_of"])
+        validated, validated_events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        forged = copy.deepcopy(validated_events)
+        candidate_index = next(
+            index
+            for index, event in enumerate(forged)
+            if event["event_type"] == "CANDIDATE_OBSERVED"
+        )
+        transition_row = transition(fp)
+        forged.insert(
+            candidate_index,
+            {
+                "event_key": f"owner_transition:{transition_row['transition_id']}",
+                "event_type": "OWNER_TRANSITION",
+                "payload": transition_row,
+            },
+        )
+        forged[-1]["payload"]["lifecycle"] = "OWNER_REVIEW"
+        with pytest.raises(ContractError, match="prior-run exact-spec validated"):
+            append_events(
+                journal_path,
+                forged,
+                recorded_at=validated["as_of"],
+            )
+
+    @pytest.mark.parametrize(
+        ("disposition", "lifecycle"),
+        [
+            ("NEW_RESEARCH_CANDIDATE", "DISCOVERED"),
+            ("NEEDS_SPEC", "RESEARCH_READY"),
+            ("NEEDS_COVERAGE", "VALIDATED_RESEARCH"),
+            ("KNOWN_STRATEGY", "OWNER_REVIEW"),
+        ],
+    )
+    def test_candidate_disposition_and_lifecycle_authority_must_agree(
+        self,
+        tmp_path,
+        disposition,
+        lifecycle,
+    ):
+        report, events = run()
+        forged = copy.deepcopy(events)
+        candidate_event = next(
+            event for event in forged if event["event_type"] == "CANDIDATE_OBSERVED"
+        )
+        candidate_event["payload"]["disposition"] = disposition
+        candidate_event["payload"]["lifecycle"] = lifecycle
+        with pytest.raises(ContractError, match="disposition and lifecycle authority"):
+            append_events(
+                tmp_path / f"{disposition}-{lifecycle}.jsonl",
+                forged,
+                recorded_at=report["as_of"],
+            )
+
+    def test_event_key_must_bind_the_validated_payload(self, tmp_path):
+        report, events = run()
+        forged = copy.deepcopy(events)
+        forged[0]["event_key"] = "run:not-the-run-digest"
+        with pytest.raises(ContractError, match="event_key must bind"):
+            append_events(
+                tmp_path / "journal.jsonl",
+                forged,
+                recorded_at=report["as_of"],
+            )
+
     def test_two_process_writers_retain_both_events_in_one_chain(self, tmp_path):
         context = multiprocessing.get_context("spawn")
         start = context.Event()
@@ -1484,7 +1753,10 @@ class TestJournalAndCursor:
         assert outcomes.count(("ok", 1)) == 2
         records = load_journal(journal_path)
         assert [record["sequence"] for record in records] == [1, 2]
-        assert {record["event_key"] for record in records} == {"writer-0", "writer-1"}
+        assert {record["event_key"] for record in records} == {
+            _journal_run_event("writer-0")["event_key"],
+            _journal_run_event("writer-1")["event_key"],
+        }
         assert records[1]["prev_hash"] == records[0]["record_hash"]
 
     def test_lock_contention_waits_then_fails_closed_at_timeout(self, tmp_path):
@@ -1571,6 +1843,13 @@ class TestRenderingAndCli:
         report, _ = run()
         assert json_text(report) == json_text(copy.deepcopy(report))
         assert markdown_text(report) == markdown_text(copy.deepcopy(report))
+        assert "Data as of" in html_text(report)
+
+    def test_report_contract_rejects_malformed_catalog_health(self):
+        report, _ = run()
+        del report["catalog_health"][0]["as_of"]
+        with pytest.raises(ContractError, match="missing field"):
+            json_text(report)
 
     @pytest.mark.parametrize(
         ("field", "value"),
@@ -1702,6 +1981,90 @@ class TestRenderingAndCli:
         assert cli_main(argv, approved_output_root=approved_root) == 0
         second_lines = (output_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
         assert first_lines == second_lines
+
+    def test_cli_enforces_three_distinct_journaled_lifecycle_runs(self, tmp_path):
+        approved_root = tmp_path / "approved"
+        output_dir = approved_root / "daily"
+        input_dir = tmp_path / "inputs"
+        input_dir.mkdir()
+        proposal_value = proposal()
+        fp = structural_fingerprint(proposal_value)
+        input_values = {
+            "config.json": config(),
+            "manifest.json": manifest(source()),
+            "strategy.json": catalog("STRATEGY_BOOK"),
+            "dead.json": catalog("DEAD_ENDS"),
+        }
+        for name, value in input_values.items():
+            (input_dir / name).write_text(
+                json.dumps(value, sort_keys=True),
+                encoding="utf-8",
+            )
+        (input_dir / "items.jsonl").write_text(
+            json.dumps(item(proposal_value=proposal_value), sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        base_argv = [
+            "--config",
+            str(input_dir / "config.json"),
+            "--source-manifest",
+            str(input_dir / "manifest.json"),
+            "--items",
+            str(input_dir / "items.jsonl"),
+            "--strategy-catalog",
+            str(input_dir / "strategy.json"),
+            "--dead-end-catalog",
+            str(input_dir / "dead.json"),
+            "--output-dir",
+            str(output_dir),
+        ]
+
+        def current_lifecycle() -> str:
+            latest = json.loads((output_dir / "latest.json").read_text(encoding="utf-8"))
+            report_path = (
+                output_dir
+                / "runs"
+                / latest["run_id"]
+                / "strategy_discovery_report.json"
+            )
+            return json.loads(report_path.read_text(encoding="utf-8"))["candidates"][0][
+                "lifecycle"
+            ]
+
+        assert cli_main(base_argv, approved_output_root=approved_root) == 0
+        assert current_lifecycle() == "RESEARCH_READY"
+        artifact_manifest = artifact(fp, approved_root / "validation_artifacts")
+        artifact_input = input_dir / "artifacts.json"
+        artifact_input.write_text(
+            json.dumps(artifact_manifest, sort_keys=True),
+            encoding="utf-8",
+        )
+        assert cli_main(
+            [*base_argv, "--validation-artifacts", str(artifact_input)],
+            approved_output_root=approved_root,
+        ) == 0
+        assert current_lifecycle() == "VALIDATED_RESEARCH"
+        transition_input = input_dir / "transitions.jsonl"
+        transition_input.write_text(
+            json.dumps(transition(fp), sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        assert cli_main(
+            [*base_argv, "--owner-transitions", str(transition_input)],
+            approved_output_root=approved_root,
+        ) == 0
+        assert current_lifecycle() == "OWNER_REVIEW"
+        records = load_journal(output_dir / "journal.jsonl")
+        candidate_states = [
+            record["payload"]["lifecycle"]
+            for record in records
+            if record["event_type"] == "CANDIDATE_OBSERVED"
+        ]
+        assert candidate_states == [
+            "RESEARCH_READY",
+            "VALIDATED_RESEARCH",
+            "OWNER_REVIEW",
+        ]
 
     def test_cli_rejects_output_outside_root_and_input_output_collision(self, tmp_path):
         example_dir = ROOT / "research" / "strategy_discovery" / "examples"

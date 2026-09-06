@@ -31,11 +31,12 @@ from .journal import (
     candidate_state_history,
     latest_source_captures,
     observed_source_captures,
+    validate_journal_records,
     validation_record_times,
 )
 
 STATUS_ORDER = {"COMPLETE": 0, "PARTIAL": 1, "UNKNOWN": 2}
-PROCESSOR_VERSION = "1.0.3"
+PROCESSOR_VERSION = "1.0.4"
 INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+|previous\s+)*instructions", re.IGNORECASE),
     re.compile(r"(?:system|developer)\s+prompt", re.IGNORECASE),
@@ -635,6 +636,7 @@ def _catalog_health(catalog: dict[str, Any], as_of: Any, max_age_days: int) -> d
         "snapshot_id": catalog["snapshot_id"],
         "catalog_type": catalog["catalog_type"],
         "generated_at": catalog["generated_at"],
+        "as_of": catalog["as_of"],
         "records_digest": catalog["records_digest"],
         "record_count": len(catalog["records"]),
         "status": status,
@@ -870,17 +872,17 @@ def _candidate_groups(
                 ),
                 key=lambda row: row["artifact_id"],
             )
-            if disposition in {"NEW_RESEARCH_CANDIDATE", "NEEDS_COVERAGE"}
+            if disposition == "NEW_RESEARCH_CANDIDATE"
             else []
         )
         if attached:
             # Attachment authority was checked against a *prior* journaled
-            # RESEARCH_READY event before candidate construction. A later
-            # incomplete source run cannot erase that historical state.
+            # RESEARCH_READY event before candidate construction. This run
+            # must independently pass every coverage and feasibility gate.
             lifecycle = "VALIDATED_RESEARCH"
         transition = (
             transitions.get(fingerprint)
-            if disposition in {"NEW_RESEARCH_CANDIDATE", "NEEDS_COVERAGE"}
+            if disposition == "NEW_RESEARCH_CANDIDATE"
             else None
         )
         if transition:
@@ -1076,6 +1078,7 @@ def run_discovery(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Validate local snapshots and return a report plus journal events."""
 
+    journal_records = validate_journal_records(journal_records)
     config = validate_config(config_raw)
     manifest = validate_manifest(manifest_raw)
     strategy_catalog = validate_catalog(strategy_catalog_raw, "STRATEGY_BOOK", "strategy_catalog")
@@ -1459,10 +1462,16 @@ def run_discovery(
         "items": normalized_items,
         "strategy_catalog": {
             "snapshot_id": strategy_catalog["snapshot_id"],
+            "catalog_type": strategy_catalog["catalog_type"],
+            "generated_at": strategy_catalog["generated_at"],
+            "as_of": strategy_catalog["as_of"],
             "digest": strategy_catalog["records_digest"],
         },
         "dead_end_catalog": {
             "snapshot_id": dead_end_catalog["snapshot_id"],
+            "catalog_type": dead_end_catalog["catalog_type"],
+            "generated_at": dead_end_catalog["generated_at"],
+            "as_of": dead_end_catalog["as_of"],
             "digest": dead_end_catalog["records_digest"],
         },
         "validation_artifacts": {
@@ -1562,12 +1571,16 @@ def run_discovery(
             continue
         events.append(
             {
-                "event_key": f"source_capture:{row['capture_id']}",
+                "event_key": (
+                    f"source_capture:{run_id}:{row['source_id']}:{row['capture_id']}"
+                ),
                 "event_type": "SOURCE_CAPTURE",
                 "payload": {
+                    "run_id": run_id,
                     "source_id": row["source_id"],
                     "capture_id": row["capture_id"],
                     "capture_digest": row["capture_digest"],
+                    "captured_at": row["captured_at"],
                     "provider": row["provider"],
                     "provider_version": row["provider_version"],
                     "provider_status": row["provider_status"],
@@ -1578,6 +1591,25 @@ def run_discovery(
                     "status": row["status"],
                     "continuity_context": row["continuity_context"],
                 },
+            }
+        )
+    # Authority inputs precede the observation whose lifecycle they support.
+    # Both inputs themselves require evidence from an earlier run, so this
+    # ordering cannot create a first-run shortcut.
+    for artifact in sorted(artifact_wrapper["artifacts"], key=lambda row: row["artifact_id"]):
+        events.append(
+            {
+                "event_key": f"validation:{artifact['artifact_id']}",
+                "event_type": "VALIDATION_ATTACHED",
+                "payload": deepcopy(artifact),
+            }
+        )
+    for transition in sorted(new_transitions, key=lambda row: row["transition_id"]):
+        events.append(
+            {
+                "event_key": f"owner_transition:{transition['transition_id']}",
+                "event_type": "OWNER_TRANSITION",
+                "payload": deepcopy(transition),
             }
         )
     for candidate in candidates:
@@ -1593,22 +1625,6 @@ def run_discovery(
                     "lifecycle": candidate["lifecycle"],
                     "source_post_ids": [row["post_id"] for row in candidate["provenance"]],
                 },
-            }
-        )
-    for artifact in sorted(artifact_wrapper["artifacts"], key=lambda row: row["artifact_id"]):
-        events.append(
-            {
-                "event_key": f"validation:{artifact['artifact_id']}",
-                "event_type": "VALIDATION_ATTACHED",
-                "payload": deepcopy(artifact),
-            }
-        )
-    for transition in sorted(new_transitions, key=lambda row: row["transition_id"]):
-        events.append(
-            {
-                "event_key": f"owner_transition:{transition['transition_id']}",
-                "event_type": "OWNER_TRANSITION",
-                "payload": deepcopy(transition),
             }
         )
     return report, events

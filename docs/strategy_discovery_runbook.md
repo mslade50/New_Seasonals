@@ -20,10 +20,17 @@ append-only journal:
 - `latest.json` is replaced last. It points to a complete generation and the
   verified journal head; an unreferenced generation is not a committed run.
 
-The report and run content ID include an explicit processor version. Any
+The report and run content ID include an explicit processor version (currently
+`1.0.4`). Any
 content-affecting contract/classification/rendering release must bump it, so a
 new implementation cannot collide with an immutable generation produced by an
 older one from identical input snapshots.
+
+Development journals written before `1.0.4` do not carry the required
+run-bound source events and event-specific payload contracts. They are
+incompatible and must not be reused as shadow-acceptance evidence. Preserve
+them as development artifacts if needed; begin shadow acceptance with a new,
+empty journal rather than rewriting or migrating history in place.
 
 The human report is deliberately ordered as a decision funnel:
 
@@ -92,6 +99,16 @@ validation. Even `OWNER_REVIEW` does not authorize a strategy change, capital
 allocation, order staging, or execution. Machine output always carries
 `operationally_authoritative=false`.
 
+The journal is tamper-evident, not cryptographically authenticated. Its hash
+chain detects truncation, reordering, or byte edits that do not also replace
+the downstream chain. It cannot prove authorship against a local principal who
+can replace the journal and recompute every hash. V1 therefore trusts the
+filesystem identity allowed to write the approved output root. Production
+activation requires OS-level write isolation, access logging, backup/retention,
+and an independently chosen signing or append-service design if protection
+against an authorized local writer is required. No journal hash is represented
+as a signature.
+
 ## Input contracts
 
 The example bundle is in
@@ -141,6 +158,13 @@ the run content ID, so a wrong-cursor capture cannot become complete by being
 replayed and identical current files evaluated against different prior anchors
 cannot share a run ID.
 
+Every source observation carries the current `run_id`, and its event key binds
+the run, source, and capture identities. A `RUN` opens one journal transaction;
+all source and candidate child events must reference that current run and
+cannot be appended later to an older run. An accepted cursor anchor must name
+an exact earlier `COMPLETE` source event from a prior run; a same-run fabricated
+anchor or backfilled child fails closed.
+
 ### Source items, claims, and X lineage
 
 Items are normalized into `POST`, `REPLY`, `QUOTE`, or `REPOST`:
@@ -182,6 +206,10 @@ invalid rather than being mislabeled as active. Each dead-end record also
 carries the dated rejection reason, and its decision timestamp cannot be after
 the catalog's own point-in-time boundary. A stale catalog makes the run partial
 and blocks automatic promotion; a digest mismatch blocks the run.
+Snapshot ID, catalog type, canonical records digest, `generated_at`, and
+point-in-time `as_of` are all run-ID material. Consequently two otherwise
+identical catalogs evaluated as fresh versus stale cannot share a content ID or
+immutable report generation.
 
 The upstream catalog exporter is intentionally not included in V1. Before
 shadow activation, build and independently verify a read-only exporter that
@@ -266,6 +294,18 @@ Every journal writer uses the same `journal.jsonl.lock` domain, and append calls
 accept only a verifiable lease for that exact path. Existing journal symlinks or
 Windows reparse points are rejected before read or append.
 
+Within the locked append, event payloads and event keys are validated by event
+type, then the entire prospective chain is validated across events before any
+byte is written. The transaction order is `RUN`, source observations, any
+newly accepted validation artifact, any newly accepted human transition, then
+candidate observations. Validation still requires exact-spec `RESEARCH_READY`
+from a prior run, and a human transition still requires exact-spec
+`VALIDATED_RESEARCH` from another prior run. Higher lifecycle states and
+`NEW_RESEARCH_CANDIDATE` must agree; incomplete runs render candidates
+`DISCOVERED/NEEDS_COVERAGE` even when older validation exists. Replays may be
+idempotent, but a later append cannot backfill a child into an already recorded
+run.
+
 ## Future official X adapter: required design
 
 The collector is a separate, later change. It should use the official X
@@ -327,8 +367,10 @@ approvals. No stage should enable trading or automatic strategy mutation.
   capture ID where appropriate.
 - `PARTIAL`: review observed candidates as leads only, but do not call the daily
   discovery set complete. Repair stale/incomplete sources or catalogs.
-- hash-chain failure: preserve the journal and investigate. Never truncate,
-  rewrite, or regenerate it to make a run green.
+- hash-chain, event-contract, or cross-event provenance failure: preserve the
+  journal and investigate. Never truncate, rewrite, or regenerate it to make a
+  run green. Remember that the chain is tamper-evident rather than a signature;
+  investigate the writer identity and filesystem audit trail as well.
 - transaction-lock failure: inspect the lock owner, immutable generations,
   `latest.json`, and journal hash chain. Never steal or automatically age out a
   lock; rerun only after an operator establishes the last committed state.

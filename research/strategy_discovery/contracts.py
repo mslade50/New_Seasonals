@@ -1072,7 +1072,47 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
                 _string(anchor["cursor_out"], f"{anchor_path}.cursor_out")
             if anchor["status"] != "COMPLETE":
                 raise _where(f"{anchor_path}.status", "must equal COMPLETE")
-    _list(report["catalog_health"], "report.catalog_health")
+    catalog_health = _list(report["catalog_health"], "report.catalog_health")
+    if len(catalog_health) != 2:
+        raise _where(
+            "report.catalog_health",
+            "must contain exactly the strategy-book and dead-end snapshots",
+        )
+    catalog_types: set[str] = set()
+    for index, raw_catalog in enumerate(catalog_health):
+        path = f"report.catalog_health[{index}]"
+        catalog = _object(raw_catalog, path)
+        _strict(
+            catalog,
+            path,
+            {
+                "snapshot_id",
+                "catalog_type",
+                "generated_at",
+                "as_of",
+                "records_digest",
+                "record_count",
+                "status",
+                "finding",
+            },
+        )
+        _string(catalog["snapshot_id"], f"{path}.snapshot_id")
+        catalog_type = _enum(
+            catalog["catalog_type"],
+            {"STRATEGY_BOOK", "DEAD_ENDS"},
+            f"{path}.catalog_type",
+        )
+        if catalog_type in catalog_types:
+            raise _where(f"{path}.catalog_type", "must be unique")
+        catalog_types.add(catalog_type)
+        parse_timestamp(catalog["generated_at"], f"{path}.generated_at")
+        parse_timestamp(catalog["as_of"], f"{path}.as_of")
+        digest = _string(catalog["records_digest"], f"{path}.records_digest")
+        if not SHA256_RE.fullmatch(digest):
+            raise _where(f"{path}.records_digest", "must be a lowercase SHA-256")
+        _integer(catalog["record_count"], f"{path}.record_count", minimum=0)
+        _enum(catalog["status"], COMPLETENESS, f"{path}.status")
+        _string(catalog["finding"], f"{path}.finding")
     item_normalization = _object(report["item_normalization"], "report.item_normalization")
     _strict(
         item_normalization,

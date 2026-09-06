@@ -102,7 +102,9 @@ def markdown_text(report: dict[str, Any]) -> str:
     for catalog in report["catalog_health"]:
         lines.append(
             f"- **{catalog['catalog_type']} — {catalog['status']}:** "
-            f"{catalog['record_count']} records; {_md(catalog['finding'])}"
+            f"{catalog['record_count']} records; generated {_md(catalog['generated_at'])}; "
+            f"data as of {_md(catalog['as_of'])}; digest "
+            f"`{catalog['records_digest']}`; {_md(catalog['finding'])}"
         )
     lines.extend(["", "## Candidate funnel", ""])
     if not report["candidates"]:
@@ -276,6 +278,18 @@ def html_text(report: dict[str, Any]) -> str:
             f"<td>{esc(' '.join(source['findings']))}</td>"
             "</tr>"
         )
+    catalog_rows = "".join(
+        "<tr>"
+        f"<td>{esc(catalog['catalog_type'])}</td>"
+        f"<td><strong>{esc(catalog['status'])}</strong></td>"
+        f"<td>{esc(catalog['record_count'])}</td>"
+        f"<td>{esc(catalog['generated_at'])}</td>"
+        f"<td>{esc(catalog['as_of'])}</td>"
+        f"<td><code>{esc(catalog['records_digest'])}</code></td>"
+        f"<td>{esc(catalog['finding'])}</td>"
+        "</tr>"
+        for catalog in report["catalog_health"]
+    )
     candidate_cards = []
     for candidate in report["candidates"]:
         structure = candidate["structure"]
@@ -434,6 +448,9 @@ code{{overflow-wrap:anywhere}} a{{color:#135e96}}
 <h2>Source coverage</h2><table><thead><tr><th>Source</th><th>Provider / locator</th><th>Status</th>
 <th>Expected</th><th>Observed</th><th>Window</th><th>Notes</th></tr></thead>
 <tbody>{''.join(source_rows)}</tbody></table>
+<h2>Catalog health</h2><table><thead><tr><th>Catalog</th><th>Status</th>
+<th>Records</th><th>Generated</th><th>Data as of</th><th>Digest</th><th>Notes</th></tr></thead>
+<tbody>{catalog_rows}</tbody></table>
 <h2>Candidate funnel</h2>{''.join(candidate_cards)}
 <h2>Limits</h2><ul>{limitations}</ul>
 </body></html>"""

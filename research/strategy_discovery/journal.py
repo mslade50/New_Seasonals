@@ -14,7 +14,20 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from .contracts import ContractError, canonical_json, parse_timestamp, sha256_json
+from .contracts import (
+    COMPLETENESS,
+    LIFECYCLES,
+    LOCATOR_KINDS,
+    PROVIDER_STATUSES,
+    RUN_MODES,
+    SHA256_RE,
+    ContractError,
+    canonical_json,
+    parse_timestamp,
+    sha256_json,
+    validate_transition,
+    validate_validation_artifacts,
+)
 
 GENESIS = "GENESIS"
 EVENT_TYPES = {
@@ -33,6 +46,29 @@ RECORD_KEYS = {
     "prev_hash",
     "record_hash",
 }
+DISPOSITIONS = {
+    "KNOWN_STRATEGY",
+    "KNOWN_DEAD_END",
+    "QUARANTINED",
+    "NEEDS_COVERAGE",
+    "NEEDS_SPEC",
+    "NEW_RESEARCH_CANDIDATE",
+}
+SUMMARY_KEYS = {
+    "raw_item_count",
+    "canonical_item_count",
+    "repost_count",
+    "duplicate_post_ids",
+    "conflicting_post_ids",
+    "candidate_count",
+    "new_research_ready",
+    "validated_research",
+    "owner_review",
+    "needs_spec",
+    "needs_coverage",
+    "quarantined",
+    "known_or_dead_end",
+}
 
 
 @dataclass(frozen=True)
@@ -43,6 +79,446 @@ class _JournalLease:
 
 def _record_hash(record_without_hash: dict[str, Any]) -> str:
     return sha256_json(record_without_hash)
+
+
+def _exact_object(value: Any, keys: set[str], path: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ContractError(f"{path} must be an object")
+    missing = sorted(keys - value.keys())
+    extra = sorted(value.keys() - keys)
+    if missing or extra:
+        raise ContractError(
+            f"{path} has invalid fields; missing={missing}, extra={extra}"
+        )
+    return value
+
+
+def _journal_string(value: Any, path: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ContractError(f"{path} must be a non-empty string")
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise ContractError(f"{path} must contain valid Unicode") from exc
+    return value
+
+
+def _journal_digest(value: Any, path: str) -> str:
+    digest = _journal_string(value, path)
+    if not SHA256_RE.fullmatch(digest):
+        raise ContractError(f"{path} must be a lowercase SHA-256")
+    return digest
+
+
+def _optional_journal_string(value: Any, path: str) -> str | None:
+    return None if value is None else _journal_string(value, path)
+
+
+def _validate_continuity_context(
+    raw: Any,
+    *,
+    source_id: str,
+    capture_id: str,
+) -> None:
+    context = _exact_object(raw, {"basis", "anchor"}, "SOURCE_CAPTURE.continuity_context")
+    basis = context["basis"]
+    if basis not in {"GENESIS", "ACCEPTED_CAPTURE"}:
+        raise ContractError("SOURCE_CAPTURE.continuity_context.basis is invalid")
+    if basis == "GENESIS":
+        if context["anchor"] is not None:
+            raise ContractError("GENESIS continuity context must have a null anchor")
+        return
+    anchor = _exact_object(
+        context["anchor"],
+        {"source_id", "capture_id", "capture_digest", "cursor_out", "status"},
+        "SOURCE_CAPTURE.continuity_context.anchor",
+    )
+    if _journal_string(anchor["source_id"], "continuity anchor source_id") != source_id:
+        raise ContractError("continuity anchor source_id must match the capture source")
+    anchor_capture = _journal_string(anchor["capture_id"], "continuity anchor capture_id")
+    if anchor_capture == capture_id:
+        raise ContractError("continuity anchor cannot reference the current capture")
+    _journal_digest(anchor["capture_digest"], "continuity anchor capture_digest")
+    _optional_journal_string(anchor["cursor_out"], "continuity anchor cursor_out")
+    if anchor["status"] != "COMPLETE":
+        raise ContractError("continuity anchor status must be COMPLETE")
+
+
+def _validate_journal_event(
+    event_key: Any,
+    event_type: Any,
+    payload_raw: Any,
+    *,
+    recorded_at: str,
+) -> None:
+    event_key = _journal_string(event_key, "journal event_key")
+    recorded_time = parse_timestamp(recorded_at, "journal recorded_at")
+    payload = payload_raw
+    if event_type == "RUN":
+        payload = _exact_object(
+            payload,
+            {"run_id", "processor_version", "run_mode", "as_of", "completeness", "summary"},
+            "RUN payload",
+        )
+        run_id = _journal_digest(payload["run_id"], "RUN.run_id")
+        if event_key != f"run:{run_id}":
+            raise ContractError("RUN event_key must bind its run_id")
+        _journal_string(payload["processor_version"], "RUN.processor_version")
+        if payload["run_mode"] not in RUN_MODES:
+            raise ContractError("RUN.run_mode is invalid")
+        if payload["completeness"] not in COMPLETENESS:
+            raise ContractError("RUN.completeness is invalid")
+        if parse_timestamp(payload["as_of"], "RUN.as_of") > recorded_time:
+            raise ContractError("RUN.as_of cannot be after journal recorded_at")
+        summary = _exact_object(payload["summary"], SUMMARY_KEYS, "RUN.summary")
+        if any(type(value) is not int or value < 0 for value in summary.values()):
+            raise ContractError("RUN.summary values must be non-negative integers")
+        return
+    if event_type == "SOURCE_CAPTURE":
+        payload = _exact_object(
+            payload,
+            {
+                "run_id",
+                "source_id",
+                "capture_id",
+                "capture_digest",
+                "captured_at",
+                "provider",
+                "provider_version",
+                "provider_status",
+                "locator",
+                "cursor_in",
+                "cursor_out",
+                "window",
+                "status",
+                "continuity_context",
+            },
+            "SOURCE_CAPTURE payload",
+        )
+        run_id = _journal_digest(payload["run_id"], "SOURCE_CAPTURE.run_id")
+        source_id = _journal_string(payload["source_id"], "SOURCE_CAPTURE.source_id")
+        capture_id = _journal_string(payload["capture_id"], "SOURCE_CAPTURE.capture_id")
+        if event_key != f"source_capture:{run_id}:{source_id}:{capture_id}":
+            raise ContractError(
+                "SOURCE_CAPTURE event_key must bind run_id, source_id, and capture_id"
+            )
+        _journal_digest(payload["capture_digest"], "SOURCE_CAPTURE.capture_digest")
+        captured_at = parse_timestamp(payload["captured_at"], "SOURCE_CAPTURE.captured_at")
+        if captured_at > recorded_time:
+            raise ContractError("SOURCE_CAPTURE.captured_at cannot postdate journal recorded_at")
+        _journal_string(payload["provider"], "SOURCE_CAPTURE.provider")
+        _journal_string(payload["provider_version"], "SOURCE_CAPTURE.provider_version")
+        if payload["provider_status"] not in PROVIDER_STATUSES:
+            raise ContractError("SOURCE_CAPTURE.provider_status is invalid")
+        locator = _exact_object(payload["locator"], {"kind", "value"}, "SOURCE_CAPTURE.locator")
+        if locator["kind"] not in LOCATOR_KINDS:
+            raise ContractError("SOURCE_CAPTURE.locator.kind is invalid")
+        _journal_string(locator["value"], "SOURCE_CAPTURE.locator.value")
+        cursor_in = _optional_journal_string(payload["cursor_in"], "SOURCE_CAPTURE.cursor_in")
+        _optional_journal_string(payload["cursor_out"], "SOURCE_CAPTURE.cursor_out")
+        window = _exact_object(payload["window"], {"start", "end"}, "SOURCE_CAPTURE.window")
+        window_start = parse_timestamp(window["start"], "SOURCE_CAPTURE.window.start")
+        window_end = parse_timestamp(window["end"], "SOURCE_CAPTURE.window.end")
+        if window_end < window_start:
+            raise ContractError("SOURCE_CAPTURE window end precedes start")
+        if captured_at < window_end:
+            raise ContractError("SOURCE_CAPTURE.captured_at must be on or after window end")
+        if payload["status"] not in COMPLETENESS:
+            raise ContractError("SOURCE_CAPTURE.status is invalid")
+        _validate_continuity_context(
+            payload["continuity_context"],
+            source_id=source_id,
+            capture_id=capture_id,
+        )
+        context = payload["continuity_context"]
+        if payload["status"] == "COMPLETE":
+            if payload["provider_status"] != "OK":
+                raise ContractError("COMPLETE source capture requires provider_status OK")
+            if context["basis"] == "GENESIS" and cursor_in is not None:
+                raise ContractError("COMPLETE genesis capture requires cursor_in null")
+            if (
+                context["basis"] == "ACCEPTED_CAPTURE"
+                and cursor_in != context["anchor"]["cursor_out"]
+            ):
+                raise ContractError("COMPLETE source capture violates cursor continuity")
+        return
+    if event_type == "CANDIDATE_OBSERVED":
+        payload = _exact_object(
+            payload,
+            {
+                "run_id",
+                "candidate_fingerprint",
+                "research_spec_digests",
+                "disposition",
+                "lifecycle",
+                "source_post_ids",
+            },
+            "CANDIDATE_OBSERVED payload",
+        )
+        run_id = _journal_digest(payload["run_id"], "CANDIDATE_OBSERVED.run_id")
+        fingerprint = _journal_digest(
+            payload["candidate_fingerprint"],
+            "CANDIDATE_OBSERVED.candidate_fingerprint",
+        )
+        if event_key != f"candidate:{run_id}:{fingerprint}":
+            raise ContractError("CANDIDATE_OBSERVED event_key must bind run and candidate")
+        digests = payload["research_spec_digests"]
+        if not isinstance(digests, list) or not digests:
+            raise ContractError("CANDIDATE_OBSERVED research specs must be a non-empty array")
+        for index, digest in enumerate(digests):
+            _journal_digest(digest, f"CANDIDATE_OBSERVED.research_spec_digests[{index}]")
+        if len(digests) != len(set(digests)):
+            raise ContractError("CANDIDATE_OBSERVED research specs must be unique")
+        if payload["disposition"] not in DISPOSITIONS:
+            raise ContractError("CANDIDATE_OBSERVED disposition is invalid")
+        if payload["lifecycle"] not in LIFECYCLES:
+            raise ContractError("CANDIDATE_OBSERVED lifecycle is invalid")
+        if (
+            (payload["lifecycle"] == "DISCOVERED")
+            != (payload["disposition"] != "NEW_RESEARCH_CANDIDATE")
+        ):
+            raise ContractError(
+                "candidate disposition and lifecycle authority must agree"
+            )
+        source_post_ids = payload["source_post_ids"]
+        if not isinstance(source_post_ids, list) or not source_post_ids:
+            raise ContractError("CANDIDATE_OBSERVED source_post_ids must be non-empty")
+        for index, post_id in enumerate(source_post_ids):
+            _journal_string(post_id, f"CANDIDATE_OBSERVED.source_post_ids[{index}]")
+        return
+    if event_type == "VALIDATION_ATTACHED":
+        artifact = validate_validation_artifacts(
+            {"schema_version": "1.0", "artifacts": [payload]}
+        )["artifacts"][0]
+        if event_key != f"validation:{artifact['artifact_id']}":
+            raise ContractError("VALIDATION_ATTACHED event_key must bind artifact_id")
+        if parse_timestamp(artifact["created_at"], "validation.created_at") > recorded_time:
+            raise ContractError("validation artifact cannot postdate journal recorded_at")
+        return
+    if event_type == "OWNER_TRANSITION":
+        transition = validate_transition(payload, 0)
+        if event_key != f"owner_transition:{transition['transition_id']}":
+            raise ContractError("OWNER_TRANSITION event_key must bind transition_id")
+        if parse_timestamp(transition["recorded_at"], "transition.recorded_at") > recorded_time:
+            raise ContractError("owner transition cannot postdate journal recorded_at")
+        return
+    raise ContractError(f"unknown journal event_type: {event_type}")
+
+
+def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
+    """Validate provenance and lifecycle ordering across journal events.
+
+    The hash chain proves byte continuity, while this pass proves that records
+    cannot become authority-bearing state merely by carrying a familiar event
+    name.  Source and candidate observations bind a prior RUN; cursor anchors
+    bind an earlier accepted source observation; and higher lifecycle states
+    require their exact-spec predecessor evidence.
+    """
+
+    runs: dict[str, dict[str, Any]] = {}
+    run_recorded_at: dict[str, Any] = {}
+    source_observations: dict[tuple[str, str], dict[str, Any]] = {}
+    source_observation_runs: dict[tuple[str, str], str] = {}
+    latest_accepted: dict[str, dict[str, Any]] = {}
+    ready_spec_runs: dict[tuple[str, str], set[str]] = {}
+    validated_spec_runs: dict[tuple[str, str], set[str]] = {}
+    validation_specs: set[tuple[str, str]] = set()
+    owner_specs: set[tuple[str, str]] = set()
+    previous_recorded_at = None
+    current_run_id: str | None = None
+    current_phase = -1
+    phase_by_type = {
+        "RUN": 0,
+        "SOURCE_CAPTURE": 1,
+        "VALIDATION_ATTACHED": 2,
+        "OWNER_TRANSITION": 3,
+        "CANDIDATE_OBSERVED": 4,
+    }
+
+    for record in records:
+        event_type = record["event_type"]
+        payload = record["payload"]
+        recorded_at = parse_timestamp(record["recorded_at"], "journal.recorded_at")
+        if previous_recorded_at is not None and recorded_at < previous_recorded_at:
+            raise ContractError("journal recorded_at values must be non-decreasing")
+        previous_recorded_at = recorded_at
+        _validate_journal_event(
+            record["event_key"],
+            event_type,
+            payload,
+            recorded_at=record["recorded_at"],
+        )
+        phase = phase_by_type[event_type]
+        if event_type == "RUN":
+            current_phase = phase
+        elif phase < current_phase:
+            raise ContractError("journal events are out of transaction order")
+        else:
+            current_phase = phase
+
+        if event_type == "RUN":
+            runs[payload["run_id"]] = payload
+            run_recorded_at[payload["run_id"]] = recorded_at
+            current_run_id = payload["run_id"]
+            continue
+
+        if event_type in {"SOURCE_CAPTURE", "CANDIDATE_OBSERVED"}:
+            run_id = payload["run_id"]
+            if run_id not in runs:
+                raise ContractError(f"{event_type} references an unknown or later RUN")
+            if run_id != current_run_id:
+                raise ContractError(f"{event_type} must bind the current open RUN")
+            if recorded_at < run_recorded_at[run_id]:
+                raise ContractError(f"{event_type} predates its referenced RUN")
+
+        if event_type == "SOURCE_CAPTURE":
+            run_as_of = parse_timestamp(runs[payload["run_id"]]["as_of"], "RUN.as_of")
+            if (
+                payload["status"] == "COMPLETE"
+                and parse_timestamp(payload["window"]["end"], "SOURCE_CAPTURE.window.end")
+                > run_as_of
+            ):
+                raise ContractError("COMPLETE source capture window cannot postdate RUN.as_of")
+            identity = (payload["source_id"], payload["capture_id"])
+            prior_observation = source_observations.get(identity)
+            content = {key: value for key, value in payload.items() if key != "run_id"}
+            if prior_observation is not None and prior_observation != content:
+                raise ContractError(
+                    "source capture identity was reused with conflicting content"
+                )
+            if prior_observation is None:
+                source_observations[identity] = content
+                source_observation_runs[identity] = payload["run_id"]
+
+            context = payload["continuity_context"]
+            anchor = context["anchor"]
+            if context["basis"] == "ACCEPTED_CAPTURE":
+                anchor_identity = (payload["source_id"], anchor["capture_id"])
+                accepted_anchor = source_observations.get(anchor_identity)
+                if accepted_anchor is None or accepted_anchor["status"] != "COMPLETE":
+                    raise ContractError(
+                        "source continuity anchor does not reference a prior accepted capture"
+                    )
+                if source_observation_runs[anchor_identity] == payload["run_id"]:
+                    raise ContractError(
+                        "source continuity anchor must come from a prior run"
+                    )
+                for key in ("capture_digest", "cursor_out", "status"):
+                    if anchor[key] != accepted_anchor[key]:
+                        raise ContractError(
+                            "source continuity anchor conflicts with its prior capture"
+                        )
+
+            if payload["status"] == "COMPLETE":
+                current = latest_accepted.get(payload["source_id"])
+                if prior_observation is not None:
+                    # A later run may replay an already accepted capture for
+                    # audit provenance, but it cannot roll the cursor head back.
+                    continue
+                if current is None:
+                    if context["basis"] != "GENESIS":
+                        raise ContractError(
+                            "first accepted source capture must use GENESIS continuity"
+                        )
+                else:
+                    if context["basis"] != "ACCEPTED_CAPTURE":
+                        raise ContractError(
+                            "new accepted source capture must continue the accepted head"
+                        )
+                    for key in ("capture_id", "capture_digest", "cursor_out", "status"):
+                        if anchor[key] != current[key]:
+                            raise ContractError(
+                                "new accepted source capture does not continue the accepted head"
+                            )
+                latest_accepted[payload["source_id"]] = content
+            continue
+
+        if event_type == "VALIDATION_ATTACHED":
+            if current_run_id is None:
+                raise ContractError("validation artifact lacks a current RUN")
+            if (
+                parse_timestamp(payload["created_at"], "validation.created_at")
+                > parse_timestamp(runs[current_run_id]["as_of"], "RUN.as_of")
+            ):
+                raise ContractError("validation artifact cannot postdate RUN.as_of")
+            spec = (
+                payload["candidate_fingerprint"],
+                payload["research_spec_digest"],
+            )
+            if current_run_id is None or not any(
+                run_id != current_run_id for run_id in ready_spec_runs.get(spec, set())
+            ):
+                raise ContractError(
+                    "validation artifact lacks a prior-run exact-spec RESEARCH_READY observation"
+                )
+            validation_specs.add(spec)
+            continue
+
+        if event_type == "OWNER_TRANSITION":
+            if current_run_id is None:
+                raise ContractError("owner transition lacks a current RUN")
+            if (
+                parse_timestamp(payload["recorded_at"], "transition.recorded_at")
+                > parse_timestamp(runs[current_run_id]["as_of"], "RUN.as_of")
+            ):
+                raise ContractError("owner transition cannot postdate RUN.as_of")
+            spec = (
+                payload["candidate_fingerprint"],
+                payload["research_spec_digest"],
+            )
+            if (
+                current_run_id is None
+                or not any(
+                    run_id != current_run_id
+                    for run_id in validated_spec_runs.get(spec, set())
+                )
+                or spec not in validation_specs
+            ):
+                raise ContractError(
+                    "owner transition lacks prior-run exact-spec validated research evidence"
+                )
+            if spec in owner_specs:
+                raise ContractError("owner transition duplicates an accepted exact-spec decision")
+            owner_specs.add(spec)
+            continue
+
+        if event_type == "CANDIDATE_OBSERVED":
+            lifecycle = payload["lifecycle"]
+            specs = [
+                (payload["candidate_fingerprint"], digest)
+                for digest in payload["research_spec_digests"]
+            ]
+            if lifecycle != "DISCOVERED" and len(specs) != 1:
+                raise ContractError(
+                    "authority-bearing candidate lifecycle requires one exact research spec"
+                )
+            if lifecycle == "RESEARCH_READY":
+                run = runs[payload["run_id"]]
+                if run["completeness"] != "COMPLETE" or run["run_mode"] == "DISABLED":
+                    raise ContractError(
+                        "RESEARCH_READY requires a COMPLETE enabled run"
+                    )
+                for spec in specs:
+                    ready_spec_runs.setdefault(spec, set()).add(payload["run_id"])
+            elif lifecycle == "VALIDATED_RESEARCH":
+                if any(
+                    spec not in ready_spec_runs or spec not in validation_specs
+                    for spec in specs
+                ):
+                    raise ContractError(
+                        "VALIDATED_RESEARCH lacks prior exact-spec preregistration and validation"
+                    )
+                for spec in specs:
+                    validated_spec_runs.setdefault(spec, set()).add(payload["run_id"])
+            elif lifecycle == "OWNER_REVIEW":
+                if any(
+                    spec not in validated_spec_runs or spec not in owner_specs
+                    for spec in specs
+                ):
+                    raise ContractError(
+                        "OWNER_REVIEW lacks prior exact-spec validation and human transition"
+                    )
+            continue
 
 
 def _reject_journal_constant(value: str, *, path: Path, line_no: int) -> None:
@@ -128,7 +604,47 @@ def load_journal(path: Path) -> list[dict[str, Any]]:
         event_keys[record["event_key"]] = record["record_hash"]
         expected_prev = record["record_hash"]
         records.append(record)
+    _validate_event_sequence(records)
     return records
+
+
+def validate_journal_records(records_raw: Any) -> list[dict[str, Any]]:
+    """Validate an in-memory journal exactly as the file reader would.
+
+    This closes the library-call boundary: callers cannot bypass the hash,
+    payload, or cross-event checks by passing hand-built records directly to
+    ``run_discovery``.
+    """
+
+    if not isinstance(records_raw, list):
+        raise ContractError("journal records must be an array")
+    expected_prev = GENESIS
+    event_keys: dict[str, str] = {}
+    for index, record in enumerate(records_raw, 1):
+        if not isinstance(record, dict) or set(record) != RECORD_KEYS:
+            raise ContractError(f"journal[{index}] has an invalid record contract")
+        if type(record["sequence"]) is not int or record["sequence"] != index:
+            raise ContractError(f"journal[{index}] has a non-contiguous sequence")
+        if not isinstance(record["event_key"], str) or not record["event_key"]:
+            raise ContractError(f"journal[{index}] has an invalid event_key")
+        if record["event_type"] not in EVENT_TYPES:
+            raise ContractError(f"journal[{index}] has an unknown event_type")
+        parse_timestamp(record["recorded_at"], f"journal[{index}].recorded_at")
+        if not isinstance(record["payload"], dict):
+            raise ContractError(f"journal[{index}] payload must be an object")
+        if record["prev_hash"] != expected_prev:
+            raise ContractError(f"journal[{index}] has a broken prev_hash chain")
+        body = {key: record[key] for key in RECORD_KEYS - {"record_hash"}}
+        expected_hash = _record_hash(body)
+        if record["record_hash"] != expected_hash:
+            raise ContractError(f"journal[{index}] has a record_hash mismatch")
+        prior_hash = event_keys.get(record["event_key"])
+        if prior_hash is not None and prior_hash != record["record_hash"]:
+            raise ContractError(f"journal[{index}] reuses an event_key")
+        event_keys[record["event_key"]] = record["record_hash"]
+        expected_prev = record["record_hash"]
+    _validate_event_sequence(records_raw)
+    return records_raw
 
 
 def append_events(
@@ -144,6 +660,7 @@ def append_events(
     no-op; reusing an event key for different content fails closed.
     """
 
+    event_list = list(events)
     canonical_lock_path = path.with_suffix(path.suffix + ".lock")
     if is_symlink_or_reparse(path):
         raise ContractError(f"journal must not be a symlink or reparse point: {path}")
@@ -151,7 +668,7 @@ def append_events(
         with exclusive_lock(canonical_lock_path) as acquired:
             return append_events(
                 path,
-                events,
+                event_list,
                 recorded_at=recorded_at,
                 lock=acquired,
             )
@@ -162,10 +679,12 @@ def append_events(
         record["event_key"]: (record["event_type"], record["payload"])
         for record in existing
     }
+    existing_keys = set(by_key)
     sequence = len(existing)
     prev_hash = existing[-1]["record_hash"] if existing else GENESIS
     fresh: list[dict[str, Any]] = []
-    for event in events:
+    batch_run_id: str | None = None
+    for index, event in enumerate(event_list):
         if not isinstance(event, dict) or set(event) != {"event_key", "event_type", "payload"}:
             raise ContractError("journal event must contain event_key, event_type, and payload")
         event_key = event["event_key"]
@@ -175,6 +694,23 @@ def append_events(
             raise ContractError(f"unknown journal event_type: {event['event_type']}")
         if not isinstance(event["payload"], dict):
             raise ContractError("journal payload must be an object")
+        _validate_journal_event(
+            event_key,
+            event["event_type"],
+            event["payload"],
+            recorded_at=recorded_at,
+        )
+        if index == 0:
+            if event["event_type"] != "RUN":
+                raise ContractError("journal transaction must begin with exactly one RUN event")
+            batch_run_id = event["payload"]["run_id"]
+        elif event["event_type"] == "RUN":
+            raise ContractError("journal transaction may contain exactly one RUN event")
+        if (
+            event["event_type"] in {"SOURCE_CAPTURE", "CANDIDATE_OBSERVED"}
+            and event["payload"]["run_id"] != batch_run_id
+        ):
+            raise ContractError("journal child event must bind its transaction RUN")
         prior = by_key.get(event_key)
         current = (event["event_type"], event["payload"])
         if prior is not None:
@@ -194,6 +730,9 @@ def append_events(
         fresh.append(record)
         by_key[event_key] = current
         prev_hash = record["record_hash"]
+    if fresh and event_list[0]["event_key"] in existing_keys:
+        raise ContractError("journal transaction cannot backfill an already recorded RUN")
+    validate_journal_records([*existing, *fresh])
     if not fresh:
         return 0
     path.parent.mkdir(parents=True, exist_ok=True)
