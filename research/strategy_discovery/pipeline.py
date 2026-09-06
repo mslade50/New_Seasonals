@@ -29,14 +29,16 @@ from .journal import (
     accepted_owner_transitions,
     accepted_validations,
     candidate_state_history,
+    committed_run_id,
     latest_source_captures,
     observed_source_captures,
+    transaction_commitment_digest,
     validate_journal_records,
     validation_record_times,
 )
 
 STATUS_ORDER = {"COMPLETE": 0, "PARTIAL": 1, "UNKNOWN": 2}
-PROCESSOR_VERSION = "1.0.5"
+PROCESSOR_VERSION = "1.0.6"
 INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+|previous\s+)*instructions", re.IGNORECASE),
     re.compile(r"(?:system|developer)\s+prompt", re.IGNORECASE),
@@ -1254,6 +1256,20 @@ def run_discovery(
         if record["event_type"] == "OWNER_TRANSITION"
         and record["payload"].get("transition_id")
     }
+    prior_validation_run_ids: dict[str, str] = {}
+    prior_transition_run_ids: dict[str, str] = {}
+    journal_run_id: str | None = None
+    for record in journal_records:
+        if record["event_type"] == "RUN":
+            journal_run_id = record["payload"]["run_id"]
+        elif record["event_type"] == "VALIDATION_ATTACHED":
+            if journal_run_id is None:  # pragma: no cover - journal validation owns this
+                raise ContractError("validation artifact lacks its journal RUN")
+            prior_validation_run_ids[record["payload"]["artifact_id"]] = journal_run_id
+        elif record["event_type"] == "OWNER_TRANSITION":
+            if journal_run_id is None:  # pragma: no cover - journal validation owns this
+                raise ContractError("owner transition lacks its journal RUN")
+            prior_transition_run_ids[record["payload"]["transition_id"]] = journal_run_id
     for record in [*prior_validation_records.values(), *prior_transition_records.values()]:
         if parse_timestamp(record["recorded_at"], "journal.recorded_at") > as_of:
             raise ContractError("prior lifecycle journal event is after report as_of")
@@ -1497,7 +1513,7 @@ def run_discovery(
             canonical_json(row),
         ),
     )
-    run_material = {
+    authoritative_input_material = {
         "processor_version": PROCESSOR_VERSION,
         "config": normalized_config,
         "manifest": normalized_manifest,
@@ -1529,7 +1545,7 @@ def run_discovery(
             for row in sorted(coverage, key=lambda value: value["source_id"])
         ],
     }
-    run_id = sha256_json(run_material)
+    input_material_digest = sha256_json(authoritative_input_material)
     summary = {
         "raw_item_count": len(items),
         "canonical_item_count": len(unique_items),
@@ -1554,6 +1570,86 @@ def run_discovery(
             for candidate in candidates
         ),
     }
+    source_event_payloads = [
+        {
+            "source_id": row["source_id"],
+            "capture_id": row["capture_id"],
+            "capture_digest": row["capture_digest"],
+            "captured_at": row["captured_at"],
+            "provider": row["provider"],
+            "provider_version": row["provider_version"],
+            "provider_status": row["provider_status"],
+            "locator": deepcopy(row["locator"]),
+            "cursor_in": row["cursor_in"],
+            "cursor_out": row["cursor_out"],
+            "window": deepcopy(row["window"]),
+            "status": row["status"],
+            "continuity_context": deepcopy(row["continuity_context"]),
+        }
+        for row in coverage
+        if row["capture_id"] is not None
+    ]
+    validation_event_payloads = sorted(
+        (deepcopy(artifact) for artifact in artifact_wrapper["artifacts"]),
+        key=lambda row: row["artifact_id"],
+    )
+    transition_event_payloads = sorted(
+        (deepcopy(transition) for transition in new_transitions),
+        key=lambda row: row["transition_id"],
+    )
+    candidate_event_payloads = [
+        {
+            "candidate_fingerprint": candidate["fingerprint"],
+            "research_spec_digests": deepcopy(candidate["research_spec_digests"]),
+            "disposition": candidate["disposition"],
+            "lifecycle": candidate["lifecycle"],
+            "source_post_ids": [row["post_id"] for row in candidate["provenance"]],
+        }
+        for candidate in candidates
+    ]
+    run_commitment_payload = {
+        "processor_version": PROCESSOR_VERSION,
+        "run_mode": mode,
+        "as_of": config["as_of"],
+        "completeness": completeness,
+        "required_source_ids": sorted(config["required_source_ids"]),
+        "summary": summary,
+        "input_material_digest": input_material_digest,
+    }
+    transaction_commitment = transaction_commitment_digest(
+        run_commitment_payload,
+        sources=source_event_payloads,
+        validations=validation_event_payloads,
+        transitions=transition_event_payloads,
+        candidates=candidate_event_payloads,
+    )
+    run_material = {
+        "input_material_digest": input_material_digest,
+        "transaction_commitment": transaction_commitment,
+    }
+    run_id = committed_run_id(**run_material)
+    redundant_artifacts = sorted(
+        artifact["artifact_id"]
+        for artifact in validation_event_payloads
+        if artifact["artifact_id"] in prior_validation_run_ids
+        and prior_validation_run_ids[artifact["artifact_id"]] != run_id
+    )
+    if redundant_artifacts:
+        raise ContractError(
+            "already-journaled validation artifacts may only be resubmitted for "
+            f"an exact same-run replay: {redundant_artifacts}"
+        )
+    redundant_transitions = sorted(
+        transition["transition_id"]
+        for transition in transition_event_payloads
+        if transition["transition_id"] in prior_transition_run_ids
+        and prior_transition_run_ids[transition["transition_id"]] != run_id
+    )
+    if redundant_transitions:
+        raise ContractError(
+            "already-journaled owner transitions may only be resubmitted for "
+            f"an exact same-run replay: {redundant_transitions}"
+        )
     report = {
         "schema_version": "1.0",
         "processor_version": PROCESSOR_VERSION,
@@ -1606,40 +1702,28 @@ def run_discovery(
                 "completeness": completeness,
                 "required_source_ids": sorted(config["required_source_ids"]),
                 "summary": summary,
+                "input_material_digest": input_material_digest,
+                "transaction_commitment": transaction_commitment,
             },
         }
     ]
-    for row in coverage:
-        if row["capture_id"] is None:
-            continue
+    for payload in source_event_payloads:
         events.append(
             {
                 "event_key": (
-                    f"source_capture:{run_id}:{row['source_id']}:{row['capture_id']}"
+                    f"source_capture:{run_id}:{payload['source_id']}:{payload['capture_id']}"
                 ),
                 "event_type": "SOURCE_CAPTURE",
                 "payload": {
                     "run_id": run_id,
-                    "source_id": row["source_id"],
-                    "capture_id": row["capture_id"],
-                    "capture_digest": row["capture_digest"],
-                    "captured_at": row["captured_at"],
-                    "provider": row["provider"],
-                    "provider_version": row["provider_version"],
-                    "provider_status": row["provider_status"],
-                    "locator": row["locator"],
-                    "cursor_in": row["cursor_in"],
-                    "cursor_out": row["cursor_out"],
-                    "window": row["window"],
-                    "status": row["status"],
-                    "continuity_context": row["continuity_context"],
+                    **deepcopy(payload),
                 },
             }
         )
     # Authority inputs precede the observation whose lifecycle they support.
     # Both inputs themselves require evidence from an earlier run, so this
     # ordering cannot create a first-run shortcut.
-    for artifact in sorted(artifact_wrapper["artifacts"], key=lambda row: row["artifact_id"]):
+    for artifact in validation_event_payloads:
         events.append(
             {
                 "event_key": f"validation:{artifact['artifact_id']}",
@@ -1647,7 +1731,7 @@ def run_discovery(
                 "payload": deepcopy(artifact),
             }
         )
-    for transition in sorted(new_transitions, key=lambda row: row["transition_id"]):
+    for transition in transition_event_payloads:
         events.append(
             {
                 "event_key": f"owner_transition:{transition['transition_id']}",
@@ -1655,18 +1739,14 @@ def run_discovery(
                 "payload": deepcopy(transition),
             }
         )
-    for candidate in candidates:
+    for payload in candidate_event_payloads:
         events.append(
             {
-                "event_key": f"candidate:{run_id}:{candidate['fingerprint']}",
+                "event_key": f"candidate:{run_id}:{payload['candidate_fingerprint']}",
                 "event_type": "CANDIDATE_OBSERVED",
                 "payload": {
                     "run_id": run_id,
-                    "candidate_fingerprint": candidate["fingerprint"],
-                    "research_spec_digests": candidate["research_spec_digests"],
-                    "disposition": candidate["disposition"],
-                    "lifecycle": candidate["lifecycle"],
-                    "source_post_ids": [row["post_id"] for row in candidate["provenance"]],
+                    **deepcopy(payload),
                 },
             }
         )

@@ -27,8 +27,10 @@ from research.strategy_discovery.contracts import (
 )
 from research.strategy_discovery.journal import (
     append_events,
+    committed_run_id,
     exclusive_lock,
     load_journal,
+    transaction_commitment_digest,
 )
 from research.strategy_discovery.pipeline import (
     research_spec_digest,
@@ -46,7 +48,39 @@ AS_OF = "2026-09-05T21:30:00+00:00"
 
 
 def _journal_run_event(label: str) -> dict:
-    run_id = sha256_json({"journal_test_run": label})
+    summary = {
+        "raw_item_count": 0,
+        "canonical_item_count": 0,
+        "repost_count": 0,
+        "duplicate_post_ids": 0,
+        "conflicting_post_ids": 0,
+        "candidate_count": 0,
+        "new_research_ready": 0,
+        "validated_research": 0,
+        "owner_review": 0,
+        "needs_spec": 0,
+        "needs_coverage": 0,
+        "quarantined": 0,
+        "known_or_dead_end": 0,
+    }
+    input_material_digest = sha256_json({"journal_test_run": label})
+    commitment_payload = {
+        "processor_version": "test",
+        "run_mode": "DISABLED",
+        "as_of": AS_OF,
+        "completeness": "UNKNOWN",
+        "required_source_ids": [],
+        "summary": summary,
+        "input_material_digest": input_material_digest,
+    }
+    transaction_commitment = transaction_commitment_digest(
+        commitment_payload,
+        sources=[],
+        validations=[],
+        transitions=[],
+        candidates=[],
+    )
+    run_id = committed_run_id(input_material_digest, transaction_commitment)
     return {
         "event_key": f"run:{run_id}",
         "event_type": "RUN",
@@ -57,23 +91,40 @@ def _journal_run_event(label: str) -> dict:
             "as_of": AS_OF,
             "completeness": "UNKNOWN",
             "required_source_ids": [],
-            "summary": {
-                "raw_item_count": 0,
-                "canonical_item_count": 0,
-                "repost_count": 0,
-                "duplicate_post_ids": 0,
-                "conflicting_post_ids": 0,
-                "candidate_count": 0,
-                "new_research_ready": 0,
-                "validated_research": 0,
-                "owner_review": 0,
-                "needs_spec": 0,
-                "needs_coverage": 0,
-                "quarantined": 0,
-                "known_or_dead_end": 0,
-            },
+            "summary": summary,
+            "input_material_digest": input_material_digest,
+            "transaction_commitment": transaction_commitment,
         },
     }
+
+
+def _recompute_batch_commitment(events: list[dict]) -> str:
+    run_payload = events[0]["payload"]
+    transaction_commitment = transaction_commitment_digest(
+        run_payload,
+        sources=[
+            event["payload"]
+            for event in events
+            if event["event_type"] == "SOURCE_CAPTURE"
+        ],
+        validations=[
+            event["payload"]
+            for event in events
+            if event["event_type"] == "VALIDATION_ATTACHED"
+        ],
+        transitions=[
+            event["payload"]
+            for event in events
+            if event["event_type"] == "OWNER_TRANSITION"
+        ],
+        candidates=[
+            event["payload"]
+            for event in events
+            if event["event_type"] == "CANDIDATE_OBSERVED"
+        ],
+    )
+    run_payload["transaction_commitment"] = transaction_commitment
+    return transaction_commitment
 
 
 def _append_worker(journal_text: str, event_key: str, start, results) -> None:
@@ -1366,6 +1417,83 @@ class TestJournalAndCursor:
         )
         assert persisted["candidates"][0]["lifecycle"] == "OWNER_REVIEW"
 
+    def test_authority_input_resubmission_requires_exact_run_replay(self, tmp_path):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+
+        validated, validation_events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        append_events(
+            journal_path,
+            validation_events,
+            recorded_at=validated["as_of"],
+        )
+        validation_replay, replay_events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        assert validation_replay["run_id"] == validated["run_id"]
+        assert append_events(
+            journal_path,
+            replay_events,
+            recorded_at=validation_replay["as_of"],
+        ) == 0
+
+        later_config = config()
+        later_config["as_of"] = "2026-09-05T21:40:00+00:00"
+        next_manifest = manifest(
+            source(
+                capture_id="capture-2",
+                cursor_in="cursor-1",
+                cursor_out="cursor-2",
+            )
+        )
+        next_items = [item(post_id="101", capture_id="capture-2")]
+        with pytest.raises(ContractError, match="exact same-run replay"):
+            run(
+                cfg=later_config,
+                src_manifest=next_manifest,
+                items=next_items,
+                journal=load_journal(journal_path),
+                artifacts=artifact_manifest,
+                artifact_root=artifact_root,
+            )
+
+        owner, owner_events = run(
+            journal=load_journal(journal_path),
+            transitions=[transition(fp)],
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, owner_events, recorded_at=owner["as_of"])
+        owner_replay, replay_events = run(
+            journal=load_journal(journal_path),
+            transitions=[transition(fp)],
+            artifact_root=artifact_root,
+        )
+        assert owner_replay["run_id"] == owner["run_id"]
+        assert append_events(
+            journal_path,
+            replay_events,
+            recorded_at=owner_replay["as_of"],
+        ) == 0
+        with pytest.raises(ContractError, match="exact same-run replay"):
+            run(
+                cfg=later_config,
+                src_manifest=next_manifest,
+                items=next_items,
+                journal=load_journal(journal_path),
+                transitions=[transition(fp)],
+                artifact_root=artifact_root,
+            )
+
     def test_incomplete_run_does_not_render_prior_validation_as_current_authority(
         self,
         tmp_path,
@@ -1471,6 +1599,154 @@ class TestJournalAndCursor:
                 transitions=[transition(fp)],
                 artifact_root=artifact_root,
             )
+
+    def test_committed_run_identity_blocks_relabelled_outage_authority(
+        self,
+        tmp_path,
+    ):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, ready_events = run(artifact_root=artifact_root)
+        append_events(journal_path, ready_events, recorded_at=ready["as_of"])
+        prior = load_journal(journal_path)
+        outage_manifest = manifest(
+            source(
+                status="ERROR",
+                capture_id="capture-2",
+                cursor_in="cursor-1",
+                cursor_out="cursor-2",
+            )
+        )
+        outage, outage_events = run(
+            src_manifest=outage_manifest,
+            items=[item(post_id="101", capture_id="capture-2")],
+            journal=prior,
+            artifact_root=artifact_root,
+        )
+        assert outage["completeness"] == "UNKNOWN"
+        forged = copy.deepcopy(outage_events)
+        run_event = forged[0]
+        original_run_id = run_event["payload"]["run_id"]
+        source_event = next(
+            event for event in forged if event["event_type"] == "SOURCE_CAPTURE"
+        )
+        candidate_event = next(
+            event for event in forged if event["event_type"] == "CANDIDATE_OBSERVED"
+        )
+        artifact_row = artifact_manifest["artifacts"][0]
+        candidate_index = forged.index(candidate_event)
+        forged.insert(
+            candidate_index,
+            {
+                "event_key": f"validation:{artifact_row['artifact_id']}",
+                "event_type": "VALIDATION_ATTACHED",
+                "payload": artifact_row,
+            },
+        )
+        run_event["payload"]["completeness"] = "COMPLETE"
+        run_event["payload"]["summary"].update(
+            {"validated_research": 1, "needs_coverage": 0}
+        )
+        source_event["payload"].update(
+            {"provider_status": "OK", "status": "COMPLETE"}
+        )
+        candidate_event["payload"].update(
+            {
+                "disposition": "NEW_RESEARCH_CANDIDATE",
+                "lifecycle": "VALIDATED_RESEARCH",
+            }
+        )
+        forged_commitment = _recompute_batch_commitment(forged)
+        assert forged_commitment != outage_events[0]["payload"]["transaction_commitment"]
+        assert committed_run_id(
+            run_event["payload"]["input_material_digest"],
+            forged_commitment,
+        ) != original_run_id
+
+        with pytest.raises(ContractError, match="must bind input material"):
+            append_events(journal_path, forged, recorded_at=outage["as_of"])
+        assert load_journal(journal_path) == prior
+        with pytest.raises(ContractError, match="prior journaled VALIDATED_RESEARCH"):
+            run(
+                journal=load_journal(journal_path),
+                transitions=[transition(fp)],
+                artifact_root=artifact_root,
+            )
+
+    @pytest.mark.parametrize(
+        ("event_type", "field"),
+        [
+            ("SOURCE_CAPTURE", "provider_version"),
+            ("CANDIDATE_OBSERVED", "source_post_ids"),
+        ],
+    )
+    def test_transaction_commitment_rejects_one_field_observation_change(
+        self,
+        tmp_path,
+        event_type,
+        field,
+    ):
+        report, events = run()
+        forged = copy.deepcopy(events)
+        target = next(event for event in forged if event["event_type"] == event_type)
+        if field == "provider_version":
+            target["payload"][field] = "fixture-v2"
+        else:
+            target["payload"][field].append("uncommitted-post")
+        with pytest.raises(ContractError, match="transaction commitment"):
+            append_events(
+                tmp_path / f"{event_type}.jsonl",
+                forged,
+                recorded_at=report["as_of"],
+            )
+
+    def test_transaction_commitment_rejects_one_field_validation_change(self, tmp_path):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        forged = copy.deepcopy(events)
+        validation_event = next(
+            event for event in forged if event["event_type"] == "VALIDATION_ATTACHED"
+        )
+        validation_event["payload"]["methodology"] += " Forged amendment."
+        with pytest.raises(ContractError, match="transaction commitment"):
+            append_events(journal_path, forged, recorded_at=validated["as_of"])
+
+    def test_transaction_commitment_rejects_one_field_owner_change(self, tmp_path):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, events, recorded_at=validated["as_of"])
+        owner, events = run(
+            journal=load_journal(journal_path),
+            transitions=[transition(fp)],
+            artifact_root=artifact_root,
+        )
+        forged = copy.deepcopy(events)
+        owner_event = next(
+            event for event in forged if event["event_type"] == "OWNER_TRANSITION"
+        )
+        owner_event["payload"]["reason"] += " Forged amendment."
+        with pytest.raises(ContractError, match="transaction commitment"):
+            append_events(journal_path, forged, recorded_at=owner["as_of"])
 
     def test_incomplete_run_cannot_attach_owner_transition(self, tmp_path):
         fp = structural_fingerprint(proposal())

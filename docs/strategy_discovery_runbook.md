@@ -21,12 +21,12 @@ append-only journal:
   verified journal head; an unreferenced generation is not a committed run.
 
 The report and run content ID include an explicit processor version (currently
-`1.0.5`). Any
+`1.0.6`). Any
 content-affecting contract/classification/rendering release must bump it, so a
 new implementation cannot collide with an immutable generation produced by an
 older one from identical input snapshots.
 
-Development journals written before `1.0.5` do not carry the required
+Development journals written before `1.0.6` do not carry the required
 run-bound source events and event-specific payload contracts. They are
 incompatible and must not be reused as shadow-acceptance evidence. Preserve
 them as development artifacts if needed; begin shadow acceptance with a new,
@@ -100,9 +100,10 @@ allocation, order staging, or execution. Machine output always carries
 `operationally_authoritative=false`.
 
 The journal is tamper-evident, not cryptographically authenticated. Its hash
-chain detects truncation, reordering, or byte edits that do not also replace
-the downstream chain. It cannot prove authorship against a local principal who
-can replace the journal and recompute every hash. V1 therefore trusts the
+chain and per-run commitments detect truncation, reordering, or byte edits that
+do not also replace the downstream chain and recompute the run identities. They
+cannot prove authorship against a local principal who can replace the journal
+and recompute every digest. V1 therefore trusts the
 filesystem identity allowed to write the approved output root. Production
 activation requires OS-level write isolation, access logging, backup/retention,
 and an independently chosen signing or append-service design if protection
@@ -316,6 +317,20 @@ accepted only inside an enabled `COMPLETE` run. Candidate and validation state
 is committed to the in-memory authority history only after all sibling/source/
 summary checks for that run have passed; an inconsistent run cannot seed the
 next transition.
+
+Each `RUN` also carries an `input_material_digest` and a canonical
+`transaction_commitment`. The latter covers processor/mode/as-of/completeness,
+the required-source registry and summary, every full source-capture child,
+every newly attached validation or human transition, and every candidate
+observation. Child run IDs and event keys are excluded only to avoid a circular
+hash. The run ID is then derived from the input digest plus transaction
+commitment, and the journal recomputes the commitment after collecting all
+children. Relabeling provider or completeness state, changing a sibling, or
+reconciling a forged summary therefore invalidates both the commitment and run
+identity. An already-journaled validation/transition may be resubmitted only
+for an exact same-run replay; on a genuinely new run, omit it and rely on its
+validated historical authority rather than creating an unpersistable duplicate
+global event key.
 
 ## Future official X adapter: required design
 

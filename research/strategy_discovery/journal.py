@@ -69,6 +69,15 @@ SUMMARY_KEYS = {
     "quarantined",
     "known_or_dead_end",
 }
+TRANSACTION_RUN_KEYS = (
+    "processor_version",
+    "run_mode",
+    "as_of",
+    "completeness",
+    "required_source_ids",
+    "summary",
+    "input_material_digest",
+)
 
 
 @dataclass(frozen=True)
@@ -79,6 +88,56 @@ class _JournalLease:
 
 def _record_hash(record_without_hash: dict[str, Any]) -> str:
     return sha256_json(record_without_hash)
+
+
+def committed_run_id(
+    input_material_digest: str,
+    transaction_commitment: str,
+) -> str:
+    """Derive a run identity from both inputs and the emitted transaction."""
+
+    return sha256_json(
+        {
+            "input_material_digest": input_material_digest,
+            "transaction_commitment": transaction_commitment,
+        }
+    )
+
+
+def transaction_commitment_digest(
+    run_payload: dict[str, Any],
+    *,
+    sources: Iterable[dict[str, Any]],
+    validations: Iterable[dict[str, Any]],
+    transitions: Iterable[dict[str, Any]],
+    candidates: Iterable[dict[str, Any]],
+) -> str:
+    """Commit to authority-relevant run metadata and every emitted child.
+
+    Child ``run_id`` fields and event keys are deliberately excluded because
+    they are derived only after this digest.  Array order is canonicalized so
+    a semantically identical transaction has one commitment.
+    """
+
+    run_projection = {key: run_payload[key] for key in TRANSACTION_RUN_KEYS}
+
+    def child_projection(payload: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in payload.items() if key != "run_id"}
+
+    def canonical_children(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+        projected = [child_projection(row) for row in rows]
+        return sorted(projected, key=canonical_json)
+
+    return sha256_json(
+        {
+            "schema_version": "1.0",
+            "run": run_projection,
+            "source_captures": canonical_children(sources),
+            "validation_artifacts": canonical_children(validations),
+            "owner_transitions": canonical_children(transitions),
+            "candidate_observations": canonical_children(candidates),
+        }
+    )
 
 
 def _exact_object(value: Any, keys: set[str], path: str) -> dict[str, Any]:
@@ -165,10 +224,24 @@ def _validate_journal_event(
                 "completeness",
                 "required_source_ids",
                 "summary",
+                "input_material_digest",
+                "transaction_commitment",
             },
             "RUN payload",
         )
         run_id = _journal_digest(payload["run_id"], "RUN.run_id")
+        input_material_digest = _journal_digest(
+            payload["input_material_digest"],
+            "RUN.input_material_digest",
+        )
+        transaction_commitment = _journal_digest(
+            payload["transaction_commitment"],
+            "RUN.transaction_commitment",
+        )
+        if run_id != committed_run_id(input_material_digest, transaction_commitment):
+            raise ContractError(
+                "RUN.run_id must bind input material and transaction commitment"
+            )
         if event_key != f"run:{run_id}":
             raise ContractError("RUN event_key must bind its run_id")
         _journal_string(payload["processor_version"], "RUN.processor_version")
@@ -369,8 +442,8 @@ def _derived_candidate_summary(
 def _finalize_run_group(
     run: dict[str, Any] | None,
     sources: list[dict[str, Any]],
-    validations: set[tuple[str, str]],
-    transitions: set[tuple[str, str]],
+    validations: list[dict[str, Any]],
+    transitions: list[dict[str, Any]],
     candidates: list[dict[str, Any]],
 ) -> tuple[
     set[tuple[str, str, str]],
@@ -446,17 +519,40 @@ def _finalize_run_group(
             candidate["research_spec_digests"][0],
         )
         candidate_lifecycles[spec] = candidate["lifecycle"]
+    validation_specs_current = {
+        (artifact["candidate_fingerprint"], artifact["research_spec_digest"])
+        for artifact in validations
+    }
+    transition_specs_current = {
+        (transition["candidate_fingerprint"], transition["research_spec_digest"])
+        for transition in transitions
+    }
     if any(
         candidate_lifecycles.get(spec)
         not in {"VALIDATED_RESEARCH", "OWNER_REVIEW"}
-        for spec in validations
+        for spec in validation_specs_current
     ):
         raise ContractError(
             "validation event lacks a matching validated candidate in its RUN"
         )
-    if any(candidate_lifecycles.get(spec) != "OWNER_REVIEW" for spec in transitions):
+    if any(
+        candidate_lifecycles.get(spec) != "OWNER_REVIEW"
+        for spec in transition_specs_current
+    ):
         raise ContractError(
             "owner transition lacks a matching OWNER_REVIEW candidate in its RUN"
+        )
+
+    actual_commitment = transaction_commitment_digest(
+        run,
+        sources=sources,
+        validations=validations,
+        transitions=transitions,
+        candidates=candidates,
+    )
+    if actual_commitment != run["transaction_commitment"]:
+        raise ContractError(
+            "RUN transaction commitment does not match its emitted child events"
         )
 
     run_id = run["run_id"]
@@ -473,8 +569,8 @@ def _finalize_run_group(
     return (
         {(fingerprint, digest, run_id) for fingerprint, digest in ready},
         {(fingerprint, digest, run_id) for fingerprint, digest in validated},
-        validations,
-        transitions,
+        validation_specs_current,
+        transition_specs_current,
     )
 
 
@@ -501,8 +597,8 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
     current_run_id: str | None = None
     current_run: dict[str, Any] | None = None
     current_sources: list[dict[str, Any]] = []
-    current_validations: set[tuple[str, str]] = set()
-    current_transitions: set[tuple[str, str]] = set()
+    current_validations: list[dict[str, Any]] = []
+    current_transitions: list[dict[str, Any]] = []
     current_candidates: list[dict[str, Any]] = []
     current_phase = -1
     phase_by_type = {
@@ -534,8 +630,8 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
         owner_specs.update(transitions)
         current_run = None
         current_sources = []
-        current_validations = set()
-        current_transitions = set()
+        current_validations = []
+        current_transitions = []
         current_candidates = []
 
     for record in records:
@@ -658,7 +754,7 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
                 raise ContractError(
                     "validation artifact lacks a prior-run exact-spec RESEARCH_READY observation"
                 )
-            current_validations.add(spec)
+            current_validations.append(payload)
             continue
 
         if event_type == "OWNER_TRANSITION":
@@ -689,9 +785,16 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
                 raise ContractError(
                     "owner transition lacks prior-run exact-spec validated research evidence"
                 )
-            if spec in owner_specs or spec in current_transitions:
+            current_transition_specs = {
+                (
+                    transition["candidate_fingerprint"],
+                    transition["research_spec_digest"],
+                )
+                for transition in current_transitions
+            }
+            if spec in owner_specs or spec in current_transition_specs:
                 raise ContractError("owner transition duplicates an accepted exact-spec decision")
-            current_transitions.add(spec)
+            current_transitions.append(payload)
             continue
 
         if event_type == "CANDIDATE_OBSERVED":
@@ -711,22 +814,37 @@ def _validate_event_sequence(records: list[dict[str, Any]]) -> None:
                         "authority-bearing candidate requires a COMPLETE enabled RUN"
                     )
             if lifecycle == "VALIDATED_RESEARCH":
+                current_validation_specs = {
+                    (
+                        artifact["candidate_fingerprint"],
+                        artifact["research_spec_digest"],
+                    )
+                    for artifact in current_validations
+                }
                 if any(
                     spec not in ready_spec_runs
-                    or spec not in validation_specs | current_validations
+                    or spec not in validation_specs | current_validation_specs
                     for spec in specs
                 ):
                     raise ContractError(
                         "VALIDATED_RESEARCH lacks prior exact-spec preregistration and validation"
                     )
-            elif lifecycle == "OWNER_REVIEW" and any(
-                spec not in validated_spec_runs
-                or spec not in owner_specs | current_transitions
-                for spec in specs
-            ):
-                raise ContractError(
-                    "OWNER_REVIEW lacks prior exact-spec validation and human transition"
-                )
+            elif lifecycle == "OWNER_REVIEW":
+                current_transition_specs = {
+                    (
+                        transition["candidate_fingerprint"],
+                        transition["research_spec_digest"],
+                    )
+                    for transition in current_transitions
+                }
+                if any(
+                    spec not in validated_spec_runs
+                    or spec not in owner_specs | current_transition_specs
+                    for spec in specs
+                ):
+                    raise ContractError(
+                        "OWNER_REVIEW lacks prior exact-spec validation and human transition"
+                    )
             current_candidates.append(payload)
             continue
 
