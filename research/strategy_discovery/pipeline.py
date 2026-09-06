@@ -28,6 +28,7 @@ from .journal import (
     accepted_validations,
     candidate_state_history,
     latest_source_captures,
+    observed_source_captures,
     validation_record_times,
 )
 
@@ -47,8 +48,23 @@ PLACEHOLDER_VALUES = {
     "na",
     "none",
     "not available",
+    "not applicable",
+    "not_applicable",
     "tbd",
     "unknown",
+}
+CONDITION_OPERATORS = {
+    "!=",
+    "<",
+    "<=",
+    "==",
+    ">",
+    ">=",
+    "between",
+    "crosses_above",
+    "crosses_below",
+    "in",
+    "not_in",
 }
 
 
@@ -59,6 +75,12 @@ def _normalize_text(value: str) -> str:
 def _normalize_value(value: Any) -> Any:
     if isinstance(value, str):
         return _normalize_text(value)
+    if isinstance(value, bool):
+        return value
+    if type(value) is int:
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else value
     if isinstance(value, list):
         return sorted((_normalize_value(v) for v in value), key=canonical_json)
     if isinstance(value, dict):
@@ -78,7 +100,7 @@ def structural_spec(proposal: dict[str, Any]) -> dict[str, Any]:
     signal/entry/exit strategy.
     """
 
-    conditions = [
+    normalized_conditions = [
         {
             "field": _normalize_text(condition["field"]),
             "operator": _normalize_text(condition["operator"]),
@@ -88,6 +110,9 @@ def structural_spec(proposal: dict[str, Any]) -> dict[str, Any]:
         }
         for condition in proposal["signal"]["conditions"]
     ]
+    conditions = {
+        canonical_json(condition): condition for condition in normalized_conditions
+    }
     requirements = [
         {key: _normalize_text(requirement[key]) for key in ("field", "frequency", "availability")}
         for requirement in proposal["data_requirements"]
@@ -103,7 +128,7 @@ def structural_spec(proposal: dict[str, Any]) -> dict[str, Any]:
         "signal": {
             "observation_timing": proposal["signal"]["observation_timing"],
             "decision_lead_minutes": proposal["signal"]["decision_lead_minutes"],
-            "conditions": sorted(conditions, key=canonical_json),
+            "conditions": [conditions[key] for key in sorted(conditions)],
         },
         "entry": {
             "session_offset": proposal["entry"]["session_offset"],
@@ -133,6 +158,54 @@ def structural_fingerprint(proposal: dict[str, Any]) -> str:
     fingerprint_spec.pop("data_requirements")
     fingerprint_spec.pop("universe_history")
     return sha256_json(fingerprint_spec)
+
+
+def research_spec(proposal: dict[str, Any]) -> dict[str, Any]:
+    """Canonical validation target, separate from broad structural identity.
+
+    Structural fingerprints intentionally deduplicate marketing variants. This
+    stricter projection binds every field that changes what would be executed,
+    researched, costed, falsified, or judged investable. Source narrative
+    (name, thesis, why-now, wedge, and portfolio-fit prose) remains provenance:
+    the reproducible artifact does not validate marketing wording.
+    """
+
+    spec = {
+        key: deepcopy(proposal[key])
+        for key in (
+            "falsifiers",
+            "direction",
+            "universe",
+            "universe_history",
+            "signal",
+            "entry",
+            "exit",
+            "data_requirements",
+            "costs",
+            "borrow",
+            "capacity",
+            "investable_if",
+            "explicit_unknowns",
+        )
+    }
+    normalized = _normalize_value(spec)
+    structural = structural_spec(proposal)
+    normalized["signal"]["conditions"] = structural["signal"]["conditions"]
+    normalized["universe"]["instruments"] = structural["universe"]["instruments"]
+    requirements = {
+        canonical_json(requirement): requirement
+        for requirement in normalized["data_requirements"]
+    }
+    normalized["data_requirements"] = [
+        requirements[key] for key in sorted(requirements)
+    ]
+    for key in ("falsifiers", "investable_if", "explicit_unknowns"):
+        normalized[key] = sorted(set(normalized[key]))
+    return normalized
+
+
+def research_spec_digest(proposal: dict[str, Any]) -> str:
+    return sha256_json(research_spec(proposal))
 
 
 def _contains_prompt_injection(item: dict[str, Any]) -> tuple[bool, str | None]:
@@ -168,23 +241,34 @@ def feasibility_gates(
         else f"Quarantined untrusted instruction pattern: {pattern}",
     )
     conditions = proposal["signal"]["conditions"]
+    conditions_ok = bool(conditions) and all(
+        _is_substantive(condition["field"])
+        and _normalize_text(condition["operator"]) in CONDITION_OPERATORS
+        and not (isinstance(condition["value"], list) and not condition["value"])
+        and not (
+            isinstance(condition["value"], str)
+            and not _is_substantive(condition["value"])
+        )
+        for condition in conditions
+    )
     gate(
         "SIGNAL_SPEC",
-        bool(conditions),
-        "Signal has deterministic structured conditions."
-        if conditions
-        else "No structured signal condition was supplied.",
+        conditions_ok,
+        "Signal has deterministic, non-placeholder structured conditions."
+        if conditions_ok
+        else "Signal fields/operators/values are missing, unsupported, or placeholders.",
     )
     exit_spec = proposal["exit"]
     bounded_exit = exit_spec["time_stop_sessions"] is not None or any(
         _is_substantive(exit_spec[key]) for key in ("stop_rule", "target_rule")
     )
+    entry_spec_ok = _is_substantive(proposal["entry"]["order_type"])
     gate(
         "ENTRY_EXIT_SPEC",
-        bounded_exit,
-        "Entry and at least one bounded exit rule are specified."
-        if bounded_exit
-        else "No time stop, stop rule, or target rule was supplied.",
+        bounded_exit and entry_spec_ok,
+        "Entry order and at least one bounded exit rule are specified."
+        if bounded_exit and entry_spec_ok
+        else "Entry order or bounded time-stop/stop/target specification is missing or placeholder.",
     )
     signal = proposal["signal"]
     entry = proposal["entry"]
@@ -203,7 +287,17 @@ def feasibility_gates(
         and entry["timing"] == "CLOSE"
         and (signal["decision_lead_minutes"] is None or signal["decision_lead_minutes"] < 5)
     )
-    timing_ok = not impossible_close and not impossible_open and not insufficient_lead
+    ambiguous_intraday_order = (
+        signal["observation_timing"] == "INTRADAY"
+        and entry["session_offset"] == 0
+        and entry["timing"] == "INTRADAY"
+    )
+    timing_ok = (
+        not impossible_close
+        and not impossible_open
+        and not insufficient_lead
+        and not ambiguous_intraday_order
+    )
     timing_reason = "Signal is available before the proposed execution boundary."
     if impossible_close:
         timing_reason = "Final-close data cannot cause an entry at that same close."
@@ -211,6 +305,11 @@ def feasibility_gates(
         timing_reason = "Open or intraday observations cannot cause an entry at the already-fixed same-session open."
     elif insufficient_lead:
         timing_reason = "Same-session close execution needs at least five minutes of declared decision lead."
+    elif ambiguous_intraday_order:
+        timing_reason = (
+            "Same-session intraday observation and entry need explicit ordered clocks; "
+            "the current schema does not provide them."
+        )
     gate("TIMING_FEASIBILITY", timing_ok, timing_reason)
 
     costs = proposal["costs"]
@@ -320,6 +419,18 @@ def _capture_digest(source: dict[str, Any], items: list[dict[str, Any]]) -> str:
     )
 
 
+def _cursor_anchor(previous: dict[str, Any]) -> dict[str, Any]:
+    """Project only the accepted prior state used for cursor continuity."""
+
+    return {
+        "source_id": previous["source_id"],
+        "capture_id": previous["capture_id"],
+        "capture_digest": previous["capture_digest"],
+        "cursor_out": previous["cursor_out"],
+        "status": previous["status"],
+    }
+
+
 def _source_coverage(
     source: dict[str, Any],
     source_items: list[dict[str, Any]],
@@ -327,6 +438,7 @@ def _source_coverage(
     as_of: Any,
     max_age_hours: float,
     previous: dict[str, Any] | None,
+    prior_observation: dict[str, Any] | None,
     provider: str,
     provider_version: str,
 ) -> dict[str, Any]:
@@ -377,17 +489,46 @@ def _source_coverage(
         if item_captured > captured_at:
             worsen("UNKNOWN", f"Item {item['item_id']} was captured after its manifest snapshot.")
     digest = _capture_digest(source, source_items)
-    if previous:
-        if previous.get("capture_id") == source["capture_id"]:
-            if previous.get("capture_digest") != digest:
-                worsen("UNKNOWN", "Replayed capture_id has different content.")
-        elif source["cursor"]["in"] != previous.get("cursor_out"):
+    continuity_context: dict[str, Any]
+    exact_replay = (
+        prior_observation is not None
+        and prior_observation.get("capture_digest") == digest
+    )
+    if exact_replay and isinstance(prior_observation.get("continuity_context"), dict):
+        # Replay the original continuity decision, rather than treating an
+        # already-observed capture as its own predecessor.
+        continuity_context = deepcopy(prior_observation["continuity_context"])
+    elif previous is not None and previous.get("capture_id") != source["capture_id"]:
+        continuity_context = {
+            "basis": "ACCEPTED_CAPTURE",
+            "anchor": _cursor_anchor(previous),
+        }
+    else:
+        continuity_context = {"basis": "GENESIS", "anchor": None}
+
+    if prior_observation is not None and prior_observation.get("capture_digest") != digest:
+        worsen("UNKNOWN", "Replayed capture_id has different content.")
+
+    anchor = continuity_context["anchor"]
+    if continuity_context["basis"] == "ACCEPTED_CAPTURE":
+        if source["cursor"]["in"] != anchor["cursor_out"]:
             worsen(
                 "UNKNOWN",
                 "cursor.in does not continue the latest journaled cursor.out.",
             )
     elif source["cursor"]["in"] is not None:
         worsen("UNKNOWN", "First local capture starts from an unverifiable non-null cursor.")
+    if prior_observation is not None and prior_observation.get("status") in {
+        "PARTIAL",
+        "UNKNOWN",
+    }:
+        prior_status = prior_observation["status"]
+        if STATUS_ORDER[prior_status] > STATUS_ORDER[status]:
+            worsen(
+                prior_status,
+                f"Prior immutable observation classified this capture {prior_status}; "
+                "same-ID replay cannot improve it.",
+            )
     if not findings:
         findings.append(
             f"Expected {expected if expected is not None else 'unspecified exact count'}; "
@@ -414,6 +555,7 @@ def _source_coverage(
         "status": status,
         "findings": findings,
         "capture_digest": digest,
+        "continuity_context": continuity_context,
     }
 
 
@@ -569,11 +711,25 @@ def _candidate_groups(
     candidates: list[dict[str, Any]] = []
     for fingerprint in sorted(grouped):
         group = sorted(grouped[fingerprint], key=lambda row: (row["created_at"], row["post_id"]))
+        group_spec_digests = sorted(
+            {research_spec_digest(item["strategy_proposal"]) for item in group}
+        )
         primary = group[0]
         proposal = primary["strategy_proposal"]
         injection_results = [_contains_prompt_injection(item) for item in group]
         injected = next((result for result in injection_results if result[0]), (False, None))
         gates = feasibility_gates(proposal, prompt_injection=injected)
+        gates.append(
+            {
+                "gate": "RESEARCH_SPEC_CONSISTENCY",
+                "status": "PASS" if len(group_spec_digests) == 1 else "FAIL",
+                "reason": (
+                    "All observations agree on one exact validation research spec."
+                    if len(group_spec_digests) == 1
+                    else "Structurally similar observations disagree on validation-relevant fields."
+                ),
+            }
+        )
         gates.append(
             {
                 "gate": "SOURCE_AND_CATALOG_COMPLETENESS",
@@ -583,7 +739,14 @@ def _candidate_groups(
         )
         all_gates_pass = all(gate["status"] == "PASS" for gate in gates)
 
-        if fingerprint in strategy_by_fp:
+        if injected[0]:
+            disposition = "QUARANTINED"
+            first_rejection = next(
+                {"gate": gate["gate"], "reason": gate["reason"]}
+                for gate in gates
+                if gate["status"] == "FAIL"
+            )
+        elif fingerprint in strategy_by_fp:
             disposition = "KNOWN_STRATEGY"
             first_rejection = {
                 "gate": "CATALOG_DEDUPE",
@@ -595,13 +758,6 @@ def _candidate_groups(
                 "gate": "DEAD_END_DEDUPE",
                 "reason": dead_by_fp[fingerprint]["rejection_reason"],
             }
-        elif injected[0]:
-            disposition = "QUARANTINED"
-            first_rejection = next(
-                {"gate": gate["gate"], "reason": gate["reason"]}
-                for gate in gates
-                if gate["status"] == "FAIL"
-            )
         elif not promotion_allowed:
             disposition = "NEEDS_COVERAGE"
             first_rejection = {
@@ -620,13 +776,31 @@ def _candidate_groups(
             first_rejection = None
 
         lifecycle = "RESEARCH_READY" if disposition == "NEW_RESEARCH_CANDIDATE" else "DISCOVERED"
-        attached = sorted(artifacts_by_fp.get(fingerprint, []), key=lambda row: row["artifact_id"])
+        selected_spec_digest = (
+            group_spec_digests[0] if len(group_spec_digests) == 1 else None
+        )
+        attached = (
+            sorted(
+                (
+                    artifact
+                    for artifact in artifacts_by_fp.get(fingerprint, [])
+                    if artifact["research_spec_digest"] == selected_spec_digest
+                ),
+                key=lambda row: row["artifact_id"],
+            )
+            if disposition in {"NEW_RESEARCH_CANDIDATE", "NEEDS_COVERAGE"}
+            else []
+        )
         if attached:
             # Attachment authority was checked against a *prior* journaled
             # RESEARCH_READY event before candidate construction. A later
             # incomplete source run cannot erase that historical state.
             lifecycle = "VALIDATED_RESEARCH"
-        transition = transitions.get(fingerprint)
+        transition = (
+            transitions.get(fingerprint)
+            if disposition in {"NEW_RESEARCH_CANDIDATE", "NEEDS_COVERAGE"}
+            else None
+        )
         if transition:
             if lifecycle != "VALIDATED_RESEARCH":
                 raise ContractError(
@@ -693,6 +867,7 @@ def _candidate_groups(
         candidates.append(
             {
                 "fingerprint": fingerprint,
+                "research_spec_digests": group_spec_digests,
                 "name": proposal["name"],
                 "aliases": sorted({item["strategy_proposal"]["name"] for item in group}),
                 "thesis": proposal["thesis"],
@@ -869,6 +1044,7 @@ def run_discovery(
         by_capture[item["capture_id"]].append(item)
 
     prior_captures = latest_source_captures(journal_records)
+    prior_observations = observed_source_captures(journal_records)
     coverage: list[dict[str, Any]] = []
     for source in sorted(manifest["sources"], key=lambda row: row["source_id"]):
         coverage.append(
@@ -878,6 +1054,9 @@ def run_discovery(
                 as_of=as_of,
                 max_age_hours=float(config["source_max_age_hours"]),
                 previous=prior_captures.get(source["source_id"]),
+                prior_observation=prior_observations.get(
+                    (source["source_id"], source["capture_id"])
+                ),
                 provider=manifest["provider"],
                 provider_version=manifest["provider_version"],
             )
@@ -905,6 +1084,7 @@ def run_discovery(
                 "status": "UNKNOWN",
                 "findings": ["Required source is absent from the capture manifest."],
                 "capture_digest": None,
+                "continuity_context": {"basis": "GENESIS", "anchor": None},
             }
         )
 
@@ -949,15 +1129,21 @@ def run_discovery(
         else f"Run completeness is {completeness}; automatic research promotion is blocked."
     )
 
-    current_fingerprints = {
-        structural_fingerprint(item["strategy_proposal"])
-        for item in unique_items
-        if item["strategy_proposal"] is not None and item["kind"] != "REPOST"
-    }
+    current_specs_by_fp: dict[str, set[str]] = defaultdict(set)
+    for item in unique_items:
+        if item["strategy_proposal"] is None or item["kind"] == "REPOST":
+            continue
+        fingerprint = structural_fingerprint(item["strategy_proposal"])
+        current_specs_by_fp[fingerprint].add(
+            research_spec_digest(item["strategy_proposal"])
+        )
+    current_fingerprints = set(current_specs_by_fp)
     orphan_artifacts = sorted(
         artifact["artifact_id"]
         for artifact in artifact_wrapper["artifacts"]
         if artifact["candidate_fingerprint"] not in current_fingerprints
+        or current_specs_by_fp[artifact["candidate_fingerprint"]]
+        != {artifact["research_spec_digest"]}
     )
     if orphan_artifacts:
         raise ContractError(f"validation artifacts target unknown candidates: {orphan_artifacts}")
@@ -970,10 +1156,10 @@ def run_discovery(
         and record["payload"].get("artifact_id")
     }
     prior_transition_records = {
-        str(record["payload"].get("candidate_fingerprint")): record
+        str(record["payload"].get("transition_id")): record
         for record in journal_records
         if record["event_type"] == "OWNER_TRANSITION"
-        and record["payload"].get("candidate_fingerprint")
+        and record["payload"].get("transition_id")
     }
     for record in [*prior_validation_records.values(), *prior_transition_records.values()]:
         if parse_timestamp(record["recorded_at"], "journal.recorded_at") > as_of:
@@ -1001,12 +1187,17 @@ def run_discovery(
             for row in history.get(artifact["candidate_fingerprint"], [])
             if row["lifecycle"] == "RESEARCH_READY"
             and row["sequence"] < validation_record["sequence"]
+            and artifact["research_spec_digest"] in row["research_spec_digests"]
             and parse_timestamp(row["recorded_at"], "journal.candidate.recorded_at")
             <= artifact_created
         ]
         if not ready_rows:
             raise ContractError(
                 f"journaled validation {artifact_id} lacks a prior RESEARCH_READY preregistration"
+            )
+        if artifact_created > validation_recorded:
+            raise ContractError(
+                f"journaled validation {artifact_id} was recorded before artifact creation"
             )
         if artifact_created > as_of or validation_recorded > as_of:
             raise ContractError(f"journaled validation {artifact_id} is after report as_of")
@@ -1016,6 +1207,8 @@ def run_discovery(
         artifact_id: artifact
         for artifact_id, artifact in prior_artifact_all.items()
         if artifact.get("candidate_fingerprint") in current_fingerprints
+        and current_specs_by_fp[artifact["candidate_fingerprint"]]
+        == {artifact.get("research_spec_digest")}
     }
     all_artifacts = dict(prior_artifacts)
     for artifact in artifact_wrapper["artifacts"]:
@@ -1024,6 +1217,7 @@ def run_discovery(
             row
             for row in history.get(fingerprint, [])
             if row["lifecycle"] == "RESEARCH_READY"
+            and artifact["research_spec_digest"] in row["research_spec_digests"]
         ]
         if not ready_rows:
             raise ContractError(
@@ -1050,8 +1244,17 @@ def run_discovery(
     transitions: dict[str, dict[str, Any]] = {}
     for index, payload in enumerate(prior_transition_payloads.values()):
         validated = validate_transition(payload, index)
-        transition_record = prior_transition_records[validated["candidate_fingerprint"]]
+        transition_record = prior_transition_records[validated["transition_id"]]
         transition_at = parse_timestamp(validated["recorded_at"], "transition.recorded_at")
+        transition_journaled = parse_timestamp(
+            transition_record["recorded_at"],
+            "journal.transition.recorded_at",
+        )
+        if transition_at > transition_journaled:
+            raise ContractError(
+                f"journaled OWNER_REVIEW transition {validated['transition_id']} "
+                "was journaled before its recorded_at"
+            )
         if transition_at > as_of:
             raise ContractError(
                 f"journaled OWNER_REVIEW transition {validated['transition_id']} is after report as_of"
@@ -1061,6 +1264,7 @@ def run_discovery(
             for row in history.get(validated["candidate_fingerprint"], [])
             if row["lifecycle"] == "VALIDATED_RESEARCH"
             and row["sequence"] < transition_record["sequence"]
+            and validated["research_spec_digest"] in row["research_spec_digests"]
             and parse_timestamp(row["recorded_at"], "journal.candidate.recorded_at")
             <= transition_at
         ]
@@ -1069,6 +1273,8 @@ def run_discovery(
             for record in prior_validation_records.values()
             if record["payload"].get("candidate_fingerprint")
             == validated["candidate_fingerprint"]
+            and record["payload"].get("research_spec_digest")
+            == validated["research_spec_digest"]
             and record["sequence"] < transition_record["sequence"]
             and parse_timestamp(record["recorded_at"], "journal.validation.recorded_at")
             <= transition_at
@@ -1078,7 +1284,11 @@ def run_discovery(
                 f"journaled OWNER_REVIEW transition {validated['transition_id']} lacks a "
                 "prior validated run and accepted validation"
             )
-        if validated["candidate_fingerprint"] in current_fingerprints:
+        if (
+            validated["candidate_fingerprint"] in current_fingerprints
+            and current_specs_by_fp[validated["candidate_fingerprint"]]
+            == {validated["research_spec_digest"]}
+        ):
             transitions[validated["candidate_fingerprint"]] = validated
 
     prior_validation_times = validation_record_times(journal_records)
@@ -1092,13 +1302,27 @@ def run_discovery(
             raise ContractError(
                 f"OWNER_REVIEW transition targets unknown candidate: {fingerprint}"
             )
+        if current_specs_by_fp[fingerprint] != {transition["research_spec_digest"]}:
+            raise ContractError(
+                f"OWNER_REVIEW transition targets an unregistered current research spec: "
+                f"{transition['research_spec_digest']}"
+            )
         transition_at = parse_timestamp(transition["recorded_at"], "transition.recorded_at")
         if transition_at > as_of:
             raise ContractError(
                 f"OWNER_REVIEW transition {transition['transition_id']} is after report as_of"
             )
-        validated_times = _state_times(history, fingerprint, "VALIDATED_RESEARCH")
-        accepted_for_candidate = prior_artifacts_by_fp.get(fingerprint, [])
+        validated_times = [
+            parse_timestamp(row["recorded_at"], "journal.candidate.recorded_at")
+            for row in history.get(fingerprint, [])
+            if row["lifecycle"] == "VALIDATED_RESEARCH"
+            and transition["research_spec_digest"] in row["research_spec_digests"]
+        ]
+        accepted_for_candidate = [
+            artifact
+            for artifact in prior_artifacts_by_fp.get(fingerprint, [])
+            if artifact["research_spec_digest"] == transition["research_spec_digest"]
+        ]
         if not validated_times or not accepted_for_candidate:
             raise ContractError(
                 f"OWNER_REVIEW transition for {fingerprint} requires a prior journaled "
@@ -1163,6 +1387,13 @@ def run_discovery(
             "artifacts": sorted(all_artifacts.values(), key=lambda row: row["artifact_id"]),
         },
         "owner_transitions": sorted(transitions.values(), key=lambda row: row["transition_id"]),
+        "coverage_continuity_context": [
+            {
+                "source_id": row["source_id"],
+                "continuity_context": deepcopy(row["continuity_context"]),
+            }
+            for row in sorted(coverage, key=lambda value: value["source_id"])
+        ],
     }
     run_id = sha256_json(run_material)
     summary = {
@@ -1260,6 +1491,7 @@ def run_discovery(
                     "cursor_out": row["cursor_out"],
                     "window": row["window"],
                     "status": row["status"],
+                    "continuity_context": row["continuity_context"],
                 },
             }
         )
@@ -1271,6 +1503,7 @@ def run_discovery(
                 "payload": {
                     "run_id": run_id,
                     "candidate_fingerprint": candidate["fingerprint"],
+                    "research_spec_digests": candidate["research_spec_digests"],
                     "disposition": candidate["disposition"],
                     "lifecycle": candidate["lifecycle"],
                     "source_post_ids": [row["post_id"] for row in candidate["provenance"]],

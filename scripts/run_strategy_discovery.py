@@ -22,6 +22,7 @@ from research.strategy_discovery.contracts import (
 from research.strategy_discovery.journal import (
     append_events,
     exclusive_lock,
+    is_symlink_or_reparse,
     load_journal,
 )
 from research.strategy_discovery.pipeline import run_discovery
@@ -37,8 +38,10 @@ def _local_output_dir(raw: str, approved_root: Path) -> Path:
     if "://" in raw or raw.startswith(("\\\\", "//")):
         raise ContractError("output-dir must be a local filesystem path")
     requested = Path(raw)
-    if requested.exists() and requested.is_symlink():
+    if is_symlink_or_reparse(requested):
         raise ContractError("output-dir must not be a symbolic link")
+    if requested.exists() and not requested.is_dir():
+        raise ContractError("output-dir must be a directory, not an existing file")
     output_dir = requested.resolve()
     root = approved_root.resolve()
     try:
@@ -74,6 +77,13 @@ def _reject_input_output_collisions(input_paths: list[Path], output_dir: Path) -
         )
 
 
+def _reject_state_path_escape(path: Path, output_dir: Path) -> None:
+    if is_symlink_or_reparse(path):
+        raise ContractError(f"state path must not be a symlink or reparse point: {path}")
+    if path.exists() and path.resolve().parent != output_dir.resolve():
+        raise ContractError(f"state path escapes output-dir: {path}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Validate local X discovery snapshots and render a research-only report."
@@ -102,6 +112,7 @@ def main(
         inputs = _input_paths(args)
         _reject_input_output_collisions(inputs, output_dir)
         journal_path = output_dir / "journal.jsonl"
+        _reject_state_path_escape(journal_path, output_dir)
         config = load_json(Path(args.config))
         manifest = load_json(Path(args.source_manifest))
         items = load_jsonl(Path(args.items))
@@ -114,7 +125,21 @@ def main(
             load_jsonl(Path(args.owner_transitions)) if args.owner_transitions else None
         )
         artifact_root = approved_root / "validation_artifacts"
-        if validation_artifacts:
+        roots_overlap = False
+        for child, parent in (
+            (artifact_root.resolve(), output_dir),
+            (output_dir, artifact_root.resolve()),
+        ):
+            try:
+                child.relative_to(parent)
+            except ValueError:
+                continue
+            roots_overlap = True
+        if roots_overlap:
+            raise ContractError(
+                "output-dir and approved validation-artifact root must be disjoint"
+            )
+        if isinstance(validation_artifacts, dict):
             artifact_paths = [
                 (artifact_root / artifact["artifact_path"]).resolve()
                 for artifact in validation_artifacts.get("artifacts", [])
@@ -122,11 +147,13 @@ def main(
             ]
             _reject_input_output_collisions(artifact_paths, output_dir)
 
-        transaction_lock = output_dir / ".transaction.lock"
+        # Use the journal's single writer lock so CLI transactions and any
+        # direct append_events caller cannot allocate from the same head.
+        transaction_lock = journal_path.with_suffix(journal_path.suffix + ".lock")
         with exclusive_lock(
             transaction_lock,
             timeout_seconds=lock_timeout_seconds,
-        ):
+        ) as journal_lock:
             journal = load_journal(journal_path)
             report, events = run_discovery(
                 config_raw=config,
@@ -145,7 +172,7 @@ def main(
                 journal_path,
                 events,
                 recorded_at=report["as_of"],
-                lock_held=True,
+                lock=journal_lock,
             )
             verified_journal = load_journal(journal_path)
             latest_path = publish_latest_pointer(

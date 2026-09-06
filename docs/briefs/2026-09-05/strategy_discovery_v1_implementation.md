@@ -21,6 +21,10 @@ The implementation enforces the antagonist-approved authority model:
 - `VALIDATED_RESEARCH` requires a structured reproducible-research artifact.
 - `OWNER_REVIEW` requires an explicit recorded human transition from validated
   research.
+- Both promotions require a prior journaled run; no first-run artifact or
+  same-run artifact-plus-transition shortcut is accepted.
+- Validation and owner authority are bound to an exact canonical research-spec
+  digest, independently from the broad structural dedupe fingerprint.
 - No lifecycle state authorizes capital, strategy mutation, order staging, or
   execution.
 
@@ -29,27 +33,34 @@ The implementation enforces the antagonist-approved authority model:
 - strict, unknown-field-rejecting contracts for config, source manifest, X
   item/lineage, claims, proposals, catalog snapshots, validation artifacts,
   owner transitions, candidates, and reports;
-- expected-versus-observed coverage with required-source registry, bounded UTC
+- expected-versus-observed coverage with exact source/locator allowlisting, bounded UTC
   windows, source freshness, exact/minimum counts, provider state, cursor
   continuity, and explicit `COMPLETE | PARTIAL | UNKNOWN` outcomes;
 - complete-zero versus outage semantics;
-- canonical post/reply/quote/repost rules and replay/conflict handling;
+- canonical post/reply/quote/repost rules, cross-capture native-content dedupe,
+  complete observation provenance, and conflict handling;
 - structural fingerprinting across normalized direction, universe, signal,
   entry, and exit, independent of marketing prose, data-vendor wording,
-  performance claims, costs, and borrow assumptions;
+  performance claims, costs, and borrow assumptions; duplicate predicates and
+  equivalent numeric spellings cannot evade a catalog match;
 - injected, SHA-256-digested strategy-book and dead-end snapshots with
   freshness checks and no strategy/order-module imports;
 - prompt-injection quarantine plus signal, bounded-exit, causality/timing,
-  cost, market-impact, borrow, and data-feasibility gates;
-- portfolio-role hypotheses, falsifiers, first rejection, and next-research
-  step in the human report;
+  cost, market-impact, borrow, data, point-in-time universe/delisting, capacity,
+  and investability gates;
+- portfolio-role hypotheses, why-now, variant wedge, numeric research
+  assumptions, falsifiers, explicit unknowns, downstream workflow, first
+  rejection, and next-research step in the human report;
 - deterministic JSON, Markdown, and HTML output; Markdown neutralizes raw HTML,
   HTML escapes untrusted values, and SHADOW mode has a prominent
-  non-authoritative banner;
+  non-authoritative banner; human views expose complete validation-artifact
+  provenance and state that integrity was verified without executing replay;
 - append-only, idempotent, SHA-256 hash-chained journal with strict corruption
-  failure;
-- local-only CLI with `.json`/`.jsonl` input enforcement and same-directory
-  atomic report replacement.
+  failure, one lock namespace across every writer, safe cursor-anchor state,
+  and bounded interprocess locking across verify-plus-append;
+- repo-artifact-root-only CLI with `.json`/`.jsonl` input enforcement, UNC and
+  collision rejection, immutable run generations, and a last-written,
+  journal-bound `latest.json` commit pointer.
 
 ## Verification evidence
 
@@ -57,14 +68,14 @@ Focused adversarial suite:
 
 ```text
 python -m pytest -q tests\test_strategy_discovery.py
-37 passed in 0.24s
+81 passed in 1.89s
 ```
 
 Focused plus adjacent Daily Posts/pitch grammar regression suite:
 
 ```text
 python -m pytest -q tests\test_strategy_discovery.py tests\test_daily_posts.py tests\test_pitch_grammar.py
-179 passed in 1.72s
+223 passed in 3.21s
 ```
 
 Syntax and patch hygiene:
@@ -77,7 +88,7 @@ git diff --check
 exit 0
 ```
 
-The adversarial suite covers complete zero versus provider outage, provider
+The expanded adversarial suite covers complete zero versus provider outage, provider
 partial state, required-source gaps, stale catalogs, expected/observed count
 contradictions, cursor replay and cursor gaps, item conflict removal,
 post/thread/quote/repost semantics, cross-source structural dedupe, current-book
@@ -85,18 +96,25 @@ and dead-end matches, impossible close/open timing, missing and placeholder
 cost/borrow assumptions, prompt injection, source/internal metric separation,
 automatic lifecycle ceiling, reproducible-artifact requirements, explicit human
 authority, lifecycle persistence, orphan historical state, journal tampering,
-HTML and Markdown escaping, local-path enforcement, atomic CLI outputs, strict
+cross-process journal writers, mixed-lock rejection, cursor-anchor laundering
+and content-ID state binding, prerequisite lifecycle runs,
+real artifact path/hash/time/root checks, PIT/survivorship gating, Markdown
+remote-content neutralization, HTML escaping, local/UNC/path-collision
+enforcement, immutable generation failure/tamper behavior, exact research-spec
+authority, multi-spec rejection, strict nested report validation, strict
 unknown-field rejection, digest failure, out-of-window items, timestamps after
-the reporting boundary, and non-X links.
+the reporting boundary, inactive/future catalog records, placeholder signal
+grammar, ambiguous intraday timing, and non-X links.
 
 Fixture CLI proof, first run:
 
 ```text
 strategy discovery SHADOW COMPLETE: 1 candidate(s), 1 research-ready
 journal: ...\artifacts\strategy_discovery\example_run_v3\journal.jsonl (3 new event(s))
-report: ...\strategy_discovery_report.json
-report: ...\strategy_discovery_report.md
-report: ...\strategy_discovery_report.html
+report: ...\runs\<run_id>\strategy_discovery_report.json
+report: ...\runs\<run_id>\strategy_discovery_report.md
+report: ...\runs\<run_id>\strategy_discovery_report.html
+latest: ...\latest.json
 ```
 
 Exact replay of the same capture:
@@ -142,8 +160,10 @@ can become a real daily bot, the owner must choose and approve:
 - scheduler activation and the named humans permitted to record owner review.
 
 The validation-artifact JSON is an explicit local research authority record; V1
-validates its reproducibility metadata and journals its identity but does not
-execute its reproduction command or independently rerun the research. That
+requires a prior `RESEARCH_READY` journal observation, verifies an existing
+regular local artifact under the approved root against its SHA-256 and time
+boundary, requires its exact research-spec digest, and journals its identity,
+but does not execute its reproduction command or independently rerun the research. That
 independent replay remains a required human/reviewer control before an owner
 should record `OWNER_REVIEW`.
 

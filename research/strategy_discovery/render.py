@@ -120,6 +120,7 @@ def markdown_text(report: dict[str, Any]) -> str:
                 f"- **Disposition:** {candidate['disposition']}",
                 f"- **Edge status:** {candidate['edge_status']}",
                 f"- **Fingerprint:** `{candidate['fingerprint']}`",
+                f"- **Research spec digest(s):** {_md(candidate['research_spec_digests'])}",
                 f"- **Why it might belong (source thesis, not validated):** {_md(candidate['thesis'])}",
                 f"- **Why now (source hypothesis):** {_md(candidate['why_now'])}",
                 f"- **Variant wedge (source hypothesis):** {_md(candidate['variant_wedge'])}",
@@ -205,10 +206,43 @@ def markdown_text(report: dict[str, Any]) -> str:
             for metric in candidate["internally_validated_metrics"]:
                 lines.append(
                     f"- {_md(metric['name'])}: {_md(metric['value'])} {_md(metric['unit'])} "
-                    f"(artifact `{_md(metric['artifact_id'])}`; N={_md(metric['sample_size'])})"
+                    f"(artifact {_md(metric['artifact_id'])}; N={_md(metric['sample_size'])}); "
+                    f"definition: {_md(metric['definition'])}; "
+                    f"methodology: {_md(metric['methodology'])}"
                 )
         else:
             lines.append("- None. Source claims have not been validated internally.")
+        lines.extend(["", "#### Validation evidence", ""])
+        if candidate["validation_artifacts"]:
+            for artifact in candidate["validation_artifacts"]:
+                lines.extend(
+                    [
+                        f"- **Artifact:** {_md(artifact['artifact_id'])}",
+                        f"  - Local path: {_md(artifact['artifact_path'])}",
+                        f"  - SHA-256: {_md(artifact['sha256'])}",
+                        (
+                            "  - Integrity status: local file and SHA-256 verified; "
+                            "replay command was not executed by discovery V1."
+                        ),
+                        (
+                            "  - Research spec digest: "
+                            f"{_md(artifact['research_spec_digest'])}"
+                        ),
+                        f"  - Created at: {_md(artifact['created_at'])}",
+                        f"  - Code revision: {_md(artifact['code_revision'])}",
+                        (
+                            "  - Frozen-data digests: "
+                            f"{_md(artifact['data_snapshot_digests'])}"
+                        ),
+                        (
+                            "  - Recorded reproduce command (not executed): "
+                            f"{_md(artifact['reproduce_command'])}"
+                        ),
+                        f"  - Methodology: {_md(artifact['methodology'])}",
+                    ]
+                )
+        else:
+            lines.append("- None attached.")
         lines.extend(["", "#### Provenance", ""])
         for source in candidate["provenance"]:
             lines.append(
@@ -262,9 +296,30 @@ def html_text(report: dict[str, Any]) -> str:
         ) or "<li>None supplied.</li>"
         internal_metrics = "".join(
             f"<li>{esc(metric['name'])}: {esc(_display(metric['value']))} {esc(metric['unit'])} "
-            f"(artifact {esc(metric['artifact_id'])})</li>"
+            f"(artifact {esc(metric['artifact_id'])}; N={esc(metric['sample_size'])}); "
+            f"definition: {esc(metric['definition'])}; "
+            f"methodology: {esc(metric['methodology'])}</li>"
             for metric in candidate["internally_validated_metrics"]
         ) or "<li>None. Source claims have not been validated internally.</li>"
+        validation_evidence = "".join(
+            "<li>"
+            f"<strong>Artifact:</strong> {esc(artifact['artifact_id'])}<br>"
+            f"<strong>Local path:</strong> {esc(artifact['artifact_path'])}<br>"
+            f"<strong>SHA-256:</strong> <code>{esc(artifact['sha256'])}</code><br>"
+            "<strong>Integrity status:</strong> local file and SHA-256 verified; "
+            "replay command was not executed by discovery V1.<br>"
+            f"<strong>Research spec digest:</strong> "
+            f"<code>{esc(artifact['research_spec_digest'])}</code><br>"
+            f"<strong>Created at:</strong> {esc(artifact['created_at'])}<br>"
+            f"<strong>Code revision:</strong> {esc(artifact['code_revision'])}<br>"
+            f"<strong>Frozen-data digests:</strong> "
+            f"{esc(_display(artifact['data_snapshot_digests']))}<br>"
+            "<strong>Recorded reproduce command (not executed):</strong> "
+            f"{esc(_display(artifact['reproduce_command']))}<br>"
+            f"<strong>Methodology:</strong> {esc(artifact['methodology'])}"
+            "</li>"
+            for artifact in candidate["validation_artifacts"]
+        ) or "<li>None attached.</li>"
         provenance = "".join(
             f"<li>{esc(source['kind'])} {esc(source['post_id'])} by {esc(source['author_handle'])} — "
             f"<a href='{esc(source['permalink'])}' rel='noreferrer'>{esc(source['permalink'])}</a></li>"
@@ -317,6 +372,8 @@ def html_text(report: dict[str, Any]) -> str:
             f"<h3>{esc(candidate['name'])}</h3>"
             f"<p><strong>{esc(candidate['lifecycle'])}</strong> · {esc(candidate['disposition'])} · "
             f"{esc(candidate['edge_status'])}</p>"
+            f"<p><strong>Research spec digest(s):</strong> "
+            f"{esc(_display(candidate['research_spec_digests']))}</p>"
             f"<p><strong>Source thesis, not validated:</strong> {esc(candidate['thesis'])}</p>"
             f"<p><strong>Why now:</strong> {esc(candidate['why_now'])}</p>"
             f"<p><strong>Variant wedge:</strong> {esc(candidate['variant_wedge'])}</p>"
@@ -330,6 +387,7 @@ def html_text(report: dict[str, Any]) -> str:
             f"<h4>Source-claimed metrics</h4><ul>{source_metrics}</ul>"
             f"<h4>Source claims</h4><ul>{source_claims}</ul>"
             f"<h4>Internally validated metrics</h4><ul>{internal_metrics}</ul>"
+            f"<h4>Validation evidence</h4><ul>{validation_evidence}</ul>"
             f"<h4>Provenance</h4><ul>{provenance}</ul>"
             "</section>"
         )

@@ -6,15 +6,19 @@ strategy book, stage orders, or touch a broker. Those boundaries are deliberate.
 
 ## What one daily output says
 
-Each run writes the same three deterministic views plus a tamper-evident
+Each committed run publishes one immutable generation plus a tamper-evident
 append-only journal:
 
-- `strategy_discovery_report.json` is the authoritative machine contract.
-- `strategy_discovery_report.md` is the compact human review.
-- `strategy_discovery_report.html` is the standalone human review with all
-  source text HTML-escaped.
+- `runs/<run_id>/strategy_discovery_report.json` is the machine contract.
+- `runs/<run_id>/strategy_discovery_report.md` is the compact human review.
+- `runs/<run_id>/strategy_discovery_report.html` is the standalone human
+  review with all source text HTML-escaped.
+- `runs/<run_id>/bundle_manifest.json` binds every immutable file to its
+  SHA-256 and byte count.
 - `journal.jsonl` records runs, source captures, candidate observations,
   validation artifacts, and explicit owner transitions in a SHA-256 hash chain.
+- `latest.json` is replaced last. It points to a complete generation and the
+  verified journal head; an unreferenced generation is not a committed run.
 
 The human report is deliberately ordered as a decision funnel:
 
@@ -24,7 +28,8 @@ The human report is deliberately ordered as a decision funnel:
 4. candidate count and dispositions;
 5. for each candidate: executable structure, incremental portfolio-role
    hypothesis, falsifiers, blocking gate, source-claimed metrics, internally
-   validated metrics, provenance, and the next research action;
+   validated metrics, compact artifact path/hash/spec/code/data/replay evidence,
+   provenance, and the next research action;
 6. limitations that prevent over-reading the report.
 
 `COMPLETE` means only that every configured source window was exhaustively
@@ -52,13 +57,35 @@ it cannot supply internally validated edge. Source claims stay under
 produced `REPRODUCIBLE_RESEARCH` artifact with code revision, frozen data
 digests, reproduction command, methodology, and metrics can populate
 `internally_validated_metrics` and advance a candidate to
-`VALIDATED_RESEARCH`.
+`VALIDATED_RESEARCH`. The artifact must be an existing regular JSON/JSONL file
+beneath the approved validation-artifact root, cannot escape through traversal
+or symlinks, and must match its declared SHA-256. Its creation timestamp cannot
+be after the run boundary or before the candidate's preregistration.
+The report verifies artifact integrity but deliberately does not execute the
+recorded replay command; the Markdown and HTML views say that next to the
+validated metrics.
+
+The broad structural fingerprint remains the deduplication identity. A separate
+canonical `research_spec_digest` binds validation authority to the precise
+execution, signal, data/PIT, cost, borrow, capacity, falsifier, unknown, and
+investability specification. A candidate observation journals that digest; an
+artifact and human transition must carry the same digest. Changing any bound
+field drops inherited validation/owner authority. Source narrative such as the
+name, thesis, why-now, wedge, or portfolio-role wording remains provenance and
+does not manufacture a second validation spec. If one structural group still
+contains more than one research spec, it remains `DISCOVERED/NEEDS_SPEC` and no
+artifact or owner transition can overwrite that failed consistency gate.
 
 Automation can advance a new, feasible, non-duplicate idea only as far as
-`RESEARCH_READY`. `OWNER_REVIEW` requires an explicit journaled transition with
-`actor_type=HUMAN`, a named actor, reason, timestamp, and prior
-`VALIDATED_RESEARCH` state. Even `OWNER_REVIEW` does not authorize a strategy
-change, capital allocation, order staging, or execution.
+`RESEARCH_READY`. Promotion is intentionally multi-run: run 1 journals
+`RESEARCH_READY`; a later run may attach a verified artifact and journal
+`VALIDATED_RESEARCH`; only another later run may accept an explicit human
+transition to `OWNER_REVIEW`. An artifact and transition cannot shortcut these
+preregistered states in the same run. `OWNER_REVIEW` requires `actor_type=HUMAN`,
+a named actor, reason, timestamp no later than `as_of`, and a prior accepted
+validation. Even `OWNER_REVIEW` does not authorize a strategy change, capital
+allocation, order staging, or execution. Machine output always carries
+`operationally_authoritative=false`.
 
 ## Input contracts
 
@@ -69,8 +96,11 @@ catalog digests, ambiguous lineage, and non-X permalinks fail closed.
 
 ### Run config
 
-The config fixes the `as_of`, mode, required sources, freshness limits, title,
-and authority policy. Modes are:
+The config fixes the `as_of`, mode, exact required-source allowlist, source-ID
+to locator registry, freshness limits, title, and authority policy. Extra
+manifest sources are rejected, missing sources make completeness `UNKNOWN`,
+and each present source's locator kind/value must exactly equal its registry
+entry. Modes are:
 
 - `DISABLED`: accepts no source captures or items and reports `UNKNOWN`.
 - `FIXTURE`: synthetic/offline development data.
@@ -80,9 +110,12 @@ and authority policy. Modes are:
 
 ### Source manifest
 
-Every configured account, list, or search has a unique source and capture ID,
+Every approved account, list, or search has a unique source and capture ID,
 UTC capture/window timestamps, provider status, exact or minimum expected item
 count, observed count, pagination cursor in/out, and an `exhausted` flag.
+Coverage and candidate provenance retain provider name/version/status, approved
+locator, capture ID/digest/time/window, item ID, content digest, permalink, and
+full parent/quote/repost lineage.
 
 Coverage rules are intentionally asymmetric:
 
@@ -96,7 +129,12 @@ Coverage rules are intentionally asymmetric:
 Replaying the exact same capture is idempotent. Reusing its ID with different
 content fails closed. A new capture must continue the latest journaled
 `cursor.out`; the first local capture must start with `cursor.in=null` so the
-continuity anchor is explicit.
+continuity anchor is explicit. Only a `COMPLETE` capture advances the accepted
+cursor anchor; `PARTIAL` and `UNKNOWN` captures remain audit observations. The
+original accepted-anchor context is persisted for exact replay and included in
+the run content ID, so a wrong-cursor capture cannot become complete by being
+replayed and identical current files evaluated against different prior anchors
+cannot share a run ID.
 
 ### Source items, claims, and X lineage
 
@@ -107,12 +145,17 @@ Items are normalized into `POST`, `REPLY`, `QUOTE`, or `REPOST`:
 - quotes require the quoted post ID and do not inherit the quoted post's claims;
 - reposts canonicalize to the original post, contain no copied text, claims, or
   proposal, and are lineage-only;
-- identical post replays deduplicate; conflicting payloads with one post ID are
-  removed from candidacy and make source completeness unknown.
+- the same native post observed by multiple approved sources/captures
+  deduplicates by stable native content while preserving every observation;
+  item/capture metadata does not manufacture a conflict;
+- genuinely conflicting native content or lineage under one post ID is removed
+  from candidacy and makes every involved source `UNKNOWN`.
 
 Every claim is explicitly `SOURCE_CLAIMED`. A proposal is structured rather
 than inferred from prose: direction, listed-equity universe, signal conditions,
-observation timing, entry, bounded exits, data requirements, costs, borrow,
+observation timing, entry, bounded exits, data requirements, numeric costs,
+borrow, capacity, point-in-time universe/delisting basis, why-now, variant
+wedge, investability conditions, explicit unknowns, downstream workflow,
 portfolio-role hypothesis, and falsifiers are all explicit.
 
 ### Catalog snapshots
@@ -124,8 +167,11 @@ or broker code. Each snapshot carries a SHA-256 digest of its canonical
 separators (the implementation is `sha256_json(records)`).
 
 Each strategy record contains its precomputed structural fingerprint. Each
-dead-end record also carries the dated rejection reason. A stale catalog makes
-the run partial; a digest mismatch blocks the run.
+strategy-book row must be active; inactive rows make the snapshot contract
+invalid rather than being mislabeled as active. Each dead-end record also
+carries the dated rejection reason, and its decision timestamp cannot be after
+the catalog's own point-in-time boundary. A stale catalog makes the run partial
+and blocks automatic promotion; a digest mismatch blocks the run.
 
 The upstream catalog exporter is intentionally not included in V1. Before
 shadow activation, build and independently verify a read-only exporter that
@@ -139,19 +185,29 @@ entry, and exit. It ignores marketing name, prose, claimed performance, data
 vendor/field phrasing, costs, and borrow assumptions. Those remain visible and
 gated, but they do not make the same executable strategy look new. Two posts
 describing the same strategy therefore form one candidate with combined
-provenance.
+provenance. Condition order, duplicate identical predicates, and equivalent
+integer/float notation also cannot evade catalog deduplication.
 
 The automatic research gate blocks or quarantines:
 
 - instruction-like/prompt-injection payloads;
-- missing structured signal conditions;
+- missing/placeholder signal fields or values, unsupported operators, or empty
+  condition arrays;
 - no bounded exit;
 - final-close data used to enter at that same close;
 - open/intraday data used to claim the already-fixed same-session open;
 - same-session close execution without at least five minutes of declared lead;
+- same-session intraday observation and entry without explicit ordered clocks
+  (the V1 schema has no clock fields, so this remains `NEEDS_SPEC`);
 - missing or placeholder commission, slippage, or market-impact assumptions;
 - shorts without explicit availability and borrow-fee assumptions;
-- missing data field/cadence/availability declarations;
+- missing or placeholder data field/cadence/availability declarations;
+- current/static constituents, or missing point-in-time membership,
+  delisting-security, and delisting-return controls (an explicit fixed set of
+  instruments is the only non-PIT exception);
+- missing numeric capacity methodology, why-now, variant wedge, investability
+  conditions, explicit unknowns, or downstream research workflow;
+- any `PARTIAL`/`UNKNOWN` source coverage or stale/uncertain injected catalog;
 - matches to the current strategy book or a recorded dead end.
 
 Passing these gates means only “ready to spend research time.” It is not a
@@ -173,9 +229,22 @@ python scripts/run_strategy_discovery.py `
 
 Optional `--validation-artifacts` accepts a local JSON manifest. Optional
 `--owner-transitions` accepts a local JSONL file. Every input must be local and
-must end in `.json` or `.jsonl`; URLs are rejected. The CLI writes only beneath
-the selected output directory. Report files use same-directory atomic replace;
-the journal uses flushed append-only records and never rewrites history.
+must end in `.json` or `.jsonl`; URLs and UNC/network paths are rejected. By
+default, output must resolve within repository `artifacts/strategy_discovery/`,
+and no input or validation artifact may live inside the chosen output
+directory. Tests may inject a separate approved local root; the production CLI
+has no flag that broadens it.
+
+The CLI takes one cross-process transaction lock before loading the journal and
+holds it through report validation, immutable generation publication, journal
+append, journal re-verification, and the final `latest.json` replace. A second
+writer waits for the first and then reloads the new head; if the lock cannot be
+obtained within the bound, it fails closed. Locks are never stolen or guessed
+stale. A crashed writer can leave a lock or ignored staging generation; an
+operator must inspect both rather than truncating audit state.
+Every journal writer uses the same `journal.jsonl.lock` domain, and append calls
+accept only a verifiable lease for that exact path. Existing journal symlinks or
+Windows reparse points are rejected before read or append.
 
 ## Future official X adapter: required design
 
@@ -186,7 +255,8 @@ controls:
 1. Read-only scopes only; no post, like, follow, direct-message, or account-write
    permission. Secrets come from the existing secret manager/environment, never
    source, config, logs, reports, or exception text.
-2. A reviewed source registry fixes account/list/search locators. The adapter
+2. A reviewed source registry fixes source IDs and exact account/list/search
+   locators. The adapter
    must never allow a post's content to modify queries, cadence, recipients,
    commands, or later workflow state.
 3. Bounded UTC windows and exhaustive pagination. Write the items to a staged
@@ -239,6 +309,9 @@ approvals. No stage should enable trading or automatic strategy mutation.
   discovery set complete. Repair stale/incomplete sources or catalogs.
 - hash-chain failure: preserve the journal and investigate. Never truncate,
   rewrite, or regenerate it to make a run green.
+- transaction-lock failure: inspect the lock owner, immutable generations,
+  `latest.json`, and journal hash chain. Never steal or automatically age out a
+  lock; rerun only after an operator establishes the last committed state.
 - quarantined item: retain provenance for audit, do not follow embedded links or
   instructions, and manually inspect only in an isolated research context.
 - stale/digest-failing catalog: rebuild from the authoritative source and have

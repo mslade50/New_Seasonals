@@ -654,7 +654,7 @@ def validate_catalog(raw: Any, expected_type: str, path: str) -> dict[str, Any]:
     if catalog["catalog_type"] != expected_type:
         raise _where(f"{path}.catalog_type", f"must equal {expected_type}")
     parse_timestamp(catalog["generated_at"], f"{path}.generated_at")
-    parse_timestamp(catalog["as_of"], f"{path}.as_of")
+    catalog_as_of = parse_timestamp(catalog["as_of"], f"{path}.as_of")
     digest = _string(catalog["records_digest"], f"{path}.records_digest")
     if not SHA256_RE.fullmatch(digest):
         raise _where(f"{path}.records_digest", "must be a lowercase SHA-256")
@@ -667,7 +667,12 @@ def validate_catalog(raw: Any, expected_type: str, path: str) -> dict[str, Any]:
         record = _object(raw_record, rpath)
         if expected_type == "STRATEGY_BOOK":
             _strict(record, rpath, {"name", "structural_fingerprint", "active"})
-            _bool(record["active"], f"{rpath}.active")
+            active = _bool(record["active"], f"{rpath}.active")
+            if active is not True:
+                raise _where(
+                    f"{rpath}.active",
+                    "must be true in the active strategy-book snapshot",
+                )
         else:
             _strict(
                 record,
@@ -675,7 +680,12 @@ def validate_catalog(raw: Any, expected_type: str, path: str) -> dict[str, Any]:
                 {"name", "structural_fingerprint", "rejection_reason", "decided_at"},
             )
             _string(record["rejection_reason"], f"{rpath}.rejection_reason")
-            parse_timestamp(record["decided_at"], f"{rpath}.decided_at")
+            decided_at = parse_timestamp(record["decided_at"], f"{rpath}.decided_at")
+            if decided_at > catalog_as_of:
+                raise _where(
+                    f"{rpath}.decided_at",
+                    "must be on or before catalog.as_of",
+                )
         _string(record["name"], f"{rpath}.name")
         fingerprint = _string(record["structural_fingerprint"], f"{rpath}.structural_fingerprint")
         if not SHA256_RE.fullmatch(fingerprint):
@@ -702,6 +712,7 @@ def validate_validation_artifacts(raw: Any) -> dict[str, Any]:
             {
                 "artifact_id",
                 "candidate_fingerprint",
+                "research_spec_digest",
                 "artifact_type",
                 "artifact_path",
                 "sha256",
@@ -718,7 +729,7 @@ def validate_validation_artifacts(raw: Any) -> dict[str, Any]:
         if artifact_id in ids:
             raise _where(f"{path}.artifact_id", "must be unique")
         ids.add(artifact_id)
-        for key in ("candidate_fingerprint", "sha256"):
+        for key in ("candidate_fingerprint", "research_spec_digest", "sha256"):
             value = _string(artifact[key], f"{path}.{key}")
             if not SHA256_RE.fullmatch(value):
                 raise _where(f"{path}.{key}", "must be a lowercase SHA-256")
@@ -770,6 +781,7 @@ def validate_transition(raw: Any, index: int) -> dict[str, Any]:
         {
             "transition_id",
             "candidate_fingerprint",
+            "research_spec_digest",
             "actor_type",
             "actor",
             "from_state",
@@ -783,6 +795,9 @@ def validate_transition(raw: Any, index: int) -> dict[str, Any]:
     fingerprint = _string(transition["candidate_fingerprint"], f"{path}.candidate_fingerprint")
     if not SHA256_RE.fullmatch(fingerprint):
         raise _where(f"{path}.candidate_fingerprint", "must be a lowercase SHA-256")
+    spec_digest = _string(transition["research_spec_digest"], f"{path}.research_spec_digest")
+    if not SHA256_RE.fullmatch(spec_digest):
+        raise _where(f"{path}.research_spec_digest", "must be a lowercase SHA-256")
     if transition["actor_type"] != "HUMAN":
         raise _where(f"{path}.actor_type", "must equal HUMAN")
     if transition["from_state"] != "VALIDATED_RESEARCH":
@@ -872,6 +887,7 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         "status",
         "findings",
         "capture_digest",
+        "continuity_context",
     }
     for i, raw_coverage in enumerate(
         _list(report["source_coverage"], "report.source_coverage")
@@ -880,17 +896,114 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         coverage = _object(raw_coverage, path)
         _strict(coverage, path, coverage_keys)
         _string(coverage["source_id"], f"{path}.source_id")
+        if coverage["platform"] != "X" or coverage["discovery_only"] is not True:
+            raise _where(path, "source coverage must remain X discovery-only")
         _string(coverage["provider"], f"{path}.provider")
         _string(coverage["provider_version"], f"{path}.provider_version")
+        if coverage["provider_status"] not in PROVIDER_STATUSES | {"MISSING"}:
+            raise _where(f"{path}.provider_status", "invalid provider status")
         locator = _object(coverage["locator"], f"{path}.locator")
         _strict(locator, f"{path}.locator", {"kind", "value"})
+        _enum(locator["kind"], LOCATOR_KINDS, f"{path}.locator.kind")
+        _string(locator["value"], f"{path}.locator.value")
         _enum(coverage["status"], COMPLETENESS, f"{path}.status")
+        if coverage["capture_digest"] is not None:
+            digest = _string(coverage["capture_digest"], f"{path}.capture_digest")
+            if not SHA256_RE.fullmatch(digest):
+                raise _where(f"{path}.capture_digest", "must be a lowercase SHA-256")
+        continuity = _object(
+            coverage["continuity_context"],
+            f"{path}.continuity_context",
+        )
+        _strict(
+            continuity,
+            f"{path}.continuity_context",
+            {"basis", "anchor"},
+        )
+        if continuity["basis"] not in {"GENESIS", "ACCEPTED_CAPTURE"}:
+            raise _where(
+                f"{path}.continuity_context.basis",
+                "must be GENESIS or ACCEPTED_CAPTURE",
+            )
+        anchor = continuity["anchor"]
+        if continuity["basis"] == "GENESIS":
+            if anchor is not None:
+                raise _where(
+                    f"{path}.continuity_context.anchor",
+                    "must be null for GENESIS",
+                )
+        else:
+            anchor_path = f"{path}.continuity_context.anchor"
+            anchor = _object(anchor, anchor_path)
+            _strict(
+                anchor,
+                anchor_path,
+                {"source_id", "capture_id", "capture_digest", "cursor_out", "status"},
+            )
+            _string(anchor["source_id"], f"{anchor_path}.source_id")
+            _string(anchor["capture_id"], f"{anchor_path}.capture_id")
+            anchor_digest = _string(
+                anchor["capture_digest"],
+                f"{anchor_path}.capture_digest",
+            )
+            if not SHA256_RE.fullmatch(anchor_digest):
+                raise _where(
+                    f"{anchor_path}.capture_digest",
+                    "must be a lowercase SHA-256",
+                )
+            if anchor["cursor_out"] is not None:
+                _string(anchor["cursor_out"], f"{anchor_path}.cursor_out")
+            if anchor["status"] != "COMPLETE":
+                raise _where(f"{anchor_path}.status", "must equal COMPLETE")
     _list(report["catalog_health"], "report.catalog_health")
-    _object(report["item_normalization"], "report.item_normalization")
-    _object(report["summary"], "report.summary")
+    item_normalization = _object(report["item_normalization"], "report.item_normalization")
+    _strict(
+        item_normalization,
+        "report.item_normalization",
+        {
+            "duplicate_post_ids",
+            "conflicts",
+            "reposts_are_lineage_only",
+            "quotes_preserve_quote_post_identity",
+            "thread_replies_preserve_post_identity",
+            "source_registry_digest",
+        },
+    )
+    registry_digest = _string(
+        item_normalization["source_registry_digest"],
+        "report.item_normalization.source_registry_digest",
+    )
+    if not SHA256_RE.fullmatch(registry_digest):
+        raise _where(
+            "report.item_normalization.source_registry_digest",
+            "must be a lowercase SHA-256",
+        )
+    summary = _object(report["summary"], "report.summary")
+    _strict(
+        summary,
+        "report.summary",
+        {
+            "raw_item_count",
+            "canonical_item_count",
+            "repost_count",
+            "duplicate_post_ids",
+            "conflicting_post_ids",
+            "candidate_count",
+            "new_research_ready",
+            "validated_research",
+            "owner_review",
+            "needs_spec",
+            "needs_coverage",
+            "quarantined",
+            "known_or_dead_end",
+        },
+    )
+    for key, value in summary.items():
+        _integer(value, f"report.summary.{key}", minimum=0)
     candidates = _list(report["candidates"], "report.candidates")
     candidate_keys = {
         "fingerprint",
+        "research_spec_digests",
         "name",
         "aliases",
         "thesis",
@@ -928,10 +1041,26 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         fingerprint = _string(candidate["fingerprint"], f"{path}.fingerprint")
         if not SHA256_RE.fullmatch(fingerprint):
             raise _where(f"{path}.fingerprint", "must be a lowercase SHA-256")
+        research_spec_digests = _list(
+            candidate["research_spec_digests"],
+            f"{path}.research_spec_digests",
+        )
+        if not research_spec_digests:
+            raise _where(f"{path}.research_spec_digests", "must not be empty")
+        for j, digest in enumerate(research_spec_digests):
+            value = _string(digest, f"{path}.research_spec_digests[{j}]")
+            if not SHA256_RE.fullmatch(value):
+                raise _where(
+                    f"{path}.research_spec_digests[{j}]",
+                    "must be a lowercase SHA-256",
+                )
         _string(candidate["name"], f"{path}.name")
         _string(candidate["thesis"], f"{path}.thesis")
         _string(candidate["why_now"], f"{path}.why_now")
         _string(candidate["variant_wedge"], f"{path}.variant_wedge")
+        aliases = _list(candidate["aliases"], f"{path}.aliases")
+        for j, alias in enumerate(aliases):
+            _string(alias, f"{path}.aliases[{j}]")
         fit_hypotheses = _list(
             candidate["portfolio_fit_hypotheses"],
             f"{path}.portfolio_fit_hypotheses",
@@ -951,6 +1080,63 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
             f"{path}.research_assumptions",
         )
         _strict(assumptions, f"{path}.research_assumptions", {"costs", "borrow", "capacity"})
+        if assumptions["costs"] is not None:
+            costs = _object(assumptions["costs"], f"{path}.research_assumptions.costs")
+            _strict(
+                costs,
+                f"{path}.research_assumptions.costs",
+                {"commission_bps", "slippage_bps", "market_impact_model"},
+            )
+            _number(costs["commission_bps"], f"{path}.research_assumptions.costs.commission_bps", minimum=0)
+            _number(costs["slippage_bps"], f"{path}.research_assumptions.costs.slippage_bps", minimum=0)
+            _string(costs["market_impact_model"], f"{path}.research_assumptions.costs.market_impact_model")
+        if assumptions["borrow"] is not None:
+            borrow = _object(assumptions["borrow"], f"{path}.research_assumptions.borrow")
+            _strict(
+                borrow,
+                f"{path}.research_assumptions.borrow",
+                {"required", "availability_check", "fee_assumption_bps_annual"},
+            )
+            _bool(borrow["required"], f"{path}.research_assumptions.borrow.required")
+            _string(borrow["availability_check"], f"{path}.research_assumptions.borrow.availability_check")
+            if borrow["fee_assumption_bps_annual"] is not None:
+                _number(
+                    borrow["fee_assumption_bps_annual"],
+                    f"{path}.research_assumptions.borrow.fee_assumption_bps_annual",
+                    minimum=0,
+                )
+        if assumptions["capacity"] is not None:
+            capacity = _object(assumptions["capacity"], f"{path}.research_assumptions.capacity")
+            _strict(
+                capacity,
+                f"{path}.research_assumptions.capacity",
+                {
+                    "median_daily_dollar_volume_usd",
+                    "max_participation_rate_pct",
+                    "estimated_strategy_capacity_usd",
+                    "methodology",
+                },
+            )
+            _number(
+                capacity["median_daily_dollar_volume_usd"],
+                f"{path}.research_assumptions.capacity.median_daily_dollar_volume_usd",
+                minimum=0,
+            )
+            _number(
+                capacity["max_participation_rate_pct"],
+                f"{path}.research_assumptions.capacity.max_participation_rate_pct",
+                minimum=0,
+            )
+            if capacity["estimated_strategy_capacity_usd"] is not None:
+                _number(
+                    capacity["estimated_strategy_capacity_usd"],
+                    f"{path}.research_assumptions.capacity.estimated_strategy_capacity_usd",
+                    minimum=0,
+                )
+            _string(
+                capacity["methodology"],
+                f"{path}.research_assumptions.capacity.methodology",
+            )
         for field in ("investable_if", "explicit_unknowns", "downstream_workflow"):
             values = _list(candidate[field], f"{path}.{field}")
             for j, value in enumerate(values):
@@ -964,13 +1150,135 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
             raise _where(f"{path}.trading_actions_enabled", "must be false")
         if candidate["operationally_authoritative"] is not False:
             raise _where(f"{path}.operationally_authoritative", "must be false")
-        if candidate["edge_status"] == "SOURCE_CLAIMS_ONLY" and candidate["internally_validated_metrics"]:
+        if candidate["edge_status"] not in {"SOURCE_CLAIMS_ONLY", "INTERNALLY_VALIDATED"}:
+            raise _where(f"{path}.edge_status", "invalid edge status")
+        gates = _list(candidate["gates"], f"{path}.gates")
+        if not gates:
+            raise _where(f"{path}.gates", "must not be empty")
+        for j, raw_gate in enumerate(gates):
+            gate_path = f"{path}.gates[{j}]"
+            gate = _object(raw_gate, gate_path)
+            _strict(gate, gate_path, {"gate", "status", "reason"})
+            _string(gate["gate"], f"{gate_path}.gate")
+            if gate["status"] not in {"PASS", "FAIL"}:
+                raise _where(f"{gate_path}.status", "must be PASS or FAIL")
+            _string(gate["reason"], f"{gate_path}.reason")
+        rejection = candidate["first_rejection"]
+        if rejection is not None:
+            rejection_path = f"{path}.first_rejection"
+            rejection = _object(rejection, rejection_path)
+            _strict(rejection, rejection_path, {"gate", "reason"})
+            _string(rejection["gate"], f"{rejection_path}.gate")
+            _string(rejection["reason"], f"{rejection_path}.reason")
+        source_claims = _list(candidate["source_claims"], f"{path}.source_claims")
+        for j, raw_claim in enumerate(source_claims):
+            claim_path = f"{path}.source_claims[{j}]"
+            claim = _object(raw_claim, claim_path)
+            _strict(
+                claim,
+                claim_path,
+                {
+                    "source_id",
+                    "source_ids",
+                    "post_id",
+                    "claim_id",
+                    "claim_type",
+                    "text",
+                    "evidence_class",
+                    "metrics",
+                },
+            )
+            for key in ("source_id", "post_id", "claim_id", "text"):
+                _string(claim[key], f"{claim_path}.{key}")
+            source_ids = _list(claim["source_ids"], f"{claim_path}.source_ids")
+            if not source_ids:
+                raise _where(f"{claim_path}.source_ids", "must not be empty")
+            for k, source_id in enumerate(source_ids):
+                _string(source_id, f"{claim_path}.source_ids[{k}]")
+            _enum(claim["claim_type"], CLAIM_TYPES, f"{claim_path}.claim_type")
+            if claim["evidence_class"] != "SOURCE_CLAIMED":
+                raise _where(f"{claim_path}.evidence_class", "must equal SOURCE_CLAIMED")
+            for k, metric in enumerate(_list(claim["metrics"], f"{claim_path}.metrics")):
+                _validate_metric(metric, f"{claim_path}.metrics[{k}]", internal=False)
+        artifacts = _list(
+            candidate["validation_artifacts"],
+            f"{path}.validation_artifacts",
+        )
+        validate_validation_artifacts(
+            {"schema_version": SCHEMA_VERSION, "artifacts": artifacts}
+        )
+        artifact_ids = {artifact["artifact_id"] for artifact in artifacts}
+        internal_metrics = _list(
+            candidate["internally_validated_metrics"],
+            f"{path}.internally_validated_metrics",
+        )
+        for j, raw_metric in enumerate(internal_metrics):
+            metric_path = f"{path}.internally_validated_metrics[{j}]"
+            metric = _object(raw_metric, metric_path)
+            artifact_id = _string(metric.get("artifact_id"), f"{metric_path}.artifact_id")
+            if artifact_id not in artifact_ids:
+                raise _where(
+                    f"{metric_path}.artifact_id",
+                    "must reference an attached validation artifact",
+                )
+            _validate_metric(
+                {key: value for key, value in metric.items() if key != "artifact_id"},
+                metric_path,
+                internal=True,
+            )
+        if candidate["edge_status"] == "SOURCE_CLAIMS_ONLY" and internal_metrics:
             raise _where(f"{path}.edge_status", "cannot label internal metrics as source-only")
-        if candidate["lifecycle"] in {"VALIDATED_RESEARCH", "OWNER_REVIEW"} and not candidate["validation_artifacts"]:
+        if candidate["edge_status"] == "INTERNALLY_VALIDATED" and not artifacts:
+            raise _where(f"{path}.edge_status", "requires a validation artifact")
+        if candidate["lifecycle"] in {"VALIDATED_RESEARCH", "OWNER_REVIEW"} and not artifacts:
             raise _where(f"{path}.lifecycle", "requires a reproducible validation artifact")
-        for metric in candidate["source_claimed_metrics"]:
-            if metric.get("evidence_class") != "SOURCE_CLAIMED":
-                raise _where(f"{path}.source_claimed_metrics", "must remain SOURCE_CLAIMED")
+        source_metrics = _list(
+            candidate["source_claimed_metrics"],
+            f"{path}.source_claimed_metrics",
+        )
+        source_metric_keys = {
+            "source_id",
+            "source_ids",
+            "post_id",
+            "claim_id",
+            "evidence_class",
+            "name",
+            "value",
+            "unit",
+            "sample_size",
+            "definition",
+            "period_start",
+            "period_end",
+        }
+        for j, raw_metric in enumerate(source_metrics):
+            metric_path = f"{path}.source_claimed_metrics[{j}]"
+            metric = _object(raw_metric, metric_path)
+            _strict(metric, metric_path, source_metric_keys)
+            if metric["evidence_class"] != "SOURCE_CLAIMED":
+                raise _where(metric_path, "must remain SOURCE_CLAIMED")
+            for key in ("source_id", "post_id", "claim_id"):
+                _string(metric[key], f"{metric_path}.{key}")
+            source_ids = _list(metric["source_ids"], f"{metric_path}.source_ids")
+            if not source_ids:
+                raise _where(f"{metric_path}.source_ids", "must not be empty")
+            for k, source_id in enumerate(source_ids):
+                _string(source_id, f"{metric_path}.source_ids[{k}]")
+            _validate_metric(
+                {
+                    key: value
+                    for key, value in metric.items()
+                    if key
+                    not in {
+                        "source_id",
+                        "source_ids",
+                        "post_id",
+                        "claim_id",
+                        "evidence_class",
+                    }
+                },
+                metric_path,
+                internal=False,
+            )
         provenance_keys = {
             "item_id",
             "source_id",
@@ -994,7 +1302,8 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
             "author_handle",
             "created_at",
         }
-        for j, raw_provenance in enumerate(candidate["provenance"]):
+        provenance_rows = _list(candidate["provenance"], f"{path}.provenance")
+        for j, raw_provenance in enumerate(provenance_rows):
             ppath = f"{path}.provenance[{j}]"
             provenance = _object(raw_provenance, ppath)
             _strict(provenance, ppath, provenance_keys)
@@ -1018,6 +1327,14 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
                 _string(provenance[key], f"{ppath}.{key}")
             _object(provenance["source_locator"], f"{ppath}.source_locator")
             _object(provenance["source_window"], f"{ppath}.source_window")
+        _integer(candidate["duplicate_proposal_count"], f"{path}.duplicate_proposal_count", minimum=1)
+        observation_count = _integer(
+            candidate["observation_count"],
+            f"{path}.observation_count",
+            minimum=1,
+        )
+        if observation_count != len(provenance_rows):
+            raise _where(f"{path}.observation_count", "must equal provenance row count")
     limitations = _list(report["limitations"], "report.limitations")
     for i, limitation in enumerate(limitations):
         _string(limitation, f"report.limitations[{i}]")
