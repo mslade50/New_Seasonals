@@ -4,7 +4,8 @@ elsewhere in both the scan and the engine; the 2026-09-02 due diligence
 measured it inverted against the edge (1.5x bucket +0.23R, 0.66x bucket
 +0.71R; sleeve Sharpe 0.62 -> 0.70 without it). After the change no code path
 multiplies WCDS risk by seasonal rank and the scan's sizing note carries no
-tier text.
+tier text. D3.4 later adds a rank-independent 0.8x true-solo baseline, so this
+guard compares ranks rather than requiring the pre-D3.4 absolute 1.0x.
 
 Fixture pattern follows tests/test_olv_stop_and_cap.py (synthetic frame,
 candidates fed straight to process_signals_fast).
@@ -80,13 +81,13 @@ def _run(sznl):
                                    flat_sizing=True)
 
 
-def test_engine_size_mult_is_one_at_every_seasonal_rank():
+def test_engine_size_mult_is_rank_invariant_at_d34_solo_baseline():
     risks = {}
     for r in RANKS:
         sig = _run(r)
         assert len(sig) == 1, f"fixture must fill once at rank {r}"
         row = sig.iloc[0]
-        assert row["Size_Mult"] == 1.0, f"rank {r}: Size_Mult {row['Size_Mult']}"
+        assert row["Size_Mult"] == 0.8, f"rank {r}: Size_Mult {row['Size_Mult']}"
         risks[r] = float(row["Risk $"])
     # identical staged risk regardless of rank (the tier used to spread
     # these 0.66x .. 1.5x apart)

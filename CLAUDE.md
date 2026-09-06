@@ -367,7 +367,8 @@ daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
 base bps (tier x GRM x tilt) -> 2b fragility band -> 2c signal-recency ladder rung
 (carrier: OLV {window_td: 21, mults: [0.5, 0.7, 1.0]} since 2026-07-30; the
 old open-position-count ladder machinery survives dormant, carrier-less) ->
-2c2 cycle-year mult -> 2d earnings size override (REPLACES the base but
+2c2 cycle-year mult -> 2c3 generic tier-risk mult -> 2c4 signal-close
+rank-mean risk mult -> 2d earnings size override (REPLACES the base but
 COMPOSES with the 2c recency mult since 2026-07-30 and with the 2b frag
 band mult since 2026-08-24 — cycle/tier are still clobbered; itself
 GRM-scaled; two carriers: OLV -10..0 TD -> 10 bps nominal / 15 effective;
@@ -376,8 +377,9 @@ the no-stop 5d hold straddling an imminent print held every ledger tail
 loser [-5..-1 cell N=9 avgR -0.50 vs +0.32 outside]; small-N appetite
 haircut, guard tests/test_earnings_size_override.py, evidence
 scratch/stos_earnings_proximity.py) -> shares -> ADV participation cap -> per-ticker notional cap
-(OLV, 2026-07-20) -> 5c same-day signal de-rate (post-pass; 3x Bear fade —
-see its section below).
+(OLV, 2026-07-20) -> 5a2 WCDS/LT solo-add multiplier -> 5b absolute
+cross-strategy overlap clamp -> 5c same-day staged multiplier (3x Bear fade
+and IOB clone rule — see their sections below) -> later live gap/cap layers.
 
 ## Daily Risk Caps (aligned 2026-07-10)
 
@@ -476,16 +478,55 @@ the engine's open-count rung) survives dormant with NO carriers.
 `strategy_config.CROSS_STRATEGY_OVERLAP_OVERRIDES`: when the named strategies
 fire on the SAME signal date and SAME tradeable ticker (compared after
 `SPOT_TO_TRADEABLE` aliasing, ^GSPC->SPY ^NDX->QQQ), each side's risk is
-clamped to `risk_bps_when_overlapping`. Currently one pair: Indices Oversold
-Bounce + SPY QQQ MonFri Reversion -> 20 bps nominal each (GRM-scaled at
-import since 2026-08-12 = 30 effective; it was unscaled before, making the
-clamp 20 EFFECTIVE against documented intent). It is an ABSOLUTE clamp on
-the row's staged Risk_Amt (a row already below the clamp is untouched), and
-it keys on STAGED signals — both sides firing — regardless of which limits
-later fill. Applied in daily_scan step 5b and replayed in
-`pages/strat_backtester.py` sizing step 3b3c from a candidate pre-pass
-(2026-08-12; the old post-pass clamped only FILLED pairs and ran after the
-per-strategy cap, booking the one-fills leg at full size vs live's clamp).
+clamped to `risk_bps_when_overlapping`. Six pairs carry the rule as of D3.3:
+the original Indices Oversold Bounce + SPY QQQ MonFri Reversion pair, plus
+Monday Dip + Weak Close Decent Sznls, SPY QQQ MonFri Reversion + Weak Close
+Decent Sznls, Monthly Weak Close + SPY QQQ MonFri Reversion, Monthly Weak
+Close + Indices Oversold Bounce, and Monday Dip + Indices Oversold Bounce.
+Every pair is 20 bps nominal per side (GRM-scaled at import; 30 effective at
+GRM 1.5). It is an ABSOLUTE clamp on the row's staged Risk_Amt (a row already
+below the clamp is untouched), and it keys on STAGED signals — both sides
+firing — regardless of which limits later fill. If several configured pairs
+fire in one date/ticker collision, the shared resolver takes the minimum
+applicable clamp independently for every participating strategy; pair order
+cannot overwrite a third leg. Applied in daily_scan step 5b and replayed in
+`pages/strat_backtester.py` sizing step 3b3d from a candidate pre-pass. The
+cross-strategy clamp runs before any same-day signal de-rate.
+
+D3.3 also gives Indices Oversold Bounce a clone-only same-day multiplier:
+`same_day_signal_derate=0.5`, floor 0.5. Its exact ^GSPC/^NDX universe makes
+two staged IOB candidates equivalent to a SPY+QQQ clone pair, so both rows
+halve; a lone row stays full size. SPY QQQ MonFri Reversion does NOT carry
+this field. The scanner counts per tier and the engine counts staged
+candidates before fills. Full-history D3.3-only replay evidence is under
+`artifacts/build_2026-09-05/d33_clone_clamps/`.
+
+## WCDS / LT Trend Solo-Add Multiplier (D3.4, 2026-09-05)
+
+Only Weak Close Decent Sznls and LT Trend ST OS carry
+`open_leg_mults={'none_open': 0.8, 'adds': 1.2}`. An `adds` row means either
+the same strategy has at least two staged candidates in that tier on the
+signal date, OR any same-strategy filled leg is already open at signal time
+(strategy-wide, not same ticker). Every row on a 2+ candidate day gets 1.2x
+before fill outcomes are known. A one-candidate day with no prior open leg is
+0.8x. Working-but-unfilled limits do not count as prior open legs; same-sector
+clusters receive no special treatment.
+
+Scanner share arithmetic matches the engine: multiply the unrounded target
+risk first, then floor by stop distance. Any earlier hard share ceiling (ADV
+or concurrent-notional) survives the post-pass; a 1.2x add may not reopen
+capacity removed by a hard cap. Scanner-only calculation fields are consumed
+before staging.
+
+The scanner reads filled legs from the nightly Portfolio snapshot, aggregates
+them across tickers/tiers by strategy, and counts today's candidates per
+`(Strategy_Name, Scan_Source)`. Snapshot failure is conservative for a solo
+day (0.8x) but cannot suppress a same-day cluster (1.2x). The engine counts
+post-blackout staged candidates by strategy pass/date, and tests `entry_date <=
+signal_date < exit_date` on its filled position state. The multiplier runs
+after earlier per-row overlays and before the absolute overlap clamp; later
+same-day/gap/cap layers still compose. Shared helper:
+`strategy_config.open_leg_mult()`. Guard: `tests/test_open_leg_mults.py`.
 
 ## OVS Strategy — Earnings Blackout + 2-Path Sizing + Friday-only EOD-DD
 
@@ -584,6 +625,37 @@ scanner qty x (Path2_Bps / Path1_Bps) from the row stamps plus the P2
 aggregate daily cap, matching the 2-path scheme the ledger models
 (P2 = 407 trades, +0.20 avgR, +82R/24y). The engine's `ovs_p1_only`
 parameter remains for counterfactuals.
+
+## OVS Rank-Mean + Liquid-Tier Risk (D3.5, 2026-09-05)
+
+OVS alone carries two unscaled execution overlays. `rank_mean_risk` uses the
+signal-close mean of `rank_ret_2d`, `rank_ret_5d`, `rank_ret_10d` and
+`rank_ret_21d`: strict mean <94 runs 0.7x outside midterm years; mean >=94 is
+1.0x; year%4==2 is exempt because the existing 0.75 cycle multiplier already
+applies. There is no top-cell boost. Missing/non-finite rank input is
+unclassifiable and leaves the overlay at 1.0x, but OVS's entry mask requires
+all four ranks >85, so a valid candidate has all inputs. Evidence: bottom
+cell 0.17R (N=392) vs top 0.47R (N=878), clustered t=5.4, LOYO sign in 80%,
+posterior multiplier 0.68-0.74; the shipped 0.7 is the shrunk form.
+
+`tier_risk_mults={'Liquid': 0.7}` is independent: liquid OVS runs at 0.7x on
+both P1 and P2; overflow defaults to 1.0x. The original D9/D12 registered cut
+shipped at 0.5x after measuring liquid
+OVS +0.580R (2010-2023, N=189) vs -0.028R (2024+, N=66), clustered t=-3.05,
+and surviving the named robustness gates. McKinley explicitly superseded the
+multiplier to 0.7x on 2026-09-05 as a risk-appetite decision; the frozen 0.5x
+brief and evidence remain historical rather than being rewritten. Re-examine
+after +40 liquid positions; retire if that cell's avgR exceeds +0.3.
+
+Both overlays multiply unrounded staged risk before shares and every hard or
+daily cap. The engine snapshots the four point-in-time rank columns and
+classifies tier from `LIQUID_PLUS_COMMODITIES`. Its OVS P2 aggregate-cap
+pre-pass includes cycle x tier x rank-mean in the staged-risk denominator
+exactly once; fixed P2 cap dollars are not scaled. This mirrors order_staging,
+which receives already-sized scanner risk and applies the P2 ratio/cap. The
+rank rule has no live effect in 2026 (midterm exemption); the liquid-tier cut
+does. Shared helpers: `strategy_config.tier_risk_mult()` and
+`rank_mean_risk_decision()`. Guard: `tests/test_ovs_risk_mults.py`.
 
 ## Fragility Risk Bands (2026-07-02)
 
@@ -752,15 +824,14 @@ bps/day cap bounds a stack (it sees same-day staged risk, NOT open legs).
 The 3x Leader Gap Fade keeps `max_one_pos: True` (guarded by its test).
 Evidence: scratch/lev3x_fade_stacking_study.py + lev3x_fade_stacking_results.csv.
 
-Same-day signal de-rate — new generic sizing overlay, currently bear-fade
-only: `execution['same_day_signal_derate'] = 0.10` sizes each of the day's
-signals at `max(floor, 1 - 0.10*(n-1))` where n = that strategy's SIGNAL
-count that day (ex-ante staged count, NOT fills — only ~1/3 of signals fill,
-but high signal count itself marks the violent-selloff days where per-trade
-edge degrades). `same_day_derate_floor` = 0.30. Composes multiplicatively
-with frag bands (April 2024: 5 signals x high fragility -> 0.15x). Evidence:
-scratch/lev3x_fade_bear_sizing_rule.py (same totR, worst 2-day window
--6.2R -> -4.5R).
+Same-day signal de-rate — generic sizing overlay with two carriers. The 3x
+Bear ETF Overbot Fade uses `same_day_signal_derate=0.10`, floor 0.30: every
+row is sized at `max(floor, 1 - 0.10*(n-1))`, where n is that strategy's
+staged SIGNAL count that day (not fills). Indices Oversold Bounce uses 0.5,
+floor 0.5 for the D3.3 two-index clone rule documented above. It composes
+multiplicatively with frag bands and runs after the absolute cross-strategy
+clamp. Bear evidence: `scratch/lev3x_fade_bear_sizing_rule.py` (same totR,
+worst 2-day window -6.2R -> -4.5R).
 
 Aligned sites -- change together (order_staging needs nothing: takes staged
 sizes as-is):
@@ -772,8 +843,9 @@ sizes as-is):
   runs post-loop because n is only known after the strategy's ticker loop;
   counts per (Strategy_Name, Scan_Source); rescales Shares/Risk_Amt/Notional
   and stamps Sizing notes)
-- Guard: `tests/test_same_day_derate.py` (carve-out partition, filter
-  invariants, formula boundaries, single-carrier assertion)
+- Guards: `tests/test_same_day_derate.py` and `tests/test_clone_clamps.py`
+  (carrier set, formula boundaries, aliasing, absolute-then-clone order,
+  triple-collision safety and pair-order invariance)
 
 ## Large-Gap-Up Size Derate (2026-07-21)
 
@@ -1374,6 +1446,28 @@ the audit trail the journal's `drill_script` field points at. The BRIEFS
 decision (McKinley 2026-08-09): the brief is a Slack product, not a repo
 artifact. No claims scoreboard exists and none is planned; nothing replays the
 journal.
+
+## OLV Pivot-Aware Entry Policy (2026-08-31; OWNER KEEP 2026-09-05)
+
+`strategy_config` keeps `pivot_entry_policy.enabled = True` for OLV. The
+causal 40/40 closing-pivot policy changes the ordinary close-0.25 ATR limit to
+0.50 ATR below close when price is 2-3 ATR above the nearest eligible pivot
+high, to 0.75 ATR at 4-5 ATR, and skips above 5 ATR; the 3-4 ATR pocket remains
+at the default. Pivot sources expire independently after 252 ticker sessions.
+Scanner and engine use the same confirmation-shifted indicator columns and
+stamp `Entry_Offset_ATR`; live-vs-ledger matching must compare that stamp.
+
+The evidence claim was corrected on 2026-09-04. The cited **+8.68R** was
+policy-v2 versus policy-v1, not policy versus no policy. The controlled replay
+found no per-signal edge: affected-signal difference -4.6R, signal-date
+clustered t -0.33, and total OLV PnL approximately unchanged (the cited sample
+versus no policy was -5.9R). What the policy bought was fewer fills and smaller
+June-2026 drawdowns: worst-21d about -$37k versus -$60k and maxDD about -$41k
+versus -$65k. The basis audit changed 1 of 19 policy assignments. McKinley
+chose **KEEP** on 2026-09-05 as an explicit appetite/drawdown control, not an
+edge rule. Evidence:
+`scratch/ultracode_research/olv_pivot_evidence_2026-09-04/`. One-switch
+rollback remains `pivot_entry_policy.enabled = False`.
 
 ## OLV Vol-Confirmed Stop + Notional Cap (2026-07-20)
 

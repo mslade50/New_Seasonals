@@ -620,6 +620,20 @@ def test_live_config_invariants():
     assert 'ladder_multipliers' not in ex, \
         "open-count ladder replaced by signal_recency_ladder 2026-07-30"
     assert 'sector_loss_gate' not in ex, "sector gate removed 2026-07-20"
+    for inactive_overlay in (
+        'frag_risk_bands', 'cycle_risk_mults', 'rank_mean_risk',
+        'open_leg_mults', 'same_day_signal_derate',
+    ):
+        assert inactive_overlay not in ex, \
+            f"OLV must not carry {inactive_overlay}"
+    prose = " ".join((
+        olv['setup']['thesis'], olv['exit_summary']['notes'],
+        olv['description'],
+    ))
+    assert "[0.5,1,1]" not in prose.replace(" ", "")
+    assert "stacked adds at full size" not in prose
+    assert "[0.5,0.7,1.0]" in prose.replace(" ", "")
+    assert "(3,4]" in prose.replace(" ", "")
     cap = ex.get('ticker_notional_cap')
     assert cap and cap['pct_nav'] == 0.50, "cap must NOT be GRM-scaled"
     for etf in ('USO', 'GDX', 'SLV', 'DBC', 'EWZ', 'KRE', 'ITA', 'OIH', 'CEF', 'GLD'):

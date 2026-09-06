@@ -154,7 +154,7 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES, SPOT_TO_TRADEABLE, same_day_derate_mult, OVERFLOW_RISK_OVERRIDES, GLOBAL_RISK_MULTIPLIER
+    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES, SPOT_TO_TRADEABLE, resolve_cross_strategy_overlap_clamps, open_leg_mult, tier_risk_mult, rank_mean_risk_decision, same_day_derate_mult, OVERFLOW_RISK_OVERRIDES, GLOBAL_RISK_MULTIPLIER
 except ImportError:
     # st.error("Could not find strategy_config.py in the root directory.")
     _STRATEGY_BOOK_RAW = []
@@ -162,6 +162,16 @@ except ImportError:
     LIQUID_PLUS_COMMODITIES = []
     ACCOUNT_VALUE = 150000
     SPOT_TO_TRADEABLE = {}
+    OVERFLOW_RISK_OVERRIDES = {}
+    GLOBAL_RISK_MULTIPLIER = 1.0
+    def resolve_cross_strategy_overlap_clamps(fired_by_key, overrides):
+        return {}
+    def open_leg_mult(execution, staged_count, prior_open_count):
+        return 1.0
+    def tier_risk_mult(execution, tier):
+        return 1.0
+    def rank_mean_risk_decision(execution, rank_values, signal_year):
+        return 1.0, None, False
     def same_day_derate_mult(execution, n_signals):
         return 1.0
 
@@ -176,7 +186,8 @@ except Exception:
 
 # Strategies that the overflow scanner runs against the broader CSV_UNIVERSE.
 # When the "Run on Overflow Universe" UI toggle is on, strat_backtester swaps
-# universe_tickers to CSV_UNIVERSE for these (mirrors local_overflow_scan.py).
+# universe_tickers to CSV_UNIVERSE for these (matching daily_scan's unified
+# overflow scope).
 OVERFLOW_ELIGIBLE_STRATEGIES = {
     "Oversold Low Volume",
     "Overbot Vol Spike",
@@ -188,12 +199,10 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
 
 # Tickers in this set are sized at the strategy's configured risk_bps
 # (i.e. "liquid" / daily_scan sizing). With overflow_active=True, tickers
-# OUTSIDE this set take strategy_config.OVERFLOW_RISK_OVERRIDES (currently
-# OLV 35→25 bps) in sizing step 3a — idempotent for callers that already
-# pass per-tier strategy dicts (the override sets the same scaled bps the
-# overflow variant carries). OVS uses the same path-1 nominal (40 bps)
-# across both universes — see the OVS pre-pass + _ovs_size_mult block in
-# process_signals_fast for the 2-path scheme.
+# OUTSIDE this set take strategy_config's overflow-long base and earnings
+# overrides in sizing steps 3a/3b3b. This is idempotent for callers that
+# already pass per-tier strategy dicts. OVS is a short and takes the full GRM
+# step; its liquid/overflow distinction is the D3.5 tier multiplier.
 _LIQUID_SET = set(LIQUID_PLUS_COMMODITIES)
 
 # -----------------------------------------------------------------------------
@@ -756,6 +765,10 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
                             'sznl': row.get('Sznl', 50),
                             'range_pct': row['RangePct'] * 100,
                             'atr_sznl_5d': row.get('atr_sznl_5d', 50.0),
+                            'rank_ret_2d': row.get('rank_ret_2d', 50.0),
+                            'rank_ret_5d': row.get('rank_ret_5d', 50.0),
+                            'rank_ret_10d': row.get('rank_ret_10d', 50.0),
+                            'rank_ret_21d': row.get('rank_ret_21d', 50.0),
                             'rank_ret_126d': row.get('rank_ret_126d', 50.0),
                             'rank_ret_252d': row.get('rank_ret_252d', 50.0),
                         }
@@ -1010,7 +1023,21 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             # actually stages. The gate/cap threshold dollars stay un-tilted, to
             # match the fixed post-loop daily cap.
             _cyc_m = float(_ovs_cyc.get(_sd.year % 4, 1.0)) if _ovs_cyc else 1.0
-            _base_risk_p1 = starting_equity * _p1_bps / 10000.0 * _ovs_mult * _cyc_m
+            _tier = 'Liquid' if _t_clean in _LIQUID_SET else 'Overflow'
+            _tier_m = tier_risk_mult(_exe, _tier)
+            _rank_rule = _exe.get('rank_mean_risk')
+            _rank_m = 1.0
+            if _rank_rule:
+                _rank_values = {
+                    int(_window): _rd.get(f'rank_ret_{int(_window)}d')
+                    for _window in _rank_rule['windows']
+                }
+                _rank_m, _, _ = rank_mean_risk_decision(
+                    _exe, _rank_values, _sd.year)
+            _base_risk_p1 = (
+                starting_equity * _p1_bps / 10000.0 * _ovs_mult
+                * _cyc_m * _tier_m * _rank_m
+            )
             if _t1_open > _sc + 0.25 * _atr:
                 continue  # P1 — no path-2 contribution (P1-budget gate removed 2026-07-16)
             # P2 — accumulate risk contribution for the pro-rata cap below.
@@ -1033,7 +1060,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             _ovs_p2_scale_by_date[_d] = min(1.0, _p2_cap_dollars / _r) if _r > 0 else 1.0
 
     # Per-(strategy, day) signal counts for execution['same_day_signal_derate']
-    # (3x Bear fade, sizing step 3b4 below). Counted on STAGED candidates
+    # (3x Bear fade + D3.3 IOB clones, sizing step 3b4 below). STAGED candidates
     # (post-blackout), not fills — live sizes at staging time when only the
     # signal count is known. Mirrors daily_scan post-pass 5c; change together.
     _derate_strat_idxs = {
@@ -1046,6 +1073,20 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if _c[3] in _derate_strat_idxs:
                 _k = (_c[3], pd.Timestamp(_c[0]).normalize())
                 _derate_sig_counts[_k] = _derate_sig_counts.get(_k, 0) + 1
+
+    # D3.4 solo/add staged counts. Key by strategy pass so liquid and overflow
+    # same-day clusters match the scanner's per-tier grouping. Filled-open state
+    # is resolved point-in-time in the sizing loop, strategy-wide across tiers.
+    _open_leg_strat_idxs = {
+        i for i, s in enumerate(strategies)
+        if s.get('execution', {}).get('open_leg_mults')
+    }
+    _open_leg_sig_counts = {}
+    if _open_leg_strat_idxs:
+        for _c in candidates:
+            if _c[3] in _open_leg_strat_idxs:
+                _k = (_c[3], pd.Timestamp(_c[0]).normalize())
+                _open_leg_sig_counts[_k] = _open_leg_sig_counts.get(_k, 0) + 1
 
     # Cross-strategy overlap clamp (live 5b): collision keys from STAGED
     # candidates, not fills — live clamps every staged row of the pair when
@@ -1070,12 +1111,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             _td = SPOT_TO_TRADEABLE.get(_c[2], _c[2])
             _fired.setdefault(
                 (pd.Timestamp(_c[0]).normalize(), _td), set()).add(_nm)
-        for _ovr in _CSOO:
-            _pair = set(_ovr['strategies'])
-            _cl = float(_ovr['risk_bps_when_overlapping'])
-            for _key, _names in _fired.items():
-                if len(_names & _pair) >= 2:
-                    _overlap_clamp[_key] = (_pair, _cl)
+        _overlap_clamp = resolve_cross_strategy_overlap_clamps(_fired, _CSOO)
 
     # Build price matrix for all relevant tickers (forward-filled by ticker).
     all_tickers = set(c[2] for c in candidates)
@@ -1376,6 +1412,27 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if _cm != 1.0:
                 base_risk *= _cm
 
+        # --- 3b2b. Universe-tier risk multiplier (D3.5b) ---
+        # Full-book liquid and overflow passes are disjoint; classify by the
+        # same LIQUID_PLUS_COMMODITIES membership used by the ledger. Both OVS
+        # P1 and P2 reach this sizing chain before shares and daily caps.
+        _tier = 'Liquid' if t_clean in _LIQUID_SET else 'Overflow'
+        _tier_m = tier_risk_mult(execution, _tier)
+        if _tier_m != 1.0:
+            base_risk *= _tier_m
+
+        # --- 3b2c. Signal-close rank-mean risk multiplier (D3.5) ---
+        _rank_rule = execution.get('rank_mean_risk')
+        if _rank_rule:
+            _rank_values = {
+                int(_window): row_data.get(f'rank_ret_{int(_window)}d')
+                for _window in _rank_rule['windows']
+            }
+            _rank_m, _, _ = rank_mean_risk_decision(
+                execution, _rank_values, pd.Timestamp(signal_ts).year)
+            if _rank_m != 1.0:
+                base_risk *= _rank_m
+
         # --- 3b3. Fragility risk bands (2026-07-02; P/C fear tables
         # 2026-08-05) --- band table selected by the lag-1 P/C fear state for
         # pc_fear_bands carriers (fear OFF above dial 50 -> 0.0x, trade drops
@@ -1410,17 +1467,33 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 # must stay on the same basis (identical in flat mode).
                 base_risk = equity_for_sizing * float(_eo['risk_bps']) / 10000.0 * _recency_mult * _fbm
 
-        # --- 3b3c. Cross-strategy overlap clamp (live 5b) ---
+        # --- 3b3c. D3.4 strategy-wide solo/add multiplier (live 5a2) ---
+        # Same-day count is post-blackout STAGED candidates in this strategy
+        # pass. Prior-open count is already-filled same-strategy positions open
+        # as of the signal, across tickers/tiers; working candidates do not
+        # count. Apply before the absolute cross-strategy clamp below.
+        if execution.get('open_leg_mults'):
+            _n_staged = _open_leg_sig_counts.get(
+                (strat_idx, signal_date.normalize()), 1)
+            _n_open = sum(
+                1 for p in open_positions
+                if p['strat_name'] == strat_name
+                and p['entry_date'] <= signal_date < p['exit_date']
+            )
+            base_risk *= open_leg_mult(execution, _n_staged, _n_open)
+
+        # --- 3b3d. Cross-strategy overlap clamp (live 5b) ---
         # Absolute clamp on this row's sized risk when both pair members
         # fired (staged) on the same date+tradeable — see the pre-pass above.
         if _overlap_clamp:
             _td = SPOT_TO_TRADEABLE.get(t_clean, t_clean)
-            _oc = _overlap_clamp.get((signal_date.normalize(), _td))
-            if _oc is not None and strat_name in _oc[0]:
-                base_risk = min(base_risk,
-                                equity_for_sizing * _oc[1] / 10000.0)
+            _oc = _overlap_clamp.get(
+                (signal_date.normalize(), _td, strat_name))
+            if _oc is not None:
+                base_risk = min(
+                    base_risk, equity_for_sizing * _oc / 10000.0)
 
-        # --- 3b4. Same-day signal de-rate (3x Bear fade, 2026-07-07) ---
+        # --- 3b4. Same-day staged-signal multiplier (3x Bear + IOB clones) ---
         # execution['same_day_signal_derate']: scale by
         # max(floor, 1 - d*(n-1)) where n = this strategy's staged candidates
         # today (ex-ante count from the pre-loop pass above). Mirrors
@@ -2786,8 +2859,9 @@ def main():
                 "universe: the liquidity/vol-screened overflow_universe.parquet "
                 "UNIONed with the legacy static tier (CSV_UNIVERSE − liquid), "
                 "~1,350 names. Prices stream from master_prices ∪ overflow_prices "
-                "(R2), so names that live only in overflow_prices resolve. Liquid "
-                "and overflow tickers receive identical OVS sizing. "
+                "(R2), so names that live only in overflow_prices resolve. OVS "
+                "liquid rows receive the 0.7x tier multiplier; overflow OVS "
+                "rows remain 1.0x before rank, gap-path, and cap sizing. "
                 f"Affects: {', '.join(sorted(OVERFLOW_ELIGIBLE_STRATEGIES))}. "
                 "Other strategies keep their default universes."
             ),

@@ -87,10 +87,9 @@ except ImportError:
         return None
     ADV_PARTICIPATION_CAP = 0.02
 
-# Strategies that the local overflow scanner runs against the extended pool.
-# Per-strategy risk bps overrides for the overflow pass — match
-# local_overflow_scan.py exactly so the report's PnL reflects what was
-# actually staged.
+# Strategies that daily_scan's unified overflow pass runs against the
+# extended pool. Per-strategy risk bps overrides must match that pass so the
+# report's PnL reflects what was actually staged.
 OVERFLOW_ELIGIBLE = {
     "Overbot Vol Spike",
     "LT Trend ST OS",
@@ -106,7 +105,7 @@ from strategy_config import OVERFLOW_RISK_OVERRIDES
 
 
 def build_full_strategy_book():
-    """Liquid pass + overflow variants, mirroring local_overflow_scan.
+    """Liquid pass plus variants matching daily_scan's overflow scope.
 
     For each overflow-eligible strategy, deep-copy and swap universe_tickers
     to OVERFLOW_TICKERS (extended-only — no overlap with liquid). Apply
@@ -155,7 +154,7 @@ def _automation_strict():
 
 def write_portfolio_to_sheet(open_positions_df, workbook_name='Trade_Signals_Log', tab_name='Portfolio'):
     """Write the current open-positions snapshot to a dedicated tab so other
-    scripts (daily_scan, local_overflow_scan) can read it for ladder sizing.
+    daily_scan can read it for ladder and open-leg sizing.
 
     Always clears the tab at start — even on a zero-position day — so stale
     rows from a prior run never linger. Silently no-ops on auth failure so
@@ -1526,7 +1525,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
 # 7. MAIN EXECUTION
 # -----------------------------------------------------------------------------
 
-def main():
+def main() -> int:
     """
     Main execution function - runs the full portfolio health report.
     """
@@ -1543,7 +1542,7 @@ def main():
         
         if signals_df is None or equity_series is None or equity_series.empty:
             print("[ERROR] Backtest failed - cannot generate report")
-            return
+            return 1
         
         # 2. Generate chart
         print("\n[STATS] Generating charts...")
@@ -1551,20 +1550,20 @@ def main():
         
         if fig is None:
             print("[ERROR] Failed to create chart")
-            return
+            return 1
         
         chart_path = save_chart_as_png(fig, filepath=os.path.join(tempfile.gettempdir(), 'portfolio_health.png'))
         
         if not chart_path:
             print("[ERROR] Failed to save chart - check kaleido installation")
-            return
+            return 1
         
         # 3. Get open positions - FIXED: Use backtest data (same as strat_backtester)
         print("\n[PORTFOLIO] Calculating open positions from backtest...")
         open_positions = get_open_positions_from_backtest(signals_df, master_dict)
 
         # 3a. Mirror open positions to Trade_Signals_Log!Portfolio so daily_scan
-        # and local_overflow_scan can read them for ladder sizing.
+        # and daily_scan can read them for ladder and open-leg sizing.
         print("\n[WRITE] Syncing open positions to Portfolio tab...")
         sheet_ok = write_portfolio_to_sheet(open_positions)
         if _automation_strict() and not sheet_ok:
@@ -1609,6 +1608,7 @@ def main():
             raise RuntimeError("Portfolio report email was not accepted by SMTP")
         
         print("\n[OK] Portfolio health report completed successfully!")
+        return 0
         
     except Exception as e:
         print(f"\n[ERROR] ERROR: {e}")
@@ -1618,4 +1618,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

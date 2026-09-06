@@ -48,8 +48,12 @@ try:
         STRATEGY_BOOK, ACCOUNT_VALUE, SPOT_TO_TRADEABLE,
         CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES,
         CROSS_STRATEGY_OVERLAP_OVERRIDES,
+        resolve_cross_strategy_overlap_clamps,
         GLOBAL_RISK_MULTIPLIER,
         STRATEGY_BASE_TILT,
+        open_leg_mult,
+        tier_risk_mult,
+        rank_mean_risk_decision,
         same_day_derate_mult,
     )
 except ImportError:
@@ -62,6 +66,17 @@ except ImportError:
     GLOBAL_RISK_MULTIPLIER = 1.0
     STRATEGY_BASE_TILT = {}
     CROSS_STRATEGY_OVERLAP_OVERRIDES = []
+    def resolve_cross_strategy_overlap_clamps(fired_by_key, overrides):
+        return {}
+
+    def open_leg_mult(execution, staged_count, prior_open_count):
+        return 1.0
+
+    def tier_risk_mult(execution, tier):
+        return 1.0
+
+    def rank_mean_risk_decision(execution, rank_values, signal_year):
+        return 1.0, None, False
 
     def same_day_derate_mult(execution, n_signals):
         return 1.0
@@ -100,7 +115,8 @@ except ImportError:
 MASTER_PRICES_PATH = os.path.join(current_dir, "data", "master_prices.parquet")
 
 # Strategies the overflow scope expands to CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES.
-# Mirrors local_overflow_scan.OVERFLOW_STRATEGIES + daily_portfolio_report.OVERFLOW_ELIGIBLE.
+# Shared with daily_portfolio_report.OVERFLOW_ELIGIBLE; daily_scan is the
+# authoritative unified scanner for both tiers.
 OVERFLOW_ELIGIBLE_STRATEGIES = {
     "Overbot Vol Spike",
     "LT Trend ST OS",
@@ -1971,6 +1987,70 @@ def base_tilt_note(strat_name):
         return ""
     return f" | tilt {tilt:.2f}x"
 
+
+def apply_open_leg_sizing(signals, execution_by_strategy,
+                          prior_open_by_strategy):
+    """Apply D3.4 after staged counts are known without changing cap order.
+
+    The row carries its pre-round sizing risk and stop distance from the main
+    sizing loop. Recomputing ``int(target_risk / stop_distance)`` here matches
+    the engine's multiply-then-floor order; multiplying an already-rounded
+    share count does not. Any hard share ceiling applied earlier (ADV or
+    concurrent-notional) is retained, so the 1.2x add state can never reopen
+    capacity that a hard cap removed.
+    """
+    from collections import Counter as _Counter
+
+    staged = _Counter(
+        (row.get('Strategy_Name'), row.get('Scan_Source'))
+        for row in signals
+        if row.get('Strategy_Name') in execution_by_strategy
+    )
+    scaled = 0
+    for row in signals:
+        name = row.get('Strategy_Name')
+        execution = execution_by_strategy.get(name)
+        if execution is None:
+            continue
+
+        try:
+            base_risk = float(row.pop('_Open_Leg_Base_Risk'))
+            stop_distance = float(row.pop('_Open_Leg_Stop_Distance'))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{name} open-leg row is missing valid pre-round sizing metadata"
+            ) from exc
+        hard_cap = row.pop('_Open_Leg_Hard_Share_Cap', None)
+        if (not np.isfinite(base_risk) or base_risk < 0
+                or not np.isfinite(stop_distance) or stop_distance <= 0):
+            raise ValueError(f"{name} open-leg sizing metadata is invalid")
+        if hard_cap is not None:
+            hard_cap = int(hard_cap)
+            if hard_cap < 0:
+                raise ValueError(f"{name} open-leg hard share cap is negative")
+
+        n_staged = staged.get((name, row.get('Scan_Source')), 1)
+        n_open = int(prior_open_by_strategy.get(name, 0))
+        mult = open_leg_mult(execution, n_staged, n_open)
+        target_risk = base_risk * mult
+        shares = int(target_risk / stop_distance)
+        cap_bound = hard_cap is not None and shares > hard_cap
+        if cap_bound:
+            shares = hard_cap
+
+        row['Shares'] = shares
+        row['Risk_Amt'] = shares * stop_distance if cap_bound else target_risk
+        row['Notional'] = shares * float(row.get('Entry', 0.0))
+        state = ('adds' if mult == float(execution['open_leg_mults']['adds'])
+                 else 'solo')
+        note = (f"{row.get('Sizing_Notes', '')} | Open-leg {state}: "
+                f"{n_staged} staged/{n_open} prior open -> {mult:.2f}x")
+        if cap_bound:
+            note += f" | hard share cap retained: {hard_cap}"
+        row['Sizing_Notes'] = note
+        scaled += 1
+    return scaled
+
 def build_live_filters(strat, last_row, df):
     """
     Builds a list of filter descriptions with their LIVE values from the scan.
@@ -3085,12 +3165,19 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                    if s['execution'].get('ticker_notional_cap')}
     open_notionals = load_open_position_notionals(_cap_strats)
 
-    # 4c. Ladder position counts — counts currently-held filled primary signals
-    # per (ticker, strategy) so repeat signals size up on each successive day.
+    # 4c. Filled-open position counts. The dormant ladder consumes the
+    # ticker-specific keys; D3.4 open_leg_mults consumes a strategy-wide sum.
     ladder_strats = {s['name'] for s in effective_book if s['execution'].get('ladder_multipliers')}
-    ladder_counts = load_open_position_counts(ladder_strats)
+    _open_leg_strats = {s['name'] for s in effective_book if s['execution'].get('open_leg_mults')}
+    _position_count_strats = ladder_strats | _open_leg_strats
+    ladder_counts = load_open_position_counts(_position_count_strats)
     if ladder_counts:
-        print(f"[UP] Ladder: {len(ladder_counts)} open ({', '.join(f'{t}/{s[:12]}={c}' for (t, s), c in list(ladder_counts.items())[:5])}{'...' if len(ladder_counts) > 5 else ''})")
+        print(f"[UP] Filled-open counts: {len(ladder_counts)} ticker/strategy keys")
+    _open_legs_by_strat = {}
+    for (_ticker, _strategy_name), _count in ladder_counts.items():
+        if _strategy_name in _open_leg_strats:
+            _open_legs_by_strat[_strategy_name] = (
+                _open_legs_by_strat.get(_strategy_name, 0) + int(_count))
 
     # Per-ticker indicator memo shared across the strategy loop — see
     # memoized_indicators. Keys: (ticker, market-series source, ref-config).
@@ -3363,15 +3450,49 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
 
                     # 2c2. CYCLE-YEAR RISK MULTIPLIER (e.g. OVS midterm 0.75x).
                     # execution['cycle_risk_mults'] = {year%4: mult}. Applies to
-                    # OVS too (unlike the fragility multiplier) — but note the
-                    # OVS P1 fixed-dollar resize in order_staging.py carries its
-                    # own OVS_CYCLE_MULTS mirror, since it clobbers Risk_Amt.
+                    # OVS too (unlike the fragility multiplier). The staged
+                    # Risk_Amt is the live source of truth downstream.
                     _cyc = strat['execution'].get('cycle_risk_mults')
                     if _cyc:
                         _cm = float(_cyc.get(last_row.name.year % 4, 1.0))
                         if _cm != 1.0:
                             risk = risk * _cm
                             sizing_note += f" | Cycle yr%4={last_row.name.year % 4}: {_cm:.2f}x"
+
+                    # 2c3. GENERIC TIER RISK MULTIPLIER (D3.5b). OVS liquid
+                    # runs 0.7x; overflow defaults to 1.0x. This is applied to
+                    # unrounded P1 risk, so order_staging's P2 ratio and all
+                    # downstream caps consume the already-tiered row.
+                    _tier_rule = strat['execution'].get('tier_risk_mults')
+                    _trm = tier_risk_mult(strat['execution'], _scan_source)
+                    if _trm != 1.0:
+                        risk = risk * _trm
+                    if _tier_rule:
+                        sizing_note += f" | Tier {_scan_source}: {_trm:.2f}x"
+
+                    # 2c4. SIGNAL-CLOSE RANK-MEAN RISK (D3.5). The OVS mask
+                    # already requires finite 2/5/10/21d ranks. A malformed
+                    # row is unclassifiable/no-op; midterms are explicitly
+                    # exempt because the existing 0.75 cycle cut applies.
+                    _rank_rule = strat['execution'].get('rank_mean_risk')
+                    if _rank_rule:
+                        _rank_values = {
+                            int(_window): last_row.get(f'rank_ret_{int(_window)}d')
+                            for _window in _rank_rule['windows']
+                        }
+                        _rmm, _rank_mean, _rank_exempt = rank_mean_risk_decision(
+                            strat['execution'], _rank_values, last_row.name.year)
+                        if _rmm != 1.0:
+                            risk = risk * _rmm
+                        if _rank_mean is None:
+                            sizing_note += " | Rank-mean unclassifiable: 1.00x"
+                        elif _rank_exempt:
+                            sizing_note += (
+                                f" | Rank mean {_rank_mean:.2f}, midterm exempt: 1.00x")
+                        else:
+                            _rank_cell = 'bottom' if _rmm != 1.0 else 'top'
+                            sizing_note += (
+                                f" | Rank mean {_rank_mean:.2f} {_rank_cell}: {_rmm:.2f}x")
 
                     # 2d. EARNINGS SIZE OVERRIDE — replace the BASE risk with
                     # the configured bps when signal_date sits in the offset
@@ -3382,7 +3503,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # band carrier as an appetite cut; a cut that silently
                     # vanished inside the earnings window would defeat it —
                     # this is the OLV prereg's gate-5 composition decision).
-                    # Every OTHER multiplier (cycle, tier) is still clobbered.
+                    # Every OTHER multiplier (cycle, tier, rank-mean) is still
+                    # clobbered. Current carriers do not overlap those fields.
                     # NaN offsets (commodity ETFs / indices / futures with no
                     # earnings data) bypass the override. Mirrored in
                     # strat_backtester 3b3b.
@@ -3416,6 +3538,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                         dist = stop_price - entry
                         action = "SELL SHORT"
                     
+                    _open_leg_base_risk = float(risk)
+                    _open_leg_hard_share_cap = None
                     shares = int(risk / dist) if dist > 0 else 0
 
                     # Morning-run OVS size match: if this ticker already has an OVS
@@ -3429,6 +3553,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                         if shares > _of_qty:
                             _orig_shares = shares
                             shares = _of_qty
+                            _open_leg_hard_share_cap = shares
                             # Recompute risk $ to reflect capped shares
                             risk = shares * dist
                             sizing_note = f"{sizing_note} | OVS morning-match overflow: {_orig_shares} → {shares} shares"
@@ -3444,12 +3569,21 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                         if _info is not None:
                             _addv_63d = _info.get('addv_63d')
                             _cap = adv_share_cap(_addv_63d, entry, ADV_PARTICIPATION_CAP)
-                            if _cap is not None and 0 < _cap < shares:
-                                _orig = shares
-                                shares = _cap
-                                risk = shares * dist
-                                sizing_note = (f"{sizing_note} | ADV cap "
-                                               f"({ADV_PARTICIPATION_CAP:.0%} ADDV): {_orig} → {shares} sh")
+                            if _cap is not None and _cap > 0:
+                                _cap = int(_cap)
+                                # Preserve the computed ceiling even when it
+                                # is slack at base size: D3.4's later 1.2x
+                                # post-pass must not grow through it.
+                                _open_leg_hard_share_cap = (
+                                    _cap if _open_leg_hard_share_cap is None
+                                    else min(_open_leg_hard_share_cap, _cap)
+                                )
+                                if _cap < shares:
+                                    _orig = shares
+                                    shares = _cap
+                                    risk = shares * dist
+                                    sizing_note = (f"{sizing_note} | ADV cap "
+                                                   f"({ADV_PARTICIPATION_CAP:.0%} ADDV): {_orig} → {shares} sh")
 
                     # Per-ticker concurrent notional cap (OLV, 2026-07-20):
                     # stacked legs in ONE single-stock ticker may not exceed
@@ -3467,10 +3601,17 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                             _tnc_cap = float(_tnc['pct_nav']) * ACCOUNT_VALUE
                             _tnc_open = open_notionals.get((t_clean, strat['name']), 0.0)
                             _tnc_new = shares * entry
+                            _tnc_room = max(0.0, _tnc_cap - _tnc_open)
+                            _tnc_share_cap = int(_tnc_room / entry) if entry > 0 else 0
+                            # As with ADV, record a slack ceiling so a later
+                            # open-leg multiplier cannot grow through it.
+                            _open_leg_hard_share_cap = (
+                                _tnc_share_cap if _open_leg_hard_share_cap is None
+                                else min(_open_leg_hard_share_cap, _tnc_share_cap)
+                            )
                             if _tnc_open + _tnc_new > _tnc_cap:
-                                _tnc_room = max(0.0, _tnc_cap - _tnc_open)
                                 _orig_sh = shares
-                                shares = int(_tnc_room / entry) if entry > 0 else 0
+                                shares = _tnc_share_cap
                                 risk = shares * dist
                                 sizing_note = (
                                     f"{sizing_note} | Notional cap "
@@ -3616,6 +3757,15 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                         "Scan_Source": _scan_source,
                     }
 
+                    if strat['execution'].get('open_leg_mults'):
+                        # Scanner-only inputs consumed and removed by the
+                        # post-pass before any row can reach Sheets.
+                        signal_dict.update({
+                            "_Open_Leg_Base_Risk": _open_leg_base_risk,
+                            "_Open_Leg_Stop_Distance": float(dist),
+                            "_Open_Leg_Hard_Share_Cap": _open_leg_hard_share_cap,
+                        })
+
                     signals.append(signal_dict)
             except Exception as e:
                 error_tickers.append((t_clean, str(e)[:80]))
@@ -3629,6 +3779,22 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     # No scanner-side risk cap — order_staging.py applies the 2.5% backstop
     # post-open across all signals (incl. OVS), which is the single source of
     # truth for aggregate risk control.
+
+    # 5a2. D3.4 strategy-wide solo/add sizing. A row is an add when either the
+    # same strategy staged 2+ candidates in this tier today OR its nightly
+    # Portfolio snapshot has any filled-open leg (any ticker/tier). Every row
+    # on a cluster day receives the same ex-ante 1.2x; fill outcomes and working
+    # limits are unknown and do not enter the rule. This precedes the absolute
+    # cross-strategy clamp below. Mirrored in engine sizing 3b3c.
+    _open_leg_execs = {
+        s['name']: s['execution'] for s in effective_book
+        if s.get('execution', {}).get('open_leg_mults')
+    }
+    if _open_leg_execs and all_signals:
+        _open_leg_scaled = apply_open_leg_sizing(
+            all_signals, _open_leg_execs, _open_legs_by_strat)
+        if _open_leg_scaled:
+            print(f"[OPEN-LEG MULT] Scaled {_open_leg_scaled} WCDS/LT signal(s).")
 
     # 5b. Cross-Strategy Overlap Clamp — apply CROSS_STRATEGY_OVERLAP_OVERRIDES.
     # When a defined pair of strategies both fire on the same date and same
@@ -3645,53 +3811,45 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
             _td = SPOT_TO_TRADEABLE.get(_tkr, _tkr)
             _date_traded_to_strats[(_s.get('Date'), _td)].add(_s.get('Strategy_Name'))
 
+        _row_clamps = resolve_cross_strategy_overlap_clamps(
+            _date_traded_to_strats, CROSS_STRATEGY_OVERLAP_OVERRIDES)
         _clamp_count = 0
-        for _ovr in CROSS_STRATEGY_OVERLAP_OVERRIDES:
-            _pair = set(_ovr['strategies'])
-            _clamp_bps = float(_ovr['risk_bps_when_overlapping'])
+        for _s in all_signals:
+            _tkr = str(_s.get('Ticker', ''))
+            _td = SPOT_TO_TRADEABLE.get(_tkr, _tkr)
+            _clamp_bps = _row_clamps.get(
+                (_s.get('Date'), _td, _s.get('Strategy_Name')))
+            if _clamp_bps is None:
+                continue
             # Absolute clamp on the row's staged risk ("reduced TO clamp
             # bps"), not a proportional rescale off the base bps — so frag /
-            # P/C multipliers already in Risk_Amt can't push a clamped row
+            # P/C multipliers already in Risk_Amt cannot push a clamped row
             # above the clamp, and rows already below it are left alone.
             _clamp_amt = ACCOUNT_VALUE * _clamp_bps / 10000.0
-            # Find collision keys: (date, traded) where >= 2 strategies in _pair fired.
-            _collisions = {
-                _key for _key, _strats in _date_traded_to_strats.items()
-                if len(_strats & _pair) >= 2
-            }
-            if not _collisions:
+            _risk = float(_s.get('Risk_Amt', 0.0))
+            if _risk <= _clamp_amt:
                 continue
-            for _s in all_signals:
-                if _s.get('Strategy_Name') not in _pair:
-                    continue
-                _tkr = str(_s.get('Ticker', ''))
-                _td = SPOT_TO_TRADEABLE.get(_tkr, _tkr)
-                if (_s.get('Date'), _td) not in _collisions:
-                    continue
-                _risk = float(_s.get('Risk_Amt', 0.0))
-                if _risk <= _clamp_amt:
-                    continue
-                _scale = _clamp_amt / _risk
-                _orig_shares = _s.get('Shares', 0)
-                _s['Shares'] = int(round(_orig_shares * _scale))
-                _s['Risk_Amt'] = _risk * _scale
-                _s['Notional'] = float(_s.get('Notional', 0.0)) * _scale
-                _s['Sizing_Notes'] = (
-                    f"{_s.get('Sizing_Notes', '')} | "
-                    f"Cross-strategy overlap clamp -> {_clamp_bps:.0f} bps "
-                    f"effective (scale {_scale:.2f})"
-                )
-                _clamp_count += 1
+            _scale = _clamp_amt / _risk
+            _orig_shares = _s.get('Shares', 0)
+            _s['Shares'] = int(round(_orig_shares * _scale))
+            _s['Risk_Amt'] = _risk * _scale
+            _s['Notional'] = float(_s.get('Notional', 0.0)) * _scale
+            _s['Sizing_Notes'] = (
+                f"{_s.get('Sizing_Notes', '')} | "
+                f"Cross-strategy overlap clamp -> {_clamp_bps:.0f} bps "
+                f"effective (scale {_scale:.2f})"
+            )
+            _clamp_count += 1
         if _clamp_count:
             print(f"[OVERLAP CLAMP] Reduced risk on {_clamp_count} signal(s) due to cross-strategy date+tradeable collisions.")
 
-    # 5c. Same-day signal de-rate (3x Bear ETF Overbot Fade, 2026-07-07).
+    # 5c. Same-day staged-signal multiplier (3x Bear fade + D3.3 IOB clones).
     # Any strategy with execution['same_day_signal_derate'] has every one of
     # today's signals scaled by max(floor, 1 - d*(n-1)), n = that strategy's
     # signal count in this scan (per tier). Count is ex-ante (staged signals,
-    # not fills): several inverse-3x names overbought at once marks a violent
-    # selloff where per-trade edge degrades. Runs as a post-pass because n is
-    # only known after the strategy's ticker loop. Mirrored in
+    # not fills). The 3x Bear carrier grades crowded selloffs; IOB's exact
+    # two-index universe halves SPY+QQQ when both fire. Runs as a post-pass
+    # because n is only known after the ticker loop. Mirrored in
     # strat_backtester sizing 3b4 — change together.
     _derate_execs = {
         s['name']: s['execution'] for s in effective_book

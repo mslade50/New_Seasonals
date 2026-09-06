@@ -10,7 +10,7 @@ given), DONE (commit hash). Move items down, never delete them.
 - O2. D7 OLV EOD book cap: McKinley wants to understand usefulness first. Mind's assessment (2026-09-04): insurance with a known premium (ledger replay binds ~10 days / 3 episodes since 2015, ~$58k of $362k OLV PnL forgone, every clipped leg a winner; live would bind more often given pre-07-29 live sizes 1.15-2.85x ledger) against a tail the ledger never realized (OLV's worst drawdowns were idiosyncratic at dial 20-50, SPY flat). Not needed this fortnight (no OLV up-lever); D10's hedge work is the cheaper bound. DECIDED by OWNER 2026-09-04: leave the OLV EOD book cap disabled for now. Re-ask when the D10 hedge prereg lands or when any OLV up-lever is proposed.
 - O3. DONE 2026-09-04: McKinley keeps the pitch cadence daily. D6's event-trigger change is withdrawn; watchlist expiry (20 td) and registry-by-cell index remain as quality items, low priority.
 - O4. DONE 2026-09-04 (see A7): D8 review part 1 ran; all three legs STAND; recorded in the prereg Status block and CLAUDE.md.
-- O21. OLV pivot-aware entry policy (live since 2026-08-31, modeled + tested on all three sides per recon_parity): its evidence ("359 completed fills, +8.68R", strategy_config comment) exists nowhere in the repo, and 111 of 195 pivot sources on 2026-09-03 are older than the cache's re-adjust window. Decision: keep live; a research brief must reproduce the evidence this fortnight or the policy flag goes off; CLAUDE.md entry owed; basis question waits on recon_data_window.
+- O21. DONE 2026-09-05 (see D-I): the pivot study reproduced and corrected the evidence, the basis audit found 1 of 19 policy assignments flipped, CLAUDE.md records the policy, and OWNER chose KEEP as a drawdown/appetite control rather than an edge rule.
 - O22. order_staging's REL_CLOSE close-gap guard (limit moved to open +/- 0.15 ATR on a > 0.5 ATR gap-down through it) is live and unmodeled in the engine across all 7 persistent-limit strategies (recon_parity finding 1). Decision: document in CLAUDE.md now; model it once the fills store can size the effect.
 - O24. OWNER, TODAY: sell CMI 54 sh (primary) by hand; confirm POWI 637 sh's time leg (15:59 today) is still working in TWS. See D14.
 - O25. OWNER: put trading_ibkr under git in place per `artifacts/recon_2026-09-04/onedrive/git_plan.md` (8 PowerShell steps, object store outside OneDrive via --separate-git-dir, secrets/journals/flags ignored); pin the folder "Always keep on this device". Do this before the OLV exit fix is reviewed so the diff is recorded.
@@ -23,12 +23,15 @@ given), DONE (commit hash). Move items down, never delete them.
 - O31. Legend-EMA/Databento scripts (2,557 lines, tests 34/34, uncommitted, adds databento/keyring to requirements.txt): OWNER says commit with deps or move deps to a research requirements file.
 - O32. Dynamic overflow universe: ALREADY ON MAIN since 2026-06-05 (cd4f83d5, 447a2dcf), gate OFF; the memory note saying "nothing committed" was stale and is corrected. Activation needs `OVERFLOW_UNIVERSE_ACTIVE=1` in the runtime env plus `data/overflow_universe.parquet`.
 - O33. Scheduled full re-adjust of master_prices (monthly) to reset the 120-day-window basis steps (D15); brief owed after D13.
-- O34. OWNER CALL: OLV pivot policy KEEP or FLAG OFF. Study done 2026-09-04 (`scratch/ultracode_research/olv_pivot_evidence_2026-09-04/`): no per-signal edge (affected-signal diff -4.6R, clustered t -0.33; total OLV PnL unchanged), the cited +8.68R was policy-v2 vs policy-v1 (vs no policy the same sample is -5.9R); what it buys is fewer fills and smaller drawdowns (worst-21d -$37k vs -$60k, maxDD -$41k vs -$65k, both June 2026). Basis stability holds (1 of 19 flips). Mind's recommendation: FLAG OFF (no edge, wrong evidence claim, silently reshapes the ledger); keeping it is a legitimate appetite cut if recorded as such with the corrected numbers.
-- O37. `build_olv_exit_fix` DONE 2026-09-04 08:08 ET in OneDrive (backup `_backup_20260904_olv_exit_prepatch/`; 28 tests; cancel-then-sell, standalone OPG/DAY sell with no OCA group, verify-the-reject with time-exit re-arm, UNKNOWN/CANCEL_FAILED fail loud, one same-day retry, alert email). Verifier `verify_olv_exit_fix` launched. OWNER DISABLED `IBKR OLV Pre-Market Exits` at 08:11 ET 2026-09-04 (unverified code; CMI handled by hand, POWI exits via its time leg 15:59). Re-enable Monday 2026-09-07 before 09:10 ONLY after the verifier reports PASS: `powershell -Command "Enable-ScheduledTask -TaskName 'IBKR OLV Pre-Market Exits'"`. Builder design choices for the mind to ratify: re-armed clone keeps the ORIGINAL time-leg orderRef; UNKNOWN re-arms nothing; time leg cancelled last.
+- O34. DONE 2026-09-05 (see D-I): OWNER chose KEEP. The policy is explicitly an appetite/fewer-fills/drawdown control, not an edge rule; the corrected study numbers govern future references.
+- O37. DONE 2026-09-05: after the verified exit-runner PASS and an exact
+  source-hash check, OWNER re-enabled `IBKR OLV Pre-Market Exits`. Task state
+  is Ready; next scheduled run is 2026-09-07 09:10:10 ET; last result is 0.
 - O36. `build_ops_supervisor` DONE 2026-09-04 (1,442 passed): premarket-retry task 05:30 (window 05:30-07:00 ET), invocation-scoped controller exit codes, stable state root under artifacts/automation with cutover copy-forward, -PruneSuperseded, two cron lines in the window, cadence doc. Verify brief `verify_ops_supervisor.md` launched. Mind's open calls from its handoff: widen the retry window to 08:30? add `--ignore-window` to resolve's dependent dispatch? (both deferred to after the verify).
 - O44. OWNER, next week (Mon 09-07 or Tue 09-08, 10:00-16:00 ET, no other change that day): the v9 cutover. Full operator sequence with elevated steps marked is in the ops verifier's report (`artifacts/verify_2026-09-04/ops_supervisor/round2/`, section 7) and summarised in `docs/local_automation_task_scheduler.md`; the mind will paste it into this list on request. Order: tag main -> bump `AUTOMATION_RUNTIME_REF` + its test -> Prepare -> RegisterDisabled (-WhatIf first) -> `wevtutil sl Microsoft-Windows-TaskScheduler/Operational /e:true` (elevated) -> Cutover (-WhatIf first) -> Status; prune superseded generations only after one clean morning. THEN the SOXS upload (O40 command). Then `status premarket` after 05:45 and 07:30 the next morning.
 - O23. DONE 2026-09-04 (see D-H). resolve the 2026-09-02 `execution_report` receipt (disposition `failure` unless the email is found to have gone out) so the controller stops exiting red on it.
-- O5. D9 study DONE (see A6); decision D12 (liquid OVS 0.5x) recorded; OWNER veto window open until the OVS build brief is written.
+- O5. DONE 2026-09-05 (see D-L): D9/D12's liquid OVS 0.5x and the D3.5
+  non-midterm bottom-extremity 0.7x are built and independently verified.
 - O6. D10 hedge prereg rewrite + MES round trip (December contract).
 - O7. D11 ops fixes: health task, task pruning, operational log, persistent runtime logs, 05:30 S4U re-run task, cutover cadence rule in docs.
 - O8. D11: resolve the 2026-09-02 `execution_report` receipt (verify whether the email went out first).
@@ -44,6 +47,11 @@ given), DONE (commit hash). Move items down, never delete them.
 - O18. Standing idea: trading_ibkr under git in place (secrets ignored) before any edit there. Recon decides the how.
 - O19. Standing idea: one 08:45 morning digest replacing the 4-5 morning emails.
 - O20. Standing idea: monthly statement-to-ledger match as a series (ledger size understates live size before a rule ships).
+- O45. DONE 2026-09-05: OWNER chose to keep GRM 1.5 after D3.6 failed its
+  registered engine gate. The D3.6 source/test experiment was removed from the
+  isolated worktree; D3.1-D3.5 and all failure evidence were preserved.
+- O46. DONE 2026-09-05 (see D-N): OWNER superseded liquid OVS 0.5x with
+  0.7x. Overflow, rank-mean, cycle, P1/P2 and cap policies are unchanged.
 
 ## AGREED
 
@@ -60,6 +68,11 @@ given), DONE (commit hash). Move items down, never delete them.
 - A9. Incident write-up `docs/incidents/2026-09-03_scan_am_stall.md` written 2026-09-04 (three corrections to the ops audit recorded inside it). D1's precondition for the one cutover is met.
 - A11. recon_onedrive, recon_data_window, recon_worktree DONE 2026-09-04; reports under `artifacts/recon_2026-09-04/{onedrive,data_window,worktree}/`. OneDrive tests 421/421 pass; config drift clean except two order_staging fallback constants; no git; ExecAgent live on both accounts; three runners lack the verify-the-reject guard.
 - A12. Builders launched 2026-09-04 (second wave): `build_olv_exit_fix` (verify brief ready), `build_tests_hygiene`, `build_sizing_d31_d32`, `build_ops_supervisor`, `build_ops_fills_ledger`; study `study_olv_pivot_evidence`. `build_soxs_repair` written, held until the sizing verify completes.
+- A13. D3.5 OVS extremity + liquid-tier sizing DONE + VERIFIED PASS
+  2026-09-05; see D-L. D3.6 is now the remaining sizing ship-list item.
+- A14. D3.6 GRM 1.875 + overflow-long exclusion build and independent verify
+  completed 2026-09-05 with formal FAIL; see D-M and O45. OWNER kept GRM 1.5,
+  and the failed source/test experiment was removed. D3.1-D3.5 remain accepted.
 - A10. Builders launched 2026-09-04: `build_tests_hygiene`, `build_sizing_d31_d32` (verify brief `verify_sizing_d31_d32` ready), `build_ops_supervisor`, `build_ops_fills_ledger`.
 
 - O35. CONCURRENT SESSION HAZARD (2026-09-04 ~07:50 ET): another session has STAGED (git add) a 562-line overlay-free-Portfolio change in this working tree (pages/strat_backtester.py +39, scripts/build_trade_ledger.py +271, scripts/build_site.py, site/*, three tests) while this session's builders edit strat_backtester.py (sizing) and build_trade_ledger.py (ledger sha). The mind commits its own work by explicit path only and will not commit those files until that session lands its change. OWNER: which session is that, and can it commit or unstage?
@@ -73,10 +86,68 @@ given), DONE (commit hash). Move items down, never delete them.
 
 ## DONE
 
+- D-N. Liquid-tier OVS 0.7x OWNER OVERRIDE implemented 2026-09-05. The
+  D9/D12 0.5x study and D3.5 verification remain frozen history; this is an
+  explicit risk-appetite change, not a post-hoc edge claim. At GRM 1.5 the
+  before-cap contract is liquid normal P1/P2 42.0/8.4 effective bps, liquid
+  non-midterm bottom-rank 29.4/5.88, liquid midterm 31.5/6.3, and overflow
+  normal 60/12. Build/verify briefs:
+  `docs/briefs/2026-09-05/{build,verify}_ovs_liquid_070.md`.
+
+- D-M. D3.6 GRM 1.875 + overflow-long exclusion BUILT but VERIFIED FAIL
+  2026-09-05 in `codex/fortnight-d33-clamps`. The implementation itself
+  reconciled: 41 GRM-denominated
+  fields scale once; all three consumers agree; four overflow-long base
+  exemptions and both earnings-size exemptions are exact; fixed caps and
+  D3.2-D3.5 dimensionless rules stay unchanged. Focused 54/54; full suite
+  1,510 passed with zero D3.6 regressions (the lone price-island failure
+  reproduces on unchanged main). Builder and independent frozen replays both
+  found only $17,583.24/year of 2010+ improvement versus the required $30,000,
+  a $12,416.76 shortfall. The other three gates pass: D3.5-control maxDD is
+  $23,781.42 better than pre-D3, D3.6 worst-21d is 0.7386x pre-D3, and the
+  2016+ drawdown trough is 2024-04-19. OWNER chose GRM 1.5; the failed D3.6
+  source/test experiment was removed after verification, while D3.1-D3.5 and
+  the full evidence were preserved. Evidence:
+  `artifacts/{build,verify}_2026-09-05/d36_grm_step/`.
+
+- D-L. D3.5 OVS rank-mean + liquid-tier sizing BUILT + VERIFIED PASS
+  2026-09-05 in `codex/fortnight-d33-clamps` (uncommitted by fortnight rule):
+  signal-close mean rank_2/5/10/21 below 94 sizes 0.7x outside midterms;
+  year%4==2 is exempt while its existing 0.75 cycle cut remains; liquid OVS
+  sizes 0.5x and overflow 1.0x on P1/P2. Independent attacks proved strict
+  93.999/94, missing/non-finite fail-open, point-in-time snapshots, configured
+  overflow 1.00x note stamping, and nonbinding/exact/binding mixed-tier P2
+  cap arithmetic with cycle x tier x rank exactly once. Focused verifier
+  74/74; full suite 1,499 passed with 0 D3.5 regressions (the lone price-island
+  failure reproduces on unchanged main). Independent four-arm replay matched
+  24,676 candidates and 4,700 rows/arm; 889 combined positions resized and
+  zero midterm positions changed by the extremity-only arm. Combined versus
+  D3.4: 2010+ annual PnL -$1.6k, Sharpe +0.027, maxDD unchanged; 2016-07+
+  annual PnL -$1.75k, Sharpe +0.048, maxDD $0.66k better, worst day $9.0k
+  better and worst-21d $2.8k worse. Evidence:
+  `artifacts/{build,verify}_2026-09-05/d35_ovs_risk_mults/`.
+
+- D-K. D3.4 WCDS/LT Trend solo-add sizing BUILT + VERIFIED PASS (round 3)
+  2026-09-05 in `codex/fortnight-d33-clamps` (uncommitted by fortnight rule):
+  true solos size 0.8x; 2+ same-tier/day staged rows or any strategy-wide
+  filled-open leg size 1.2x; working limits do not count. Two verifier FAIL
+  rounds closed scanner/engine one-share rounding drift and both binding/slack
+  ADV + concurrent-notional ceiling escapes. Focused 44/44; full suite 1,488
+  passed with 0 D3.4 regressions (the lone price-island failure reproduces on
+  unchanged main). Frozen replay: 4,700 trades in both arms, 467 rows resized;
+  versus D3.3, 2010+ annual PnL +$1.6k, Sharpe +0.008, maxDD -$3.6k worse;
+  2016-07+ annual PnL +$1.5k, Sharpe +0.005, maxDD -$0.4k worse. Evidence:
+  `artifacts/build_2026-09-05/d34_open_leg_mults/` and
+  `artifacts/verify_2026-09-05/d34_open_leg_mults/round3/`.
+
+- D-J. D3.3 clone clamps BUILT + VERIFIED PASS 2026-09-05 in `codex/fortnight-d33-clamps` (uncommitted by fortnight rule): IOB alone halves when both staged index signals fire; the five frozen 20-bps-nominal cross-strategy pairs join the incumbent IOB+MonFri pair; shared minimum-per-strategy resolution closes the engine's triple-collision last-pair-overwrite bug. Independent attacks proved aliases, absolute-then-clone order, staged-not-filled semantics, per-tier scan counting, pair-order invariance and no below-clamp raise. Focused 25/25; full suite 1,473 passed with 0 D3.3 regressions (the lone price-island failure reproduces unchanged on main). Full-history replay: 4,700 trades in both arms, 201 rows resized; versus the D3.2 control, 2010+ annual PnL -$7.8k, Sharpe -0.001, maxDD +$16.2k better, worst day/21d unchanged; 2016-07+ annual PnL -$12.0k, Sharpe -0.039, drawdown extrema unchanged. Evidence: `artifacts/{build,verify}_2026-09-05/d33_clone_clamps/`.
+
+- D-I. OLV pivot policy KEEP (OWNER, 2026-09-05). The 2026-09-04 study (`scratch/ultracode_research/olv_pivot_evidence_2026-09-04/`) found no per-signal edge (affected-signal diff -4.6R, clustered t -0.33; total OLV PnL approximately unchanged). The old +8.68R citation was policy-v2 versus policy-v1, not policy versus no policy (the same sample versus no policy was -5.9R). KEEP is an explicit appetite choice: fewer fills and smaller June-2026 drawdowns (worst-21d -$37k versus -$60k; maxDD -$41k versus -$65k). Basis stability: 1 of 19 policy assignments flipped. `pivot_entry_policy.enabled` remains true; future docs must not call it an evidenced edge.
+
 - D-H. 2026-09-02 `execution_report` receipt resolved by the mind 2026-09-04 as `failure operator` (reason recorded in the receipt); the controller stops exiting red on it. The 09-02 report email is unrecoverable (log destroyed); the 09-03 report succeeded.
 - D-G. Local automation v9 contents committed b2c4da08 (D11; two verify rounds + round 3 fixes; 1,488 tests). Not in production until the v9 cutover (O44).
 - D-F. SOXS island repair + segment-aware basis guard (D13) committed 2026-09-04 (verify PASS + round 3: length-rule tol 0.10, --only-tickers implies --no-upload; 39 tests). Local parquet repaired (backup `data/master_prices.parquet.bak_20260904_soxs`); R2 upload pending the v9 cutover (command in O40).
-- D-E. OLV pre-market exit runner FIXED 2026-09-04 (D14): OneDrive `olv_exit_moo.py` sha256 3e8c1ad9..., `test_olv_exits.py` b393adc8... (40 tests); backups `_backup_20260904_olv_exit_{prepatch,round1,round2}/`; second verifier PASS + round-3 hardenings (recycled-id cross-check, SKIPPED_FLAT emails, positive orderId, anchored leg suffix, retry identity carried) with 26/26 verifier sequences. Mind's call: SKIPPED_FLAT stays exit 0 but always emails. OWNER re-enables the task (command in O41); Monday operator check in `artifacts/verify_2026-09-04/olv_exit_fix/` report. Not in git until O25 (trading_ibkr baseline).
+- D-E. OLV pre-market exit runner FIXED 2026-09-04 (D14): OneDrive `olv_exit_moo.py` sha256 3e8c1ad9..., `test_olv_exits.py` b393adc8... (40 tests); backups `_backup_20260904_olv_exit_{prepatch,round1,round2}/`; second verifier PASS + round-3 hardenings (recycled-id cross-check, SKIPPED_FLAT emails, positive orderId, anchored leg suffix, retry identity carried) with 26/26 verifier sequences. Mind's call: SKIPPED_FLAT stays exit 0 but always emails. OWNER re-enabled `IBKR OLV Pre-Market Exits` 2026-09-05 after the verified hashes matched; task Ready, next run 2026-09-07 09:10:10 ET, last result 0. Monday operator check in `artifacts/verify_2026-09-04/olv_exit_fix/` report. Not in git until O25 (trading_ibkr baseline).
 - D-D. Worktree safe-now plan, 8 commits 2026-09-04: 5089603e .gitignore; 80ed495c pitch_lab anchor_positions; c98c44fb fundamental v2.1 + roster; 83e6e53a drill scripts + context journal/flag state; 7f408472 data sync (minus rd2_environment.json); c8ad7bfa two research folders; 0fb243d6 cited scratch evidence; 86c5706d root design records. Untracked entries 395 -> 17.
 - D-C. Sizing D3.1 + D3.2 committed 1efcdf14 (verify PASS, full-history replay); ledger_git_sha 47168088; dead wcds overlay-lab control removed and CLAUDE.md sizing note added (next commit).
 - D-B. harvest_fills empty-ring gap guard (`build_ops_fills_ledger`, half 1): committed by path 2026-09-04. Half 2 (ledger_git_sha from GITHUB_SHA in scripts/build_trade_ledger.py + tests/test_ledger_provenance.py) is built and tested in the worktree but HELD: that file carries another session's staged hunks (O35). Root cause of `unknown` confirmed: the deploy generator dir has no .git, so `git rev-parse` fails; reading GITHUB_SHA first fixes it with no workflow change.

@@ -95,6 +95,23 @@ LOCAL_PIPELINE_MAX_BD: dict[str, int] = {
 }
 
 RESULTS: list[tuple[str, str, str]] = []  # (tier, check, detail)
+_NYSE_HOLIDAY_DAYS: np.ndarray | None = None
+
+
+def _nyse_holiday_days() -> np.ndarray:
+    """Load the shared exchange calendar only when an age check needs it.
+
+    Keeping this import lazy preserves the module's path-only safety probe,
+    which intentionally copies this script without the rest of the project.
+    Production health checks still fail loudly if the project calendar is
+    absent instead of silently falling back to a weekday-only calendar.
+    """
+    global _NYSE_HOLIDAY_DAYS
+    if _NYSE_HOLIDAY_DAYS is None:
+        from trading_calendar import NYSE_HOLIDAYS
+
+        _NYSE_HOLIDAY_DAYS = NYSE_HOLIDAYS.values.astype("datetime64[D]")
+    return _NYSE_HOLIDAY_DAYS
 
 
 def report(tier: str, check: str, detail: str) -> None:
@@ -103,7 +120,28 @@ def report(tier: str, check: str, detail: str) -> None:
 
 
 def bdays_behind(d: dt.date, today: dt.date) -> int:
-    return int(np.busday_count(np.datetime64(d), np.datetime64(today)))
+    """NYSE sessions in ``[d, today)`` (same age convention as before)."""
+    return int(np.busday_count(
+        np.datetime64(d),
+        np.datetime64(today),
+        holidays=_nyse_holiday_days(),
+    ))
+
+
+def receipt_search_horizon_days(today: dt.date, max_age_bd: int) -> int:
+    """Calendar days needed to include every date at most ``max_age_bd``
+    NYSE sessions old.
+
+    A fixed calendar horizon is unsafe: eight sessions can span two weekends
+    plus exchange holidays. Walking backward through the shared NYSE calendar
+    keeps the R2 read bound tight while honoring the configured age contract.
+    """
+    if max_age_bd < 0:
+        raise ValueError("receipt max age must be non-negative")
+    days_back = 0
+    while bdays_behind(today - dt.timedelta(days=days_back), today) <= max_age_bd:
+        days_back += 1
+    return days_back - 1
 
 
 def prev_weekday(d: dt.date) -> dt.date:
@@ -130,10 +168,10 @@ def _automation_receipt(job_id: str, run_date: dt.date) -> dict | None:
     return receipt
 
 
-def _latest_receipt(job_id: str, today: dt.date, fetch) -> dict | None:
-    # Ten calendar days covers the longest critical-job allowance plus a
-    # weekend while keeping R2 reads bounded when a job has never run.
-    for days_back in range(11):
+def _latest_receipt(job_id: str, today: dt.date, fetch,
+                    max_age_bd: int) -> dict | None:
+    horizon = receipt_search_horizon_days(today, max_age_bd)
+    for days_back in range(horizon + 1):
         candidate = today - dt.timedelta(days=days_back)
         receipt = fetch(job_id, candidate)
         if receipt is not None:
@@ -145,11 +183,22 @@ def check_gha(fetch=None, today: dt.date | None = None) -> None:
     """Check the cross-runtime receipt contract (legacy name kept for CLI/API)."""
     today = today or dt.date.today()
     fetch = fetch or _automation_receipt
+    # Use one bounded lookup horizon derived from the longest configured
+    # allowance. Besides honoring weekly jobs, this preserves useful "stale"
+    # diagnostics for daily jobs instead of reporting their older receipt as
+    # wholly missing.
+    search_age_bd = max(CRITICAL_AUTOMATION_JOBS.values(), default=0)
+    horizon = receipt_search_horizon_days(today, search_age_bd)
     for job_id, max_bd in CRITICAL_AUTOMATION_JOBS.items():
-        receipt = _latest_receipt(job_id, today, fetch)
+        receipt = _latest_receipt(job_id, today, fetch, search_age_bd)
         check = f"automation:{job_id}"
         if receipt is None:
-            report("FAIL", check, "no valid R2 receipt found in the last 10 days")
+            report(
+                "FAIL",
+                check,
+                f"no valid R2 receipt found in the {search_age_bd}-NYSE-session "
+                f"search horizon ({horizon} calendar days)",
+            )
             continue
         run_date = dt.date.fromisoformat(receipt["run_date_et"])
         age_bd = bdays_behind(run_date, today)

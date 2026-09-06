@@ -2,6 +2,8 @@ import datetime as dt
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import repo_health_check as health
 
 
@@ -168,17 +170,93 @@ def test_automation_health_fails_indeterminate_side_effect(monkeypatch):
 def test_automation_health_fails_stale_success(monkeypatch):
     today = dt.date(2026, 8, 27)
     old_day = dt.date(2026, 8, 24)
-    monkeypatch.setattr(health, "CRITICAL_AUTOMATION_JOBS", {"scan_am": 1})
+    # The production-wide lookup horizon is set by the longest allowance,
+    # while the scan's own one-session freshness rule still decides status.
+    monkeypatch.setattr(
+        health,
+        "CRITICAL_AUTOMATION_JOBS",
+        {"scan_am": 1, "weekly_rundown": 8},
+    )
     health.RESULTS.clear()
 
-    health.check_gha(
-        fetch=lambda job_id, day: (_receipt(job_id, day)
-                                   if day == old_day else None),
-        today=today,
-    )
+    def fetch(job_id, day):
+        if job_id == "scan_am" and day == old_day:
+            return _receipt(job_id, day)
+        if job_id == "weekly_rundown" and day == today:
+            return _receipt(job_id, day)
+        return None
+
+    health.check_gha(fetch=fetch, today=today)
 
     assert health.RESULTS[0][0:2] == ("FAIL", "automation:scan_am")
     assert "3 bd old" in health.RESULTS[0][2]
+
+
+def test_receipt_lookup_honors_eight_nyse_sessions_across_long_calendar_gap(
+    monkeypatch,
+):
+    today = dt.date(2026, 1, 5)
+    receipt_day = dt.date(2025, 12, 22)
+    assert (today - receipt_day).days == 14
+    assert health.bdays_behind(receipt_day, today) == 8
+    assert health.receipt_search_horizon_days(today, 8) >= 14
+
+    monkeypatch.setattr(
+        health, "CRITICAL_AUTOMATION_JOBS", {"weekly_rundown": 8}
+    )
+    health.RESULTS.clear()
+    requested = []
+
+    def fetch(job_id, day):
+        requested.append(day)
+        return _receipt(job_id, day) if day == receipt_day else None
+
+    health.check_gha(fetch=fetch, today=today)
+
+    assert receipt_day in requested
+    assert health.RESULTS == [
+        (
+            "OK",
+            "automation:weekly_rundown",
+            "success via local, 8 bd old (2025-12-22T21:00:00+00:00)",
+        )
+    ]
+
+
+def test_receipt_horizon_is_derived_from_maximum_allowed_age(monkeypatch):
+    today = dt.date(2026, 1, 5)
+    monkeypatch.setattr(
+        health,
+        "CRITICAL_AUTOMATION_JOBS",
+        {"daily": 1, "weekly": 8},
+    )
+    requested = {"daily": [], "weekly": []}
+    health.RESULTS.clear()
+
+    def fetch(job_id, day):
+        requested[job_id].append(day)
+        return None
+
+    health.check_gha(fetch=fetch, today=today)
+
+    assert len(requested["weekly"]) == len(requested["daily"])
+    assert len(requested["weekly"]) == (
+        health.receipt_search_horizon_days(today, 8) + 1
+    )
+    assert "8-NYSE-session search horizon" in health.RESULTS[1][2]
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        (dt.date(2026, 4, 2), dt.date(2026, 4, 6), 1),
+        (dt.date(2026, 9, 4), dt.date(2026, 9, 8), 1),
+        (dt.date(2026, 12, 31), dt.date(2027, 1, 4), 1),
+        (dt.date(2026, 8, 28), dt.date(2026, 8, 31), 1),
+    ],
+)
+def test_business_day_age_uses_project_nyse_calendar(start, end, expected):
+    assert health.bdays_behind(start, end) == expected
 
 
 def test_trigger_health_reads_pinned_runtime_log_tree(tmp_path, monkeypatch):

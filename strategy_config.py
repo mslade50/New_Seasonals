@@ -95,10 +95,29 @@ CROSS_STRATEGY_OVERLAP_OVERRIDES = [
         'strategies': ('Indices Oversold Bounce', 'SPY QQQ MonFri Reversion'),
         'risk_bps_when_overlapping': 20,
     },
+    {
+        'strategies': ('Monday Dip', 'Weak Close Decent Sznls'),
+        'risk_bps_when_overlapping': 20,
+    },
+    {
+        'strategies': ('SPY QQQ MonFri Reversion', 'Weak Close Decent Sznls'),
+        'risk_bps_when_overlapping': 20,
+    },
+    {
+        'strategies': ('Monthly Weak Close', 'SPY QQQ MonFri Reversion'),
+        'risk_bps_when_overlapping': 20,
+    },
+    {
+        'strategies': ('Monthly Weak Close', 'Indices Oversold Bounce'),
+        'risk_bps_when_overlapping': 20,
+    },
+    {
+        'strategies': ('Monday Dip', 'Indices Oversold Bounce'),
+        'risk_bps_when_overlapping': 20,
+    },
 ]
 
-# Per-strategy bps overrides for the overflow tier. NOMINAL — consumers scale
-# by GLOBAL_RISK_MULTIPLIER at use. Single source for daily_scan,
+# Per-strategy bps overrides for overflow tier.  Single source for daily_scan,
 # daily_portfolio_report and the engine's overflow_active path. OVS uses
 # path-1 nominal (40 bps) for both universes — see order_staging.py.
 # The STRATEGY_BASE_TILT of each listed strategy is folded into these values
@@ -213,6 +232,7 @@ LEV3X_BULL_EQ = [
 ]
 
 # All CSV tickers from sznl_ranks.csv (~1062 tickers)
+import math as _math
 import os as _os, pandas as _pd
 _csv_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'sznl_ranks.csv')
 try:
@@ -540,7 +560,11 @@ _STRATEGY_BOOK_RAW = [
                    # scratch/ultracode_research/PORTFOLIO_RESEARCH_2026-07-02.md
                    'frag_risk_bands': [[50, 999, 0.25]],
                    # P/C-fear table selection (2026-08-05) — see PC_FEAR_BANDS.
-                   'pc_fear_bands': PC_FEAR_BANDS},
+                   'pc_fear_bands': PC_FEAR_BANDS,
+                   # D3.4 solo/add rule: every row on a 2+ staged-signal day,
+                   # or a row with any prior same-strategy filled leg open,
+                   # is an add. Otherwise it is a true solo.
+                   'open_leg_mults': {'none_open': 0.8, 'adds': 1.2}},
      'stats': {'grade': 'A (Excellent)', 'win_rate': '61.3%', 'expectancy': '0.28r', 'profit_factor': '1.78'}},
     {
         "id": "21dr < 15 3 consec, 5dr < 33, 2dr < 25, 252dr 50-90, rel vol < 15, market > 200 SMA, age >= 5y, pre-earnings -> 10 bps, GTC limit close-0.25 ATR, 10d hold, vol-confirmed 1.25 ATR stop (next open), 2.5 ATR tgt",
@@ -548,7 +572,7 @@ _STRATEGY_BOOK_RAW = [
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Position",
-            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90), gated to a market uptrend regime (SPY > 200 SMA) and minimum 5y of trading history. The persistent limit defaults to close - 0.25 ATR, but prior-resistance retests use causal 40/40 closing pivots no more than 252 ticker sessions old: -0.50 ATR when 2-3 ATR above the nearest confirmed pivot high, -0.75 ATR at 4-5 ATR, and no order above 5 ATR. Pre-earnings signals (signal_date in [-10, 0] TD relative to earnings) are still allowed but sized at 10 bps instead of the default 35 bps to dampen binary-event risk. First entry in a ticker sizes at 0.5x (ladder [0.5,1,1], 2026-07-29); stacked adds at full size.",
+            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90), gated to a market uptrend regime (SPY > 200 SMA) and minimum 5y of trading history. The persistent limit defaults to close - 0.25 ATR, but prior-resistance retests use causal 40/40 closing pivots no more than 252 ticker sessions old: -0.50 ATR when 2-3 ATR above the nearest confirmed pivot high, -0.75 ATR at 4-5 ATR, and no order above 5 ATR. The non-monotonic 3-4 ATR pocket deliberately stays at -0.25 ATR. Pre-earnings signals (signal_date in [-10, 0] TD relative to earnings) are still allowed but replace the base with 10 bps. A fill-independent 21-session signal-recency ladder then sizes the first, second, and third-or-later signal at 0.5x, 0.7x, and 1.0x.",
             "key_filters": [
                 "21D rank < 15th %ile for 3 consecutive days (persistent oversold)",
                 "5D rank < 33rd %ile (recent weakness)",
@@ -564,9 +588,9 @@ _STRATEGY_BOOK_RAW = [
             "primary_exit": "10-day time stop OR 2.5 ATR target OR volume-confirmed stop (whichever first)",
             "stop_logic": "Vol-confirmed (2026-07-20): no resting stop. If a session CLOSES at/below entry - 1.25 ATR AND that day's volume >= 1.5x the trailing 20d median, exit MOO at the next open. Quiet closes below the level are held (low-volume weakness is the thesis, not its failure). stop_atr 1.25 still defines the risk unit for sizing.",
             "target_logic": "2.5 ATR above entry",
-            "notes": "Persistent limit defaults to close - 0.25 ATR and uses the causal 40/40 closing-pivot entry policy in execution['pivot_entry_policy']; pivot sources expire after 252 ticker sessions and the GTC entry expires after T+3. No cooldown — consecutive signals on same ticker allowed. No ladder (removed 2026-07-20, all legs 1.0x) and no sector loss gate (removed 2026-07-20 with the vol-confirmed stop + notional cap package). Per-ticker concurrent notional capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing. First-entry half-size ladder [0.5,1,1] since 2026-07-29 (footprint trim on the weakest leg; adds stay full size). No fragility band and no book-level cap (a 0.5x dial>=65 band and an EOD 100%-NAV trim ran for one session, 2026-08-24, then were retired 2026-08-25 in favour of a manual one-off hedge; olv_book_cap.py stays in OneDrive, task disabled)."
+            "notes": "Persistent limit defaults to close - 0.25 ATR and uses the causal 40/40 closing-pivot entry policy in execution['pivot_entry_policy']; pivot sources expire after 252 ticker sessions and the GTC entry expires after T+3. The pivot-high pockets are exact: (2,3] ATR uses -0.50, (4,5] uses -0.75, >5 skips, and every other state—including (3,4]—uses -0.25. No cooldown: consecutive signals on the same ticker are allowed. Sizing uses a fill-independent 21-session signal-recency ladder [0.5,0.7,1.0] for 0, 1, or 2+ prior OLV signals; it is not an open-position ladder. No sector loss gate. Per-ticker concurrent notional is capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day replace the base with 10 bps (vs. default 35 bps liquid / 25 bps overflow), then still receive the recency multiplier; instruments with no earnings data pass through at default sizing. No active fragility, cycle-year, rank-mean, open-leg, or same-day sizing overlay and no book-level cap (a 0.5x dial>=65 band and an EOD 100%-NAV trim ran for one session, 2026-08-24, then were retired 2026-08-25 in favour of a manual one-off hedge; olv_book_cap.py stays in OneDrive, task disabled)."
         },
-        "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: persistent close-anchored limit, normally -0.25 ATR; causal 40/40 nearest-high retests use only pivot sources <=252 ticker sessions old, entering -0.50 ATR at 2-3 ATR above, -0.75 ATR at 4-5 ATR, and skipping above 5 ATR. 10d hold, 2.5 ATR target, 1.25 ATR stop. Liquid 35 bps / overflow 25 bps; first entry in a ticker 0.5x (ladder [0.5,1,1], 2026-07-29), adds full size; pre-earnings window sizes at 10 bps flat.",
+        "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: persistent close-anchored limit, normally -0.25 ATR; causal 40/40 nearest-high retests use only pivot sources <=252 ticker sessions old, entering -0.50 ATR in (2,3], -0.75 ATR in (4,5], skipping above 5 ATR, and retaining -0.25 ATR in the deliberate (3,4] pocket. 10d hold, 2.5 ATR target, 1.25 ATR stop. Liquid 35 bps / overflow 25 bps; 21-session signal-recency ladder [0.5,0.7,1.0] for 0/1/2+ prior signals; pre-earnings replaces the base with 10 bps and still composes with recency.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
@@ -660,10 +684,16 @@ _STRATEGY_BOOK_RAW = [
                       # High and low expire independently once their SOURCE bar
                       # is >252 ticker sessions old, then nearest is reselected.
                       # If neither survives, the ordinary -0.25 ATR entry applies.
-                      # Strict replay on the 359 completed-fill research sample:
-                      # 23 classifications / 12 policy assignments changed;
-                      # >2/>4/>5 ATR degradation held and policy total improved
-                      # +8.68R with unchanged max drawdown (2026-09-01).
+                      # Evidence correction (study 2026-09-04; OWNER KEEP
+                      # 2026-09-05): +8.68R was policy-v2 vs policy-v1, NOT
+                      # policy vs no policy. The controlled replay found no
+                      # per-signal edge (affected diff -4.6R, clustered
+                      # t=-0.33; total PnL approximately unchanged), but fewer
+                      # fills and smaller drawdowns (worst-21d -$37k vs -$60k,
+                      # maxDD -$41k vs -$65k). Keep as an explicit appetite /
+                      # drawdown control, not an edge claim. Basis audit: 1 of
+                      # 19 policy assignments flipped. Evidence: scratch/
+                      # ultracode_research/olv_pivot_evidence_2026-09-04/.
                       # The non-monotonic 3<d<=4 pocket stays at the 0.25 ATR base
                       # because deeper entries degraded in that band. One-switch
                       # rollback: enabled=False restores 0.25 ATR and stages all.
@@ -753,9 +783,9 @@ _STRATEGY_BOOK_RAW = [
             "primary_exit": "2-day time stop OR 2.0 ATR target (whichever first)",
             "stop_logic": "None (time/target exit only)",
             "target_logic": "2.0 ATR below entry (short)",
-            "notes": "Two-path execution. Path 1 (decisive): T+1 open > signal close + 0.25 ATR → flat 40 bps. Path 2 (mild): signal close < T+1 open ≤ close + 0.25 ATR → 8 bps with 1% aggregate path-2 cap (pro-rata scale-down). Open ≤ close → skip. ±10 trading-day earnings blackout applied at scan time (NaN passes through for tickers without earnings data). Same scheme for liquid and overflow universes."
+            "notes": "Two-path execution. Path 1 (decisive): T+1 open > signal close + 0.25 ATR → base 40 bps nominal. Path 2 (mild): signal close < T+1 open ≤ close + 0.25 ATR → base 8 bps nominal with a 0.75% nominal aggregate path-2 cap (pro-rata scale-down); path bps and cap are GRM-scaled. Liquid rows then carry the owner-set 0.7x tier multiplier while overflow remains 1.0x; outside midterm years, signal-close mean rank below 94 independently adds the 0.7x extremity multiplier. Open ≤ close → skip. ±10 trading-day earnings blackout applied at scan time (NaN passes through for tickers without earnings data)."
         },
-        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES. Dir: Short. Multi-horizon overbought fade with 252D barbell + 5D seasonal headwind gate. Two-path sizing (40 bps decisive / 8 bps mild + 1% aggregate cap) keyed off T+1 open vs close+0.25 ATR. ±10 TD earnings blackout.",
+        "description": "Start: 2000-01-01. Universe: liquid + overflow tiers. Dir: Short. Multi-horizon overbought fade with 252D barbell + 5D seasonal headwind gate. Two-path base sizing (40 bps nominal decisive / 8 bps nominal mild + 0.75% nominal aggregate cap) keyed off T+1 open vs close+0.25 ATR, with 0.7x liquid-tier and 0.7x non-midterm bottom-extremity overlays. ±10 TD earnings blackout.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Short",
@@ -814,9 +844,22 @@ _STRATEGY_BOOK_RAW = [
                       # out stable (-0.28..-0.37R gap), damage concentrated in P1
                       # decisive-gap entries (+0.63 -> +0.23 avgR). ~1.5 sigma after
                       # episode clustering, so 0.75x (shrunk-Kelly), not full 0.4x.
-                      # Mirrored: strat_backtester sizing 3b2, daily_scan sizing 2e,
-                      # order_staging OVS_CYCLE_MULTS (P1 fixed-dollar target).
+                      # Mirrored: strat_backtester sizing 3b2 and daily_scan
+                      # sizing 2c2. order_staging consumes staged size as-is.
                       "cycle_risk_mults": {2: 0.75},
+                      # D3.5 OVS quality tier: outside midterms, reduce signals
+                      # whose signal-close mean 2/5/10/21d rank is below 94.
+                      # The existing 0.75 cycle cut is sufficient in midterms.
+                      # No top-cell boost; values are not GRM-scaled.
+                      "rank_mean_risk": {
+                          "windows": [2, 5, 10, 21], "threshold": 94.0,
+                          "below_mult": 0.7, "cycle_exempt": [2],
+                      },
+                      # Owner override 2026-09-05: liquid OVS runs 0.7x;
+                      # overflow remains 1.0x. Applies to both P1/P2 before
+                      # every cap. This supersedes D12's original 0.5x
+                      # implementation without rewriting its frozen evidence.
+                      "tier_risk_mults": {"Liquid": 0.7},
                       # Fragility mid-band tilt REMOVED (2026-07-03, PIT gate).
                       # A 0.75x tilt in [21,44) shipped 2026-07-02 on full-sample
                       # z=-3.0, but the point-in-time edge-weight re-estimation
@@ -928,7 +971,10 @@ _STRATEGY_BOOK_RAW = [
             # Symmetric earnings blackout: skip if signal_date is within ±10
             # trading days of an earnings announcement. NaN (commodities /
             # ETFs / futures with no earnings data) passes through.
-            "earnings_blackout_td": 10
+            "earnings_blackout_td": 10,
+            # D3.4: strategy-wide solo/add sizing, re-keyed to staged clusters
+            # OR a prior filled-open leg. Working limits do not count.
+            "open_leg_mults": {"none_open": 0.8, "adds": 1.2},
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "68.4%", "expectancy": "0.40r", "profit_factor": "2.91"}
     },
@@ -1591,7 +1637,13 @@ _STRATEGY_BOOK_RAW = [
             # Dip-buy FAMILY4 fragility throttle — see Weak Close Decent Sznls
             # for the full evidence note.
             "frag_risk_bands": [[50, 999, 0.25]],
-            "pc_fear_bands": PC_FEAR_BANDS
+            "pc_fear_bands": PC_FEAR_BANDS,
+            # D3.3 index-clone control (2026-09-05): this strategy's universe
+            # is exactly ^GSPC/^NDX, staged as SPY/QQQ. When both fire on the
+            # same date, halve both rows. A lone index stays full size. This is
+            # a variance-only rule; MonFri deliberately does not carry it.
+            "same_day_signal_derate": 0.5,
+            "same_day_derate_floor": 0.5,
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "64.6%", "expectancy": "0.34r", "profit_factor": "1.90"}
     },
@@ -2289,16 +2341,109 @@ def list_strategies():
     return [(s["name"], s["execution"]["risk_bps"]) for s in _STRATEGY_BOOK_RAW]
 
 
+def resolve_cross_strategy_overlap_clamps(fired_by_key, overrides):
+    """Return minimum absolute clamp bps by ``(date, ticker, strategy)``.
+
+    ``fired_by_key`` maps each staged ``(signal date, tradeable ticker)`` to
+    its set of strategy names. More than one configured pair can collide on a
+    key, so the result is strategy-specific and takes the minimum applicable
+    clamp. This prevents pair iteration order from dropping a participant in
+    a three-strategy collision. Shared by daily_scan and strat_backtester.
+    """
+    clamps = {}
+    for override in overrides or ():
+        pair = set(override['strategies'])
+        clamp_bps = float(override['risk_bps_when_overlapping'])
+        for key, fired_names in fired_by_key.items():
+            if not pair.issubset(fired_names):
+                continue
+            for strategy_name in pair:
+                row_key = (*key, strategy_name)
+                prior = clamps.get(row_key)
+                clamps[row_key] = clamp_bps if prior is None else min(prior, clamp_bps)
+    return clamps
+
+
+def open_leg_mult(execution, staged_count, prior_open_count):
+    """Return the generic strategy-wide solo/add sizing multiplier.
+
+    A row is an add when its strategy has at least two staged candidates in
+    the same tier/day OR at least one filled leg already open at signal time.
+    Working-but-unfilled candidates are represented only by ``staged_count``;
+    they never enter ``prior_open_count``. Missing config is a no-op.
+    """
+    config = execution.get('open_leg_mults')
+    if not config:
+        return 1.0
+    staged_count = int(staged_count)
+    prior_open_count = int(prior_open_count)
+    if staged_count < 0 or prior_open_count < 0:
+        raise ValueError("open-leg counts must be non-negative")
+    key = 'adds' if staged_count >= 2 or prior_open_count >= 1 else 'none_open'
+    mult = float(config[key])
+    if not _math.isfinite(mult) or mult <= 0:
+        raise ValueError(f"open_leg_mults[{key!r}] must be finite and positive")
+    return mult
+
+
+def tier_risk_mult(execution, tier):
+    """Return a configured universe-tier multiplier, defaulting to 1.0."""
+    config = execution.get('tier_risk_mults')
+    if not config:
+        return 1.0
+    mult = float(config.get(str(tier), 1.0))
+    if not _math.isfinite(mult) or mult <= 0:
+        raise ValueError(f"tier_risk_mults[{tier!r}] must be finite and positive")
+    return mult
+
+
+def rank_mean_risk_decision(execution, rank_values, signal_year):
+    """Return ``(multiplier, mean_rank, cycle_exempt)`` for a rank-mean rule.
+
+    ``rank_values`` is keyed by integer lookback window. A missing/non-finite
+    value is deliberately unclassifiable and leaves sizing at 1.0; OVS's mask
+    already requires every configured rank, so valid production candidates do
+    not normally reach that fallback.
+    """
+    config = execution.get('rank_mean_risk')
+    if not config:
+        return 1.0, None, False
+    windows = tuple(int(window) for window in config['windows'])
+    if not windows or len(set(windows)) != len(windows):
+        raise ValueError("rank_mean_risk windows must be non-empty and unique")
+    threshold = float(config['threshold'])
+    below_mult = float(config['below_mult'])
+    exempt_cycles = {int(value) for value in config.get('cycle_exempt', ())}
+    if (not _math.isfinite(threshold)
+            or not _math.isfinite(below_mult) or below_mult <= 0
+            or any(value not in (0, 1, 2, 3) for value in exempt_cycles)):
+        raise ValueError("rank_mean_risk config is invalid")
+
+    values = []
+    for window in windows:
+        try:
+            value = float(rank_values[window])
+        except (KeyError, TypeError, ValueError):
+            return 1.0, None, int(signal_year) % 4 in exempt_cycles
+        if not _math.isfinite(value):
+            return 1.0, None, int(signal_year) % 4 in exempt_cycles
+        values.append(value)
+    mean_rank = sum(values) / len(values)
+    exempt = int(signal_year) % 4 in exempt_cycles
+    mult = 1.0 if exempt or mean_rank >= threshold else below_mult
+    return mult, mean_rank, exempt
+
+
 def same_day_derate_mult(execution, n_signals):
-    """Same-day signal de-rate (3x Bear ETF Overbot Fade, 2026-07-07).
+    """Multiplier for a strategy's staged same-day signal count.
 
     When a strategy sets execution['same_day_signal_derate'] = d, every signal
     it stages on a day with n same-strategy signals is sized at
     max(floor, 1 - d*(n-1)), floor = execution['same_day_derate_floor']
-    (default 0.30). n counts STAGED SIGNALS (known pre-market), not fills —
-    several inverse-3x names overbought at once marks a violent selloff where
-    per-trade edge degrades (scratch/lev3x_fade_bear_sizing_rule.py). Shared
-    by daily_scan (post-pass 5c) and strat_backtester (sizing 3b4).
+    (default 0.30). n counts STAGED SIGNALS (known pre-market), not fills.
+    Carriers: 3x Bear ETF Overbot Fade (graded crowding derate) and Indices
+    Oversold Bounce (D3.3: SPY+QQQ clone pair at 0.5x). Shared by daily_scan
+    post-pass 5c and strat_backtester sizing 3b4.
     """
     d = execution.get('same_day_signal_derate')
     if not d or n_signals <= 1:

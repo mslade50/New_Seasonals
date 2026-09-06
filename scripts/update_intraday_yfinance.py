@@ -37,10 +37,43 @@ import yfinance as yf
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+from trading_calendar import TRADING_DAY  # noqa: E402
+
 INTRADAY_DIR = os.path.join(ROOT, "data", "intraday")
 META_LOCAL = os.path.join(INTRADAY_DIR, "_meta.parquet")
 
 ET = "America/New_York"
+
+
+def _expected_latest_session(now_et=None):
+    """Latest NYSE session an updater run can require.
+
+    Post-close runs require today's completed session. Before the close, on a
+    weekend, or on an exchange holiday, the previous NYSE session is enough.
+    """
+    now = pd.Timestamp.now(tz=ET) if now_et is None else pd.Timestamp(now_et)
+    if now.tzinfo is None:
+        now = now.tz_localize(ET)
+    else:
+        now = now.tz_convert(ET)
+    today = pd.Timestamp(now.date())
+    is_session = len(pd.date_range(today, today, freq=TRADING_DAY)) == 1
+    if is_session and now.time() >= pd.Timestamp("16:00").time():
+        return today.date()
+    return (today - TRADING_DAY).date()
+
+
+def _is_current_acquisition(last_ts, now_et=None) -> bool:
+    """Whether a nonempty vendor response reaches the required NYSE session."""
+    try:
+        stamp = pd.Timestamp(last_ts)
+    except (TypeError, ValueError):
+        return False
+    if pd.isna(stamp):
+        return False
+    if stamp.tzinfo is not None:
+        stamp = stamp.tz_convert(ET).tz_localize(None)
+    return stamp.date() >= _expected_latest_session(now_et)
 
 
 def _existing_files(interval: str, tickers_filter: Optional[set]):
@@ -122,6 +155,7 @@ def _merge_and_write(ticker: str, path: str, fresh: pd.DataFrame) -> dict:
         "ticker": ticker, "added": int(added),
         "n_bars": int(len(merged)),
         "first_ts": merged["ts"].min(), "last_ts": merged["ts"].max(),
+        "fresh_last_ts": fresh["ts"].max(),
         "status": "ok",
     }
 
@@ -206,6 +240,45 @@ def main():
         print(f"  [{i:>3}/{len(files)}] {ticker:<7} period={period:<5} +{r['added']:>5} bars  last_ts={r.get('last_ts')}")
         results.append(r)
         time.sleep(0.15)
+
+    acquired = [r for r in results if r.get("status") == "ok"]
+    unavailable = [r["ticker"] for r in results if r.get("status") == "no-fresh"]
+    if not acquired:
+        print(
+            "ERROR: yfinance returned no nonempty intraday data for any "
+            f"requested ticker ({len(results)}/{len(results)} unavailable). "
+            "Refusing to rebuild metadata or upload a stale corpus."
+        )
+        return 1
+    if unavailable:
+        sample = ", ".join(unavailable[:20])
+        suffix = " ..." if len(unavailable) > 20 else ""
+        print(
+            f"WARN: partial intraday acquisition: {len(acquired)}/{len(results)} "
+            f"ticker(s) returned data; unavailable ({len(unavailable)}): "
+            f"{sample}{suffix}"
+        )
+
+    unchanged = [r for r in acquired if int(r.get("added", 0)) == 0]
+    stale_unchanged = [
+        r for r in unchanged
+        if not _is_current_acquisition(r.get("fresh_last_ts"))
+    ]
+    if stale_unchanged:
+        detail = ", ".join(
+            f"{r['ticker']}@{r.get('fresh_last_ts')}" for r in stale_unchanged[:20]
+        )
+        print(
+            "ERROR: nonempty zero-add acquisition did not prove currentness "
+            f"through {_expected_latest_session()}: {detail}. Refusing to "
+            "rebuild metadata or upload."
+        )
+        return 1
+    if unchanged:
+        print(
+            f"Currentness verified for {len(unchanged)} nonempty ticker(s) "
+            "with zero new bars."
+        )
 
     print()
     print(f"Done in {time.time()-t0:.1f}s. {sum(1 for r in results if r['added']>0)} files modified.")

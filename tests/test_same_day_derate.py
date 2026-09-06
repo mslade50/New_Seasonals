@@ -101,7 +101,7 @@ def test_derate_default_floor():
     assert same_day_derate_mult({"same_day_signal_derate": 0.10}, 99) == 0.30
 
 
-def test_bear_strat_is_the_only_derate_carrier():
+def test_only_bear_and_iob_are_derate_carriers():
     carriers = [s["name"] for s in STRATEGY_BOOK
                 if s["execution"].get("same_day_signal_derate")]
-    assert carriers == [BEAR]
+    assert carriers == [BEAR, "Indices Oversold Bounce"]
