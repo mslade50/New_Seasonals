@@ -14,13 +14,15 @@ ALERT, but can never be mistaken for operational clearance.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import os
 import re
+import shutil
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
@@ -28,7 +30,8 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+ALGORITHM_VERSION = "expected-flat/2.0.0"
 ZERO = Decimal(0)
 
 
@@ -63,6 +66,7 @@ class ReasonCode(str, Enum):
     DUPLICATE_PRODUCER_RECEIPT = "DUPLICATE_PRODUCER_RECEIPT"
     INCOMPLETE_PRODUCER_RECEIPT = "INCOMPLETE_PRODUCER_RECEIPT"
     STALE_PRODUCER_RECEIPT = "STALE_PRODUCER_RECEIPT"
+    FUTURE_SOURCE_RECEIPT = "FUTURE_SOURCE_RECEIPT"
     RECEIPT_EVENT_SET_MISMATCH = "RECEIPT_EVENT_SET_MISMATCH"
     RECEIPT_ZERO_OBLIGATION_MISMATCH = "RECEIPT_ZERO_OBLIGATION_MISMATCH"
     SOURCE_SESSION_MISMATCH = "SOURCE_SESSION_MISMATCH"
@@ -75,9 +79,14 @@ class ReasonCode(str, Enum):
     MISSING_BASELINE = "MISSING_BASELINE"
     DUPLICATE_BASELINE = "DUPLICATE_BASELINE"
     FUTURE_BASELINE = "FUTURE_BASELINE"
+    BASELINE_REVISION_GAP = "BASELINE_REVISION_GAP"
+    CONFLICTING_DUPLICATE_BASELINE_REVISION = "CONFLICTING_DUPLICATE_BASELINE_REVISION"
+    BASELINE_IDENTITY_CHANGED = "BASELINE_IDENTITY_CHANGED"
+    NON_MONOTONIC_BASELINE_REVISION = "NON_MONOTONIC_BASELINE_REVISION"
     MISSING_POSITION_SNAPSHOT = "MISSING_POSITION_SNAPSHOT"
     DUPLICATE_POSITION_SNAPSHOT = "DUPLICATE_POSITION_SNAPSHOT"
     STALE_POSITION_SNAPSHOT = "STALE_POSITION_SNAPSHOT"
+    CONFLICTING_DUPLICATE_SNAPSHOT_ID = "CONFLICTING_DUPLICATE_SNAPSHOT_ID"
     POSITION_SNAPSHOT_PRECEDES_EVIDENCE = "POSITION_SNAPSHOT_PRECEDES_EVIDENCE"
     INCOMPLETE_EXECUTION_SOURCE = "INCOMPLETE_EXECUTION_SOURCE"
     STALE_EXECUTION_SOURCE = "STALE_EXECUTION_SOURCE"
@@ -102,6 +111,13 @@ class ReasonCode(str, Enum):
 class CorrectionAction(str, Enum):
     APPLY = "APPLY"
     VOID = "VOID"
+
+
+class BaselineReason(str, Enum):
+    INITIAL = "INITIAL"
+    CORRECTION = "CORRECTION"
+    CORPORATE_ACTION = "CORPORATE_ACTION"
+    POSITION_TRANSFER = "POSITION_TRANSFER"
 
 
 @dataclass(frozen=True, order=True)
@@ -146,6 +162,14 @@ def _integer(value: Any, *, where: str, minimum: int | None = None) -> int:
     if minimum is not None and value < minimum:
         raise ManifestError(f"{where} must be >= {minimum}")
     return value
+
+
+def _nullable_integer(
+    value: Any, *, where: str, minimum: int | None = None
+) -> int | None:
+    if value is None:
+        return None
+    return _integer(value, where=where, minimum=minimum)
 
 
 def _boolean(value: Any, *, where: str) -> bool:
@@ -224,6 +248,41 @@ def decimal_text(value: Decimal | None) -> str | None:
 
 def timestamp_text(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Decimal):
+        return decimal_text(value)
+    if isinstance(value, datetime):
+        return timestamp_text(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    if is_dataclass(value):
+        return {
+            item.name: _jsonable(getattr(value, item.name)) for item in fields(value)
+        }
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in sorted(value.items())}
+    if isinstance(value, (tuple, list)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def _canonical_bytes(value: Any) -> bytes:
+    return json.dumps(
+        _jsonable(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+
+
+def _sha256(value: Any) -> str:
+    return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _normalized_code_sha256() -> str:
+    source = Path(__file__).read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -315,8 +374,10 @@ class RunSpec:
         authoritative = _boolean(
             obj["operationally_authoritative"], where="run.operationally_authoritative"
         )
-        if authoritative and mode is not RunMode.LIVE:
-            raise ManifestError("only LIVE may set operationally_authoritative=true")
+        if authoritative:
+            raise ManifestError(
+                "file manifests must set operationally_authoritative=false; authority requires a future trusted adapter"
+            )
         required_producers = _string_list(
             obj["required_producers"], where="run.required_producers"
         )
@@ -349,8 +410,8 @@ class SourceReceipt:
     zero_events: bool
     event_ids: tuple[str, ...]
     event_count: int
-    source_sequence_first: int
-    source_sequence_last: int
+    source_sequence_first: int | None
+    source_sequence_last: int | None
     source_sequences: tuple[int, ...]
 
     @classmethod
@@ -388,12 +449,12 @@ class SourceReceipt:
             event_count=_integer(
                 obj["event_count"], where=f"{where}.event_count", minimum=0
             ),
-            source_sequence_first=_integer(
+            source_sequence_first=_nullable_integer(
                 obj["source_sequence_first"],
                 where=f"{where}.source_sequence_first",
                 minimum=1,
             ),
-            source_sequence_last=_integer(
+            source_sequence_last=_nullable_integer(
                 obj["source_sequence_last"],
                 where=f"{where}.source_sequence_last",
                 minimum=1,
@@ -476,17 +537,24 @@ class ObligationRevision:
             self.contract,
         )
 
+    @property
+    def record_id(self) -> str:
+        return f"{self.event_id}@{self.revision}"
+
 
 @dataclass(frozen=True)
 class PositionBaseline:
     baseline_id: str
+    revision: int
     source_sequence: int
+    recorded_at: datetime
     effective_at: datetime
     account: str
     signal_id: str
     tranche_id: str
     contract: Contract
     signed_qty: Decimal
+    reason: BaselineReason
 
     @classmethod
     def from_dict(cls, raw: Any, *, where: str) -> PositionBaseline:
@@ -495,28 +563,47 @@ class PositionBaseline:
             where=where,
             required=(
                 "baseline_id",
+                "revision",
                 "source_sequence",
+                "recorded_at",
                 "effective_at",
                 "account",
                 "signal_id",
                 "tranche_id",
                 "contract",
                 "signed_qty",
+                "reason",
             ),
         )
         return cls(
             baseline_id=_nonempty_string(
                 obj["baseline_id"], where=f"{where}.baseline_id"
             ),
+            revision=_integer(obj["revision"], where=f"{where}.revision", minimum=1),
             source_sequence=_integer(
                 obj["source_sequence"], where=f"{where}.source_sequence", minimum=1
             ),
+            recorded_at=_timestamp(obj["recorded_at"], where=f"{where}.recorded_at"),
             effective_at=_timestamp(obj["effective_at"], where=f"{where}.effective_at"),
             account=_nonempty_string(obj["account"], where=f"{where}.account"),
             signal_id=_nonempty_string(obj["signal_id"], where=f"{where}.signal_id"),
             tranche_id=_nonempty_string(obj["tranche_id"], where=f"{where}.tranche_id"),
             contract=Contract.from_dict(obj["contract"], where=f"{where}.contract"),
             signed_qty=_decimal(obj["signed_qty"], where=f"{where}.signed_qty"),
+            reason=_enum(BaselineReason, obj["reason"], where=f"{where}.reason"),
+        )
+
+    @property
+    def record_id(self) -> str:
+        return f"{self.baseline_id}@{self.revision}"
+
+    def immutable_identity(self) -> tuple[Any, ...]:
+        return (
+            self.baseline_id,
+            self.account,
+            self.signal_id,
+            self.tranche_id,
+            self.contract,
         )
 
 
@@ -585,6 +672,11 @@ class ExecutionRevision:
 
     def family_identity(self) -> tuple[Any, ...]:
         return (self.account, self.signal_id, self.tranche_id, self.contract)
+
+    @property
+    def record_id(self) -> str:
+        """Immutable append-log identity for one execution correction revision."""
+        return f"{self.execution_id}@{self.correction_revision}"
 
 
 @dataclass(frozen=True)
@@ -721,8 +813,101 @@ class ObligationResult:
 
 
 @dataclass(frozen=True)
+class SourceCompletenessResult:
+    source_kind: str
+    source_id: str
+    receipt_id: str | None
+    state: ControlState
+    session_date: date | None
+    complete_through: datetime | None
+    event_count: int | None
+    source_sequence_first: int | None
+    source_sequence_last: int | None
+    issues: tuple[Issue, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_kind": self.source_kind,
+            "source_id": self.source_id,
+            "receipt_id": self.receipt_id,
+            "state": self.state.value,
+            "session_date": self.session_date.isoformat()
+            if self.session_date is not None
+            else None,
+            "complete_through": timestamp_text(self.complete_through)
+            if self.complete_through is not None
+            else None,
+            "event_count": self.event_count,
+            "source_sequence_first": self.source_sequence_first,
+            "source_sequence_last": self.source_sequence_last,
+            "issues": [issue.to_dict() for issue in sorted(self.issues)],
+        }
+
+
+@dataclass(frozen=True)
+class ContractReconciliationResult:
+    account: str
+    canonical_contract: str
+    contract: str
+    state: ControlState
+    attributed_signed_qty: Decimal | None
+    aggregate_signed_qty: Decimal | None
+    latest_baseline_effective_at: datetime | None
+    latest_baseline_recorded_at: datetime | None
+    latest_execution_at: datetime | None
+    snapshot_observed_at: datetime | None
+    allocation_count: int
+    issues: tuple[Issue, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "account": self.account,
+            "canonical_contract": self.canonical_contract,
+            "contract": self.contract,
+            "state": self.state.value,
+            "attributed_signed_qty": decimal_text(self.attributed_signed_qty),
+            "aggregate_signed_qty": decimal_text(self.aggregate_signed_qty),
+            "latest_baseline_effective_at": timestamp_text(
+                self.latest_baseline_effective_at
+            )
+            if self.latest_baseline_effective_at is not None
+            else None,
+            "latest_baseline_recorded_at": timestamp_text(
+                self.latest_baseline_recorded_at
+            )
+            if self.latest_baseline_recorded_at is not None
+            else None,
+            "latest_execution_at": timestamp_text(self.latest_execution_at)
+            if self.latest_execution_at is not None
+            else None,
+            "snapshot_observed_at": timestamp_text(self.snapshot_observed_at)
+            if self.snapshot_observed_at is not None
+            else None,
+            "allocation_count": self.allocation_count,
+            "issues": [issue.to_dict() for issue in sorted(self.issues)],
+        }
+
+
+@dataclass(frozen=True)
+class ReportDigests:
+    code_sha256: str
+    config_sha256: str
+    input_sha256: str
+    report_sha256: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "code_sha256": self.code_sha256,
+            "config_sha256": self.config_sha256,
+            "input_sha256": self.input_sha256,
+            "report_sha256": self.report_sha256,
+        }
+
+
+@dataclass(frozen=True)
 class EvaluationReport:
     schema_version: int
+    algorithm_version: str
     run_id: str
     run_mode: RunMode
     operationally_authoritative: bool
@@ -732,12 +917,16 @@ class EvaluationReport:
     headline: str
     what_changed: tuple[str, ...]
     required_action: tuple[str, ...]
+    source_completeness: tuple[SourceCompletenessResult, ...]
+    contract_reconciliations: tuple[ContractReconciliationResult, ...]
     obligations: tuple[ObligationResult, ...]
     issues: tuple[Issue, ...]
+    digests: ReportDigests
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
+            "algorithm_version": self.algorithm_version,
             "run_id": self.run_id,
             "run_mode": self.run_mode.value,
             "operationally_authoritative": self.operationally_authoritative,
@@ -747,16 +936,22 @@ class EvaluationReport:
             "headline": self.headline,
             "what_changed": list(self.what_changed),
             "required_action": list(self.required_action),
+            "source_completeness": [
+                item.to_dict() for item in self.source_completeness
+            ],
+            "contract_reconciliations": [
+                item.to_dict() for item in self.contract_reconciliations
+            ],
             "obligations": [item.to_dict() for item in self.obligations],
             "issues": [issue.to_dict() for issue in sorted(self.issues)],
+            "digests": self.digests.to_dict(),
         }
 
 
 def _receipt_issues(
     receipt: SourceReceipt,
     *,
-    expected_ids: set[str],
-    expected_sequences: set[int],
+    expected_event_sequences: Mapping[str, int],
     as_of: datetime,
     scope: str,
     incomplete_reason: ReasonCode,
@@ -765,6 +960,8 @@ def _receipt_issues(
     zero_reason: ReasonCode,
 ) -> list[Issue]:
     issues: list[Issue] = []
+    expected_ids = tuple(sorted(expected_event_sequences))
+    expected_sequences = tuple(sorted(expected_event_sequences.values()))
     if not receipt.complete:
         issues.append(
             Issue(
@@ -782,9 +979,16 @@ def _receipt_issues(
                 scope,
             )
         )
-    if set(receipt.event_ids) != expected_ids or receipt.event_count != len(
-        expected_ids
-    ):
+    elif receipt.complete_through > as_of:
+        issues.append(
+            Issue(
+                ReasonCode.FUTURE_SOURCE_RECEIPT,
+                f"{scope} complete_through={timestamp_text(receipt.complete_through)} exceeds "
+                f"as_of={timestamp_text(as_of)}",
+                scope,
+            )
+        )
+    if receipt.event_ids != expected_ids or receipt.event_count != len(expected_ids):
         issues.append(
             Issue(
                 set_reason,
@@ -793,7 +997,8 @@ def _receipt_issues(
                 scope,
             )
         )
-    if receipt.zero_events != (len(expected_ids) == 0):
+    is_zero = len(expected_ids) == 0
+    if receipt.zero_events != is_zero:
         issues.append(
             Issue(
                 zero_reason,
@@ -801,16 +1006,27 @@ def _receipt_issues(
                 scope,
             )
         )
-    first, last = receipt.source_sequence_first, receipt.source_sequence_last
-    expected_range = tuple(range(first, last + 1)) if first <= last else ()
-    sequences = set(receipt.source_sequences)
-    if receipt.source_sequences != expected_range or not expected_sequences.issubset(
-        sequences
-    ):
+    if is_zero:
+        sequence_shape_valid = (
+            receipt.source_sequence_first is None
+            and receipt.source_sequence_last is None
+            and receipt.source_sequences == ()
+        )
+    else:
+        contiguous = tuple(range(expected_sequences[0], expected_sequences[-1] + 1))
+        sequence_shape_valid = (
+            len(set(expected_sequences)) == len(expected_sequences)
+            and expected_sequences == contiguous
+            and receipt.source_sequence_first == expected_sequences[0]
+            and receipt.source_sequence_last == expected_sequences[-1]
+            and receipt.source_sequences == expected_sequences
+        )
+    if not sequence_shape_valid:
         issues.append(
             Issue(
                 ReasonCode.SOURCE_SEQUENCE_INCOMPLETE,
-                f"{scope} source sequence coverage is incomplete or non-contiguous",
+                f"{scope} receipt sequences must exactly equal the supplied contiguous record sequences; "
+                "zero-event receipts require null first/last and an empty sequence array",
                 scope,
             )
         )
@@ -960,17 +1176,121 @@ def _latest_obligations(
     return latest, issues
 
 
+def _latest_baselines(
+    revisions: Sequence[PositionBaseline], *, as_of: datetime
+) -> tuple[dict[str, PositionBaseline], list[Issue]]:
+    """Validate immutable baseline histories and select each PIT revision."""
+    grouped: dict[str, list[PositionBaseline]] = {}
+    for row in revisions:
+        grouped.setdefault(row.baseline_id, []).append(row)
+    latest: dict[str, PositionBaseline] = {}
+    issues: list[Issue] = []
+    for baseline_id, rows in sorted(grouped.items()):
+        rows, conflict = _dedupe_exact(rows, lambda row: row.revision)
+        scope = f"baseline:{baseline_id}"
+        if conflict:
+            issues.append(
+                Issue(
+                    ReasonCode.CONFLICTING_DUPLICATE_BASELINE_REVISION,
+                    "same baseline revision has conflicting payloads",
+                    scope,
+                )
+            )
+            continue
+        rows.sort(key=lambda row: row.revision)
+        if [row.revision for row in rows] != list(range(1, rows[-1].revision + 1)):
+            issues.append(
+                Issue(
+                    ReasonCode.BASELINE_REVISION_GAP,
+                    "baseline revision sequence is not contiguous",
+                    scope,
+                )
+            )
+            continue
+        identity = rows[0].immutable_identity()
+        if any(row.immutable_identity() != identity for row in rows[1:]):
+            issues.append(
+                Issue(
+                    ReasonCode.BASELINE_IDENTITY_CHANGED,
+                    "baseline_id was reused for a different immutable allocation identity",
+                    scope,
+                )
+            )
+            continue
+        if rows[0].reason is not BaselineReason.INITIAL or any(
+            row.reason is BaselineReason.INITIAL for row in rows[1:]
+        ):
+            issues.append(
+                Issue(
+                    ReasonCode.NON_MONOTONIC_BASELINE_REVISION,
+                    "revision 1 must be INITIAL and later revisions must name an adjustment reason",
+                    scope,
+                )
+            )
+            continue
+        if any(
+            later.recorded_at <= earlier.recorded_at
+            or later.source_sequence <= earlier.source_sequence
+            or later.effective_at < earlier.effective_at
+            for earlier, later in pairwise(rows)
+        ):
+            issues.append(
+                Issue(
+                    ReasonCode.NON_MONOTONIC_BASELINE_REVISION,
+                    "baseline recorded_at/source_sequence must increase and effective_at must not regress",
+                    scope,
+                )
+            )
+            continue
+        if any(row.recorded_at > as_of for row in rows):
+            issues.append(
+                Issue(
+                    ReasonCode.FUTURE_SOURCE_EVENT,
+                    "baseline revision was recorded after run as_of",
+                    scope,
+                )
+            )
+            continue
+        applicable = [row for row in rows if row.effective_at <= as_of]
+        if not applicable:
+            issues.append(
+                Issue(
+                    ReasonCode.FUTURE_BASELINE,
+                    "baseline history has no revision effective by run as_of",
+                    scope,
+                )
+            )
+            continue
+        latest[baseline_id] = applicable[-1]
+    return latest, issues
+
+
+def _dedupe_snapshots(
+    snapshots: Sequence[AggregatePosition],
+) -> tuple[list[AggregatePosition], list[Issue]]:
+    rows, conflict = _dedupe_exact(snapshots, lambda row: row.snapshot_id)
+    if not conflict:
+        return rows, []
+    return rows, [
+        Issue(
+            ReasonCode.CONFLICTING_DUPLICATE_SNAPSHOT_ID,
+            "snapshot_id was reused with a different payload",
+            "position-source",
+        )
+    ]
+
+
 def _active_executions(
     revisions: Sequence[ExecutionRevision],
 ) -> tuple[list[ExecutionRevision], list[Issue], set[tuple[str, str, str]]]:
-    by_exec, duplicate_conflict = _dedupe_exact(revisions, lambda row: row.execution_id)
+    by_exec, duplicate_conflict = _dedupe_exact(revisions, lambda row: row.record_id)
     issues: list[Issue] = []
     affected: set[tuple[str, str, str]] = set()
     if duplicate_conflict:
         issues.append(
             Issue(
                 ReasonCode.CONFLICTING_DUPLICATE_EXECUTION,
-                "one execution_id has conflicting payloads",
+                "one execution revision identity has conflicting payloads",
                 "executions",
             )
         )
@@ -1060,7 +1380,12 @@ def _active_executions(
     return active, issues, affected
 
 
-def evaluate(manifest: Manifest) -> EvaluationReport:
+def evaluate(
+    manifest: Manifest,
+    *,
+    input_sha256: str | None = None,
+    code_sha256: str | None = None,
+) -> EvaluationReport:
     run = manifest.run
     global_issues: list[Issue] = []
 
@@ -1068,6 +1393,14 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
         manifest.obligation_revisions
     )
     global_issues.extend(revision_issues)
+    latest_baselines, baseline_history_issues = _latest_baselines(
+        manifest.position_baselines, as_of=run.as_of
+    )
+    global_issues.extend(baseline_history_issues)
+    aggregate_positions, snapshot_id_issues = _dedupe_snapshots(
+        manifest.aggregate_positions
+    )
+    global_issues.extend(snapshot_id_issues)
     for row in manifest.obligation_revisions:
         if row.session_date != run.session_date:
             global_issues.append(
@@ -1095,6 +1428,15 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
                     f"execution:{row.execution_id}",
                 )
             )
+    for row in manifest.aggregate_positions:
+        if row.observed_at > run.as_of:
+            global_issues.append(
+                Issue(
+                    ReasonCode.FUTURE_SOURCE_EVENT,
+                    "aggregate position was observed after run as_of",
+                    f"snapshot:{row.snapshot_id}",
+                )
+            )
     for producer in run.required_producers:
         producer_rows = [
             row for row in manifest.obligation_revisions if row.producer_id == producer
@@ -1102,7 +1444,7 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
         global_issues.extend(
             _sequence_collision_issues(
                 producer_rows,
-                event_identity=lambda row: (row.event_id, row.revision),
+                event_identity=lambda row: row.record_id,
                 source_sequence=lambda row: row.source_sequence,
                 scope=f"producer:{producer}",
             )
@@ -1110,7 +1452,7 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
     global_issues.extend(
         _sequence_collision_issues(
             manifest.execution_revisions,
-            event_identity=lambda row: row.execution_id,
+            event_identity=lambda row: row.record_id,
             source_sequence=lambda row: row.source_sequence,
             scope="execution-source",
         )
@@ -1118,7 +1460,7 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
     global_issues.extend(
         _sequence_collision_issues(
             manifest.position_baselines,
-            event_identity=lambda row: row.baseline_id,
+            event_identity=lambda row: row.record_id,
             source_sequence=lambda row: row.source_sequence,
             scope="baseline-source",
         )
@@ -1170,13 +1512,13 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
         producer_rows = [
             row for row in manifest.obligation_revisions if row.producer_id == producer
         ]
-        expected_ids = {row.event_id for row in producer_rows}
-        expected_sequences = {row.source_sequence for row in producer_rows}
+        expected_event_sequences = {
+            row.record_id: row.source_sequence for row in producer_rows
+        }
         global_issues.extend(
             _receipt_issues(
                 receipt,
-                expected_ids=expected_ids,
-                expected_sequences=expected_sequences,
+                expected_event_sequences=expected_event_sequences,
                 as_of=run.as_of,
                 scope=scope,
                 incomplete_reason=ReasonCode.INCOMPLETE_PRODUCER_RECEIPT,
@@ -1224,13 +1566,13 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
                 )
             )
 
-    execution_ids = {row.execution_id for row in manifest.execution_revisions}
-    execution_sequences = {row.source_sequence for row in manifest.execution_revisions}
+    execution_event_sequences = {
+        row.record_id: row.source_sequence for row in manifest.execution_revisions
+    }
     global_issues.extend(
         _receipt_issues(
             manifest.execution_receipt,
-            expected_ids=execution_ids,
-            expected_sequences=execution_sequences,
+            expected_event_sequences=execution_event_sequences,
             as_of=run.as_of,
             scope="execution-source",
             incomplete_reason=ReasonCode.INCOMPLETE_EXECUTION_SOURCE,
@@ -1240,13 +1582,13 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
         )
     )
 
-    baseline_ids = {row.baseline_id for row in manifest.position_baselines}
-    baseline_sequences = {row.source_sequence for row in manifest.position_baselines}
+    baseline_event_sequences = {
+        row.record_id: row.source_sequence for row in manifest.position_baselines
+    }
     global_issues.extend(
         _receipt_issues(
             manifest.baseline_receipt,
-            expected_ids=baseline_ids,
-            expected_sequences=baseline_sequences,
+            expected_event_sequences=baseline_event_sequences,
             as_of=run.as_of,
             scope="baseline-source",
             incomplete_reason=ReasonCode.INCOMPLETE_BASELINE_SOURCE,
@@ -1256,13 +1598,13 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
         )
     )
 
-    position_ids = {row.snapshot_id for row in manifest.aggregate_positions}
-    position_sequences = {row.source_sequence for row in manifest.aggregate_positions}
+    position_event_sequences = {
+        row.snapshot_id: row.source_sequence for row in manifest.aggregate_positions
+    }
     global_issues.extend(
         _receipt_issues(
             manifest.position_receipt,
-            expected_ids=position_ids,
-            expected_sequences=position_sequences,
+            expected_event_sequences=position_event_sequences,
             as_of=run.as_of,
             scope="position-source",
             incomplete_reason=ReasonCode.INCOMPLETE_POSITION_SOURCE,
@@ -1307,7 +1649,7 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
     global_issues.extend(resolution_issues)
 
     baseline_by_allocation: dict[tuple[Any, ...], list[PositionBaseline]] = {}
-    for baseline in manifest.position_baselines:
+    for baseline in latest_baselines.values():
         contract_key = resolve(baseline.account, baseline.contract)
         if contract_key is None:
             continue
@@ -1330,7 +1672,7 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
         exec_by_allocation.setdefault(key, []).append(execution)
 
     aggregate_by_contract: dict[CanonicalContract, list[AggregatePosition]] = {}
-    for position in manifest.aggregate_positions:
+    for position in aggregate_positions:
         contract_key = resolve(position.account, position.contract)
         if contract_key is None:
             continue
@@ -1401,13 +1743,31 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
                 f"allocation:{key[0]}:{key[1]}:{key[2]}",
             )
         )
-    touched_contracts: set[CanonicalContract] = set()
+    touched_contracts: set[CanonicalContract] = set(aggregate_by_contract)
+    touched_contracts.update(key[3] for key in baseline_by_allocation)
+    touched_contracts.update(key[3] for key in exec_by_allocation)
+    # Invalid/future baseline histories still belong to the reconciliation
+    # universe; otherwise an unrelated bad allocation could disappear.
+    for baseline in manifest.position_baselines:
+        contract_key = resolve(baseline.account, baseline.contract)
+        if contract_key is not None:
+            touched_contracts.add(contract_key)
     for row in due_obligations:
         contract_key = resolve(row.account, row.contract)
         if contract_key is not None:
             touched_contracts.add(contract_key)
 
     contract_issues: dict[CanonicalContract, list[Issue]] = {}
+    for allocation_key, issues in allocation_issues.items():
+        contract_issues.setdefault(allocation_key[3], []).extend(issues)
+    for issue in baseline_history_issues:
+        baseline_id = issue.scope.removeprefix("baseline:")
+        for baseline in manifest.position_baselines:
+            if baseline.baseline_id != baseline_id:
+                continue
+            contract_key = resolve(baseline.account, baseline.contract)
+            if contract_key is not None:
+                contract_issues.setdefault(contract_key, []).append(issue)
     for contract_key in touched_contracts:
         positions = aggregate_by_contract.get(contract_key, [])
         scope = "contract:" + ":".join(contract_key[1:])
@@ -1441,11 +1801,12 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
             )
             continue
         evidence_times = [
-            baseline.effective_at
+            evidence_time
             for key, rows in baseline_by_allocation.items()
             if key[3] == contract_key
             for baseline in rows
             if baseline.effective_at <= run.as_of
+            for evidence_time in (baseline.effective_at, baseline.recorded_at)
         ]
         evidence_times.extend(
             execution.occurred_at
@@ -1480,11 +1841,154 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
                 )
             )
 
+    for issues in contract_issues.values():
+        global_issues.extend(issues)
+
+    def issues_for_source(source_kind: str, source_id: str) -> tuple[Issue, ...]:
+        if source_kind == "OBLIGATION_PRODUCER":
+            event_scopes = {
+                f"obligation:{row.event_id}"
+                for row in manifest.obligation_revisions
+                if row.producer_id == source_id
+            }
+            scopes = {f"producer:{source_id}", *event_scopes}
+            return tuple(
+                sorted({issue for issue in global_issues if issue.scope in scopes})
+            )
+        prefixes = {
+            "EXECUTION": (
+                "execution-source",
+                "executions",
+                "execution:",
+                "correction-family:",
+            ),
+            "BASELINE": ("baseline-source", "baseline:"),
+            "POSITION": ("position-source", "snapshot:"),
+        }[source_kind]
+        return tuple(
+            sorted(
+                {
+                    issue
+                    for issue in global_issues
+                    if any(
+                        issue.scope == prefix or issue.scope.startswith(prefix)
+                        for prefix in prefixes
+                    )
+                }
+            )
+        )
+
+    source_completeness: list[SourceCompletenessResult] = []
+    for producer in sorted(run.required_producers):
+        receipts = receipts_by_producer.get(producer, [])
+        receipt = receipts[0] if len(receipts) == 1 else None
+        issues = issues_for_source("OBLIGATION_PRODUCER", producer)
+        source_completeness.append(
+            SourceCompletenessResult(
+                source_kind="OBLIGATION_PRODUCER",
+                source_id=producer,
+                receipt_id=receipt.receipt_id if receipt is not None else None,
+                state=ControlState.CLEAR if not issues else ControlState.UNKNOWN,
+                session_date=receipt.session_date if receipt is not None else None,
+                complete_through=receipt.complete_through
+                if receipt is not None
+                else None,
+                event_count=receipt.event_count if receipt is not None else None,
+                source_sequence_first=receipt.source_sequence_first
+                if receipt is not None
+                else None,
+                source_sequence_last=receipt.source_sequence_last
+                if receipt is not None
+                else None,
+                issues=issues,
+            )
+        )
+    for source_kind, receipt in (
+        ("EXECUTION", manifest.execution_receipt),
+        ("BASELINE", manifest.baseline_receipt),
+        ("POSITION", manifest.position_receipt),
+    ):
+        issues = issues_for_source(source_kind, receipt.source_id)
+        source_completeness.append(
+            SourceCompletenessResult(
+                source_kind=source_kind,
+                source_id=receipt.source_id,
+                receipt_id=receipt.receipt_id,
+                state=ControlState.CLEAR if not issues else ControlState.UNKNOWN,
+                session_date=receipt.session_date,
+                complete_through=receipt.complete_through,
+                event_count=receipt.event_count,
+                source_sequence_first=receipt.source_sequence_first,
+                source_sequence_last=receipt.source_sequence_last,
+                issues=issues,
+            )
+        )
+
+    contract_reconciliations: list[ContractReconciliationResult] = []
+    for contract_key in sorted(touched_contracts):
+        positions = aggregate_by_contract.get(contract_key, [])
+        position = positions[0] if len(positions) == 1 else None
+        unresolved = [key for key in allocation_issues if key[3] == contract_key]
+        attributed = sum(
+            (qty for key, qty in allocation_qty.items() if key[3] == contract_key),
+            ZERO,
+        )
+        baselines = [
+            baseline
+            for key, rows in baseline_by_allocation.items()
+            if key[3] == contract_key
+            for baseline in rows
+        ]
+        executions = [
+            execution
+            for key, rows in exec_by_allocation.items()
+            if key[3] == contract_key
+            for execution in rows
+        ]
+        matching_contract = next(
+            (
+                contract
+                for account, contract in all_account_contracts
+                if resolve(account, contract) == contract_key
+            ),
+            None,
+        )
+        issues = tuple(sorted(set(contract_issues.get(contract_key, ()))))
+        contract_reconciliations.append(
+            ContractReconciliationResult(
+                account=contract_key[1],
+                canonical_contract=":".join(contract_key),
+                contract=matching_contract.label()
+                if matching_contract is not None
+                else ":".join(contract_key[2:]),
+                state=ControlState.CLEAR if not issues else ControlState.UNKNOWN,
+                attributed_signed_qty=None if unresolved else attributed,
+                aggregate_signed_qty=position.signed_qty
+                if position is not None
+                else None,
+                latest_baseline_effective_at=max(
+                    (row.effective_at for row in baselines), default=None
+                ),
+                latest_baseline_recorded_at=max(
+                    (row.recorded_at for row in baselines), default=None
+                ),
+                latest_execution_at=max(
+                    (row.occurred_at for row in executions), default=None
+                ),
+                snapshot_observed_at=position.observed_at
+                if position is not None
+                else None,
+                allocation_count=len(baselines),
+                issues=issues,
+            )
+        )
+
     hard_global_reasons = {
         ReasonCode.MISSING_REQUIRED_PRODUCER_RECEIPT,
         ReasonCode.DUPLICATE_PRODUCER_RECEIPT,
         ReasonCode.INCOMPLETE_PRODUCER_RECEIPT,
         ReasonCode.STALE_PRODUCER_RECEIPT,
+        ReasonCode.FUTURE_SOURCE_RECEIPT,
         ReasonCode.RECEIPT_EVENT_SET_MISMATCH,
         ReasonCode.RECEIPT_ZERO_OBLIGATION_MISMATCH,
         ReasonCode.SOURCE_SESSION_MISMATCH,
@@ -1493,6 +1997,10 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
         ReasonCode.CONFLICTING_DUPLICATE_REVISION,
         ReasonCode.IMMUTABLE_IDENTITY_CHANGED,
         ReasonCode.NON_MONOTONIC_REVISION,
+        ReasonCode.BASELINE_REVISION_GAP,
+        ReasonCode.CONFLICTING_DUPLICATE_BASELINE_REVISION,
+        ReasonCode.BASELINE_IDENTITY_CHANGED,
+        ReasonCode.NON_MONOTONIC_BASELINE_REVISION,
         ReasonCode.INCOMPLETE_EXECUTION_SOURCE,
         ReasonCode.STALE_EXECUTION_SOURCE,
         ReasonCode.EXECUTION_EVENT_SET_MISMATCH,
@@ -1504,6 +2012,7 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
         ReasonCode.INCOMPLETE_POSITION_SOURCE,
         ReasonCode.STALE_POSITION_SOURCE,
         ReasonCode.POSITION_EVENT_SET_MISMATCH,
+        ReasonCode.CONFLICTING_DUPLICATE_SNAPSHOT_ID,
         ReasonCode.FUTURE_SOURCE_EVENT,
         ReasonCode.CONFLICTING_DUPLICATE_EXECUTION,
     }
@@ -1693,19 +2202,42 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
     alert_count = sum(item.state is ControlState.ALERT for item in results)
     unknown_count = sum(item.state is ControlState.UNKNOWN for item in results)
     clear_count = sum(item.state is ControlState.CLEAR for item in results)
+    clear_sources = sum(
+        item.state is ControlState.CLEAR for item in source_completeness
+    )
+    clear_contracts = sum(
+        item.state is ControlState.CLEAR for item in contract_reconciliations
+    )
     what_changed = (
         f"Evaluated {due_count} due expected-flat obligation(s) for {run.session_date.isoformat()}.",
         f"Result mix: {alert_count} ALERT, {unknown_count} UNKNOWN, {clear_count} CLEAR.",
+        (
+            f"Validated {clear_sources}/{len(source_completeness)} source(s) and reconciled "
+            f"{clear_contracts}/{len(contract_reconciliations)} account-contract(s)."
+        ),
         f"Recorded {len(global_issues)} run-level issue(s).",
+    )
+    only_shadow_gate = (
+        overall is ControlState.UNKNOWN
+        and {issue.reason for issue in global_issues}
+        == {ReasonCode.NON_AUTHORITATIVE_RUN}
+        and all(item.state is not ControlState.UNKNOWN for item in results)
+        and all(item.state is ControlState.CLEAR for item in source_completeness)
+        and all(item.state is ControlState.CLEAR for item in contract_reconciliations)
     )
     if overall is ControlState.ALERT:
         required_action = (
             "Investigate every ALERT against the broker and execution audit trail immediately.",
             "Do not place corrective trades from this report; execution requires a separately authorized workflow.",
         )
+    elif only_shadow_gate:
+        required_action = (
+            "The supplied evidence reconciled; record the manual shadow comparison and continue the approved shadow-review sequence.",
+            "This non-authoritative result is validation evidence only, not operational clearance.",
+        )
     elif overall is ControlState.UNKNOWN:
         required_action = (
-            "Resolve every UNKNOWN data-completeness or identity issue before drawing a flatness conclusion.",
+            "Resolve every listed completeness, identity, timing, or reconciliation issue before drawing a flatness conclusion.",
             "Do not interpret this report as operational clearance.",
         )
     elif overall is ControlState.NOT_SCHEDULED:
@@ -1719,8 +2251,28 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
             "Retain the artifacts and continue normal independent broker review.",
         )
 
-    return EvaluationReport(
+    manifest_digest = _sha256(manifest)
+    resolved_input_digest = input_sha256 or manifest_digest
+    resolved_code_digest = code_sha256 or _normalized_code_sha256()
+    for name, digest in (
+        ("input_sha256", resolved_input_digest),
+        ("code_sha256", resolved_code_digest),
+    ):
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ManifestError(f"{name} must be a lowercase SHA-256 hex digest")
+    config_digest = _sha256(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "algorithm_version": ALGORITHM_VERSION,
+            "run_mode": run.run_mode.value,
+            "operationally_authoritative": run.operationally_authoritative,
+            "required_producers": run.required_producers,
+            "max_position_age_seconds": run.max_position_age_seconds,
+        }
+    )
+    report = EvaluationReport(
         schema_version=SCHEMA_VERSION,
+        algorithm_version=ALGORITHM_VERSION,
         run_id=run.run_id,
         run_mode=run.run_mode,
         operationally_authoritative=run.operationally_authoritative,
@@ -1730,8 +2282,21 @@ def evaluate(manifest: Manifest) -> EvaluationReport:
         headline=headline,
         what_changed=what_changed,
         required_action=required_action,
+        source_completeness=tuple(source_completeness),
+        contract_reconciliations=tuple(contract_reconciliations),
         obligations=tuple(results),
         issues=tuple(sorted(set(global_issues))),
+        digests=ReportDigests(
+            code_sha256=resolved_code_digest,
+            config_sha256=config_digest,
+            input_sha256=resolved_input_digest,
+            report_sha256="",
+        ),
+    )
+    report_digest = hashlib.sha256(_canonical_bytes(report.to_dict())).hexdigest()
+    return replace(
+        report,
+        digests=replace(report.digests, report_sha256=report_digest),
     )
 
 
@@ -1740,6 +2305,26 @@ def render_json(report: EvaluationReport) -> str:
         json.dumps(report.to_dict(), indent=2, sort_keys=True, ensure_ascii=False)
         + "\n"
     )
+
+
+def _markdown_text(value: Any) -> str:
+    """Render untrusted text without allowing Markdown/HTML structure."""
+    text = " ".join(str(value).replace("\r", " ").replace("\n", " ").split())
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = text.replace("\\", "\\\\")
+    for character in ("`", "*", "_", "[", "]", "(", ")", "#", "!", "|"):
+        text = text.replace(character, f"\\{character}")
+    return text
+
+
+def _markdown_code(value: Any) -> str:
+    """Wrap one newline-neutralized value in a collision-safe code span."""
+    text = " ".join(str(value).replace("\r", " ").replace("\n", " ").split())
+    longest = max(
+        (len(match.group(0)) for match in re.finditer(r"`+", text)), default=0
+    )
+    fence = "`" * (longest + 1)
+    return f"{fence} {text} {fence}" if "`" in text else f"`{text}`"
 
 
 def render_markdown(report: EvaluationReport) -> str:
@@ -1758,16 +2343,70 @@ def render_markdown(report: EvaluationReport) -> str:
         "",
         "## Run summary",
         "",
-        f"- Run: `{report.run_id}`",
+        f"- Run: {_markdown_code(report.run_id)}",
         f"- Mode: `{report.run_mode.value}`",
         f"- Operationally authoritative: `{str(report.operationally_authoritative).lower()}`",
         f"- Session: `{report.session_date.isoformat()}`",
         f"- As of: `{timestamp_text(report.as_of)}`",
         f"- State: **{report.state.value}**",
+        f"- Schema version: `{report.schema_version}`",
+        f"- Algorithm version: `{report.algorithm_version}`",
         "",
-        "## Obligations",
+        "## Source completeness",
         "",
+        "| State | Kind | Source | Receipt | Events | Sequence | Complete through | Issues |",
+        "|---|---|---|---|---:|---|---|---|",
     ]
+    for item in report.source_completeness:
+        sequence = (
+            "—"
+            if item.source_sequence_first is None
+            else f"{item.source_sequence_first}..{item.source_sequence_last}"
+        )
+        lines.append(
+            f"| {item.state.value} | {item.source_kind} | {_markdown_text(item.source_id)} | "
+            f"{_markdown_text(item.receipt_id or '—')} | {item.event_count if item.event_count is not None else '—'} | "
+            f"{sequence} | {timestamp_text(item.complete_through) if item.complete_through else '—'} | "
+            f"{_markdown_text('; '.join(issue.reason.value for issue in item.issues) or 'None')} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Account-contract reconciliation",
+            "",
+            "| State | Account | Contract | Attributed | Aggregate | Allocations | Baseline effective / recorded | Latest execution | Snapshot | Issues |",
+            "|---|---|---|---:|---:|---:|---|---|---|---|",
+        ]
+    )
+    if report.contract_reconciliations:
+        for item in report.contract_reconciliations:
+            baseline_times = (
+                f"{timestamp_text(item.latest_baseline_effective_at)} / "
+                f"{timestamp_text(item.latest_baseline_recorded_at)}"
+                if item.latest_baseline_effective_at is not None
+                and item.latest_baseline_recorded_at is not None
+                else "—"
+            )
+            lines.append(
+                f"| {item.state.value} | {_markdown_text(item.account)} | {_markdown_text(item.contract)} | "
+                f"{decimal_text(item.attributed_signed_qty) or '—'} | "
+                f"{decimal_text(item.aggregate_signed_qty) or '—'} | {item.allocation_count} | "
+                f"{baseline_times} | "
+                f"{timestamp_text(item.latest_execution_at) if item.latest_execution_at else '—'} | "
+                f"{timestamp_text(item.snapshot_observed_at) if item.snapshot_observed_at else '—'} | "
+                f"{_markdown_text('; '.join(issue.reason.value for issue in item.issues) or 'None')} |"
+            )
+    else:
+        lines.append(
+            "| — | — | No relevant account-contracts supplied | — | — | 0 | — | — | — | None |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Obligations",
+            "",
+        ]
+    )
     if not report.obligations:
         lines.append("No obligation events were supplied.")
     else:
@@ -1779,8 +2418,9 @@ def render_markdown(report: EvaluationReport) -> str:
         )
         for item in report.obligations:
             lines.append(
-                f"| {item.state.value} | {item.strategy} | {item.account} | "
-                f"{item.signal_id} / {item.tranche_id} | {item.contract} | "
+                f"| {item.state.value} | {_markdown_text(item.strategy)} | {_markdown_text(item.account)} | "
+                f"{_markdown_text(item.signal_id)} / {_markdown_text(item.tranche_id)} | "
+                f"{_markdown_text(item.contract)} | "
                 f"{decimal_text(item.signed_residual_qty) or '—'} | {timestamp_text(item.expected_flat_by)} |"
             )
     lines.extend(["", "## Obligation findings", ""])
@@ -1789,7 +2429,8 @@ def render_markdown(report: EvaluationReport) -> str:
     ]
     if item_findings:
         lines.extend(
-            f"- `{item.event_id}` — `{issue.reason.value}`: {issue.detail}"
+            f"- {_markdown_code(item.event_id)} — `{issue.reason.value}`: "
+            f"{_markdown_text(issue.detail)}"
             for item, issue in item_findings
         )
     else:
@@ -1797,11 +2438,25 @@ def render_markdown(report: EvaluationReport) -> str:
     lines.extend(["", "## Run-level issues", ""])
     if report.issues:
         lines.extend(
-            f"- `{issue.reason.value}` ({issue.scope}): {issue.detail}"
+            f"- `{issue.reason.value}` ({_markdown_text(issue.scope)}): "
+            f"{_markdown_text(issue.detail)}"
             for issue in report.issues
         )
     else:
         lines.append("- None.")
+    lines.extend(
+        [
+            "",
+            "## Provenance and digests",
+            "",
+            f"- Algorithm: `{report.algorithm_version}`",
+            f"- Schema: `{report.schema_version}`",
+            f"- Code SHA-256: `{report.digests.code_sha256}`",
+            f"- Config SHA-256: `{report.digests.config_sha256}`",
+            f"- Input SHA-256: `{report.digests.input_sha256}`",
+            f"- Report SHA-256: `{report.digests.report_sha256}`",
+        ]
+    )
     lines.extend(
         [
             "",
@@ -1815,6 +2470,38 @@ def render_markdown(report: EvaluationReport) -> str:
 
 def render_html(report: EvaluationReport) -> str:
     esc = html.escape
+    source_rows = "".join(
+        "<tr>"
+        f"<td>{esc(item.state.value)}</td>"
+        f"<td>{esc(item.source_kind)}</td>"
+        f"<td>{esc(item.source_id)}</td>"
+        f"<td>{esc(item.receipt_id or '—')}</td>"
+        f"<td class='num'>{item.event_count if item.event_count is not None else '—'}</td>"
+        f"<td>{esc('—' if item.source_sequence_first is None else f'{item.source_sequence_first}..{item.source_sequence_last}')}</td>"
+        f"<td>{esc(timestamp_text(item.complete_through) if item.complete_through else '—')}</td>"
+        f"<td>{esc('; '.join(f'{issue.reason.value}: {issue.detail}' for issue in item.issues) or 'None')}</td>"
+        "</tr>"
+        for item in report.source_completeness
+    )
+    reconciliation_rows = (
+        "".join(
+            "<tr>"
+            f"<td>{esc(item.state.value)}</td>"
+            f"<td>{esc(item.account)}</td>"
+            f"<td>{esc(item.contract)}</td>"
+            f"<td class='num'>{esc(decimal_text(item.attributed_signed_qty) or '—')}</td>"
+            f"<td class='num'>{esc(decimal_text(item.aggregate_signed_qty) or '—')}</td>"
+            f"<td class='num'>{item.allocation_count}</td>"
+            f"<td>{esc(timestamp_text(item.latest_baseline_effective_at) if item.latest_baseline_effective_at else '—')}</td>"
+            f"<td>{esc(timestamp_text(item.latest_baseline_recorded_at) if item.latest_baseline_recorded_at else '—')}</td>"
+            f"<td>{esc(timestamp_text(item.latest_execution_at) if item.latest_execution_at else '—')}</td>"
+            f"<td>{esc(timestamp_text(item.snapshot_observed_at) if item.snapshot_observed_at else '—')}</td>"
+            f"<td>{esc('; '.join(f'{issue.reason.value}: {issue.detail}' for issue in item.issues) or 'None')}</td>"
+            "</tr>"
+            for item in report.contract_reconciliations
+        )
+        or "<tr><td colspan='11'>No relevant account-contracts supplied.</td></tr>"
+    )
     obligations = (
         "".join(
             "<tr>"
@@ -1880,12 +2567,28 @@ code {{ white-space: nowrap; }}
 <section><h2>Run summary</h2>
 <p>Run <code>{esc(report.run_id)}</code> · mode <code>{esc(report.run_mode.value)}</code> · session
 <code>{esc(report.session_date.isoformat())}</code> · as of <code>{esc(timestamp_text(report.as_of))}</code> ·
-operationally authoritative <code>{str(report.operationally_authoritative).lower()}</code></p></section>
+operationally authoritative <code>{str(report.operationally_authoritative).lower()}</code> · schema
+<code>{report.schema_version}</code> · algorithm <code>{esc(report.algorithm_version)}</code></p></section>
+<section><h2>Source completeness</h2><table><thead><tr><th>State</th><th>Kind</th><th>Source</th>
+<th>Receipt</th><th>Events</th><th>Sequence</th><th>Complete through</th><th>Issues</th></tr></thead>
+<tbody>{source_rows}</tbody></table></section>
+<section><h2>Account-contract reconciliation</h2><table><thead><tr><th>State</th><th>Account</th>
+<th>Contract</th><th>Attributed</th><th>Aggregate</th><th>Allocations</th><th>Baseline effective</th>
+<th>Baseline recorded</th><th>Latest execution</th><th>Snapshot</th><th>Issues</th></tr></thead>
+<tbody>{reconciliation_rows}</tbody></table></section>
 <section><h2>Obligations</h2><table><thead><tr><th>State</th><th>Strategy</th><th>Account</th>
 <th>Signal / tranche</th><th>Contract</th><th>Signed residual</th><th>Flat by</th></tr></thead>
 <tbody>{obligations}</tbody></table></section>
 <section><h2>Obligation findings</h2><ul>{item_issues}</ul></section>
 <section><h2>Run-level issues</h2><ul>{issues}</ul></section>
+<section><h2>Provenance and digests</h2><dl>
+<dt>Algorithm</dt><dd><code>{esc(report.algorithm_version)}</code></dd>
+<dt>Schema</dt><dd><code>{report.schema_version}</code></dd>
+<dt>Code SHA-256</dt><dd><code>{esc(report.digests.code_sha256)}</code></dd>
+<dt>Config SHA-256</dt><dd><code>{esc(report.digests.config_sha256)}</code></dd>
+<dt>Input SHA-256</dt><dd><code>{esc(report.digests.input_sha256)}</code></dd>
+<dt>Report SHA-256</dt><dd><code>{esc(report.digests.report_sha256)}</code></dd>
+</dl></section>
 <hr><p><strong>Observational only.</strong> This artifact cannot stage, place, cancel, or modify an order.</p>
 </body>
 </html>
@@ -1897,7 +2600,11 @@ _SAFE_FILENAME = re.compile(r"[^A-Za-z0-9_.-]+")
 
 def artifact_stem(report: EvaluationReport) -> str:
     safe_run_id = _SAFE_FILENAME.sub("_", report.run_id).strip("._") or "run"
-    return f"expected_flat_{report.session_date.isoformat()}_{safe_run_id}"
+    safe_run_id = safe_run_id[:80].rstrip("._") or "run"
+    return (
+        f"expected_flat_{report.session_date.isoformat()}_{safe_run_id}_"
+        f"{report.digests.input_sha256[:12]}_{report.digests.report_sha256[:12]}"
+    )
 
 
 def atomic_write_text(path: Path, content: str) -> None:
@@ -1923,22 +2630,178 @@ def atomic_write_text(path: Path, content: str) -> None:
             temp_path.unlink()
 
 
-def write_artifacts(report: EvaluationReport, output_dir: Path) -> dict[str, Path]:
-    stem = artifact_stem(report)
-    paths = {
-        "json": Path(output_dir) / f"{stem}.json",
-        "markdown": Path(output_dir) / f"{stem}.md",
-        "html": Path(output_dir) / f"{stem}.html",
+def _generation_paths(generation_path: Path) -> dict[str, Path]:
+    return {
+        "generation": generation_path,
+        "json": generation_path / "report.json",
+        "markdown": generation_path / "report.md",
+        "html": generation_path / "report.html",
+        "completion": generation_path / "completion.json",
     }
-    atomic_write_text(paths["json"], render_json(report))
-    atomic_write_text(paths["markdown"], render_markdown(report))
-    atomic_write_text(paths["html"], render_html(report))
+
+
+def _rendered_artifact_text(report: EvaluationReport) -> dict[str, str]:
+    return {
+        "html": render_html(report),
+        "json": render_json(report),
+        "markdown": render_markdown(report),
+    }
+
+
+def _completion_text(
+    report: EvaluationReport,
+    generation_name: str,
+    rendered: Mapping[str, str],
+) -> str:
+    file_names = {
+        "html": "report.html",
+        "json": "report.json",
+        "markdown": "report.md",
+    }
+    files = {}
+    for name, content in sorted(rendered.items()):
+        payload = content.encode("utf-8")
+        files[name] = {
+            "path": file_names[name],
+            "bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+    return (
+        json.dumps(
+            {
+                "algorithm_version": report.algorithm_version,
+                "complete": True,
+                "files": files,
+                "generation": generation_name,
+                "input_sha256": report.digests.input_sha256,
+                "report_sha256": report.digests.report_sha256,
+                "schema_version": report.schema_version,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
+def _verify_complete_generation(
+    report: EvaluationReport,
+    generation_path: Path,
+    generation_name: str,
+    rendered: Mapping[str, str],
+) -> dict[str, Path]:
+    """Return an exact existing generation or reject all partial/tampered state."""
+    paths = _generation_paths(generation_path)
+    if generation_path.is_symlink() or not generation_path.is_dir():
+        raise ManifestError(
+            f"immutable report generation path is not a directory: {generation_path}"
+        )
+    expected_names = {path.name for name, path in paths.items() if name != "generation"}
+    try:
+        actual_names = {path.name for path in generation_path.iterdir()}
+    except OSError as exc:
+        raise ManifestError(
+            f"could not inspect existing report generation {generation_path}: {exc}"
+        ) from exc
+    if actual_names != expected_names:
+        raise ManifestError(
+            "existing immutable report generation is partial or contains unexpected files"
+        )
+    expected_content = {
+        "html": rendered["html"].encode("utf-8"),
+        "json": rendered["json"].encode("utf-8"),
+        "markdown": rendered["markdown"].encode("utf-8"),
+        "completion": _completion_text(report, generation_name, rendered).encode(
+            "utf-8"
+        ),
+    }
+    for name, expected in expected_content.items():
+        if paths[name].is_symlink() or not paths[name].is_file():
+            raise ManifestError(
+                f"existing immutable report artifact is not a regular file: {paths[name]}"
+            )
+        try:
+            actual = paths[name].read_bytes()
+        except OSError as exc:
+            raise ManifestError(
+                f"could not verify existing report artifact {paths[name]}: {exc}"
+            ) from exc
+        if actual != expected:
+            raise ManifestError(
+                f"existing immutable report artifact does not match this run: {paths[name]}"
+            )
     return paths
 
 
-def load_manifest(path: Path) -> Manifest:
+def write_artifacts(
+    report: EvaluationReport,
+    output_dir: Path,
+    *,
+    input_path: Path | None = None,
+) -> dict[str, Path]:
+    """Publish one immutable report generation with a completion manifest.
+
+    All report files are built in a private sibling staging directory.  The
+    directory becomes visible as a generation only after every file and the
+    completion manifest have been durably written.  Existing generations are
+    never replaced.
+    """
+    resolved_output = Path(output_dir).resolve()
+    if input_path is not None:
+        resolved_input = Path(input_path).resolve()
+        if (
+            resolved_input == resolved_output
+            or resolved_output in resolved_input.parents
+        ):
+            raise ManifestError(
+                "input manifest must be outside the resolved output directory"
+            )
+
+    resolved_output.mkdir(parents=True, exist_ok=True)
+    generation_name = artifact_stem(report)
+    generation_path = resolved_output / generation_name
+    rendered = _rendered_artifact_text(report)
+    if generation_path.exists():
+        return _verify_complete_generation(
+            report, generation_path, generation_name, rendered
+        )
+
+    staging_path = Path(
+        tempfile.mkdtemp(prefix=".expected-flat-staging-", dir=resolved_output)
+    )
+    staged_paths = {
+        "json": staging_path / "report.json",
+        "markdown": staging_path / "report.md",
+        "html": staging_path / "report.html",
+    }
     try:
-        raw = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        atomic_write_text(staged_paths["json"], rendered["json"])
+        atomic_write_text(staged_paths["markdown"], rendered["markdown"])
+        atomic_write_text(staged_paths["html"], rendered["html"])
+        completion_path = staging_path / "completion.json"
+        atomic_write_text(
+            completion_path,
+            _completion_text(report, generation_name, rendered),
+        )
+        _verify_complete_generation(report, staging_path, generation_name, rendered)
+        os.rename(staging_path, generation_path)
+    except Exception:
+        if staging_path.exists():
+            shutil.rmtree(staging_path)
+        raise
+
+    return _generation_paths(generation_path)
+
+
+def load_manifest_with_digest(path: Path) -> tuple[Manifest, str]:
+    try:
+        payload = Path(path).read_bytes()
+        raw = json.loads(payload.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ManifestError(f"could not read manifest {path}: {exc}") from exc
-    return Manifest.from_dict(raw)
+    return Manifest.from_dict(raw), hashlib.sha256(payload).hexdigest()
+
+
+def load_manifest(path: Path) -> Manifest:
+    manifest, _ = load_manifest_with_digest(path)
+    return manifest

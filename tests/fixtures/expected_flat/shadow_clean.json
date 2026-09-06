@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "run": {
     "run_id": "golden-shadow",
     "run_mode": "SHADOW",
@@ -17,7 +17,7 @@
       "complete": true,
       "complete_through": "2026-09-05T21:30:00Z",
       "zero_events": false,
-      "event_ids": ["olv-aapl-t1-flat"],
+      "event_ids": ["olv-aapl-t1-flat@1"],
       "event_count": 1,
       "source_sequence_first": 1,
       "source_sequence_last": 1,
@@ -31,7 +31,7 @@
     "complete": true,
     "complete_through": "2026-09-05T21:30:00Z",
     "zero_events": false,
-    "event_ids": ["exec-1"],
+    "event_ids": ["exec-1@1"],
     "event_count": 1,
     "source_sequence_first": 1,
     "source_sequence_last": 1,
@@ -44,7 +44,7 @@
     "complete": true,
     "complete_through": "2026-09-05T21:30:00Z",
     "zero_events": false,
-    "event_ids": ["baseline-1"],
+    "event_ids": ["baseline-1@1"],
     "event_count": 1,
     "source_sequence_first": 1,
     "source_sequence_last": 1,
@@ -91,7 +91,9 @@
   "position_baselines": [
     {
       "baseline_id": "baseline-1",
+      "revision": 1,
       "source_sequence": 1,
+      "recorded_at": "2026-09-05T20:00:00Z",
       "effective_at": "2026-09-05T20:00:00Z",
       "account": "U111",
       "signal_id": "OLV:AAPL:2026-09-05",
@@ -104,7 +106,8 @@
         "con_id": 1001,
         "expiry": ""
       },
-      "signed_qty": "100"
+      "signed_qty": "100",
+      "reason": "INITIAL"
     }
   ],
   "execution_revisions": [
