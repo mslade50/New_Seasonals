@@ -26,10 +26,16 @@ DIRECTIONS = {"LONG", "SHORT", "BOTH"}
 TIMINGS = {"PREOPEN", "OPEN", "INTRADAY", "CLOSE", "CLOSE_FINAL"}
 LOCATOR_KINDS = {"ACCOUNT", "LIST", "SEARCH"}
 PROVIDER_STATUSES = {"OK", "PARTIAL", "ERROR"}
+MEMBERSHIP_MODES = {"POINT_IN_TIME", "FIXED_INSTRUMENTS", "CURRENT_STATIC"}
 LIFECYCLES = {"DISCOVERED", "RESEARCH_READY", "VALIDATED_RESEARCH", "OWNER_REVIEW"}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 POST_ID_RE = re.compile(r"^[A-Za-z0-9:_-]+$")
 HANDLE_RE = re.compile(r"^@[A-Za-z0-9_]{1,30}$")
+PERMALINK_RE = re.compile(
+    r"^https://(?:www\.)?(?:x\.com|twitter\.com)/"
+    r"(?P<handle>[A-Za-z0-9_]{1,30})/status/"
+    r"(?P<post_id>[A-Za-z0-9:_-]+)(?:[/?#].*)?$"
+)
 
 
 class ContractError(ValueError):
@@ -50,6 +56,17 @@ def canonical_json(value: Any) -> str:
 
 def sha256_json(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _reject_nonfinite(value: Any, path: str) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise _where(path, "NaN and Infinity are forbidden")
+    if isinstance(value, list):
+        for i, child in enumerate(value):
+            _reject_nonfinite(child, f"{path}[{i}]")
+    elif isinstance(value, dict):
+        for key, child in value.items():
+            _reject_nonfinite(child, f"{path}.{key}")
 
 
 def _where(path: str, message: str) -> ContractError:
@@ -135,6 +152,7 @@ def parse_timestamp(value: Any, path: str) -> datetime:
 
 
 def validate_config(raw: Any) -> dict[str, Any]:
+    _reject_nonfinite(raw, "config")
     config = _object(raw, "config")
     _strict(
         config,
@@ -146,6 +164,7 @@ def validate_config(raw: Any) -> dict[str, Any]:
             "source_max_age_hours",
             "catalog_max_age_days",
             "required_source_ids",
+            "source_locator_allowlist",
             "report_title",
             "policy",
         },
@@ -166,6 +185,21 @@ def validate_config(raw: Any) -> dict[str, Any]:
             "config.required_source_ids",
             "must include at least one source unless run_mode is DISABLED",
         )
+    locator_allowlist = _object(
+        config["source_locator_allowlist"],
+        "config.source_locator_allowlist",
+    )
+    if set(locator_allowlist) != set(required_sources):
+        raise _where(
+            "config.source_locator_allowlist",
+            "keys must exactly match required_source_ids",
+        )
+    for source_id, raw_locator in locator_allowlist.items():
+        lpath = f"config.source_locator_allowlist.{source_id}"
+        locator = _object(raw_locator, lpath)
+        _strict(locator, lpath, {"kind", "value"})
+        _enum(locator["kind"], LOCATOR_KINDS, f"{lpath}.kind")
+        _string(locator["value"], f"{lpath}.value")
     _string(config["report_title"], "config.report_title")
     policy = _object(config["policy"], "config.policy")
     _strict(policy, "config.policy", {"auto_lifecycle_ceiling", "x_discovery_only"})
@@ -180,6 +214,7 @@ def validate_config(raw: Any) -> dict[str, Any]:
 
 
 def validate_manifest(raw: Any) -> dict[str, Any]:
+    _reject_nonfinite(raw, "manifest")
     manifest = _object(raw, "manifest")
     _strict(
         manifest,
@@ -294,19 +329,33 @@ def _validate_proposal(raw: Any, path: str) -> None:
             "proposal_id",
             "name",
             "thesis",
+            "why_now",
+            "variant_wedge",
             "portfolio_fit_hypothesis",
             "falsifiers",
             "direction",
             "universe",
+            "universe_history",
             "signal",
             "entry",
             "exit",
             "data_requirements",
             "costs",
             "borrow",
+            "capacity",
+            "investable_if",
+            "explicit_unknowns",
+            "downstream_workflow",
         },
     )
-    for key in ("proposal_id", "name", "thesis", "portfolio_fit_hypothesis"):
+    for key in (
+        "proposal_id",
+        "name",
+        "thesis",
+        "why_now",
+        "variant_wedge",
+        "portfolio_fit_hypothesis",
+    ):
         _string(proposal[key], f"{path}.{key}")
     falsifiers = _list(proposal["falsifiers"], f"{path}.falsifiers")
     if not falsifiers:
@@ -323,6 +372,32 @@ def _validate_proposal(raw: Any, path: str) -> None:
     instruments = _list(universe["instruments"], f"{path}.universe.instruments")
     for i, ticker in enumerate(instruments):
         _string(ticker, f"{path}.universe.instruments[{i}]")
+
+    universe_history = _object(proposal["universe_history"], f"{path}.universe_history")
+    _strict(
+        universe_history,
+        f"{path}.universe_history",
+        {
+            "membership_mode",
+            "includes_delisted",
+            "models_delisting_returns",
+            "evidence_reference",
+        },
+    )
+    _enum(
+        universe_history["membership_mode"],
+        MEMBERSHIP_MODES,
+        f"{path}.universe_history.membership_mode",
+    )
+    _bool(universe_history["includes_delisted"], f"{path}.universe_history.includes_delisted")
+    _bool(
+        universe_history["models_delisting_returns"],
+        f"{path}.universe_history.models_delisting_returns",
+    )
+    _string(
+        universe_history["evidence_reference"],
+        f"{path}.universe_history.evidence_reference",
+    )
 
     signal = _object(proposal["signal"], f"{path}.signal")
     _strict(
@@ -398,9 +473,50 @@ def _validate_proposal(raw: Any, path: str) -> None:
                 minimum=0,
             )
 
+    if proposal["capacity"] is not None:
+        capacity = _object(proposal["capacity"], f"{path}.capacity")
+        _strict(
+            capacity,
+            f"{path}.capacity",
+            {
+                "median_daily_dollar_volume_usd",
+                "max_participation_rate_pct",
+                "estimated_strategy_capacity_usd",
+                "methodology",
+            },
+        )
+        _number(
+            capacity["median_daily_dollar_volume_usd"],
+            f"{path}.capacity.median_daily_dollar_volume_usd",
+            minimum=0,
+        )
+        participation = _number(
+            capacity["max_participation_rate_pct"],
+            f"{path}.capacity.max_participation_rate_pct",
+            minimum=0,
+        )
+        if participation > 100:
+            raise _where(
+                f"{path}.capacity.max_participation_rate_pct",
+                "must be <= 100",
+            )
+        if capacity["estimated_strategy_capacity_usd"] is not None:
+            _number(
+                capacity["estimated_strategy_capacity_usd"],
+                f"{path}.capacity.estimated_strategy_capacity_usd",
+                minimum=0,
+            )
+        _string(capacity["methodology"], f"{path}.capacity.methodology")
+
+    for key in ("investable_if", "explicit_unknowns", "downstream_workflow"):
+        values = _list(proposal[key], f"{path}.{key}")
+        for i, value in enumerate(values):
+            _string(value, f"{path}.{key}[{i}]")
+
 
 def validate_item(raw: Any, index: int) -> dict[str, Any]:
     path = f"items[{index}]"
+    _reject_nonfinite(raw, path)
     item = _object(raw, path)
     _strict(
         item,
@@ -436,6 +552,8 @@ def validate_item(raw: Any, index: int) -> dict[str, Any]:
     if item["platform"] != "X":
         raise _where(f"{path}.platform", "must equal X")
     kind = _enum(item["kind"], ITEM_KINDS, f"{path}.kind")
+    item_text = _string(item["text"], f"{path}.text", nonempty=False)
+    claims = _list(item["claims"], f"{path}.claims")
     for key in ("thread_id", "parent_post_id", "quoted_post_id", "reposted_post_id"):
         if item[key] is not None:
             _string(item[key], f"{path}.{key}")
@@ -465,9 +583,9 @@ def validate_item(raw: Any, index: int) -> dict[str, Any]:
             raise _where(f"{path}.canonical_post_id", "REPOST must canonicalize to reposted_post_id")
         if item["parent_post_id"] is not None or item["quoted_post_id"] is not None:
             raise _where(path, "REPOST cannot also be a reply or quote")
-        if item["strategy_proposal"] is not None or item["claims"]:
+        if item["strategy_proposal"] is not None or claims:
             raise _where(path, "REPOST cannot introduce claims or a proposal")
-        if item["text"].strip():
+        if item_text.strip():
             raise _where(f"{path}.text", "REPOST must not duplicate original text")
     created_at = parse_timestamp(item["created_at"], f"{path}.created_at")
     captured_at = parse_timestamp(item["captured_at"], f"{path}.captured_at")
@@ -475,10 +593,22 @@ def validate_item(raw: Any, index: int) -> dict[str, Any]:
         raise _where(f"{path}.captured_at", "must be on or after created_at")
     if not HANDLE_RE.fullmatch(item["author_handle"]):
         raise _where(f"{path}.author_handle", "must be a canonical X handle beginning with @")
-    if not re.fullmatch(r"https://(?:www\.)?(?:x\.com|twitter\.com)/[^\s]+", item["permalink"]):
-        raise _where(f"{path}.permalink", "must be an https X/Twitter permalink")
-    _string(item["text"], f"{path}.text", nonempty=False)
-    claims = _list(item["claims"], f"{path}.claims")
+    permalink_match = PERMALINK_RE.fullmatch(item["permalink"])
+    if permalink_match is None:
+        raise _where(
+            f"{path}.permalink",
+            "must be an https X/Twitter status permalink",
+        )
+    if permalink_match.group("handle").casefold() != item["author_handle"][1:].casefold():
+        raise _where(
+            f"{path}.permalink",
+            "status handle must match author_handle",
+        )
+    if permalink_match.group("post_id") != item["post_id"]:
+        raise _where(
+            f"{path}.permalink",
+            "status id must match post_id",
+        )
     claim_ids: set[str] = set()
     for i, raw_claim in enumerate(claims):
         cpath = f"{path}.claims[{i}]"
@@ -503,6 +633,7 @@ def validate_item(raw: Any, index: int) -> dict[str, Any]:
 
 
 def validate_catalog(raw: Any, expected_type: str, path: str) -> dict[str, Any]:
+    _reject_nonfinite(raw, path)
     catalog = _object(raw, path)
     _strict(
         catalog,
@@ -556,6 +687,7 @@ def validate_catalog(raw: Any, expected_type: str, path: str) -> dict[str, Any]:
 
 
 def validate_validation_artifacts(raw: Any) -> dict[str, Any]:
+    _reject_nonfinite(raw, "validation_artifacts")
     wrapper = _object(raw, "validation_artifacts")
     _strict(wrapper, "validation_artifacts", {"schema_version", "artifacts"})
     if wrapper["schema_version"] != SCHEMA_VERSION:
@@ -595,6 +727,14 @@ def validate_validation_artifacts(raw: Any) -> dict[str, Any]:
         artifact_path = _string(artifact["artifact_path"], f"{path}.artifact_path")
         if "://" in artifact_path:
             raise _where(f"{path}.artifact_path", "must be a local artifact reference")
+        artifact_ref = Path(artifact_path)
+        if artifact_ref.is_absolute() or ".." in artifact_ref.parts:
+            raise _where(
+                f"{path}.artifact_path",
+                "must be a traversal-free path relative to the approved artifact root",
+            )
+        if artifact_ref.suffix.lower() not in {".json", ".jsonl"}:
+            raise _where(f"{path}.artifact_path", "must reference JSON or JSONL")
         parse_timestamp(artifact["created_at"], f"{path}.created_at")
         command = _list(artifact["reproduce_command"], f"{path}.reproduce_command")
         if not command:
@@ -622,6 +762,7 @@ def validate_validation_artifacts(raw: Any) -> dict[str, Any]:
 
 def validate_transition(raw: Any, index: int) -> dict[str, Any]:
     path = f"owner_transitions[{index}]"
+    _reject_nonfinite(raw, path)
     transition = _object(raw, path)
     _strict(
         transition,
@@ -655,6 +796,7 @@ def validate_transition(raw: Any, index: int) -> dict[str, Any]:
 def validate_report(report_raw: Any) -> dict[str, Any]:
     """Validate the deterministic output contract before anything is written."""
 
+    _reject_nonfinite(report_raw, "report")
     report = _object(report_raw, "report")
     _strict(
         report,
@@ -695,6 +837,7 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
             "research_only",
             "x_is_discovery_only",
             "automatic_lifecycle_ceiling",
+            "operationally_authoritative",
             "trading_actions_enabled",
             "strategy_mutation_enabled",
         },
@@ -703,11 +846,45 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         "research_only": True,
         "x_is_discovery_only": True,
         "automatic_lifecycle_ceiling": "RESEARCH_READY",
+        "operationally_authoritative": False,
         "trading_actions_enabled": False,
         "strategy_mutation_enabled": False,
     }:
         raise _where("report.authority", "violates the research-only authority boundary")
-    _list(report["source_coverage"], "report.source_coverage")
+    coverage_keys = {
+        "source_id",
+        "platform",
+        "discovery_only",
+        "provider",
+        "provider_version",
+        "provider_status",
+        "locator",
+        "capture_id",
+        "captured_at",
+        "window",
+        "cursor_in",
+        "cursor_out",
+        "cursor_exhausted",
+        "expected_item_count",
+        "expected_min_items",
+        "manifest_observed_item_count",
+        "file_observed_item_count",
+        "status",
+        "findings",
+        "capture_digest",
+    }
+    for i, raw_coverage in enumerate(
+        _list(report["source_coverage"], "report.source_coverage")
+    ):
+        path = f"report.source_coverage[{i}]"
+        coverage = _object(raw_coverage, path)
+        _strict(coverage, path, coverage_keys)
+        _string(coverage["source_id"], f"{path}.source_id")
+        _string(coverage["provider"], f"{path}.provider")
+        _string(coverage["provider_version"], f"{path}.provider_version")
+        locator = _object(coverage["locator"], f"{path}.locator")
+        _strict(locator, f"{path}.locator", {"kind", "value"})
+        _enum(coverage["status"], COMPLETENESS, f"{path}.status")
     _list(report["catalog_health"], "report.catalog_health")
     _object(report["item_normalization"], "report.item_normalization")
     _object(report["summary"], "report.summary")
@@ -717,6 +894,8 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         "name",
         "aliases",
         "thesis",
+        "why_now",
+        "variant_wedge",
         "portfolio_fit_hypotheses",
         "falsifiers",
         "structure",
@@ -732,8 +911,15 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         "edge_status",
         "provenance",
         "duplicate_proposal_count",
+        "observation_count",
+        "research_assumptions",
+        "investable_if",
+        "explicit_unknowns",
+        "downstream_workflow",
+        "actionability",
         "next_research_step",
         "trading_actions_enabled",
+        "operationally_authoritative",
     }
     for i, raw_candidate in enumerate(candidates):
         path = f"report.candidates[{i}]"
@@ -744,6 +930,8 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
             raise _where(f"{path}.fingerprint", "must be a lowercase SHA-256")
         _string(candidate["name"], f"{path}.name")
         _string(candidate["thesis"], f"{path}.thesis")
+        _string(candidate["why_now"], f"{path}.why_now")
+        _string(candidate["variant_wedge"], f"{path}.variant_wedge")
         fit_hypotheses = _list(
             candidate["portfolio_fit_hypotheses"],
             f"{path}.portfolio_fit_hypotheses",
@@ -758,11 +946,24 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         for j, falsifier in enumerate(falsifiers):
             _string(falsifier, f"{path}.falsifiers[{j}]")
         _object(candidate["structure"], f"{path}.structure")
+        assumptions = _object(
+            candidate["research_assumptions"],
+            f"{path}.research_assumptions",
+        )
+        _strict(assumptions, f"{path}.research_assumptions", {"costs", "borrow", "capacity"})
+        for field in ("investable_if", "explicit_unknowns", "downstream_workflow"):
+            values = _list(candidate[field], f"{path}.{field}")
+            for j, value in enumerate(values):
+                _string(value, f"{path}.{field}[{j}]")
+        if candidate["actionability"] not in {"RESEARCH_ACTIONABLE", "BLOCKED"}:
+            raise _where(f"{path}.actionability", "must be RESEARCH_ACTIONABLE or BLOCKED")
         _enum(candidate["lifecycle"], LIFECYCLES, f"{path}.lifecycle")
         if candidate["automatic_lifecycle_ceiling"] != "RESEARCH_READY":
             raise _where(f"{path}.automatic_lifecycle_ceiling", "must equal RESEARCH_READY")
         if candidate["trading_actions_enabled"] is not False:
             raise _where(f"{path}.trading_actions_enabled", "must be false")
+        if candidate["operationally_authoritative"] is not False:
+            raise _where(f"{path}.operationally_authoritative", "must be false")
         if candidate["edge_status"] == "SOURCE_CLAIMS_ONLY" and candidate["internally_validated_metrics"]:
             raise _where(f"{path}.edge_status", "cannot label internal metrics as source-only")
         if candidate["lifecycle"] in {"VALIDATED_RESEARCH", "OWNER_REVIEW"} and not candidate["validation_artifacts"]:
@@ -770,6 +971,53 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         for metric in candidate["source_claimed_metrics"]:
             if metric.get("evidence_class") != "SOURCE_CLAIMED":
                 raise _where(f"{path}.source_claimed_metrics", "must remain SOURCE_CLAIMED")
+        provenance_keys = {
+            "item_id",
+            "source_id",
+            "capture_id",
+            "captured_at",
+            "permalink",
+            "source_locator",
+            "provider",
+            "provider_version",
+            "provider_status",
+            "source_window",
+            "capture_digest",
+            "native_content_hash",
+            "post_id",
+            "canonical_post_id",
+            "thread_id",
+            "parent_post_id",
+            "quoted_post_id",
+            "reposted_post_id",
+            "kind",
+            "author_handle",
+            "created_at",
+        }
+        for j, raw_provenance in enumerate(candidate["provenance"]):
+            ppath = f"{path}.provenance[{j}]"
+            provenance = _object(raw_provenance, ppath)
+            _strict(provenance, ppath, provenance_keys)
+            for key in (
+                "item_id",
+                "source_id",
+                "capture_id",
+                "captured_at",
+                "permalink",
+                "provider",
+                "provider_version",
+                "provider_status",
+                "capture_digest",
+                "native_content_hash",
+                "post_id",
+                "canonical_post_id",
+                "kind",
+                "author_handle",
+                "created_at",
+            ):
+                _string(provenance[key], f"{ppath}.{key}")
+            _object(provenance["source_locator"], f"{ppath}.source_locator")
+            _object(provenance["source_window"], f"{ppath}.source_window")
     limitations = _list(report["limitations"], "report.limitations")
     for i, limitation in enumerate(limitations):
         _string(limitation, f"report.limitations[{i}]")
@@ -779,7 +1027,10 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
 def load_json(path: Path) -> Any:
     _validate_local_json_path(path)
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=_reject_json_constant,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         raise ContractError(f"{path}: unreadable JSON ({exc})") from exc
 
@@ -795,7 +1046,7 @@ def load_jsonl(path: Path) -> list[Any]:
         if not line.strip():
             continue
         try:
-            records.append(json.loads(line))
+            records.append(json.loads(line, parse_constant=_reject_json_constant))
         except json.JSONDecodeError as exc:
             raise ContractError(f"{path}:{i}: invalid JSON ({exc.msg})") from exc
     return records
@@ -807,8 +1058,14 @@ def _validate_local_json_path(path: Path, *, jsonl: bool = False) -> None:
     # schemes after that normalization while excluding one-letter drive names.
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]+:[\\/]{1,2}", text):
         raise ContractError(f"{path}: URLs are forbidden; use a local file snapshot")
+    if text.startswith(("\\\\", "//")):
+        raise ContractError(f"{path}: UNC/network paths are forbidden")
     allowed = {".jsonl"} if jsonl else {".json"}
     if path.suffix.lower() not in allowed:
         raise ContractError(f"{path}: only {sorted(allowed)} input files are accepted")
     if not path.is_file():
         raise ContractError(f"{path}: local input file does not exist")
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ContractError(f"non-finite JSON numeric constant is forbidden: {value}")

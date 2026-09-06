@@ -7,6 +7,12 @@
   "required_source_ids": [
     "x:example_quant_account"
   ],
+  "source_locator_allowlist": {
+    "x:example_quant_account": {
+      "kind": "ACCOUNT",
+      "value": "@example_quant_account"
+    }
+  },
   "report_title": "Daily Strategy Discovery — Shadow",
   "policy": {
     "auto_lifecycle_ceiling": "RESEARCH_READY",

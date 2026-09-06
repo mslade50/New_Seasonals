@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from .contracts import canonical_json, validate_report
+from .contracts import ContractError, canonical_json, validate_report
 
 MODE_BANNERS = {
     "DISABLED": "DISABLED — no source capture was processed; absence cannot be inferred.",
@@ -36,10 +38,19 @@ def _display(value: Any) -> str:
 
 
 def _md(value: Any, *, table: bool = False) -> str:
-    """Neutralize raw HTML and table delimiters in untrusted Markdown text."""
+    """Render untrusted input as inert, single-line Markdown text.
 
-    escaped = html.escape(_display(value), quote=False)
-    return escaped.replace("|", "\\|") if table else escaped
+    Every Markdown control character is escaped and URL schemes are broken so
+    remote links, images, autolinks, headings, blockquotes, and code spans
+    cannot be introduced by a captured post or provider field.
+    """
+
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", _display(value))
+    text = " ".join(text.split())
+    escaped = html.escape(text, quote=False)
+    escaped = re.sub(r"([\\`*_{}\[\]()<>#+.!|>~-])", r"\\\1", escaped)
+    escaped = escaped.replace("://", "&#58;//")
+    return escaped
 
 
 def markdown_text(report: dict[str, Any]) -> str:
@@ -64,14 +75,15 @@ def markdown_text(report: dict[str, Any]) -> str:
             f"- Candidates: {summary['candidate_count']}",
             f"- New and research-ready: {summary['new_research_ready']}",
             f"- Needs specification: {summary['needs_spec']}",
+            f"- Needs source/catalog coverage: {summary['needs_coverage']}",
             f"- Quarantined: {summary['quarantined']}",
             f"- Internally validated: {summary['validated_research']}",
             f"- Explicit owner review: {summary['owner_review']}",
             "",
             "## Source coverage",
             "",
-            "| Source | Status | Expected | Observed | Window | Notes |",
-            "|---|---:|---:|---:|---|---|",
+            "| Source | Provider / locator | Status | Expected | Observed | Window | Notes |",
+            "|---|---|---:|---:|---:|---|---|",
         ]
     )
     for source in report["source_coverage"]:
@@ -79,7 +91,9 @@ def markdown_text(report: dict[str, Any]) -> str:
         window_text = f"{window.get('start', '—')} → {window.get('end', '—')}"
         notes = _md(" ".join(source["findings"]), table=True)
         lines.append(
-            f"| {_md(source['source_id'], table=True)} | {source['status']} | "
+            f"| {_md(source['source_id'], table=True)} | "
+            f"{_md(source['provider'], table=True)} {_md(source['provider_version'], table=True)} / "
+            f"{_md(source['locator'], table=True)} | {source['status']} | "
             f"{_md(source['expected_item_count'], table=True)} | "
             f"{source['file_observed_item_count']} | {_md(window_text, table=True)} | {notes} |"
         )
@@ -107,6 +121,9 @@ def markdown_text(report: dict[str, Any]) -> str:
                 f"- **Edge status:** {candidate['edge_status']}",
                 f"- **Fingerprint:** `{candidate['fingerprint']}`",
                 f"- **Why it might belong (source thesis, not validated):** {_md(candidate['thesis'])}",
+                f"- **Why now (source hypothesis):** {_md(candidate['why_now'])}",
+                f"- **Variant wedge (source hypothesis):** {_md(candidate['variant_wedge'])}",
+                f"- **Research actionability:** {candidate['actionability']}",
                 f"- **Next action:** {_md(candidate['next_research_step'])}",
                 "",
                 "#### Incremental portfolio-role hypotheses (not validated)",
@@ -116,6 +133,20 @@ def markdown_text(report: dict[str, Any]) -> str:
         lines.extend(f"- {_md(value)}" for value in candidate["portfolio_fit_hypotheses"])
         lines.extend(["", "#### Falsifiers", ""])
         lines.extend(f"- {_md(value)}" for value in candidate["falsifiers"])
+        assumptions = candidate["research_assumptions"]
+        lines.extend(
+            [
+                "",
+                "#### Research assumptions (declared, not independently validated)",
+                "",
+                f"- **Costs:** {_md(assumptions['costs'])}",
+                f"- **Borrow:** {_md(assumptions['borrow'])}",
+                f"- **Capacity:** {_md(assumptions['capacity'])}",
+                f"- **Investable if:** {_md(candidate['investable_if'])}",
+                f"- **Explicit unknowns:** {_md(candidate['explicit_unknowns'])}",
+                f"- **Downstream workflow:** {_md(candidate['downstream_workflow'])}",
+            ]
+        )
         structure = candidate["structure"]
         lines.extend(
             [
@@ -201,6 +232,8 @@ def html_text(report: dict[str, Any]) -> str:
         source_rows.append(
             "<tr>"
             f"<td>{esc(source['source_id'])}</td>"
+            f"<td>{esc(source['provider'])} {esc(source['provider_version'])}<br>"
+            f"{esc(_display(source['locator']))}</td>"
             f"<td><strong>{esc(source['status'])}</strong></td>"
             f"<td>{esc(_display(source['expected_item_count']))}</td>"
             f"<td>{esc(source['file_observed_item_count'])}</td>"
@@ -241,6 +274,17 @@ def html_text(report: dict[str, Any]) -> str:
             f"<li>{esc(value)}</li>" for value in candidate["portfolio_fit_hypotheses"]
         )
         falsifiers = "".join(f"<li>{esc(value)}</li>" for value in candidate["falsifiers"])
+        assumptions = candidate["research_assumptions"]
+        decision_fields = (
+            f"<li><strong>Costs:</strong> {esc(_display(assumptions['costs']))}</li>"
+            f"<li><strong>Borrow:</strong> {esc(_display(assumptions['borrow']))}</li>"
+            f"<li><strong>Capacity:</strong> {esc(_display(assumptions['capacity']))}</li>"
+            f"<li><strong>Investable if:</strong> {esc(_display(candidate['investable_if']))}</li>"
+            f"<li><strong>Explicit unknowns:</strong> "
+            f"{esc(_display(candidate['explicit_unknowns']))}</li>"
+            f"<li><strong>Downstream workflow:</strong> "
+            f"{esc(_display(candidate['downstream_workflow']))}</li>"
+        )
         conditions = "".join(
             f"<li>{esc(condition['field'])} {esc(condition['operator'])} "
             f"{esc(_display(condition['value']))} {esc(_display(condition['unit']))}; "
@@ -274,9 +318,13 @@ def html_text(report: dict[str, Any]) -> str:
             f"<p><strong>{esc(candidate['lifecycle'])}</strong> · {esc(candidate['disposition'])} · "
             f"{esc(candidate['edge_status'])}</p>"
             f"<p><strong>Source thesis, not validated:</strong> {esc(candidate['thesis'])}</p>"
+            f"<p><strong>Why now:</strong> {esc(candidate['why_now'])}</p>"
+            f"<p><strong>Variant wedge:</strong> {esc(candidate['variant_wedge'])}</p>"
+            f"<p><strong>Research actionability:</strong> {esc(candidate['actionability'])}</p>"
             f"<p><strong>Next:</strong> {esc(candidate['next_research_step'])}</p>"
             f"<h4>Incremental portfolio-role hypotheses (not validated)</h4><ul>{fit}</ul>"
             f"<h4>Falsifiers</h4><ul>{falsifiers}</ul>"
+            f"<h4>Research assumptions (declared, not validated)</h4><ul>{decision_fields}</ul>"
             f"<h4>Executable hypothesis</h4><ul>{execution}</ul>"
             f"<h4>Gates</h4><ul>{gates}</ul>"
             f"<h4>Source-claimed metrics</h4><ul>{source_metrics}</ul>"
@@ -320,9 +368,10 @@ code{{overflow-wrap:anywhere}} a{{color:#135e96}}
 <div class="metric">Candidates<br><strong>{summary['candidate_count']}</strong></div>
 <div class="metric">Research-ready<br><strong>{summary['new_research_ready']}</strong></div>
 <div class="metric">Needs spec<br><strong>{summary['needs_spec']}</strong></div>
+<div class="metric">Needs coverage<br><strong>{summary['needs_coverage']}</strong></div>
 <div class="metric">Quarantined<br><strong>{summary['quarantined']}</strong></div>
 </div>
-<h2>Source coverage</h2><table><thead><tr><th>Source</th><th>Status</th>
+<h2>Source coverage</h2><table><thead><tr><th>Source</th><th>Provider / locator</th><th>Status</th>
 <th>Expected</th><th>Observed</th><th>Window</th><th>Notes</th></tr></thead>
 <tbody>{''.join(source_rows)}</tbody></table>
 <h2>Candidate funnel</h2>{''.join(candidate_cards)}
@@ -343,18 +392,171 @@ def atomic_write_text(path: Path, text: str) -> None:
             os.fsync(handle.fileno())
         os.replace(temp_path, path)
     finally:
-        if temp_path.exists():
-            temp_path.unlink()
+        if descriptor >= 0:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _bundle_contents(report: dict[str, Any]) -> dict[str, str]:
+    validate_report(report)
+    return {
+        "strategy_discovery_report.json": json_text(report),
+        "strategy_discovery_report.md": markdown_text(report),
+        "strategy_discovery_report.html": html_text(report),
+    }
+
+
+def _bundle_manifest(report: dict[str, Any], contents: dict[str, str]) -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "run_id": report["run_id"],
+        "immutable": True,
+        "files": {
+            name: {
+                "sha256": _sha256_text(content),
+                "bytes": len(content.encode("utf-8")),
+            }
+            for name, content in sorted(contents.items())
+        },
+    }
+
+
+def _verify_existing_bundle(
+    run_dir: Path,
+    expected_contents: dict[str, str],
+    expected_manifest: dict[str, Any],
+) -> None:
+    expected_names = {*expected_contents, "bundle_manifest.json"}
+    try:
+        actual_names = {path.name for path in run_dir.iterdir() if path.is_file()}
+    except OSError as exc:
+        raise ContractError(f"immutable report bundle is unreadable: {run_dir}") from exc
+    if actual_names != expected_names:
+        raise ContractError(f"immutable report bundle file set mismatch: {run_dir}")
+    for name, expected in expected_contents.items():
+        try:
+            actual = (run_dir / name).read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ContractError(f"immutable report file is unreadable: {run_dir / name}") from exc
+        if actual != expected:
+            raise ContractError(f"immutable report file content mismatch: {run_dir / name}")
+    try:
+        actual_manifest = json.loads(
+            (run_dir / "bundle_manifest.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContractError(f"immutable bundle manifest is unreadable: {run_dir}") from exc
+    if actual_manifest != expected_manifest:
+        raise ContractError(f"immutable bundle manifest mismatch: {run_dir}")
+
+
+def publish_immutable_bundle(
+    output_dir: Path,
+    report: dict[str, Any],
+) -> tuple[list[Path], dict[str, Any]]:
+    """Publish one all-or-nothing immutable run generation.
+
+    A crash can leave an ignored staging directory or an unreferenced complete
+    generation. It cannot replace a prior generation or make ``latest.json``
+    claim a partially rendered bundle.
+    """
+
+    contents = _bundle_contents(report)
+    manifest = _bundle_manifest(report, contents)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    runs_dir = output_dir / "runs"
+    staging_root = output_dir / ".staging"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    staging_root.mkdir(parents=True, exist_ok=True)
+    if runs_dir.is_symlink() or staging_root.is_symlink():
+        raise ContractError("report bundle directories must not be symbolic links")
+    if runs_dir.resolve().parent != output_dir.resolve():
+        raise ContractError("report runs directory escapes output-dir")
+    if staging_root.resolve().parent != output_dir.resolve():
+        raise ContractError("report staging directory escapes output-dir")
+
+    final_dir = runs_dir / report["run_id"]
+    if final_dir.exists():
+        if not final_dir.is_dir() or final_dir.is_symlink():
+            raise ContractError(f"immutable run path is not a regular directory: {final_dir}")
+        _verify_existing_bundle(final_dir, contents, manifest)
+    else:
+        staging_dir = Path(
+            tempfile.mkdtemp(prefix=f".{report['run_id']}.", dir=staging_root)
+        )
+        for name, content in contents.items():
+            path = staging_dir / name
+            with path.open("x", encoding="utf-8", newline="\n") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+        manifest_text = json.dumps(
+            manifest,
+            indent=2,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+        ) + "\n"
+        with (staging_dir / "bundle_manifest.json").open(
+            "x", encoding="utf-8", newline="\n"
+        ) as handle:
+            handle.write(manifest_text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.replace(staging_dir, final_dir)
+        except OSError as exc:
+            raise ContractError(
+                f"could not atomically publish immutable report generation: {exc}"
+            ) from exc
+        _verify_existing_bundle(final_dir, contents, manifest)
+    return [final_dir / name for name in sorted(contents)], manifest
+
+
+def publish_latest_pointer(
+    output_dir: Path,
+    report: dict[str, Any],
+    bundle_manifest: dict[str, Any],
+    journal_records: list[dict[str, Any]],
+) -> Path:
+    """Commit the latest pointer only after report and journal are complete."""
+
+    if not journal_records:
+        raise ContractError("latest pointer requires a non-empty verified journal")
+    pointer = {
+        "schema_version": "1.0",
+        "run_id": report["run_id"],
+        "bundle": f"runs/{report['run_id']}/bundle_manifest.json",
+        "bundle_files": bundle_manifest["files"],
+        "journal": {
+            "record_count": len(journal_records),
+            "head_hash": journal_records[-1]["record_hash"],
+        },
+        "operationally_authoritative": False,
+    }
+    path = output_dir / "latest.json"
+    atomic_write_text(
+        path,
+        json.dumps(
+            pointer,
+            indent=2,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        + "\n",
+    )
+    return path
 
 
 def write_report_bundle(output_dir: Path, report: dict[str, Any]) -> list[Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    paths = [
-        output_dir / "strategy_discovery_report.json",
-        output_dir / "strategy_discovery_report.md",
-        output_dir / "strategy_discovery_report.html",
-    ]
-    contents = [json_text(report), markdown_text(report), html_text(report)]
-    for path, content in zip(paths, contents, strict=True):
-        atomic_write_text(path, content)
+    """Compatibility wrapper for callers that do not manage a latest pointer."""
+
+    paths, _ = publish_immutable_bundle(output_dir, report)
     return paths

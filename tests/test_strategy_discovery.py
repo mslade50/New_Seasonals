@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+import multiprocessing
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +18,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from run_strategy_discovery import main as cli_main
 
+import research.strategy_discovery.render as render_module
 from research.strategy_discovery.contracts import (
     ContractError,
     load_json,
@@ -22,6 +27,7 @@ from research.strategy_discovery.contracts import (
 )
 from research.strategy_discovery.journal import (
     append_events,
+    exclusive_lock,
     load_journal,
 )
 from research.strategy_discovery.pipeline import (
@@ -32,19 +38,53 @@ from research.strategy_discovery.render import (
     html_text,
     json_text,
     markdown_text,
+    publish_immutable_bundle,
 )
 
 AS_OF = "2026-09-05T21:30:00+00:00"
 
 
+def _append_worker(journal_text: str, event_key: str, start, results) -> None:
+    start.wait(10)
+    try:
+        count = append_events(
+            Path(journal_text),
+            [
+                {
+                    "event_key": event_key,
+                    "event_type": "RUN",
+                    "payload": {"writer": event_key},
+                }
+            ],
+            recorded_at=AS_OF,
+        )
+        results.put(("ok", count))
+    except (ContractError, OSError, ValueError) as exc:  # pragma: no cover
+        results.put(("error", repr(exc)))
+
+
+def _hold_lock_worker(lock_text: str, ready, release) -> None:
+    with exclusive_lock(Path(lock_text), timeout_seconds=2):
+        ready.set()
+        release.wait(10)
+
+
 def config(*, mode: str = "FIXTURE", required: list[str] | None = None) -> dict:
+    source_ids = ["x:alpha"] if required is None else required
     return {
         "schema_version": "1.0",
         "run_mode": mode,
         "as_of": AS_OF,
         "source_max_age_hours": 36,
         "catalog_max_age_days": 30,
-        "required_source_ids": ["x:alpha"] if required is None else required,
+        "required_source_ids": source_ids,
+        "source_locator_allowlist": {
+            source_id: {
+                "kind": "ACCOUNT",
+                "value": f"@{source_id.removeprefix('x:')}",
+            }
+            for source_id in source_ids
+        },
         "report_title": "Fixture strategy discovery",
         "policy": {
             "auto_lifecycle_ceiling": "RESEARCH_READY",
@@ -64,14 +104,17 @@ def source(
     cursor_out: str | None = "cursor-1",
     window_start: str = "2026-09-04T21:00:00+00:00",
     window_end: str = "2026-09-05T21:00:00+00:00",
+    source_id: str = "x:alpha",
+    locator_value: str = "@alpha",
+    captured_at: str = "2026-09-05T21:05:00+00:00",
 ) -> dict:
     return {
-        "source_id": "x:alpha",
+        "source_id": source_id,
         "platform": "X",
         "discovery_only": True,
-        "locator": {"kind": "ACCOUNT", "value": "@alpha"},
+        "locator": {"kind": "ACCOUNT", "value": locator_value},
         "capture_id": capture_id,
-        "captured_at": "2026-09-05T21:05:00+00:00",
+        "captured_at": captured_at,
         "window": {"start": window_start, "end": window_end},
         "cursor": {"in": cursor_in, "out": cursor_out, "exhausted": exhausted},
         "provider_status": status,
@@ -95,6 +138,8 @@ def proposal(**overrides) -> dict:
         "proposal_id": "p-1",
         "name": "Three-session reversal",
         "thesis": "Forced selling may mean-revert at the next open.",
+        "why_now": "Liquidation episodes recently increased enough to justify fresh research.",
+        "variant_wedge": "Cross-sectional next-open execution differs from existing index dip buys.",
         "portfolio_fit_hypothesis": (
             "May diversify longer-horizon trend exposure if overlap-aware correlation stays low."
         ),
@@ -107,6 +152,12 @@ def proposal(**overrides) -> dict:
             "asset_class": "LISTED_EQUITY",
             "scope": "liquid US equities",
             "instruments": ["SPY", "QQQ"],
+        },
+        "universe_history": {
+            "membership_mode": "FIXED_INSTRUMENTS",
+            "includes_delisted": False,
+            "models_delisting_returns": False,
+            "evidence_reference": "Explicit SPY and QQQ instrument set frozen before replay.",
         },
         "signal": {
             "observation_timing": "CLOSE_FINAL",
@@ -156,6 +207,19 @@ def proposal(**overrides) -> dict:
             "availability_check": "NOT_APPLICABLE",
             "fee_assumption_bps_annual": 0,
         },
+        "capacity": {
+            "median_daily_dollar_volume_usd": 1_000_000_000,
+            "max_participation_rate_pct": 0.5,
+            "estimated_strategy_capacity_usd": 5_000_000,
+            "methodology": "Half-percent participation in point-in-time median dollar volume.",
+        },
+        "investable_if": ["Net edge survives costs and overlap-aware portfolio replay."],
+        "explicit_unknowns": ["Post-publication decay has not been measured."],
+        "downstream_workflow": [
+            "Freeze inputs.",
+            "Run walk-forward replay.",
+            "Obtain independent artifact review.",
+        ],
     }
     value.update(overrides)
     return value
@@ -195,6 +259,9 @@ def item(
     parent_post_id: str | None = None,
     quoted_post_id: str | None = None,
     reposted_post_id: str | None = None,
+    source_id: str = "x:alpha",
+    author_handle: str = "@alpha",
+    permalink: str | None = None,
 ) -> dict:
     if proposal_value is None and kind != "REPOST":
         proposal_value = proposal()
@@ -210,7 +277,7 @@ def item(
         "schema_version": "1.0",
         "item_id": item_id or f"x:{post_id}",
         "capture_id": capture_id,
-        "source_id": "x:alpha",
+        "source_id": source_id,
         "platform": "X",
         "kind": kind,
         "post_id": post_id,
@@ -219,10 +286,10 @@ def item(
         "parent_post_id": parent_post_id,
         "quoted_post_id": quoted_post_id,
         "reposted_post_id": reposted_post_id,
-        "author_handle": "@alpha",
+        "author_handle": author_handle,
         "created_at": "2026-09-05T16:00:00+00:00",
         "captured_at": "2026-09-05T21:05:00+00:00",
-        "permalink": f"https://x.com/alpha/status/{post_id}",
+        "permalink": permalink or f"https://x.com/{author_handle[1:]}/status/{post_id}",
         "text": text,
         "claims": claims,
         "strategy_proposal": proposal_value,
@@ -253,6 +320,7 @@ def run(
     strategy_generated: str = "2026-09-05T20:00:00+00:00",
     artifacts: dict | None = None,
     transitions: list[dict] | None = None,
+    artifact_root: Path | None = None,
 ):
     items = [item()] if items is None else items
     src_manifest = manifest(source(count=len(items), expected=len(items))) if src_manifest is None else src_manifest
@@ -265,10 +333,15 @@ def run(
         journal_records=journal or [],
         validation_artifacts_raw=artifacts,
         owner_transitions_raw=transitions,
+        artifact_root=artifact_root,
     )
 
 
-def artifact(fingerprint: str) -> dict:
+def artifact(fingerprint: str, artifact_root: Path) -> dict:
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_root / "validation-1.json"
+    artifact_bytes = b'{"frozen":true,"result":"passed"}\n'
+    artifact_path.write_bytes(artifact_bytes)
     return {
         "schema_version": "1.0",
         "artifacts": [
@@ -276,9 +349,9 @@ def artifact(fingerprint: str) -> dict:
                 "artifact_id": "validation-1",
                 "candidate_fingerprint": fingerprint,
                 "artifact_type": "REPRODUCIBLE_RESEARCH",
-                "artifact_path": "artifacts/strategy_discovery/validation-1.json",
-                "sha256": "a" * 64,
-                "created_at": "2026-09-05T20:00:00+00:00",
+                "artifact_path": "validation-1.json",
+                "sha256": hashlib.sha256(artifact_bytes).hexdigest(),
+                "created_at": AS_OF,
                 "reproduce_command": ["python", "research/replay.py", "--fixture", "frozen.json"],
                 "code_revision": "abc123",
                 "data_snapshot_digests": ["b" * 64],
@@ -329,6 +402,9 @@ class TestCompleteness:
     def test_partial_when_provider_not_exhausted(self):
         report, _ = run(src_manifest=manifest(source(exhausted=False)))
         assert report["completeness"] == "PARTIAL"
+        assert report["candidates"][0]["disposition"] == "NEEDS_COVERAGE"
+        assert report["candidates"][0]["lifecycle"] == "DISCOVERED"
+        assert report["summary"]["new_research_ready"] == 0
 
     def test_missing_required_source_is_unknown(self):
         report, _ = run(cfg=config(required=["x:alpha", "x:missing"]))
@@ -340,10 +416,29 @@ class TestCompleteness:
         report, _ = run(strategy_generated="2026-07-01T20:00:00+00:00")
         assert report["completeness"] == "PARTIAL"
         assert any(row["status"] == "PARTIAL" for row in report["catalog_health"])
+        assert report["candidates"][0]["disposition"] == "NEEDS_COVERAGE"
+        assert report["candidates"][0]["lifecycle"] == "DISCOVERED"
 
     def test_manifest_count_mismatch_is_unknown(self):
         report, _ = run(src_manifest=manifest(source(count=0, expected=1)))
         assert report["source_coverage"][0]["status"] == "UNKNOWN"
+        assert report["candidates"][0]["lifecycle"] == "DISCOVERED"
+
+    def test_extra_source_and_locator_substitution_fail_closed(self):
+        evil = source(
+            status="OK",
+            count=0,
+            expected=0,
+            capture_id="capture-evil",
+            source_id="x:evil",
+            locator_value="@evil",
+        )
+        with pytest.raises(ContractError, match="unapproved source_id"):
+            run(src_manifest=manifest(source(), evil))
+
+        wrong_locator = source(locator_value="@lookalike")
+        with pytest.raises(ContractError, match="approved registry"):
+            run(src_manifest=manifest(wrong_locator))
 
 
 class TestCanonicalizationAndDedupe:
@@ -415,6 +510,91 @@ class TestCanonicalizationAndDedupe:
         assert report["summary"]["conflicting_post_ids"] == 1
         assert report["summary"]["candidate_count"] == 0
 
+    def test_same_native_post_across_sources_merges_observation_provenance(self):
+        cfg = config(required=["x:alpha", "x:beta"])
+        alpha_source = source()
+        beta_source = source(
+            source_id="x:beta",
+            locator_value="@beta",
+            capture_id="capture-2",
+        )
+        original = item()
+        second_observation = item(
+            item_id="x:beta:100",
+            source_id="x:beta",
+            capture_id="capture-2",
+        )
+        report, _ = run(
+            cfg=cfg,
+            src_manifest=manifest(alpha_source, beta_source),
+            items=[original, second_observation],
+        )
+        assert report["completeness"] == "COMPLETE"
+        assert report["summary"]["candidate_count"] == 1
+        candidate = report["candidates"][0]
+        assert candidate["observation_count"] == 2
+        assert {row["source_id"] for row in candidate["provenance"]} == {
+            "x:alpha",
+            "x:beta",
+        }
+        beta = next(row for row in candidate["provenance"] if row["source_id"] == "x:beta")
+        assert beta["capture_id"] == "capture-2"
+        assert beta["source_locator"] == {"kind": "ACCOUNT", "value": "@beta"}
+        assert beta["provider"] == "fixture-file-provider"
+        assert beta["native_content_hash"] == candidate["provenance"][0]["native_content_hash"]
+
+    def test_true_cross_source_content_conflict_is_unknown(self):
+        cfg = config(required=["x:alpha", "x:beta"])
+        beta_source = source(
+            source_id="x:beta",
+            locator_value="@beta",
+            capture_id="capture-2",
+        )
+        conflict = item(
+            item_id="x:beta:100",
+            source_id="x:beta",
+            capture_id="capture-2",
+            text="Conflicting native content.",
+        )
+        report, _ = run(
+            cfg=cfg,
+            src_manifest=manifest(source(), beta_source),
+            items=[item(), conflict],
+        )
+        assert report["completeness"] == "UNKNOWN"
+        assert report["candidates"] == []
+        assert {row["status"] for row in report["source_coverage"]} == {"UNKNOWN"}
+
+    def test_manifest_and_item_order_do_not_change_run_id(self):
+        cfg_a = config(required=["x:alpha", "x:beta"])
+        cfg_b = config(required=["x:beta", "x:alpha"])
+        alpha_source = source()
+        beta_source = source(
+            source_id="x:beta",
+            locator_value="@beta",
+            capture_id="capture-2",
+        )
+        rows = [
+            item(),
+            item(
+                item_id="x:beta:100",
+                source_id="x:beta",
+                capture_id="capture-2",
+            ),
+        ]
+        first, _ = run(
+            cfg=cfg_a,
+            src_manifest=manifest(alpha_source, beta_source),
+            items=rows,
+        )
+        second, _ = run(
+            cfg=cfg_b,
+            src_manifest=manifest(beta_source, alpha_source),
+            items=list(reversed(rows)),
+        )
+        assert first["run_id"] == second["run_id"]
+        assert json_text(first) == json_text(second)
+
     def test_known_strategy_and_dead_end_are_not_new(self):
         fp = structural_fingerprint(proposal())
         strategy_record = {"name": "Existing", "structural_fingerprint": fp, "active": True}
@@ -471,6 +651,63 @@ class TestResearchGates:
         assert statuses["COST_MODEL"] == "FAIL"
         assert statuses["BORROW"] == "FAIL"
 
+    def test_placeholder_exit_and_data_do_not_pass(self):
+        p = proposal()
+        p["exit"] = {
+            "time_stop_sessions": None,
+            "stop_rule": "TBD",
+            "target_rule": "unknown",
+        }
+        p["data_requirements"][0]["availability"] = "N/A"
+        report, _ = run(items=[item(proposal_value=p)])
+        statuses = {
+            gate["gate"]: gate["status"] for gate in report["candidates"][0]["gates"]
+        }
+        assert statuses["ENTRY_EXIT_SPEC"] == "FAIL"
+        assert statuses["DATA_FEASIBILITY"] == "FAIL"
+        assert report["candidates"][0]["lifecycle"] == "DISCOVERED"
+
+    def test_static_current_constituents_cannot_be_research_ready(self):
+        p = proposal()
+        p["universe_history"] = {
+            "membership_mode": "CURRENT_STATIC",
+            "includes_delisted": False,
+            "models_delisting_returns": False,
+            "evidence_reference": "Current constituents downloaded today.",
+        }
+        report, _ = run(items=[item(proposal_value=p)])
+        candidate = report["candidates"][0]
+        pit_gate = next(
+            gate for gate in candidate["gates"] if gate["gate"] == "PIT_UNIVERSE_AND_DELISTING"
+        )
+        assert pit_gate["status"] == "FAIL"
+        assert candidate["disposition"] == "NEEDS_SPEC"
+        assert candidate["lifecycle"] == "DISCOVERED"
+
+    def test_capacity_and_decision_fields_are_explicit_and_gated(self):
+        report, _ = run()
+        candidate = report["candidates"][0]
+        assert candidate["research_assumptions"]["costs"]["slippage_bps"] == 5
+        assert candidate["research_assumptions"]["borrow"]["fee_assumption_bps_annual"] == 0
+        assert candidate["research_assumptions"]["capacity"][
+            "estimated_strategy_capacity_usd"
+        ] == 5_000_000
+        assert candidate["why_now"]
+        assert candidate["variant_wedge"]
+        assert candidate["explicit_unknowns"]
+        assert candidate["downstream_workflow"]
+        assert candidate["actionability"] == "RESEARCH_ACTIONABLE"
+
+        p = proposal(capacity=None, why_now="unknown", explicit_unknowns=[])
+        blocked, _ = run(items=[item(proposal_value=p)])
+        gate = next(
+            value
+            for value in blocked["candidates"][0]["gates"]
+            if value["gate"] == "CAPACITY_AND_INVESTABILITY"
+        )
+        assert gate["status"] == "FAIL"
+        assert blocked["candidates"][0]["actionability"] == "BLOCKED"
+
     def test_open_observation_cannot_trade_same_open(self):
         p = proposal()
         p["signal"]["observation_timing"] = "OPEN"
@@ -510,32 +747,162 @@ class TestLifecycleAuthority:
         assert candidate["lifecycle"] == "RESEARCH_READY"
         assert candidate["automatic_lifecycle_ceiling"] == "RESEARCH_READY"
 
-    def test_reproducible_artifact_is_required_for_validated_research(self):
+    def test_reproducible_artifact_is_required_for_validated_research(self, tmp_path):
         fp = structural_fingerprint(proposal())
-        report, _ = run(artifacts=artifact(fp))
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        with pytest.raises(ContractError, match="prior journaled RESEARCH_READY"):
+            run(artifacts=artifact_manifest, artifact_root=artifact_root)
+
+        journal_path = tmp_path / "journal.jsonl"
+        ready, ready_events = run(artifact_root=artifact_root)
+        append_events(journal_path, ready_events, recorded_at=ready["as_of"])
+        report, _ = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
         candidate = report["candidates"][0]
         assert candidate["lifecycle"] == "VALIDATED_RESEARCH"
         assert candidate["edge_status"] == "INTERNALLY_VALIDATED"
         assert candidate["internally_validated_metrics"][0]["artifact_id"] == "validation-1"
 
-        bad = artifact(fp)
+        bad = copy.deepcopy(artifact_manifest)
         bad["artifacts"][0]["reproduce_command"] = []
         with pytest.raises(ContractError, match="reproduce_command"):
-            run(artifacts=bad)
-        no_metrics = artifact(fp)
+            run(
+                journal=load_journal(journal_path),
+                artifacts=bad,
+                artifact_root=artifact_root,
+            )
+        no_metrics = copy.deepcopy(artifact_manifest)
         no_metrics["artifacts"][0]["metrics"] = []
         with pytest.raises(ContractError, match="metrics"):
-            run(artifacts=no_metrics)
+            run(
+                journal=load_journal(journal_path),
+                artifacts=no_metrics,
+                artifact_root=artifact_root,
+            )
 
-    def test_owner_review_requires_explicit_human_transition_and_artifact(self):
+    def test_owner_review_requires_prior_validated_run_and_explicit_human(self, tmp_path):
         fp = structural_fingerprint(proposal())
-        with pytest.raises(ContractError, match="requires reproducible validation"):
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        with pytest.raises(ContractError, match="prior journaled VALIDATED_RESEARCH"):
             run(transitions=[transition(fp)])
+
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
         with pytest.raises(ContractError, match="actor_type"):
-            run(artifacts=artifact(fp), transitions=[transition(fp, actor_type="AUTOMATION")])
-        report, _ = run(artifacts=artifact(fp), transitions=[transition(fp)])
+            run(
+                journal=load_journal(journal_path),
+                artifacts=artifact_manifest,
+                transitions=[transition(fp, actor_type="AUTOMATION")],
+                artifact_root=artifact_root,
+            )
+        with pytest.raises(ContractError, match="prior journaled VALIDATED_RESEARCH"):
+            run(
+                journal=load_journal(journal_path),
+                artifacts=artifact_manifest,
+                transitions=[transition(fp)],
+                artifact_root=artifact_root,
+            )
+
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, events, recorded_at=validated["as_of"])
+        report, _ = run(
+            journal=load_journal(journal_path),
+            transitions=[transition(fp)],
+            artifact_root=artifact_root,
+        )
         assert report["candidates"][0]["lifecycle"] == "OWNER_REVIEW"
         assert report["authority"]["trading_actions_enabled"] is False
+        assert report["authority"]["operationally_authoritative"] is False
+
+    @pytest.mark.parametrize(
+        ("field", "value", "message"),
+        [
+            ("artifact_path", "missing.json", "not a regular local file"),
+            ("artifact_path", "../escape.json", "traversal-free"),
+            ("sha256", "0" * 64, "SHA-256 mismatch"),
+            ("created_at", "2099-01-01T00:00:00+00:00", "after report as_of"),
+        ],
+    )
+    def test_artifact_file_root_hash_and_time_are_enforced(
+        self,
+        tmp_path,
+        field,
+        value,
+        message,
+    ):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        artifact_manifest["artifacts"][0][field] = value
+        with pytest.raises(ContractError, match=message):
+            run(
+                journal=load_journal(journal_path),
+                artifacts=artifact_manifest,
+                artifact_root=artifact_root,
+            )
+
+    def test_symlinked_artifact_cannot_escape_approved_root(self, tmp_path):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_root.mkdir()
+        outside = tmp_path / "outside.json"
+        outside_bytes = b'{"outside":true}\n'
+        outside.write_bytes(outside_bytes)
+        link = artifact_root / "validation-1.json"
+        try:
+            os.symlink(outside, link)
+        except OSError:
+            pytest.skip("local Windows policy does not permit test symlinks")
+        artifact_manifest = artifact(fp, artifact_root)
+        # artifact() replaces the symlink target content, but the path remains
+        # a symlink and resolves outside the approved root.
+        artifact_manifest["artifacts"][0]["sha256"] = hashlib.sha256(
+            outside.read_bytes()
+        ).hexdigest()
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        with pytest.raises(ContractError, match="escapes approved root"):
+            run(
+                journal=load_journal(journal_path),
+                artifacts=artifact_manifest,
+                artifact_root=artifact_root,
+            )
+
+    def test_owner_transition_after_as_of_is_rejected(self, tmp_path):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, events, recorded_at=validated["as_of"])
+        future = transition(fp)
+        future["recorded_at"] = "2099-01-01T00:00:00+00:00"
+        with pytest.raises(ContractError, match="after report as_of"):
+            run(
+                journal=load_journal(journal_path),
+                transitions=[future],
+                artifact_root=artifact_root,
+            )
 
 
 class TestJournalAndCursor:
@@ -553,23 +920,50 @@ class TestJournalAndCursor:
 
     def test_validation_and_owner_authority_persist_from_journal(self, tmp_path):
         fp = structural_fingerprint(proposal())
-        validated, events = run(artifacts=artifact(fp))
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
         journal_path = tmp_path / "journal.jsonl"
+
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
         append_events(journal_path, events, recorded_at=validated["as_of"])
         owner_report, owner_events = run(
             journal=load_journal(journal_path),
             transitions=[transition(fp)],
+            artifact_root=artifact_root,
         )
         assert owner_report["candidates"][0]["lifecycle"] == "OWNER_REVIEW"
         append_events(journal_path, owner_events, recorded_at=owner_report["as_of"])
-        persisted, _ = run(journal=load_journal(journal_path))
+        persisted, _ = run(
+            journal=load_journal(journal_path),
+            artifact_root=artifact_root,
+        )
         assert persisted["candidates"][0]["lifecycle"] == "OWNER_REVIEW"
 
     def test_historical_transition_for_absent_candidate_does_not_break_zero_run(self, tmp_path):
         fp = structural_fingerprint(proposal())
-        report, events = run(artifacts=artifact(fp), transitions=[transition(fp)])
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
         journal_path = tmp_path / "journal.jsonl"
-        append_events(journal_path, events, recorded_at=report["as_of"])
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, events, recorded_at=validated["as_of"])
+        owner, events = run(
+            journal=load_journal(journal_path),
+            transitions=[transition(fp)],
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, events, recorded_at=owner["as_of"])
         zero, _ = run(
             src_manifest=manifest(
                 source(
@@ -583,6 +977,7 @@ class TestJournalAndCursor:
             ),
             items=[],
             journal=load_journal(journal_path),
+            artifact_root=artifact_root,
         )
         assert zero["completeness"] == "COMPLETE"
         assert zero["candidates"] == []
@@ -616,6 +1011,73 @@ class TestJournalAndCursor:
         with pytest.raises(ContractError, match="record_hash mismatch"):
             load_journal(journal_path)
 
+    def test_two_process_writers_retain_both_events_in_one_chain(self, tmp_path):
+        context = multiprocessing.get_context("spawn")
+        start = context.Event()
+        results = context.Queue()
+        journal_path = tmp_path / "journal.jsonl"
+        workers = [
+            context.Process(
+                target=_append_worker,
+                args=(str(journal_path), f"writer-{index}", start, results),
+            )
+            for index in range(2)
+        ]
+        for worker in workers:
+            worker.start()
+        start.set()
+        outcomes = [results.get(timeout=15) for _ in workers]
+        for worker in workers:
+            worker.join(timeout=15)
+            assert worker.exitcode == 0
+        assert outcomes.count(("ok", 1)) == 2
+        records = load_journal(journal_path)
+        assert [record["sequence"] for record in records] == [1, 2]
+        assert {record["event_key"] for record in records} == {"writer-0", "writer-1"}
+        assert records[1]["prev_hash"] == records[0]["record_hash"]
+
+    def test_lock_contention_waits_then_fails_closed_at_timeout(self, tmp_path):
+        context = multiprocessing.get_context("spawn")
+        ready = context.Event()
+        release = context.Event()
+        lock_path = tmp_path / "transaction.lock"
+        holder = context.Process(
+            target=_hold_lock_worker,
+            args=(str(lock_path), ready, release),
+        )
+        holder.start()
+        assert ready.wait(10)
+        with (
+            pytest.raises(ContractError, match="lock unavailable"),
+            exclusive_lock(lock_path, timeout_seconds=0.05),
+        ):
+            pass
+        release.set()
+        holder.join(timeout=10)
+        assert holder.exitcode == 0
+
+    def test_prior_lifecycle_journal_timestamp_after_as_of_fails_closed(self, tmp_path):
+        fp = structural_fingerprint(proposal())
+        artifact_root = tmp_path / "validation"
+        artifact_manifest = artifact(fp, artifact_root)
+        journal_path = tmp_path / "journal.jsonl"
+        ready, events = run(artifact_root=artifact_root)
+        append_events(journal_path, events, recorded_at=ready["as_of"])
+        validated, events = run(
+            journal=load_journal(journal_path),
+            artifacts=artifact_manifest,
+            artifact_root=artifact_root,
+        )
+        append_events(journal_path, events, recorded_at=validated["as_of"])
+        earlier = config()
+        earlier["as_of"] = "2026-09-05T21:29:00+00:00"
+        with pytest.raises(ContractError, match="after report as_of"):
+            run(
+                cfg=earlier,
+                journal=load_journal(journal_path),
+                artifact_root=artifact_root,
+            )
+
 
 class TestRenderingAndCli:
     def test_html_escapes_all_untrusted_text_and_shadow_banner(self):
@@ -631,12 +1093,62 @@ class TestRenderingAndCli:
         assert "NON-AUTHORITATIVE SHADOW OUTPUT" in rendered
         rendered_md = markdown_text(report)
         assert "<img src=x" not in rendered_md
-        assert "&lt;img src=x onerror=alert(1)&gt;" in rendered_md
+        assert "&lt;img src=x onerror=alert\\(1\\)&gt;" in rendered_md
 
     def test_json_and_markdown_are_deterministic(self):
         report, _ = run()
         assert json_text(report) == json_text(copy.deepcopy(report))
         assert markdown_text(report) == markdown_text(copy.deepcopy(report))
+
+    def test_markdown_neutralizes_images_links_autolinks_and_block_syntax(self):
+        malicious = proposal(
+            name="![remote pixel](https://evil.example/pixel)",
+            why_now="# injected heading\n> quote\n[click](https://evil.example/c)",
+            variant_wedge="`code` <https://evil.example/autolink>",
+        )
+        cfg = config()
+        locator = "![locator](https://evil.example/location)"
+        cfg["source_locator_allowlist"]["x:alpha"]["value"] = locator
+        src = source(locator_value=locator)
+        report, _ = run(
+            cfg=cfg,
+            src_manifest=manifest(src),
+            items=[item(proposal_value=malicious)],
+        )
+        rendered = markdown_text(report)
+        assert "https://evil.example" not in rendered
+        assert "![remote" not in rendered
+        assert "](" not in rendered
+        assert "\n# injected heading" not in rendered
+        assert "\n> quote" not in rendered
+        assert "`code`" not in rendered
+
+    def test_bundle_is_immutable_and_rejects_tampering(self, tmp_path):
+        report, _ = run()
+        output_dir = tmp_path / "output"
+        paths, manifest_value = publish_immutable_bundle(output_dir, report)
+        assert manifest_value["immutable"] is True
+        assert all(path.parent.name == report["run_id"] for path in paths)
+        paths[0].write_text("tampered\n", encoding="utf-8")
+        with pytest.raises(ContractError, match="content mismatch"):
+            publish_immutable_bundle(output_dir, report)
+
+    def test_failed_generation_never_becomes_visible_or_latest(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        report, _ = run()
+        output_dir = tmp_path / "output"
+
+        def fail_publish(_source, _destination):
+            raise OSError("forced publish failure")
+
+        monkeypatch.setattr(render_module.os, "replace", fail_publish)
+        with pytest.raises(ContractError, match="atomically publish"):
+            publish_immutable_bundle(output_dir, report)
+        assert not (output_dir / "runs" / report["run_id"]).exists()
+        assert not (output_dir / "latest.json").exists()
 
     def test_local_loader_rejects_urls_and_non_json(self, tmp_path):
         with pytest.raises(ContractError, match="URLs are forbidden"):
@@ -645,10 +1157,13 @@ class TestRenderingAndCli:
         text.write_text("{}", encoding="utf-8")
         with pytest.raises(ContractError, match="only"):
             load_json(text)
+        with pytest.raises(ContractError, match="UNC/network"):
+            load_json(Path(r"\\server\share\config.json"))
 
     def test_cli_fixture_writes_bundle_and_replays_without_journal_growth(self, tmp_path):
         example_dir = ROOT / "research" / "strategy_discovery" / "examples"
-        output_dir = tmp_path / "output"
+        approved_root = tmp_path / "approved"
+        output_dir = approved_root / "daily"
         argv = [
             "--config",
             str(example_dir / "config.example.json"),
@@ -663,14 +1178,43 @@ class TestRenderingAndCli:
             "--output-dir",
             str(output_dir),
         ]
-        assert cli_main(argv) == 0
+        assert cli_main(argv, approved_output_root=approved_root) == 0
         first_lines = (output_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
-        assert (output_dir / "strategy_discovery_report.json").exists()
-        assert (output_dir / "strategy_discovery_report.md").exists()
-        assert (output_dir / "strategy_discovery_report.html").exists()
-        assert cli_main(argv) == 0
+        latest = json.loads((output_dir / "latest.json").read_text(encoding="utf-8"))
+        run_dir = output_dir / "runs" / latest["run_id"]
+        assert (run_dir / "strategy_discovery_report.json").exists()
+        assert (run_dir / "strategy_discovery_report.md").exists()
+        assert (run_dir / "strategy_discovery_report.html").exists()
+        assert (run_dir / "bundle_manifest.json").exists()
+        assert latest["operationally_authoritative"] is False
+        assert cli_main(argv, approved_output_root=approved_root) == 0
         second_lines = (output_dir / "journal.jsonl").read_text(encoding="utf-8").splitlines()
         assert first_lines == second_lines
+
+    def test_cli_rejects_output_outside_root_and_input_output_collision(self, tmp_path):
+        example_dir = ROOT / "research" / "strategy_discovery" / "examples"
+        approved_root = tmp_path / "approved"
+        base_argv = [
+            "--config",
+            str(example_dir / "config.example.json"),
+            "--source-manifest",
+            str(example_dir / "source_manifest.example.json"),
+            "--items",
+            str(example_dir / "items.example.jsonl"),
+            "--strategy-catalog",
+            str(example_dir / "strategy_catalog_snapshot.example.json"),
+            "--dead-end-catalog",
+            str(example_dir / "dead_end_catalog_snapshot.example.json"),
+        ]
+        assert cli_main(
+            [*base_argv, "--output-dir", str(tmp_path / "outside")],
+            approved_output_root=approved_root,
+        ) == 2
+
+        assert cli_main(
+            [*base_argv, "--output-dir", str(example_dir)],
+            approved_output_root=example_dir,
+        ) == 2
 
     def test_disabled_mode_rejects_accidental_input(self):
         with pytest.raises(ContractError, match="DISABLED mode"):
@@ -711,7 +1255,48 @@ class TestStrictContracts:
     def test_non_x_permalink_is_rejected(self):
         bad = item()
         bad["permalink"] = "javascript:alert(1)"
-        with pytest.raises(ContractError, match="X/Twitter permalink"):
+        with pytest.raises(ContractError, match="X/Twitter status permalink"):
+            run(items=[bad])
+
+    @pytest.mark.parametrize(
+        ("author", "post_id", "permalink", "message"),
+        [
+            ("@alpha", "100", "https://x.com/lookalike/status/100", "match author_handle"),
+            ("@alpha", "100", "https://x.com/alpha/status/999", "match post_id"),
+        ],
+    )
+    def test_permalink_binds_declared_author_and_post(
+        self,
+        author,
+        post_id,
+        permalink,
+        message,
+    ):
+        bad = item(author_handle=author, post_id=post_id, permalink=permalink)
+        with pytest.raises(ContractError, match=message):
+            run(items=[bad])
+
+    def test_malformed_repost_text_raises_contract_error(self):
+        bad = item(
+            post_id="200",
+            kind="REPOST",
+            reposted_post_id="100",
+            canonical_post_id="100",
+        )
+        bad["text"] = 7
+        with pytest.raises(ContractError, match="text: must be a string"):
+            validate_item(bad, 0)
+
+    @pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+    def test_nonfinite_json_is_rejected_cleanly(self, tmp_path, constant):
+        path = tmp_path / "input.json"
+        path.write_text(f'{{"value":{constant}}}', encoding="utf-8")
+        with pytest.raises(ContractError, match="non-finite"):
+            load_json(path)
+
+    def test_nonfinite_direct_contract_input_is_rejected_cleanly(self):
+        bad = item(claims=[source_claim(float("nan"))])
+        with pytest.raises(ContractError, match="NaN and Infinity"):
             run(items=[bad])
 
     def test_capture_timestamps_after_asof_or_manifest_are_unknown(self):

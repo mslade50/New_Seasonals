@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Iterable
+from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +36,12 @@ def _record_hash(record_without_hash: dict[str, Any]) -> str:
     return sha256_json(record_without_hash)
 
 
+def _reject_journal_constant(value: str, *, path: Path, line_no: int) -> None:
+    raise ContractError(
+        f"journal {path}:{line_no}: non-finite numeric constant {value}"
+    )
+
+
 def load_journal(path: Path) -> list[dict[str, Any]]:
     """Read and verify every byte of an existing hash chain.
 
@@ -53,7 +62,14 @@ def load_journal(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             raise ContractError(f"journal {path}:{line_no}: blank lines are forbidden")
         try:
-            record = json.loads(line)
+            record = json.loads(
+                line,
+                parse_constant=partial(
+                    _reject_journal_constant,
+                    path=path,
+                    line_no=line_no,
+                ),
+            )
         except json.JSONDecodeError as exc:
             raise ContractError(f"journal {path}:{line_no}: invalid JSON ({exc.msg})") from exc
         if not isinstance(record, dict) or set(record) != RECORD_KEYS:
@@ -87,6 +103,7 @@ def append_events(
     events: Iterable[dict[str, Any]],
     *,
     recorded_at: str,
+    lock_held: bool = False,
 ) -> int:
     """Append new idempotent events with one flushed OS append.
 
@@ -94,6 +111,14 @@ def append_events(
     no-op; reusing an event key for different content fails closed.
     """
 
+    if not lock_held:
+        with exclusive_lock(path.with_suffix(path.suffix + ".lock")):
+            return append_events(
+                path,
+                events,
+                recorded_at=recorded_at,
+                lock_held=True,
+            )
     parse_timestamp(recorded_at, "recorded_at")
     existing = load_journal(path)
     by_key = {
@@ -146,6 +171,74 @@ def append_events(
     finally:
         os.close(descriptor)
     return len(fresh)
+
+
+@contextmanager
+def exclusive_lock(path: Path, *, timeout_seconds: float = 10.0):
+    """Acquire a fail-closed cross-process lock by atomic create.
+
+    Locks are never guessed stale or stolen. A crashed writer intentionally
+    leaves a lock that requires an operator to inspect the journal and bundle
+    before manually clearing it.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    deadline = time.monotonic() + timeout_seconds
+    descriptor = -1
+    while descriptor < 0:
+        try:
+            descriptor = os.open(path, flags, 0o600)
+        except FileExistsError as exc:
+            if time.monotonic() >= deadline:
+                raise ContractError(f"transaction lock unavailable: {path}") from exc
+            time.sleep(0.05)
+    try:
+        payload = canonical_json({"pid": os.getpid(), "lock_path": str(path)}) + "\n"
+        os.write(descriptor, payload.encode("utf-8"))
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        yield path
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def candidate_state_history(
+    records: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    history: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        if record["event_type"] != "CANDIDATE_OBSERVED":
+            continue
+        payload = record["payload"]
+        fingerprint = payload.get("candidate_fingerprint")
+        lifecycle = payload.get("lifecycle")
+        if not fingerprint or not lifecycle:
+            continue
+        history.setdefault(str(fingerprint), []).append(
+            {
+                "lifecycle": str(lifecycle),
+                "recorded_at": record["recorded_at"],
+                "sequence": record["sequence"],
+                "run_id": payload.get("run_id"),
+            }
+        )
+    return history
+
+
+def validation_record_times(records: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        str(record["payload"]["artifact_id"]): record["recorded_at"]
+        for record in records
+        if record["event_type"] == "VALIDATION_ATTACHED"
+        and record["payload"].get("artifact_id")
+    }
 
 
 def latest_source_captures(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

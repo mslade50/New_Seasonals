@@ -17,19 +17,61 @@ from research.strategy_discovery.contracts import (
     ContractError,
     load_json,
     load_jsonl,
+    validate_report,
 )
 from research.strategy_discovery.journal import (
     append_events,
+    exclusive_lock,
     load_journal,
 )
 from research.strategy_discovery.pipeline import run_discovery
-from research.strategy_discovery.render import write_report_bundle
+from research.strategy_discovery.render import (
+    publish_immutable_bundle,
+    publish_latest_pointer,
+)
+
+DEFAULT_APPROVED_OUTPUT_ROOT = ROOT / "artifacts" / "strategy_discovery"
 
 
-def _local_output_dir(raw: str) -> Path:
-    if "://" in raw:
+def _local_output_dir(raw: str, approved_root: Path) -> Path:
+    if "://" in raw or raw.startswith(("\\\\", "//")):
         raise ContractError("output-dir must be a local filesystem path")
-    return Path(raw).resolve()
+    requested = Path(raw)
+    if requested.exists() and requested.is_symlink():
+        raise ContractError("output-dir must not be a symbolic link")
+    output_dir = requested.resolve()
+    root = approved_root.resolve()
+    try:
+        output_dir.relative_to(root)
+    except ValueError as exc:
+        raise ContractError(
+            f"output-dir must be within the approved local root: {root}"
+        ) from exc
+    return output_dir
+
+
+def _input_paths(args: argparse.Namespace) -> list[Path]:
+    values = [
+        args.config,
+        args.source_manifest,
+        args.items,
+        args.strategy_catalog,
+        args.dead_end_catalog,
+        args.validation_artifacts,
+        args.owner_transitions,
+    ]
+    return [Path(value).resolve() for value in values if value]
+
+
+def _reject_input_output_collisions(input_paths: list[Path], output_dir: Path) -> None:
+    for input_path in input_paths:
+        try:
+            input_path.relative_to(output_dir)
+        except ValueError:
+            continue
+        raise ContractError(
+            f"input snapshot must not live inside output-dir: {input_path}"
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,10 +89,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    approved_output_root: Path | None = None,
+    lock_timeout_seconds: float = 10.0,
+) -> int:
     args = build_parser().parse_args(argv)
     try:
-        output_dir = _local_output_dir(args.output_dir)
+        approved_root = (approved_output_root or DEFAULT_APPROVED_OUTPUT_ROOT).resolve()
+        output_dir = _local_output_dir(args.output_dir, approved_root)
+        inputs = _input_paths(args)
+        _reject_input_output_collisions(inputs, output_dir)
         journal_path = output_dir / "journal.jsonl"
         config = load_json(Path(args.config))
         manifest = load_json(Path(args.source_manifest))
@@ -63,23 +113,47 @@ def main(argv: list[str] | None = None) -> int:
         owner_transitions = (
             load_jsonl(Path(args.owner_transitions)) if args.owner_transitions else None
         )
-        journal = load_journal(journal_path)
-        report, events = run_discovery(
-            config_raw=config,
-            manifest_raw=manifest,
-            items_raw=items,
-            strategy_catalog_raw=strategy_catalog,
-            dead_end_catalog_raw=dead_end_catalog,
-            journal_records=journal,
-            validation_artifacts_raw=validation_artifacts,
-            owner_transitions_raw=owner_transitions,
-        )
-        appended = append_events(
-            journal_path,
-            events,
-            recorded_at=report["as_of"],
-        )
-        paths = write_report_bundle(output_dir, report)
+        artifact_root = approved_root / "validation_artifacts"
+        if validation_artifacts:
+            artifact_paths = [
+                (artifact_root / artifact["artifact_path"]).resolve()
+                for artifact in validation_artifacts.get("artifacts", [])
+                if isinstance(artifact, dict) and isinstance(artifact.get("artifact_path"), str)
+            ]
+            _reject_input_output_collisions(artifact_paths, output_dir)
+
+        transaction_lock = output_dir / ".transaction.lock"
+        with exclusive_lock(
+            transaction_lock,
+            timeout_seconds=lock_timeout_seconds,
+        ):
+            journal = load_journal(journal_path)
+            report, events = run_discovery(
+                config_raw=config,
+                manifest_raw=manifest,
+                items_raw=items,
+                strategy_catalog_raw=strategy_catalog,
+                dead_end_catalog_raw=dead_end_catalog,
+                journal_records=journal,
+                validation_artifacts_raw=validation_artifacts,
+                owner_transitions_raw=owner_transitions,
+                artifact_root=artifact_root,
+            )
+            validate_report(report)
+            paths, bundle_manifest = publish_immutable_bundle(output_dir, report)
+            appended = append_events(
+                journal_path,
+                events,
+                recorded_at=report["as_of"],
+                lock_held=True,
+            )
+            verified_journal = load_journal(journal_path)
+            latest_path = publish_latest_pointer(
+                output_dir,
+                report,
+                bundle_manifest,
+                verified_journal,
+            )
     except ContractError as exc:
         print(f"STRATEGY DISCOVERY BLOCKED: {exc}", file=sys.stderr)
         return 2
@@ -91,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"journal: {journal_path} ({appended} new event(s))")
     for path in paths:
         print(f"report: {path}")
+    print(f"latest: {latest_path}")
     return 0
 
 
