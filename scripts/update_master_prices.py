@@ -38,6 +38,11 @@ PATH = os.path.join(DATA_DIR, "master_prices.parquet")
 CHUNK_SIZE = 50
 
 
+def _today() -> pd.Timestamp:
+    """Return the normalized local day through a testable clock boundary."""
+    return pd.Timestamp.today().normalize()
+
+
 def _normalize_ticker_df(t_df):
     if isinstance(t_df.columns, pd.MultiIndex):
         # yfinance returns a (Ticker, Price) MultiIndex even for a ONE-name
@@ -322,7 +327,7 @@ def main():
               f"derived from the FULL cache, as a production run would)")
     last_dates = master.groupby("ticker")["date"].max()
     earliest_stale = last_dates.min()
-    today = pd.Timestamp.today().normalize()
+    today = _today()
 
     # New tickers to backfill (Layer A / explicit) — not yet in the cache.
     add_set = set()

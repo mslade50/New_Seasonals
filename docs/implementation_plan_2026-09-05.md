@@ -39,7 +39,7 @@ At the current $750,000 reference NAV and GRM 1.5:
 
 | Base state | Effective base bps | 0 prior signals, 0.5x | 1 prior, 0.7x | 2+ prior, 1.0x |
 |---|---:|---:|---:|---:|
-| Liquid normal | 52.5 | $1,968.75 | $2,756.25 | $3,937.50 |
+| Liquid normal | 52.5 | $1,969.00 | $2,756.60 | $3,938.00 |
 | Overflow normal | 37.5 | $1,406.25 | $1,968.75 | $2,812.50 |
 | Either tier, earnings -10..0 TD | 15.0 | $562.50 | $787.50 | $1,125.00 |
 
@@ -47,6 +47,12 @@ The earnings value replaces the base and still receives the recency multiplier.
 Recency counts prior **signals**, not fills or open positions, for that ticker
 in 21 ticker sessions. OLV has no active fragility, cycle, rank-mean, open-leg,
 or same-day overlay. Quantity is approximately:
+
+The liquid-dollar row above is the scanner/live contract: its $3,937.50 ideal
+base is rounded once to $3,938 before the recency multiplier. The engine keeps
+the unrounded ideal, so its three liquid targets are $1,968.75, $2,756.25 and
+$3,937.50. This sub-dollar parity gap can move one share only at a floor
+boundary and remains a recorded low-severity cleanup item.
 
 ```text
 floor(target risk dollars / (1.25 × ATR))
