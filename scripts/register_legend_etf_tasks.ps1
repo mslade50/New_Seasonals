@@ -66,7 +66,7 @@ if (-not $Install) {
     Write-Host "Preview only ($previewMode). Re-run with -Install to register."
     exit 0
 }
-if ($repoRoot -match '(?i)[\\/]artifacts[\\/]worktrees[\\/]') {
+if ($repoRoot -match '(?i)[\\/]artifacts[\\/](?:worktrees|task_worktrees)[\\/]') {
     throw "Refusing to install scheduled tasks from a disposable task worktree. Merge into the stable production checkout first."
 }
 if ($Live -and $LiveAcknowledgement -ne "REGISTER_DATED_GATED_LIVE_TASK") {

@@ -2,20 +2,33 @@
 
 ## Current release status
 
-The local implementation is shadow-ready, but live activation is currently a
-**NO-GO**. As of the 2026-09-02 handoff:
+The ETF implementation is built and its signal replay passes, but operational
+setup is incomplete and live activation remains disabled. As of September 6:
 
 - no Windows scheduled task has been installed;
 - the dated live gate is disabled;
 - the Databento cost ceiling is $0.00, so no recurring spend is authorized;
 - no paper or live broker order has been sent by this rollout;
-- a guarded shared-executor patch exists only in the isolated review staging
-  tree; the live OneDrive executor has not been changed;
+- guarded shared-executor support was deployed September 2 and repaired for
+  legacy account discovery; its Legend activation marker remains absent;
+- the purchased ES/NQ/RTY data is installed in the machine-global cache;
+- Primary TWS currently refuses its configured read-only API connection;
+- Primary-only runtime configuration and the daily capacity producer remain
+  unfinished; the $0.50/day data allowance request is awaiting an answer;
 - IBKR's exact OCA type-2/GAT behavior at 10:30 has not yet been proven in the
   PA paper account.
 
-Do not register live tasks or arm a live date until every release gate below is
-complete. Merging code is not authorization to trade.
+The owner has authorized progressing toward activation. Complete and verify the
+broker and shared-capacity requirements before arming the live date. Do not
+interpret passing source tests as observed broker execution.
+
+Use a dedicated stable Git checkout for scheduled execution, pinned to a reviewed
+commit. A checkout under `artifacts/worktrees` or `artifacts/task_worktrees` is
+for review only. Run `scripts/configure_legend_etf_shadow.py --executor-root
+<executor-path>` there to verify Primary identity read-only; add `--apply` to
+create the new Primary-only shadow configuration. This keeps paid data and live
+execution disabled and refuses to overwrite an existing configuration. Register
+shadow tasks only after configuration and current signal inputs are ready.
 
 ## Pinned strategy
 
