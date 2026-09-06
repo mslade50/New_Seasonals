@@ -14,7 +14,7 @@ const PAGES = [
   { href: "orders.html",   label: "Orders" },
   { href: "options.html",  label: "Options" },
   { href: "charts.html",   label: "Charts" },
-  { href: "pipeline.html", label: "Pipeline" },
+  { href: "pipeline.html", label: "Status" },
   { href: "futures.html",  label: "Futures Lab" },
   { href: "entry.html",    label: "Entry Lab" },
   { href: "montecarlo.html", label: "Monte Carlo" },
