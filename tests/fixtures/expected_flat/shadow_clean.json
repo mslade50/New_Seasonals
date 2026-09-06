@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "run": {
+    "run_id": "golden-shadow",
+    "run_mode": "SHADOW",
+    "operationally_authoritative": false,
+    "as_of": "2026-09-05T21:30:00Z",
+    "session_date": "2026-09-05",
+    "required_producers": ["time-stop-producer"],
+    "max_position_age_seconds": 300
+  },
+  "producer_receipts": [
+    {
+      "source_id": "time-stop-producer",
+      "receipt_id": "producer-receipt-1",
+      "session_date": "2026-09-05",
+      "complete": true,
+      "complete_through": "2026-09-05T21:30:00Z",
+      "zero_events": false,
+      "event_ids": ["olv-aapl-t1-flat"],
+      "event_count": 1,
+      "source_sequence_first": 1,
+      "source_sequence_last": 1,
+      "source_sequences": [1]
+    }
+  ],
+  "execution_receipt": {
+    "source_id": "execution-ledger",
+    "receipt_id": "execution-receipt-1",
+    "session_date": "2026-09-05",
+    "complete": true,
+    "complete_through": "2026-09-05T21:30:00Z",
+    "zero_events": false,
+    "event_ids": ["exec-1"],
+    "event_count": 1,
+    "source_sequence_first": 1,
+    "source_sequence_last": 1,
+    "source_sequences": [1]
+  },
+  "baseline_receipt": {
+    "source_id": "allocation-baselines",
+    "receipt_id": "baseline-receipt-1",
+    "session_date": "2026-09-05",
+    "complete": true,
+    "complete_through": "2026-09-05T21:30:00Z",
+    "zero_events": false,
+    "event_ids": ["baseline-1"],
+    "event_count": 1,
+    "source_sequence_first": 1,
+    "source_sequence_last": 1,
+    "source_sequences": [1]
+  },
+  "position_receipt": {
+    "source_id": "position-snapshot",
+    "receipt_id": "position-receipt-1",
+    "session_date": "2026-09-05",
+    "complete": true,
+    "complete_through": "2026-09-05T21:30:00Z",
+    "zero_events": false,
+    "event_ids": ["snapshot-1"],
+    "event_count": 1,
+    "source_sequence_first": 1,
+    "source_sequence_last": 1,
+    "source_sequences": [1]
+  },
+  "obligation_revisions": [
+    {
+      "event_id": "olv-aapl-t1-flat",
+      "revision": 1,
+      "producer_id": "time-stop-producer",
+      "source_sequence": 1,
+      "recorded_at": "2026-09-05T21:01:00Z",
+      "session_date": "2026-09-05",
+      "account": "U111",
+      "signal_id": "OLV:AAPL:2026-09-05",
+      "tranche_id": "t1",
+      "strategy": "OLV",
+      "contract": {
+        "symbol": "AAPL",
+        "sec_type": "STK",
+        "currency": "USD",
+        "exchange": "SMART",
+        "con_id": 1001,
+        "expiry": ""
+      },
+      "expected_flat_by": "2026-09-05T21:15:00Z",
+      "active": true,
+      "note": "golden fixture"
+    }
+  ],
+  "position_baselines": [
+    {
+      "baseline_id": "baseline-1",
+      "source_sequence": 1,
+      "effective_at": "2026-09-05T20:00:00Z",
+      "account": "U111",
+      "signal_id": "OLV:AAPL:2026-09-05",
+      "tranche_id": "t1",
+      "contract": {
+        "symbol": "AAPL",
+        "sec_type": "STK",
+        "currency": "USD",
+        "exchange": "SMART",
+        "con_id": 1001,
+        "expiry": ""
+      },
+      "signed_qty": "100"
+    }
+  ],
+  "execution_revisions": [
+    {
+      "execution_id": "exec-1",
+      "correction_family_id": "family-1",
+      "correction_revision": 1,
+      "correction_action": "APPLY",
+      "source_sequence": 1,
+      "occurred_at": "2026-09-05T21:20:00Z",
+      "account": "U111",
+      "signal_id": "OLV:AAPL:2026-09-05",
+      "tranche_id": "t1",
+      "contract": {
+        "symbol": "AAPL",
+        "sec_type": "STK",
+        "currency": "USD",
+        "exchange": "SMART",
+        "con_id": 1001,
+        "expiry": ""
+      },
+      "signed_qty_delta": "-100"
+    }
+  ],
+  "aggregate_positions": [
+    {
+      "snapshot_id": "snapshot-1",
+      "source_sequence": 1,
+      "observed_at": "2026-09-05T21:29:00Z",
+      "account": "U111",
+      "contract": {
+        "symbol": "AAPL",
+        "sec_type": "STK",
+        "currency": "USD",
+        "exchange": "SMART",
+        "con_id": 1001,
+        "expiry": ""
+      },
+      "signed_qty": "0"
+    }
+  ]
+}
