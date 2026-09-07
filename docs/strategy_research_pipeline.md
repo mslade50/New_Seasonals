@@ -130,6 +130,7 @@ candidate clears every gate.
 - The Crossref adapter was exercised against the live public API: two requests
   produced 78 DOI-bound SSRN observations with complete cursor windows.
 - Collector, pending/acknowledgement, discovery, family-fit, research gate,
-  catalog, scheduling-wire, cloud rank migration, and R2 promotion tests pass.
+  catalog, scheduling-wire, cloud rank migration, predecessor backup, and R2
+  promotion tests pass.
 - SMTP, X, Task Scheduler registration, R2 mutation, private-site deployment,
   and any trading action were not exercised during development.

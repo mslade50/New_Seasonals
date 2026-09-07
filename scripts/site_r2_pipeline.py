@@ -365,7 +365,30 @@ def promote_canonical(
 
     if receipt.get("before_sha256") != original.get("sha256"):
         raise RuntimeError("canonical migration receipt does not bind the materialized predecessor")
-    audit_key = f"migrations/{name}/{_run_prefix(run_id).split('/')[-1]}.json"
+    remote = cache_io.head(item.key)
+    if not remote or not remote.get("ETag"):
+        raise RuntimeError(f"cannot establish current canonical ETag before promotion: {item.key}")
+    remote_etag = str(remote["ETag"])
+    if remote_etag.strip('"') != str(original.get("etag") or "").strip('"'):
+        raise RuntimeError(f"canonical input changed after materialization: {name}")
+
+    migration_prefix = f"migrations/{name}/{_run_prefix(run_id).split('/')[-1]}"
+    suffix = Path(item.key).suffix or ".bin"
+    predecessor_path = root / "data" / ".canonical-predecessors" / f"{name}{suffix}"
+    predecessor_path.parent.mkdir(parents=True, exist_ok=True)
+    if not cache_io.download_to_local(item.key, str(predecessor_path)):
+        raise RuntimeError(f"canonical predecessor could not be materialized for rollback: {name}")
+    if _sha256(predecessor_path) != original.get("sha256"):
+        raise RuntimeError(f"canonical predecessor bytes differ from generator provenance: {name}")
+    predecessor_key = f"{migration_prefix}/predecessor{suffix}"
+    predecessor_result, _predecessor_etag = cache_io.conditional_upload_from_local(
+        str(predecessor_path), predecessor_key, create_only=True
+    )
+    if predecessor_result != "uploaded":
+        raise RuntimeError(f"canonical predecessor could not be archived: {predecessor_key}")
+    _verify_uploaded_file(predecessor_path, predecessor_key)
+
+    audit_key = f"{migration_prefix}/receipt.json"
     receipt_result, _receipt_etag = cache_io.conditional_upload_from_local(
         str(receipt_path), audit_key, create_only=True
     )
@@ -373,12 +396,6 @@ def promote_canonical(
         raise RuntimeError(f"canonical promotion receipt could not be archived: {audit_key}")
     _verify_uploaded_file(receipt_path, audit_key)
 
-    remote = cache_io.head(item.key)
-    if not remote or not remote.get("ETag"):
-        raise RuntimeError(f"cannot establish current canonical ETag before promotion: {item.key}")
-    remote_etag = str(remote["ETag"])
-    if remote_etag.strip('"') != str(original.get("etag") or "").strip('"'):
-        raise RuntimeError(f"canonical input changed after materialization: {name}")
     result, _new_etag = cache_io.conditional_upload_from_local(
         str(candidate), item.key, expected_etag=remote_etag
     )
@@ -407,6 +424,7 @@ def promote_canonical(
         "name": name,
         "sha256": candidate_sha,
         "receipt_key": audit_key,
+        "predecessor_key": predecessor_key,
     }
 
 

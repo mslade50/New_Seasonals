@@ -14,8 +14,8 @@ On every `deploy_site.yml` run, the isolated generator now:
    ticker coverage, and current-year coverage;
 3. performs a full 2001-through-current-year deterministic rebuild only when
    the object is old or incomplete;
-4. archives a digest-bound migration receipt to an immutable R2 key before
-   replacing the canonical object;
+4. archives the exact predecessor parquet and a digest-bound migration receipt
+   under immutable R2 keys before replacing the canonical object;
 5. conditionally replaces `atr_seasonal_ranks.parquet` only if its R2 ETag
    still matches the object downloaded at the start of the run;
 6. refreshes generator provenance, rebuilds the full trade ledger from the
@@ -26,6 +26,10 @@ Missing or short price history for any required canonical ticker blocks the
 regeneration. Concurrent R2 modification blocks replacement. A healthy
 `annual-outcome-cutoff-v2` object produces a `CURRENT` receipt and performs no
 R2 write. No local `data/` or `dist/` artifact is a production input.
+
+Rollback restores the archived `predecessor.parquet` from that run's
+`migrations/atr_seasonal_ranks/<run-id>/` prefix to the canonical
+`atr_seasonal_ranks.parquet` key, then redeploys the prior application commit.
 
 The migration changes historical ATR-seasonal filters and can therefore
 change the reconstructed trade ledger, research statistics, and private-site

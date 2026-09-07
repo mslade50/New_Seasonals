@@ -195,6 +195,7 @@ def test_conditional_canonical_promotion_refreshes_generator_provenance(tmp_path
     new_sha = hashlib.sha256(target.read_bytes()).hexdigest()
     store = {item.key: old}
     etags = {item.key: '"old-etag"'}
+    upload_order = []
 
     def head(key):
         value = store.get(key)
@@ -203,6 +204,7 @@ def test_conditional_canonical_promotion_refreshes_generator_provenance(tmp_path
         }
 
     def conditional(local, key, *, create_only=False, expected_etag=None):
+        upload_order.append(key)
         if create_only:
             if key in store:
                 return "precondition_failed", None
@@ -212,8 +214,17 @@ def test_conditional_canonical_promotion_refreshes_generator_provenance(tmp_path
         etags[key] = '"new-etag"'
         return "uploaded", etags[key]
 
+    def download(key, local):
+        value = store.get(key)
+        if value is None:
+            return False
+        Path(local).parent.mkdir(parents=True, exist_ok=True)
+        Path(local).write_bytes(value)
+        return True
+
     monkeypatch.setattr(site_r2_pipeline.cache_io, "head", head)
     monkeypatch.setattr(site_r2_pipeline.cache_io, "conditional_upload_from_local", conditional)
+    monkeypatch.setattr(site_r2_pipeline.cache_io, "download_to_local", download)
     provenance = {
         "mode": "r2-only",
         "phase": "generator",
@@ -261,7 +272,10 @@ def test_conditional_canonical_promotion_refreshes_generator_provenance(tmp_path
     assert store[item.key] == b"new-corrected-ranks"
     updated = json.loads(provenance_path.read_text(encoding="utf-8"))
     assert updated["entries"][0]["sha256"] == new_sha
-    assert "migrations/atr_seasonal_ranks/123-1.json" in store
+    assert store["migrations/atr_seasonal_ranks/123-1/predecessor.parquet"] == old
+    assert "migrations/atr_seasonal_ranks/123-1/receipt.json" in store
+    assert result["predecessor_key"].endswith("/predecessor.parquet")
+    assert upload_order.index(result["predecessor_key"]) < upload_order.index(item.key)
 
 
 def test_current_receipt_never_writes_r2(tmp_path, monkeypatch):
