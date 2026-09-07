@@ -434,10 +434,10 @@ def _ssrn_item(
             authors.append(name)
     if not title or not authors:
         raise CollectorError(f"{source['source_id']} SSRN record {doi} lacks title/authors")
-    created = _crossref_time(work, "created") or _crossref_time(work, "published")
-    published = _crossref_time(work, "published") or created
-    deposited = _crossref_time(work, "deposited") or created
-    if not created or not published or not deposited:
+    registered = _crossref_time(work, "created") or _crossref_time(work, "published")
+    published = _crossref_time(work, "published") or registered
+    deposited = _crossref_time(work, "deposited") or registered
+    if not registered or not published or not deposited:
         raise CollectorError(f"{source['source_id']} SSRN record {doi} lacks dated metadata")
     body = _clean_crossref_text(work.get("abstract"))
     text = f"{title}\n\n{body}".strip()
@@ -477,7 +477,11 @@ def _ssrn_item(
         "quoted_post_id": None,
         "reposted_post_id": None,
         "author_handle": "; ".join(authors),
-        "created_at": created,
+        # The collector's continuity and manifest window are defined by
+        # Crossref deposit time so revised papers are discoverable. Bind the
+        # item timestamp to that same availability event; the paper's original
+        # publication date remains preserved in source_document.published_at.
+        "created_at": deposited,
         "captured_at": captured_at,
         "permalink": f"https://papers.ssrn.com/sol3/papers.cfm?abstract_id={abstract_id}",
         "text": text,

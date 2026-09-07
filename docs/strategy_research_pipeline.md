@@ -19,7 +19,10 @@ Current positions are never an input.
 - SSRN coverage uses Crossref's REST metadata for DOI prefix `10.2139`.
   Deposit time captures both new papers and revised metadata. The default two
   queries are enabled and require no paid service. A contact email may be
-  supplied through `STRATEGY_RESEARCH_CONTACT_EMAIL`.
+  supplied through `STRATEGY_RESEARCH_CONTACT_EMAIL`. SSRN item `created_at`
+  records this deposit-time availability event so it matches the source cursor
+  and capture window; the original paper date remains in
+  `source_document.published_at`.
 
 The source registry is `config/strategy_research_sources.json`. It fixes the
 sources, global and per-source item ceilings, request limits, maximum pages,

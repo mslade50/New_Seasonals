@@ -139,13 +139,45 @@ def test_ssrn_crossref_collection_binds_doi_version_and_revision_window():
     item = items[0]
     validate_item(item, 0)
     assert item["post_id"] == "ssrn:1234567"
+    assert item["created_at"] == "2026-09-07T09:00:00Z"
     assert item["source_document"]["doi"] == "10.2139/ssrn.1234567"
+    assert item["source_document"]["published_at"] == "2026-09-06T00:00:00Z"
     assert len(item["source_document"]["version_digest"]) == 64
     params = session.calls[0][1]["params"]
     assert "from-deposit-date" in params["filter"]
     assert params["mailto"] == "ops@example.com"
     assert manifest["sources"][0]["provider_status"] == "OK"
     assert telemetry["requests_used"] == 1
+
+
+def test_ssrn_revision_uses_deposit_as_window_availability_time():
+    work = {
+        "DOI": "10.2139/ssrn.7654321",
+        "title": ["An Older Paper Revised Today"],
+        "author": [{"given": "Grace", "family": "Researcher"}],
+        "created": {"date-time": "2020-01-02T10:00:00Z"},
+        "published": {"date-parts": [[2020, 1, 2]]},
+        "deposited": {"date-time": "2026-09-07T09:30:00Z"},
+        "type": "posted-content",
+    }
+    session = Session([Response({"message": {"items": [work], "next-cursor": "next"}})])
+
+    manifest, items, _, _ = collect_bundle(
+        source_config(ssrn_source()),
+        empty_state(),
+        environment={"CONTACT": "ops@example.com"},
+        now=NOW,
+        session=session,
+    )
+
+    assert manifest["sources"][0]["window"]["start"] == "2026-09-05T12:00:00Z"
+    assert items[0]["created_at"] == "2026-09-07T09:30:00Z"
+    assert items[0]["source_document"]["published_at"] == "2020-01-02T00:00:00Z"
+    assert (
+        manifest["sources"][0]["window"]["start"]
+        <= items[0]["created_at"]
+        <= manifest["sources"][0]["window"]["end"]
+    )
 
 
 def test_missing_x_token_fails_without_network_call():
