@@ -20,5 +20,5 @@ requests-cache
 pytz
 kaleido
 fpdf2
-boto3
+boto3==1.43.23
 python-dotenv

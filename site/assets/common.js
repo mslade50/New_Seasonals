@@ -186,9 +186,13 @@ const PALETTE = ["#4da3ff", "#00d18f", "#ff5d5d", "#ffc14d", "#b07cff", "#3ddbd9
    makeTable(el, {
      columns: [{key, label, align:'l'|'r', fmt: fn(v,row), cls: fn(v,row)}],
      rows: [...], pageSize: 25|0 (0 = all), search: true|false,
-     csvName: "trades.csv"|null, defaultSort: {key, dir} })
+     csvName: "trades.csv"|null, defaultSort: {key, dir}, textOnly: true|false })
+   Plain cells are text. A custom formatter may return trusted HTML unless
+   textOnly is true; use that mode for tables built from external reports.
 */
 function makeTable(el, opts) {
+  const escapeText = value => String(value ?? "").replace(/[&<>"']/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const state = {
     rows: opts.rows.slice(),
     view: opts.rows.slice(),
@@ -276,14 +280,15 @@ function makeTable(el, opts) {
 
     const head = "<thead><tr>" + opts.columns.map(c => {
       const arr = state.sortKey === c.key ? `<span class="arr">${state.sortDir > 0 ? "▲" : "▼"}</span>` : "";
-      return `<th class="${c.align === "l" ? "l" : ""}" data-k="${c.key}">${c.label}${arr}</th>`;
+      return `<th class="${c.align === "l" ? "l" : ""}" data-k="${escapeText(c.key)}">${escapeText(c.label)}${arr}</th>`;
     }).join("") + "</tr></thead>";
 
     const body = "<tbody>" + rows.map(r => "<tr>" + opts.columns.map(c => {
       const v = r[c.key];
-      const txt = c.fmt ? c.fmt(v, r) : (v == null ? "" : v);
+      const formatted = c.fmt ? c.fmt(v, r) : (v == null ? "" : v);
+      const txt = opts.textOnly || !c.fmt ? escapeText(formatted) : formatted;
       const cls = (c.align === "l" ? "l " : "") + (c.cls ? c.cls(v, r) : "");
-      return `<td class="${cls}">${txt}</td>`;
+      return `<td class="${escapeText(cls)}">${txt}</td>`;
     }).join("") + "</tr>").join("") + "</tbody>";
 
     table.innerHTML = head + body;

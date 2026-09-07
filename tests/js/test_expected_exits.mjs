@@ -14,4 +14,7 @@ assert.equal(projectExpectedExits({...report,generated_at:'2026-09-08T20:00:00Z'
 assert.throws(()=>projectExpectedExits({...report,account_key:'pa'},now));
 assert.throws(()=>projectExpectedExits({...report,generated_at:'2026-09-09T20:00:00Z'},now));
 assert.throws(()=>projectExpectedExits({...report,obligations:[{status:'filled'}]},now));
+const unknown=projectExpectedExits({...report,source_error:'Seed unavailable',obligations:[]},now);
+assert.equal(unknown.counts.unable_to_verify,1);
+assert.equal(unknown.obligations[0].remaining_tagged_qty,null);
 console.log('Expected exits project exact Primary status and retain true source age');

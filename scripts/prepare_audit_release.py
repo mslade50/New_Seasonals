@@ -30,15 +30,33 @@ def prepare(output, executor_source, baseline):
         raise ValueError("source must be committed and clean before preparing a release")
     head=git("rev-parse","HEAD").decode().strip()
     base=git("rev-parse",baseline).decode().strip()
-    names=git("diff","--name-only","-z",base,head).decode().split("\0")
-    changed={name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest()
-             for name in names if name and (ROOT/name).is_file()}
-    from broker_runtime.prepare import prepare as prepare_executor
-    # Its complete source-hash check happens before any candidate is written.
-    prepare_executor(Path(executor_source),output / "executor-candidate")
+    # Git blobs, not mutable checkout bytes, define the release. Renames are
+    # recorded as delete+add so the manifest also captures removed paths.
+    changes=git("diff","--name-status","--no-renames","-z",base,head).decode().rstrip("\0").split("\0")
+    changed={}
+    for status,name in zip(changes[::2],changes[1::2]):
+        changed[name]={"status":status,"sha256":None if status=="D" else
+                       hashlib.sha256(git("show",f"{head}:{name}")).hexdigest()}
+    source=output / "reviewed-source"
+    helpers=git("ls-tree","-r","--name-only","-z",head,"broker_runtime").decode().rstrip("\0").split("\0")
+    for name in helpers:
+        if not name or not name.startswith("broker_runtime/") or ".." in Path(name).parts:
+            raise ValueError("invalid executor preparation path")
+        target=source/name
+        target.parent.mkdir(parents=True,exist_ok=True)
+        target.write_bytes(git("show",f"{head}:{name}"))
+    # Run the exact committed preparer against its immutable helper snapshot.
+    # It verifies every external source before writing any candidate.
+    prepared=subprocess.run([sys.executable,str(source/"broker_runtime/prepare.py"),
+        "--source",str(Path(executor_source).resolve()),"--output",str(output/"executor-candidate")],
+        cwd=source,capture_output=True,text=True,check=False)
+    if prepared.returncode:
+        raise RuntimeError("committed executor preparation failed")
     candidates={path.name:hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in sorted((output / "executor-candidate").iterdir()) if path.is_file()}
-    original=json.loads((ROOT / "broker_runtime/source_hashes.json").read_text())
+    original=json.loads((source / "broker_runtime/source_hashes.json").read_text())
+    if git("rev-parse","HEAD").decode().strip()!=head or git("status","--porcelain","--untracked-files=normal").strip():
+        raise RuntimeError("source changed during preparation; no release manifest published")
     manifest={"schema_version":1,"prepared_at":dt.datetime.now(dt.timezone.utc).isoformat(),
               "source_sha":head,"audit_baseline_sha":base,"source_changes":changed,
               "external_original_sha256":original,"external_candidate_sha256":candidates,

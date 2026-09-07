@@ -14,7 +14,12 @@ export function projectExpectedExits(report, now = Date.now()) {
       deadline:text(row.deadline), status:row.status, detail:text(row.detail),
       remaining_tagged_qty:quantity(row.remaining_tagged_qty)};
   });
+  const sourceError = text(report.source_error);
+  if (sourceError && !obligations.some(row => row.status === "unable_to_verify")) {
+    obligations.push({id:"inventory-coverage",symbol:null,strategy:null,deadline:null,
+      status:"unable_to_verify",detail:sourceError,remaining_tagged_qty:null});
+  }
   return {schema_version:1, generated_at:report.generated_at,
-    stale:now-at>120000, source_error:text(report.source_error), obligations,
+    stale:now-at>120000, source_error:sourceError, obligations,
     counts:Object.fromEntries([...states].map(s=>[s,obligations.filter(r=>r.status===s).length]))};
 }

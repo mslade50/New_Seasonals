@@ -44,7 +44,7 @@ async function refreshComparison() {
     const result=comparisonRows(snapshot.trades,broker.fills,names,from,to);
     const coverage=broker.completeness || {}, account=coverage.accounts?.primary;
     const verified=account?.complete===true && !coverage.truncated && !coverage.merge_error;
-    makeTable(document.getElementById("compare-table"),{rows:result.rows,columns:[
+    makeTable(document.getElementById("compare-table"),{rows:result.rows,textOnly:true,columns:[
       {key:"strategy",label:"Strategy",align:"l"},{key:"theo_closed",label:"Model closes"},
       {key:"theo",label:"Model realized · $750k",fmt:v=>fmt.money(v)},
       {key:"actual_fills",label:"Actual executions"},

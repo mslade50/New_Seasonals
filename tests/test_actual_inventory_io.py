@@ -49,4 +49,3 @@ def test_routine_risk_jobs_are_data_only():
             if "daily_risk_report.py" in command.argv:
                 assert "--data-only" in command.argv
         assert not set(EMAIL_ENV)&set(job.required_env)
-

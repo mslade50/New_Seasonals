@@ -16,7 +16,7 @@
       output.textContent=(report.stale?"Report needs refresh · ":"")+counts.missed+" overdue · "+counts.unable_to_verify+" unverified · "+counts.pending+" pending · "+counts.resolved+" resolved. Checked "+at.toLocaleString("en-US",{timeZone:"America/New_York"})+" ET.";
       output.className=report.stale || counts.missed || counts.unable_to_verify?"err":"cap";
       const rows=report.obligations.filter(row=>row.status!=="resolved");
-      makeTable(document.getElementById("expected-exit-table"),{rows,columns:[
+      makeTable(document.getElementById("expected-exit-table"),{rows,textOnly:true,columns:[
         {key:"symbol",label:"Symbol",align:"l"},{key:"strategy",label:"Strategy",align:"l"},
         {key:"status",label:"Status",align:"l"},{key:"remaining_tagged_qty",label:"Tagged shares",fmt:v=>v==null?"Unknown":String(v)},
         {key:"deadline",label:"Deadline",align:"l",fmt:v=>v?new Date(v).toLocaleString("en-US",{timeZone:"America/New_York"})+" ET":"Unknown"},

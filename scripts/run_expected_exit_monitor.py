@@ -7,6 +7,7 @@ initializes inventory. A reviewed seed and continuous history are prerequisites.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,48 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def publish_status(path, *, client=None, bucket=None):
+    """Publish only a newer report, conditionally; delayed runs cannot regress it."""
+    from cache_io import _client, _r2_creds
+    client = client or _client()
+    bucket = bucket or (_r2_creds() or {}).get("R2_BUCKET")
+    if client is None or not bucket:
+        raise ValueError("status publication is not configured")
+    body = Path(path).read_bytes()
+    def stamp(data):
+        if data.get("schema_version") != 1 or data.get("account_key") != "primary":
+            raise ValueError("invalid status schema")
+        at = dt.datetime.fromisoformat(data["generated_at"].replace("Z", "+00:00"))
+        if at.tzinfo is None:
+            raise ValueError("status time is not aware")
+        return at
+    at = stamp(json.loads(body))
+    if at > dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=5):
+        raise ValueError("status time is in the future")
+    key = "ops/expected_exit_status.json"
+    for _ in range(3):
+        try:
+            existing = client.get_object(Bucket=bucket, Key=key)
+            previous = existing["Body"].read()
+            prior_at = stamp(json.loads(previous))
+            if prior_at >= at:
+                return "already_current" if previous == body else "newer_report_retained"
+            condition = {"IfMatch": existing["ETag"]}
+        except Exception as exc:
+            code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+            if code not in {"NoSuchKey", "404", "NotFound"}:
+                raise
+            condition = {"IfNoneMatch": "*"}
+        try:
+            client.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json", **condition)
+            return "published"
+        except Exception as exc:
+            code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+            if code not in {"PreconditionFailed", "412", "ConditionalRequestConflict", "409"}:
+                raise
+    raise RuntimeError("status publication conflicted repeatedly")
 
 
 def observe(seed, catalog, *, inventory_loader=None, book_loader=None, fills_loader=None):
@@ -74,10 +117,10 @@ def main(argv=None):
         if args.send:
             command.append("--send")
         result = monitor(command)
-        if result == 0 and args.upload:
-            from cache_io import upload_from_local
-            if not upload_from_local(str(run / "status.json"), "ops/expected_exit_status.json"):
-                return 2
+        # A new report can exist even if its SMTP delivery was ambiguous.
+        # Publishing observation and delivering email have independent outcomes.
+        if args.upload and (run / "status.json").is_file():
+            print("Expected-exit status: " + publish_status(run / "status.json"))
         return result
     except Exception as exc:
         print(f"Expected-exit observation failed ({type(exc).__name__}); prior report must age out", file=sys.stderr)
