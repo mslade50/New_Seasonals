@@ -37,10 +37,12 @@ Env:
 """
 import argparse
 import json
+import math
 import os
 import smtplib
 import sys
 from datetime import datetime
+from html import escape
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -58,6 +60,7 @@ EVENT_STATE_LOCAL = Path(__file__).resolve().parent / "data" / EVENT_STATE_KEY
 
 # Order statuses that mean the leg is no longer working.
 DEAD_ORDER_STATUSES = {"Cancelled", "ApiCancelled", "Filled", "Inactive"}
+MAX_BOOK_AGE_SECONDS = 300
 
 
 def et_now() -> datetime:
@@ -130,8 +133,7 @@ def reconcile_trend(state: dict, positions: list[dict]) -> list[str]:
     """
     targets = {
         str(t).upper(): int(v.get("shares", 0))
-        for t, v in (state.get("positions") or {}).items()
-        if int(v.get("shares", 0)) > 0
+        for t, v in (state.get("expected_positions", state.get("positions")) or {}).items()
     }
     if not targets:
         return []
@@ -208,6 +210,8 @@ def reconcile_event(state: dict, positions: list[dict]) -> list[str]:
         if p.get("sec_type") == "STK":
             live[str(p.get("symbol", "")).upper()] = int(p.get("position") or 0)
     for trade, pos in sorted((state.get("positions") or {}).items()):
+        if pos.get("status") == "exit_pending":
+            issues.append(f"{trade}: exit obligation remains pending; verify attributed fills")
         if str(pos.get("entry_date", "")) >= today:
             continue
         try:
@@ -251,16 +255,54 @@ def parse_ib_date(s: str | None) -> str | None:
 
 
 def exit_legs_for(pos: dict, orders: list[dict]) -> list[dict]:
-    """Working orders that close this position: same symbol + sec_type,
-    opposite side, still-alive status."""
+    """Exact-contract working exits, excluding children of a working entry."""
     closing = "SELL" if (pos.get("position") or 0) > 0 else "BUY"
+    def identity_matches(order):
+        if pos.get("account") and order.get("account") != pos["account"]:
+            return False
+        if pos.get("con_id") or order.get("con_id"):
+            return bool(pos.get("con_id") and order.get("con_id")
+                        and int(pos["con_id"]) == int(order["con_id"]))
+        # Legacy report fixtures may have no conId. Futures/options require
+        # explicit expiry; never treat two unknown expiries as an exact match.
+        fields = ("symbol", "sec_type", "currency")
+        if any(order.get(k) != pos.get(k) for k in fields):
+            return False
+        if pos.get("sec_type") in {"FUT", "OPT"}:
+            expiry = pos.get("expiry_full") or pos.get("expiry")
+            return bool(expiry and expiry == (order.get("expiry_full") or order.get("expiry")))
+        return True
+    active = [o for o in orders if identity_matches(o)
+              and str(o.get("status", "")) not in DEAD_ORDER_STATUSES]
+    pending_parents = {(o.get("client_id"), o.get("order_id")) for o in active
+                       if o.get("order_id") and not o.get("parent_id")
+                       and str(o.get("action", "")).upper() != closing}
     return [
-        o for o in orders
-        if o.get("symbol") == pos.get("symbol")
-        and o.get("sec_type") == pos.get("sec_type")
-        and str(o.get("action", "")).upper() == closing
-        and str(o.get("status", "")) not in DEAD_ORDER_STATUSES
+        o for o in active if str(o.get("action", "")).upper() == closing
+        and (o.get("client_id"), o.get("parent_id")) not in pending_parents
     ]
+
+
+def validate_book(book: dict, now: datetime) -> dict:
+    """A current email requires a fresh, complete Primary snapshot."""
+    if not isinstance(book, dict):
+        raise RuntimeError("broker returned no book")
+    try:
+        stamp = float(book.get("at")) / 1000.0
+    except (TypeError, ValueError):
+        raise RuntimeError("book timestamp unavailable") from None
+    age = now.timestamp() - stamp
+    if not math.isfinite(age) or age < -30 or age > MAX_BOOK_AGE_SECONDS:
+        raise RuntimeError("Primary book is stale or has an invalid timestamp")
+    accounts = [a for a in book.get("accounts", []) if a.get("key") == "primary"]
+    if len(accounts) != 1:
+        raise RuntimeError("exactly one Primary snapshot is required")
+    primary = accounts[0]
+    if primary.get("error"):
+        raise RuntimeError("Primary account snapshot is incomplete")
+    if not isinstance(primary.get("positions"), list) or not isinstance(primary.get("orders"), list):
+        raise RuntimeError("Primary positions/orders completeness is unavailable")
+    return primary
 
 
 def enrich_position(pos: dict, orders: list[dict], trend_syms: set[str],
@@ -520,19 +562,13 @@ def main() -> int:
         if not token:
             raise RuntimeError("STATUS_TOKEN not set")
         book = fetch_book(base_url, token)
-        if not book:
-            raise RuntimeError("broker returned no book (agent never pushed one?)")
-        primary = next((a for a in book.get("accounts", [])
-                        if a.get("key") == "primary"), None)
-        if primary is None:
-            raise RuntimeError("no 'primary' account in book")
-        if primary.get("error"):
-            raise RuntimeError(f"primary account error: {primary['error']}")
+        primary = validate_book(book, now)
     except Exception as e:  # noqa: BLE001
         print(f"ERROR: {e}")
-        send_email(f"Execution Report FAILED — {subject_date}",
-                   f"<p>Nightly execution report could not fetch the live book:"
-                   f"</p><pre>{e}</pre>")
+        if not args.no_send:
+            send_email(f"Execution Report FAILED — {subject_date}",
+                       "<p>Nightly execution report could not verify the live book:"
+                       f"</p><pre>{escape(str(e))}</pre>")
         return 1
 
     trend_state = load_trend_state()

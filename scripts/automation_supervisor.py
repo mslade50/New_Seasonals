@@ -703,6 +703,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                     _py(
                         "harvest broker fills",
                         "scripts/harvest_fills.py",
+                        "--assert-no-gap",
                         "--summary-json",
                         "data/live_fills_status.json",
                         timeout=900,
@@ -1308,7 +1309,16 @@ class SubprocessClient:
             bufsize=1,
             shell=False,
             creationflags=creationflags,
+            start_new_session=os.name != "nt",
         )
+        from scripts.process_tree import ProcessTree
+        try:
+            tree = ProcessTree(proc)
+        except Exception:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
+            raise
         assert proc.stdout is not None
         output: queue.Queue[str | None] = queue.Queue()
 
@@ -1324,13 +1334,16 @@ class SubprocessClient:
         deadline = time.monotonic() + timeout_seconds
         done_reading = False
         while not done_reading or proc.poll() is None:
-            if time.monotonic() >= deadline and proc.poll() is None:
+            if time.monotonic() >= deadline:
                 logger.line(f"ERROR: command exceeded {timeout_seconds}s; terminating")
-                proc.terminate()
+                tree.close()
+                if proc.poll() is None:
+                    proc.terminate()
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     proc.kill()
+                    proc.wait(timeout=10)
                 thread.join(timeout=2)
                 return 124
             try:
@@ -1342,7 +1355,9 @@ class SubprocessClient:
             else:
                 logger.line(item)
         thread.join(timeout=2)
-        return int(proc.wait())
+        result = int(proc.wait())
+        tree.close()
+        return result
 
     def capture(
         self,
@@ -1491,6 +1506,7 @@ class Receipt:
     github_url: str | None = None
     detail: str | None = None
     duplicate_sensitive: bool = False
+    health_status: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -1521,6 +1537,8 @@ def effective_status(receipt: Receipt | None, now_utc: dt.datetime) -> str:
     """
     if receipt is None:
         return "missing"
+    if receipt.status == "success" and receipt.health_status == "degraded":
+        return "degraded"
     if receipt.status == "running" and receipt.lease_expired(now_utc):
         return "expired"
     return receipt.status
@@ -2437,7 +2455,12 @@ class AutomationSupervisor:
                 started=started,
                 phase="completed",
             )
+            from scripts.producer_health import inspect_health
+            health, health_detail = inspect_health(job.commands, self.repo_root, started)
+            success = dataclasses.replace(success, health_status=health, detail=health_detail)
             self.receipts.transition(success, update_latest=True)
+            if health == "degraded":
+                logger.line(f"WARNING: {job.id} completed with degraded coverage: {health_detail}")
             logger.line(f"success {job.id} (local)")
             return JobOutcome(job.id, "success", "local")
         except Exception as exc:  # noqa: BLE001 - local failures share one fallback path

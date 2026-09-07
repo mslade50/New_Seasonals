@@ -22,7 +22,7 @@ Two properties matter more than speed:
    the newest row we hold: a hole raises a GAP warning (and exits non-zero
    under --assert-no-gap) instead of a green run over missing history. An
    EMPTY ring is a gap too whenever our newest stored session is older than
-   the ring's window (today minus `retention_days - 1` trading sessions):
+   the ring's window (today minus `retention_days - 1` calendar days):
    only a store still inside that window proves the silence was real.
 
 `order_ref` carries the book's `SYMBOL|ACTION|Strategy|Date` contract, so the
@@ -39,8 +39,11 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -198,19 +201,22 @@ def merge_fills(existing: pd.DataFrame, incoming: pd.DataFrame) -> tuple[pd.Data
     existing = empty_frame() if existing is None or existing.empty else existing.copy()
     incoming = empty_frame() if incoming is None or incoming.empty else incoming.copy()
     for frame in (existing, incoming):
+        frame.attrs = {}
         for col in COLUMNS:
             if col not in frame.columns:
                 frame[col] = pd.NA
 
-    before = set(existing["exec_id"].dropna().astype(str))
-    arriving = set(incoming["exec_id"].dropna().astype(str))
+    def identity(frame):
+        return set(zip(frame["account"].fillna("").astype(str), frame["exec_id"].fillna("").astype(str)))
+    before = identity(existing)
+    arriving = identity(incoming)
     new_ids = arriving - before
     seen_again = arriving & before
 
     # Carry stored enrichment onto re-fetched rows that arrive without it.
     if seen_again and not existing.empty:
-        stored = existing.set_index(existing["exec_id"].astype(str))
-        idx = incoming["exec_id"].astype(str)
+        stored = existing.drop_duplicates(["account", "exec_id"], keep="last").set_index(["account", "exec_id"])
+        idx = pd.Series(list(zip(incoming["account"], incoming["exec_id"])), index=incoming.index)
         for col in ENRICHMENT_COLUMNS:
             prior = idx.map(stored[col]) if col in stored.columns else pd.Series(pd.NA, index=incoming.index)
             incoming[col] = pd.to_numeric(incoming[col], errors="coerce").fillna(
@@ -221,15 +227,24 @@ def merge_fills(existing: pd.DataFrame, incoming: pd.DataFrame) -> tuple[pd.Data
     parts = [f[list(COLUMNS)] for f in (existing, incoming) if not f.empty]
     combined = pd.concat(parts, ignore_index=True) if parts else empty_frame()
     # Incoming rows sit last, so keeping the last duplicate makes the broker win.
-    combined = combined.drop_duplicates(subset=["exec_id"], keep="last")
+    combined = combined.drop_duplicates(subset=["account", "exec_id"], keep="last")
+    # Broker corrections replace one execution family; they are not extra fills.
+    # The immutable canonical generations preserve superseded raw observations.
+    combined["_family"] = combined["exec_id"].map(execution_family)
+    combined["_revision"] = combined["exec_id"].map(execution_revision)
+    combined = combined.sort_values("_revision", kind="stable").drop_duplicates(
+        ["account", "_family"], keep="last")
+    combined = combined.drop(columns=["_family", "_revision"])
     combined = combined.sort_values(["time_utc", "exec_id"], kind="stable").reset_index(drop=True)
 
     # The invariant is set containment, not row count: every execution we held
     # must survive the merge. A count check would miss a row dropped while new
     # ones arrive, and would false-alarm on the harmless dedup of a store that
     # somehow holds the same exec_id twice.
-    kept = set(combined["exec_id"].dropna().astype(str))
-    lost = before - kept
+    kept = identity(combined)
+    kept_families = {(account, execution_family(exec_id)) for account, exec_id in kept}
+    lost = {(account, exec_id) for account, exec_id in before
+            if (account, execution_family(exec_id)) not in kept_families}
     if lost:
         raise ValueError(
             f"merge would drop {len(lost)} stored execution(s) "
@@ -246,6 +261,17 @@ def merge_fills(existing: pd.DataFrame, incoming: pd.DataFrame) -> tuple[pd.Data
         "rows_updated": int(len(seen_again)),
     }
     return combined, stats
+
+
+def execution_family(exec_id: str) -> str:
+    value = str(exec_id)
+    match = re.fullmatch(r"(.+)\.(\d+)", value)
+    return match.group(1) if match else value
+
+
+def execution_revision(exec_id: str) -> int:
+    match = re.fullmatch(r"(.+)\.(\d+)", str(exec_id))
+    return int(match.group(2)) if match else 0
 
 
 def _today_eastern() -> pd.Timestamp:
@@ -284,7 +310,7 @@ def detect_gap(existing: pd.DataFrame, incoming: pd.DataFrame,
         today_ts = pd.Timestamp(today) if today is not None else _today_eastern()
         today_ts = today_ts.normalize()
         window = max(int(info["retention_days"]) - 1, 0)
-        threshold = today_ts - window * TRADING_DAY
+        threshold = today_ts - pd.Timedelta(days=window)
         newest_ts = pd.Timestamp(stored_newest)
         if newest_ts < threshold:
             # Sessions strictly after our newest stored session, through today.
@@ -293,7 +319,7 @@ def detect_gap(existing: pd.DataFrame, incoming: pd.DataFrame,
             info["gap"] = True
             info["reason"] = (
                 f"ring is EMPTY and our newest stored session {stored_newest} is older "
-                f"than the ring window (today {today_ts.date()} minus {window} sessions "
+                f"than the ring window (today {today_ts.date()} minus {window} calendar days "
                 f"= {threshold.date()}); fills after {stored_newest} aged out unseen"
             )
         else:
@@ -312,9 +338,9 @@ def detect_gap(existing: pd.DataFrame, incoming: pd.DataFrame,
         return info
     # Business days strictly between the newest stored session and the oldest
     # session still in the ring. Zero or one means the windows touch.
-    span = pd.bdate_range(
+    span = pd.date_range(
         pd.Timestamp(stored_newest) + pd.Timedelta(days=1),
-        pd.Timestamp(ring_oldest) - pd.Timedelta(days=1),
+        pd.Timestamp(ring_oldest) - pd.Timedelta(days=1), freq=TRADING_DAY,
     )
     info["missing_business_days"] = int(len(span))
     info["gap"] = len(span) > 0
@@ -335,27 +361,83 @@ def fetch_fills(base_url: str, token: str, timeout: int = 45) -> dict:
     return r.json()
 
 
-def load_existing(pull_r2: bool = True) -> pd.DataFrame:
-    """Canonical store from R2, falling back to whatever is on disk."""
+def load_existing(pull_r2: bool = True, *, allow_initialize: bool = False) -> pd.DataFrame:
+    """Read canonical bytes and their exact CAS version, never downgrade errors."""
     if pull_r2:
+        from cache_io import _client, _r2_creds
+        client, creds = _client(), _r2_creds()
+        if client is None or creds is None:
+            raise RuntimeError("canonical fill storage is not configured")
         try:
-            from cache_io import download_to_local, is_configured
-            if is_configured():
-                LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-                if download_to_local(R2_KEY, str(LOCAL_PATH)):
-                    print(f"  pulled canonical {R2_KEY} from R2")
-                else:
-                    print(f"  no {R2_KEY} in R2 yet (first run)")
-            else:
-                print("  R2 not configured - using the local copy only")
-        except Exception as e:  # noqa: BLE001
-            print(f"  WARNING: R2 pull failed ({e}); merging into the local copy")
+            response = client.get_object(Bucket=creds["R2_BUCKET"], Key=R2_KEY)
+            body = response["Body"].read()
+            etag = response.get("ETag")
+            if not etag:
+                raise RuntimeError("canonical fill object has no version identity")
+            frame = pd.read_parquet(io.BytesIO(body))
+        except Exception as exc:
+            code = str((getattr(exc, "response", {}) or {}).get("Error", {}).get("Code", ""))
+            if code not in {"NoSuchKey", "404", "NotFound"} or not allow_initialize:
+                raise RuntimeError("canonical fill read failed; prior history was preserved") from exc
+            frame, body, etag = empty_frame(), b"", None
+        frame.attrs.update(canonical_loaded=True, canonical_etag=etag, canonical_bytes=body)
+        return frame
     if not LOCAL_PATH.exists():
         return empty_frame()
     try:
         return pd.read_parquet(LOCAL_PATH)
     except Exception as e:  # noqa: BLE001
         raise SystemExit(f"FAIL: {LOCAL_PATH} exists but is unreadable ({e}); refusing to overwrite it")
+
+
+def validate_source_completeness(payload: dict, *, now=None, required_account="primary") -> None:
+    """Broker source coverage must be explicit; a quiet ring is not evidence."""
+    now = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+    coverage = payload.get("completeness") or {}
+    account = (coverage.get("accounts") or {}).get(required_account) or {}
+    if coverage.get("truncated") or coverage.get("incomplete_days") or coverage.get("merge_error"):
+        raise RuntimeError("broker fill history is incomplete or lacks coverage evidence")
+    if account.get("complete") is not True or account.get("error"):
+        raise RuntimeError("Primary fill source did not complete")
+    stamp = pd.Timestamp(account.get("source_at") or coverage.get("complete_through"))
+    if pd.isna(stamp) or stamp.tzinfo is None:
+        raise RuntimeError("broker fill coverage timestamp is invalid")
+    received = pd.Timestamp(account.get("received_at"))
+    if pd.isna(received) or received.tzinfo is None:
+        raise RuntimeError("Primary fill receipt timestamp is invalid")
+    if any(not 0 <= (now - value).total_seconds() <= 300 for value in (stamp, received)):
+        raise RuntimeError("broker fill source is stale or future-dated")
+
+
+def publish_canonical(frame: pd.DataFrame, original: pd.DataFrame) -> None:
+    """Preserve immutable generations, then CAS the canonical pointer/object."""
+    from cache_io import _client, _r2_creds
+    if original.attrs.get("canonical_loaded") is not True:
+        raise RuntimeError("cannot publish without a verified canonical read")
+    client, creds = _client(), _r2_creds()
+    if client is None or creds is None:
+        raise RuntimeError("canonical fill storage is not configured")
+    stream = io.BytesIO()
+    serializable = frame.copy()
+    serializable.attrs = {}
+    serializable.to_parquet(stream, index=False)
+    body = stream.getvalue()
+    for content in (original.attrs.get("canonical_bytes", b""), body):
+        if not content:
+            continue
+        digest = hashlib.sha256(content).hexdigest()
+        key = f"live_fills/generations/{digest}.parquet"
+        try:
+            client.put_object(Bucket=creds["R2_BUCKET"], Key=key, Body=content, IfNoneMatch="*")
+        except Exception as exc:
+            code = str((getattr(exc, "response", {}) or {}).get("Error", {}).get("Code", ""))
+            if code not in {"PreconditionFailed", "412", "ConditionalRequestConflict"}:
+                raise
+            existing = client.get_object(Bucket=creds["R2_BUCKET"], Key=key)["Body"].read()
+            if existing != content:
+                raise RuntimeError("immutable fill generation differs from its digest") from exc
+    condition = {"IfMatch": original.attrs["canonical_etag"]} if original.attrs.get("canonical_etag") else {"IfNoneMatch": "*"}
+    client.put_object(Bucket=creds["R2_BUCKET"], Key=R2_KEY, Body=body, **condition)
 
 
 def summarize(df: pd.DataFrame) -> dict:
@@ -381,6 +463,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--assert-no-gap", action="store_true",
                     help="exit non-zero when the ring starts after our newest stored session")
     ap.add_argument("--summary-json", help="write a small status JSON here")
+    ap.add_argument("--initialize-empty-canonical", action="store_true",
+                    help="allow initialization only after a confirmed missing canonical object")
     args = ap.parse_args(argv)
 
     try:
@@ -407,8 +491,14 @@ def main(argv: list[str] | None = None) -> int:
     retention = payload.get("retention_days")
     print(f"  ring: {len(rows)} rows, retention_days={retention}")
 
+    try:
+        validate_source_completeness(payload)
+        existing = load_existing(pull_r2=not args.no_upload,
+                                 allow_initialize=args.initialize_empty_canonical)
+    except Exception as exc:
+        print(f"FAIL: {exc}")
+        return 2
     incoming = normalize(rows)
-    existing = load_existing(pull_r2=True)
     print(f"  stored: {len(existing)} rows")
 
     gap = detect_gap(existing, incoming, retention_days=retention)
@@ -429,6 +519,8 @@ def main(argv: list[str] | None = None) -> int:
     summary.update(stats)
     summary["gap"] = gap
     summary["retention_days"] = retention
+    summary["completeness"] = payload["completeness"]
+    summary["complete"] = not gap["gap"]
     summary["asof_utc"] = pd.Timestamp.now(tz="UTC").isoformat()
     print(f"  coverage: {summary['first_session']} -> {summary['last_session']} "
           f"({summary['sessions']} sessions, {summary['tagged_pct']}% strategy-tagged)")
@@ -442,6 +534,7 @@ def main(argv: list[str] | None = None) -> int:
 
     LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
     merged.to_parquet(LOCAL_PATH, index=False)
+    summary["canonical_sha256"] = hashlib.sha256(LOCAL_PATH.read_bytes()).hexdigest()
     print(f"  wrote {LOCAL_PATH} ({LOCAL_PATH.stat().st_size:,} bytes)")
 
     status_path = Path(args.summary_json) if args.summary_json else None
@@ -454,15 +547,10 @@ def main(argv: list[str] | None = None) -> int:
         # Both files are declared producer outputs, and the supervisor VERIFIES
         # R2 rather than uploading for us: anything skipped here fails the job.
         try:
-            from cache_io import upload_from_local, is_configured
-            if is_configured():
-                upload_from_local(str(LOCAL_PATH), R2_KEY)
-                print(f"  uploaded to R2 as {R2_KEY}")
-                if status_path:
-                    upload_from_local(str(status_path), STATUS_R2_KEY)
-                    print(f"  uploaded to R2 as {STATUS_R2_KEY}")
-            else:
-                print("  R2 not configured - local write only")
+            from cache_io import upload_from_local
+            publish_canonical(merged, existing)
+            if status_path and not upload_from_local(str(status_path), STATUS_R2_KEY):
+                raise RuntimeError("fill status upload was not confirmed")
         except Exception as e:  # noqa: BLE001
             print(f"FAIL: R2 upload failed ({e})")
             return 2

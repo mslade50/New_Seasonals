@@ -237,7 +237,7 @@ def load_state() -> dict:
             with open(STATE_LOCAL, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"WARNING: state unreadable ({e}) - assuming flat book")
+            raise RuntimeError("Trend state unreadable; refusing to assume a flat book") from e
     return {"positions": {}}
 
 
@@ -281,21 +281,24 @@ def build_orders(targets: pd.DataFrame, state: dict) -> pd.DataFrame:
     return out
 
 
-def save_state(targets: pd.DataFrame, dry_run: bool):
+def save_state(targets: pd.DataFrame, dry_run: bool, *, prior_state=None, orders=None):
     nav = TREND_NAV_FRACTION * ACCOUNT_VALUE
-    positions = {}
-    for _, r in targets.iterrows():
-        if r.Eligible and not pd.isna(r.Close) and r.Close > 0:
-            shares = int(nav * r.Weight / r.Close)
-            if shares > 0:
-                positions[r.Ticker] = {"shares": shares, "weight": r.Weight,
-                                       "ref_close": r.Close}
+    prior_state = load_state() if prior_state is None else prior_state
+    orders = build_orders(targets, prior_state) if orders is None else orders
+    positions = dict(prior_state.get("positions") or {})
+    expected_positions = {symbol: dict(value) for symbol, value in positions.items()}
+    for row in orders.to_dict("records"):
+        expected_positions[row["Ticker"]] = {"shares": int(row["Target_Shares"])}
     state = {
         "asof": targets["Asof"].iloc[0],
         "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "nav_fraction": TREND_NAV_FRACTION,
         "universe": TREND_UNIVERSE,
         "positions": positions,
+        "inventory_basis": prior_state.get("inventory_basis", "legacy_unverified"),
+        "expected_positions": expected_positions,
+        "pending_orders": orders.to_dict("records"),
+        "targets": targets.to_dict("records"),
     }
     if "Fragility_Gate" in targets.columns:
         first = targets.iloc[0]
@@ -340,15 +343,13 @@ def write_sheet(orders: pd.DataFrame, dry_run: bool):
             ws = sh.worksheet(TAB_NAME)
         except gspread.exceptions.WorksheetNotFound:
             ws = sh.add_worksheet(title=TAB_NAME, rows=50, cols=14)
-        ws.clear()
         if orders.empty:
             expected = [["No rebalance orders", datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]]
-            ws.update(expected)
         else:
             expected = [orders.columns.tolist()] + orders.astype(str).values.tolist()
-            ws.update(expected)
+        from sheets_io import replace_worksheet_values
+        actual = replace_worksheet_values(ws, expected)
         if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
-            actual = ws.get_all_values()
             if actual != expected:
                 raise RuntimeError(
                     f"Trend tab readback mismatch: wrote {len(expected)} rows, "
@@ -442,13 +443,22 @@ def main():
     print(f"\ndeployed: {on.Weight.sum()*100:.1f}% of sleeve NAV across {len(on)} ETFs")
 
     state = load_state()
+    if not args.dry_run:
+        from sleeve_fills import load_verified_fills, signed_inventory
+        through = _today_et().tz_localize("America/New_York") + pd.Timedelta(hours=16)
+        fills = load_verified_fills(through)
+        if state.get("inventory_basis") != "attributed_executions":
+            raise RuntimeError("Trend legacy inventory requires a reviewed fill-history bootstrap")
+        actual = signed_inventory(fills, "Trend Sleeve")
+        state["positions"] = {symbol: {"shares": shares} for symbol, shares in actual.items()}
+        state["inventory_basis"] = "attributed_executions"
     orders = build_orders(targets, state)
     print(f"\nRebalance orders ({len(orders)}):")
     if not orders.empty:
         print(orders.to_string(index=False))
 
     write_sheet(orders, args.dry_run)
-    save_state(targets, args.dry_run)
+    save_state(targets, args.dry_run, prior_state=state, orders=orders)
 
 
 if __name__ == "__main__":

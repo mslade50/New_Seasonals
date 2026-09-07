@@ -228,7 +228,11 @@ def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
         action = "SELL" if cfg["side"] == "LONG" else "BUY_TO_COVER"
         rows.append(_row(trade, cfg, action, int(pos["shares"]), ref, today,
                          ot, f"scheduled exit{late}"))
-        positions.pop(trade)
+        rows[-1]["Entry_Date"] = pos["entry_date"]
+        rows[-1]["Execution_ID"] = f"{trade}|{pos['entry_date']}|exit"
+        pos["status"] = "exit_pending"
+        pos["exit_staged_on"] = str(today.date())
+        log.append(f"[CRITICAL] {trade}: exit obligation remains pending until attributed fills confirm it")
         log.append(f"{trade}: EXIT staged {action} {pos['shares']} "
                    f"{cfg['ticker']} {ot}{late}")
 
@@ -743,17 +747,15 @@ def write_sheet(rows: list[dict], dry_run: bool) -> None:
             ws = sh.worksheet(TAB_NAME)
         except gspread.exceptions.WorksheetNotFound:
             ws = sh.add_worksheet(title=TAB_NAME, rows=20, cols=12)
-        ws.clear()
         if not rows:
             expected = [["No event-sleeve action",
                          datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]]
-            ws.update(expected)
         else:
             df = pd.DataFrame(rows)
             expected = [df.columns.tolist()] + df.astype(str).values.tolist()
-            ws.update(expected)
+        from sheets_io import replace_worksheet_values
+        actual = replace_worksheet_values(ws, expected)
         if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
-            actual = ws.get_all_values()
             if actual != expected:
                 raise RuntimeError(
                     f"Event tab readback mismatch: wrote {len(expected)} rows, "
@@ -793,6 +795,16 @@ def main() -> None:
     tickers = sorted({c["ticker"] for c in EVENT_SLEEVE.values()})
     px = {t: load_ticker(t) for t in tickers}
     state = load_state()
+    if state.get("positions") and not args.dry_run:
+        from sleeve_fills import load_verified_fills, reconcile_event_fills
+        previous = (today - TRADING_DAY).tz_localize("America/New_York") + pd.Timedelta(hours=16)
+        fills = load_verified_fills(previous)
+        reconcile_event_fills(state, fills, EVENT_SLEEVE)
+        unresolved = [trade for trade, pos in state.get("positions", {}).items()
+                      if pos.get("inventory_basis") != "attributed_executions"]
+        if unresolved:
+            save_state(state, False)
+            raise RuntimeError("Event entry inventory remains unconfirmed; obligation preserved")
     rows, log = compute_actions(today, px, state)
 
     print(f"Event sleeve {today.date()} - {len(rows)} action(s)")
