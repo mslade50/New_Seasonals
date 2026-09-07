@@ -22,8 +22,10 @@ On every `deploy_site.yml` run, the isolated generator now:
    corrected ranks, freezes the generated bundle, and assembles/deploys from
    that exact R2-bound bundle.
 
-Missing or short price history for any required canonical ticker blocks the
-regeneration. Concurrent R2 modification blocks replacement. A healthy
+Missing or short price history for any ticker in the current configured
+strategy universe blocks the regeneration. Tickers that only exist in the
+predecessor are retired during the rebuild; the predecessor is not a membership
+authority. Concurrent R2 modification blocks replacement. A healthy
 `annual-outcome-cutoff-v2` object produces a `CURRENT` receipt and performs no
 R2 write. No local `data/` or `dist/` artifact is a production input.
 

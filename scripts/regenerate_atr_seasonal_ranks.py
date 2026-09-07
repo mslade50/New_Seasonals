@@ -60,11 +60,17 @@ def normalize_ticker(value: object) -> str:
 
 
 def required_tickers(existing: pd.DataFrame | None) -> list[str]:
+    """Return the current strategy universe that the artifact must cover.
+
+    The predecessor is intentionally not a source of truth for membership. It
+    contains delisted and formerly scanned symbols that are no longer present
+    in the canonical master-price cache. Carrying those stale rows forward
+    would make a complete rebuild impossible even when every currently
+    configured ticker has valid frozen history.
+    """
+    del existing
     configured = {normalize_ticker(value) for value in (*CSV_UNIVERSE, *LIQUID_PLUS_COMMODITIES)}
-    observed: set[str] = set()
-    if existing is not None and "ticker" in existing:
-        observed = {normalize_ticker(value) for value in existing["ticker"].dropna().unique()}
-    return sorted(configured | observed)
+    return sorted(configured)
 
 
 def _load_existing(path: Path) -> pd.DataFrame:
