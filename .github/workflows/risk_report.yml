@@ -10,7 +10,7 @@ on:
         default: ''
         type: string
       mode:
-        description: "full (email) or data_only (AM price correction)"
+        description: "full daily data refresh or data_only AM correction; routine email retired"
         type: choice
         options: [full, data_only]
         default: full
@@ -50,14 +50,12 @@ jobs:
 
       - name: Run risk report
         env:
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           RUN_MODE: ${{ inputs.mode }}
         run: |
           if [ "$RUN_MODE" = "data_only" ]; then
             python daily_risk_report.py --data-only --refresh-last
           else
-            python daily_risk_report.py
+            python daily_risk_report.py --data-only
           fi
 
       - name: Publish private-site risk inputs to R2

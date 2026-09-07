@@ -38,6 +38,13 @@ a:hover { text-decoration: underline; }
 .topbar nav a:hover { color: var(--text); background: var(--card); text-decoration: none; }
 .topbar nav a.active { color: var(--text); background: var(--card); border: 1px solid var(--border); }
 .topbar .asof { margin-left: auto; color: var(--faint); font-size: 12px; white-space: nowrap; }
+.nav-more summary { cursor: pointer; padding: 6px 12px; color: var(--muted); }
+.nav-more > div { position: absolute; right: 18px; top: 100%; display: grid; grid-template-columns: repeat(3,minmax(100px,1fr)); max-width: calc(100vw - 24px); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; box-shadow: 0 8px 25px #0008; }
+.topbar:has(.nav-more[open]), .topbar nav:has(.nav-more[open]) { overflow: visible; }
+.portfolio-tabs { display: flex; gap: 16px; margin: 12px 0 18px; }
+.portfolio-tabs [aria-current] { color: var(--text); border-bottom: 2px solid var(--accent); }
+.modify-purpose label { display: inline-block; margin: 6px 12px 6px 0; white-space: normal; }
+.modify-purpose input { width: 130px; }
 
 .wrap { max-width: 1480px; margin: 0 auto; padding: 18px 22px 60px; }
 @media (max-width: 700px) {

@@ -34,7 +34,7 @@ const HEARTBEAT_STALE_MS = 30_000;   // online iff a heartbeat landed within thi
 const CMD_CAP = 50;                  // recent-command ring size (audit trail)
 const SCHEDULED_CMD_CAP = 100;       // long-lived option schedules survive recent-ring churn
 const FILLS_RETENTION_DAYS = 14;     // Trade Log trailing window
-const FILLS_DAY_CAP = 500;           // per-day row cap (keeps each value < DO 128KiB limit)
+const FILLS_DAY_CAP = 500;           // legacy compatibility cache only; archive is complete
 
 function fillStorageKey(fill) {
   return `${String((fill && fill.account_key) || "")}\u0000${executionFamilyId(fill && fill.exec_id)}`;
@@ -156,6 +156,9 @@ export class ExecBroker extends DurableObject {
         const fillMatch=commandFillMatch(cmd); if(fillMatch)record.fill_match=fillMatch;
         await this.ctx.storage.put(key,record);
       }
+      // Persist visibility before every offline/expiry return. An accepted
+      // durable intent must remain inspectable in Activity.
+      await this.ctx.storage.put("recent_commands",[publicCommand(record),...recent.filter(r=>r.id!==record.id)].slice(0,CMD_CAP));
       if (record.expires_at <= Date.now()) {
         return Response.json({ok:false,id:record.id,state:record.state,error:"original delivery window expired; reconcile this intent before a new order"},{status:409});
       }
@@ -463,16 +466,24 @@ export class ExecBroker extends DurableObject {
 
   async _mergeFills(book) {
     const incoming = [];
+    const sourceErrors={};
     for (const acc of (book && book.accounts) || []) {
-      for (const f of acc.fills || []) {
-        if (f && f.exec_id) incoming.push({ ...f, account_key: acc.key, account_label: acc.label });
+      const account=String(acc.broker_account || "").trim();
+      if(!account || !Array.isArray(acc.fills)) sourceErrors[acc.key]="fill account or array provenance missing";
+      for (const f of Array.isArray(acc.fills)?acc.fills:[]) {
+        const time=Date.parse(f?.time);
+        if(!f?.exec_id || !Number.isFinite(time) || time>Date.now()+5000 || !account || String(f.account || "").trim()!==account) {
+          sourceErrors[acc.key]="invalid execution time/account identity";
+          continue;
+        }
+        incoming.push({ ...f, account_key: acc.key, account_label: acc.label });
       }
     }
     const now = Date.now();
     const byDay = new Map();
     for (const f of incoming) {
       const t = Date.parse(f.time);
-      const day = new Date(Number.isFinite(t) ? t : now).toISOString().slice(0, 10);
+      const day = new Date(t).toISOString().slice(0, 10);
       if (!byDay.has(day)) byDay.set(day, []);
       byDay.get(day).push(f);
     }
@@ -533,11 +544,12 @@ export class ExecBroker extends DurableObject {
       const raw=Number.isFinite(Number(inputTime))?Number(inputTime):Date.parse(inputTime);
       const sourceMs=raw>0 && raw<1e12?raw*1000:raw;
       const sourceFresh=Number.isFinite(sourceMs)&&sourceMs>0&&now-sourceMs<=90000&&sourceMs<=now+5000;
-      const complete=acc.fills_complete===true && !acc.error && !acc.fills_error && sourceFresh;
+      const complete=acc.fills_complete===true && !acc.error && !acc.fills_error && !sourceErrors[acc.key] && sourceFresh;
       accounts[acc.key]={complete,received_at:new Date(now).toISOString(),received_at_ms:now,
+        broker_account:acc.broker_account || null,
         source_at:sourceFresh?new Date(sourceMs).toISOString():null,
         complete_through:complete?new Date(sourceMs).toISOString():null,
-        error:acc.fills_error || acc.error || (!sourceFresh?"source timestamp unavailable/stale":!complete?"source completeness unverified":null)};
+        error:sourceErrors[acc.key] || acc.fills_error || acc.error || (!sourceFresh?"source timestamp unavailable/stale":!complete?"source completeness unverified":null)};
     }
     const verifiedTimes=Object.values(accounts).filter(a=>a.complete).map(a=>Date.parse(a.source_at));
     await this.ctx.storage.put("fill_receipt",{accounts,complete_through:verifiedTimes.length?new Date(Math.min(...verifiedTimes)).toISOString():null});

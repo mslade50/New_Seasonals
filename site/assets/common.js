@@ -2,9 +2,9 @@
 "use strict";
 
 const PAGES = [
+  { href: "execution.html", label: "Execution" },
   { href: "index.html",    label: "Portfolio" },
   { href: "seasonal.html", label: "Seasonal" },
-  { href: "execution.html", label: "Execution" },
   { href: "radar.html",    label: "Radar" },
   { href: "focus.html",    label: "Focus" },
   { href: "events.html",   label: "Events" },
@@ -24,10 +24,14 @@ const PAGES = [
 function renderNav(active) {
   const el = document.getElementById("topbar");
   if (!el) return;
-  const links = PAGES.map(p =>
-    `<a href="${p.href}" class="${p.href === active ? "active" : ""}">${p.label}</a>`).join("");
+  const link = p =>
+    `<a href="${p.href}" class="${p.href === active ? "active" : ""}">${p.label}</a>`;
+  const links = PAGES.slice(0,3).map(link).join("");
+  const secondary = PAGES.slice(3);
+  const current = secondary.find(p=>p.href===active);
+  const more = `<details class="nav-more"><summary>${current ? current.label : "More"}</summary><div>${secondary.map(link).join("")}</div></details>`;
   el.innerHTML = `<div class="brand">Seasonals <span>/</span> Private</div>
-    <nav>${links}</nav><div class="asof" id="navAsof"></div>`;
+    <nav>${links}${more}</nav><div class="asof" id="navAsof"></div>`;
 }
 
 async function fetchJSON(path) {

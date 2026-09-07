@@ -357,6 +357,9 @@ class _FakeWS:
     def get_all_values(self):
         return self._rows
 
+    def get_all_records(self):
+        return [dict(zip(self._rows[0], row)) for row in self._rows[1:]] if self._rows else []
+
     def clear(self):
         raise AssertionError('Whole-table writes must not use a separate clear')
 
@@ -385,6 +388,34 @@ class _FakeGC:
 
     def open(self, name):
         return self._sheet
+
+
+def _stage_actual_exits(frames=None, *, asof=None):
+    # Test input adapter only: these synthetic table-shaped fixtures stand in
+    # for reviewed broker tranches. Production never reads this Portfolio tab.
+    import daily_scan
+    from tagged_inventory import TaggedInventory
+    client = daily_scan.get_google_client()
+    inventory = TaggedInventory(status="known", exit_metadata_known=True)
+    if client:
+        raw = client.open("fixture").worksheet("Portfolio").get_all_values()
+        for i, row in enumerate(raw[1:]):
+            record = dict(zip(raw[0], row))
+            if record.get("Strategy") != "Oversold Low Volume" or not record.get("Entry Date"):
+                continue
+            ticker = record["Ticker"]
+            inventory.tranches.append({"strategy":record["Strategy"],"symbol":ticker,
+                "signed_qty":int(record["Shares"]),"entry_price":float(record["Price"]),
+                "atr":float(record["ATR"]),"entry_date":record["Entry Date"],
+                "exit_deadline_utc":record["Time Stop"]+"T20:00:00Z",
+                "price_basis":"raw","entry_order_ref":f"{ticker}|BUY|Oversold Low Volume|{record['Entry Date']}",
+                "account":"fixture-primary","con_id":1 if ticker=="AAA" else 2,
+                "tranche_id":str(i),"ref_date":record["Entry Date"]})
+    for frame in (frames or {}).values():
+        frame.attrs["price_basis"]="raw"
+    latest=max((frame.index[-1] for frame in (frames or {}).values()), default=pd.Timestamp("2026-07-10"))
+    return daily_scan.stage_olv_vol_confirm_exits(frames, inventory=inventory,
+                                               asof=asof or str(latest.date())+"T21:00:00Z")
 
 
 def _px_frame(close_last, vol_last, n=30):
@@ -418,7 +449,7 @@ def test_stage_olv_exits_confirms_loud_holds_quiet(monkeypatch):
         "AAA": _px_frame(close_last=97.0, vol_last=2_000_000.0),  # confirmed
         "BBB": _px_frame(close_last=97.0, vol_last=1_000_000.0),  # quiet -> held
     }
-    daily_scan.stage_olv_vol_confirm_exits(master)
+    _stage_actual_exits(master)
 
     assert exits_ws.replaced
     assert exits_ws.written is not None
@@ -447,7 +478,7 @@ def test_stage_olv_exits_always_rewrites_tab_even_when_empty(monkeypatch):
         "AAA": _px_frame(close_last=100.0, vol_last=1_000_000.0),  # no breach
         "BBB": _px_frame(close_last=100.0, vol_last=1_000_000.0),
     }
-    daily_scan.stage_olv_vol_confirm_exits(master)
+    _stage_actual_exits(master)
     assert exits_ws.replaced, "stale exit rows must be removed in the atomic replacement"
     assert len(exits_ws.written) == 1, "header-only write expected"
 
@@ -455,7 +486,7 @@ def test_stage_olv_exits_always_rewrites_tab_even_when_empty(monkeypatch):
 def test_stage_olv_exits_fails_open_without_client(monkeypatch):
     import daily_scan
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: None)
-    warnings = daily_scan.stage_olv_vol_confirm_exits({})   # must not raise
+    warnings = _stage_actual_exits({})   # must not raise
     assert warnings, "silent failure — the outage must surface in the email"
 
 
@@ -470,7 +501,7 @@ def test_stage_olv_exits_skips_entry_day_close(monkeypatch):
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
     master = {"AAA": _px_frame(97.0, 2_000_000.0),
               "BBB": _px_frame(97.0, 2_000_000.0)}
-    daily_scan.stage_olv_vol_confirm_exits(master)
+    _stage_actual_exits(master)
     assert len(exits_ws.written) == 1, "entry-day confirms must be held (day-2 arming)"
 
 
@@ -489,7 +520,7 @@ def test_stage_olv_exits_stacked_legs_evaluated_independently(monkeypatch):
     sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits": exits_ws})
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
     master = {"AAA": _px_frame(close_last=97.0, vol_last=2_000_000.0)}
-    daily_scan.stage_olv_vol_confirm_exits(master)
+    _stage_actual_exits(master)
 
     header, *out = exits_ws.written
     assert len(out) == 1, "only the breached leg may stage an exit"
@@ -508,7 +539,11 @@ def test_stage_olv_exits_stale_ticker_carries_all_legs(monkeypatch):
     future = str((pd.Timestamp.now() + pd.Timedelta(days=1)).date())
 
     def _prior(texit, qty):
+        entry = "2026-06-20" if texit == "2026-07-29" else "2026-06-24"
         return {"Symbol": "BBB", "Action": "SELL", "Quantity": qty,
+                "account_key":"primary", "broker_account":"fixture-primary", "con_id":2,
+                "tranche_id":"1" if texit=="2026-07-29" else "2", "ref_date":entry,
+                "entry_order_ref":f"BBB|BUY|Oversold Low Volume|{entry}",
                 "Strategy_Ref": "Oversold Low Volume", "Confirm_Date": "2026-07-17",
                 "Execute_On": future, "Time_Exit_Date": texit,
                 "Stop_Level": 97.5, "Confirm_Close": 97.0, "Vol_X_Med20": 2.0,
@@ -529,7 +564,7 @@ def test_stage_olv_exits_stale_ticker_carries_all_legs(monkeypatch):
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
     fresh = _px_frame(100.0, 1_000_000.0)              # AAA: fresh, no breach
     stale = _px_frame(97.0, 2_000_000.0).iloc[:-1]     # BBB: one bar behind
-    daily_scan.stage_olv_vol_confirm_exits({"AAA": fresh, "BBB": stale})
+    _stage_actual_exits({"AAA": fresh, "BBB": stale})
     header, *out = exits_ws.written
     assert len(out) == 2, "both stacked legs' staged exits must carry forward"
     carried = {dict(zip(header, r))["Time_Exit_Date"] for r in out}
@@ -549,7 +584,7 @@ def test_stage_olv_exits_warns_on_ambiguous_leg_keys(monkeypatch):
     exits_ws = _FakeWS([])
     sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits": exits_ws})
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
-    warnings = daily_scan.stage_olv_vol_confirm_exits(
+    warnings = _stage_actual_exits(
         {"AAA": _px_frame(100.0, 1_000_000.0)})
     assert any("share Time_Exit_Date" in w for w in warnings)
 
@@ -561,6 +596,9 @@ def test_stage_olv_exits_stale_ticker_carries_prior_row(monkeypatch):
     import daily_scan
     future = str((pd.Timestamp.now() + pd.Timedelta(days=1)).date())
     prior = {"Symbol": "BBB", "Action": "SELL", "Quantity": 50,
+             "account_key":"primary", "broker_account":"fixture-primary", "con_id":2.0,
+             "tranche_id":"1", "ref_date":"2026-06-20",
+             "entry_order_ref":"BBB|BUY|Oversold Low Volume|2026-06-20",
              "Strategy_Ref": "Oversold Low Volume", "Confirm_Date": "2026-07-17",
              "Execute_On": future, "Time_Exit_Date": "2026-07-29",
              "Stop_Level": 97.5, "Confirm_Close": 97.0, "Vol_X_Med20": 2.0,
@@ -576,12 +614,61 @@ def test_stage_olv_exits_stale_ticker_carries_prior_row(monkeypatch):
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
     fresh = _px_frame(100.0, 1_000_000.0)              # AAA: fresh, no breach
     stale = _px_frame(97.0, 2_000_000.0).iloc[:-1]     # BBB: one bar behind
-    warnings = daily_scan.stage_olv_vol_confirm_exits({"AAA": fresh, "BBB": stale})
+    warnings = _stage_actual_exits({"AAA": fresh, "BBB": stale})
     header, *rows = exits_ws.written
     assert len(rows) == 1
     assert dict(zip(header, rows[0]))["Symbol"] == "BBB", \
         "stale ticker's prior staged exit must be carried forward"
-    assert any("stale" in w for w in warnings)
+    assert not warnings, "a verified existing obligation does not need fresh prices"
+
+
+def test_olv_overdue_obligation_survives_price_recovery(monkeypatch):
+    import daily_scan
+    prior = {"Symbol":"BBB", "Action":"SELL", "Quantity":80,
+             "account_key":"primary", "broker_account":"fixture-primary", "con_id":2,
+             "tranche_id":"1", "ref_date":"2026-06-20",
+             "entry_order_ref":"BBB|BUY|Oversold Low Volume|2026-06-20",
+             "Time_Exit_Date":"2026-07-29", "Execute_On":"2026-07-01"}
+    class Prior(_FakeWS):
+        def get_all_records(self): return [prior]
+    ws=Prior([])
+    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits":ws})
+    monkeypatch.setattr(daily_scan,"get_google_client",lambda:_FakeGC(sheet))
+    _stage_actual_exits({"AAA":_px_frame(100,1_000_000),"BBB":_px_frame(100,1_000_000)})
+    header,*rows=ws.written
+    row=dict(zip(header,rows[0]))
+    assert len(rows)==1 and row["Quantity"]=="50" and row["Execute_On"]=="2026-07-01"
+
+
+def test_olv_legacy_exit_cannot_be_relabelled_to_actual_tranche(monkeypatch):
+    import daily_scan
+    class Prior(_FakeWS):
+        def get_all_records(self):
+            return [{"Symbol":"BBB","Action":"SELL","Quantity":50,"Execute_On":"2026-07-01"}]
+    ws=Prior([])
+    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits":ws})
+    monkeypatch.setattr(daily_scan,"get_google_client",lambda:_FakeGC(sheet))
+    warnings=_stage_actual_exits({"AAA":_px_frame(97,2_000_000),"BBB":_px_frame(97,2_000_000)})
+    assert not ws.replaced and any("attribution" in w for w in warnings)
+
+
+def test_olv_all_stale_prices_cannot_create_exit(monkeypatch):
+    import daily_scan
+    ws=_FakeWS([])
+    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits":ws})
+    monkeypatch.setattr(daily_scan,"get_google_client",lambda:_FakeGC(sheet))
+    warnings=_stage_actual_exits({"AAA":_px_frame(97,2_000_000),"BBB":_px_frame(97,2_000_000)},asof="2026-07-16T21:00:00Z")
+    assert len(ws.written)==1 and sum("stale" in w for w in warnings)==2
+
+
+def test_olv_nonfinite_raw_close_cannot_create_exit(monkeypatch):
+    import daily_scan
+    ws=_FakeWS([])
+    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits":ws})
+    monkeypatch.setattr(daily_scan,"get_google_client",lambda:_FakeGC(sheet))
+    bad=_px_frame(float("nan"),2_000_000)
+    warnings=_stage_actual_exits({"AAA":bad,"BBB":bad.copy()})
+    assert len(ws.written)==1 and any("invalid" in w for w in warnings)
 
 
 def test_load_open_position_notionals(monkeypatch):
@@ -597,11 +684,17 @@ def test_load_open_position_notionals(monkeypatch):
     sheet = _FakeSheet({"Portfolio": _FakeWS(rows)})
     monkeypatch.setattr(daily_scan, "get_google_client",
                         lambda: _FakeGC(sheet))
-    out = daily_scan.load_open_position_notionals({"Oversold Low Volume"})
+    from tagged_inventory import TaggedInventory
+    actual = TaggedInventory(status="known", notionals={
+        ("AAA", "Oversold Low Volume"):14900.0,
+        ("BBB", "Oversold Low Volume"):100.0,
+        ("AAA", "Overbot Vol Spike"):99900.0})
+    out = daily_scan.load_open_position_notionals({"Oversold Low Volume"}, actual)
     assert out[("AAA", "Oversold Low Volume")] == 100 * 100.0 + 50 * 98.0
     assert out[("BBB", "Oversold Low Volume")] == 100.0
     assert ("AAA", "Overbot Vol Spike") not in out
     assert daily_scan.load_open_position_notionals(set()) == {}
+    assert daily_scan.load_open_position_notionals({"Oversold Low Volume"}, TaggedInventory()) == {}
 
 
 def test_scan_stamps_use_stop_false_for_vol_confirm():

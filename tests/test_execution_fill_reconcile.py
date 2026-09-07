@@ -230,6 +230,10 @@ class Storage {{
 }}
 const storage = new Storage();
 const broker = new mod.ExecBroker({{storage, getWebSockets(){{return [];}}}}, {{}});
+const mergeBook = broker._mergeFills.bind(broker);
+broker._mergeFills = book => mergeBook({{...book, accounts:(book.accounts || []).map(a => ({{
+  ...a, broker_account:"fixture-primary", fills:(a.fills || []).map(f => ({{...f, account:"fixture-primary"}})),
+}}))}});
 const day1 = Date.now() - 86_400_000, day2 = Date.now();
 const command = {{type:"entry_bracket", account:"primary", created_at:day1-60_000,
   payload:{{symbol:"OXY",sec_type:"STK",action:"BUY",quantity:100}},

@@ -1174,6 +1174,11 @@ function orderEditRow(o) {
     (hasStp ? `<span class="cap" style="display:inline">stop</span> <input id="me_stp" value="${o.aux != null ? esc(String(o.aux)) : ""}" style="width:70px"> ` : "") +
     (hasLmt ? `<span class="cap" style="display:inline">lmt</span> <input id="me_lmt" value="${o.lmt != null ? esc(String(o.lmt)) : ""}" style="width:70px">` : "") +
     (!hasStp && !hasLmt ? "&mdash;" : "");
+  const purpose = Number(o.parent_id || 0) > 0 ? "" : `<tr class="modify-purpose"><td colspan="10" class="l">
+    <label>Order purpose <select id="me_kind"><option value="">Choose…</option><option value="exit">Close / reduce existing inventory</option><option value="entry">Open / add inventory</option></select></label>
+    <label>Entry direction <select id="me_direction"><option value="">Choose for entries…</option><option value="long">Long</option><option value="short">Short</option></select></label>
+    <label>Total entry risk after edit ($) <input id="me_risk" type="number" min="0" step="any" placeholder="Required for entries"></label>
+  </td></tr>`;
   return `<tr style="background:rgba(77,163,255,.08)">
     <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
     <td class="l" style="font-weight:600">${esc(o.action)}</td>
@@ -1187,7 +1192,7 @@ function orderEditRow(o) {
     <td class="l" style="white-space:nowrap">
       <button class="btn xs" data-mutation onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
       <button class="btn xs ghost" onclick='execModifyAbort()'>&times;</button></td>
-  </tr>`;
+  </tr>${purpose}`;
 }
 const expandedTickers = new Set();   // Open Orders: which tickers are expanded (persists across 4s polls)
 const orderEdit = { key: null, orig: null };   // inline Modify: row being edited + its pre-edit values
@@ -1494,23 +1499,12 @@ function execAddToPosition(pos, fraction) {
 function execCancel(permId, orderId, symbol, conId = null, clientId = null) {
   if (rejectUnknownMutation()) return;
   if (permId || orderId) {
-    // A real order/perm id in hand: cancel EXACTLY this order. The agent matches on
-    // perm_id and falls through to order_id, so a nonzero order_id alone is enough — a
-    // missing perm_id must NEVER widen to symbol scope (that would take out a position's
-    // protective stop/target).
+    // Every mutation binds account, contract and owning-client order identity.
     if (!confirm(`${actionLead("cancel")} order ${orderId || permId} (${symbol}, ${state.account})?`)) return;
     sendCommand("cancel", { scope: "order", symbol, con_id: conId || null, client_id: clientId, perm_id: permId || null, order_id: orderId || null });
     return;
   }
-  // No id at all: the only available command is SYMBOL-scoped, which cancels EVERY working
-  // order on the ticker, INCLUDING protective stops/targets of any open position. Require an
-  // explicit symbol type-in and say so plainly — never send it silently.
-  const typed = prompt(
-    `${actionLead("cancel")} — this ${symbol} order has no id yet, so this will cancel ALL working ` +
-    `orders for ${symbol} on ${state.account}, INCLUDING protective stops/targets of any open ` +
-    `position.\n\nType the symbol (${symbol}) to proceed, or Cancel to abort:`);
-  if (typed == null || typed.trim().toUpperCase() !== String(symbol).toUpperCase().trim()) return;
-  sendCommand("cancel", { scope: "symbol", symbol });
+  alert("The broker has not assigned this order an identity yet. Refresh the order row, then cancel that exact order.");
 }
 window.execFlatten = execFlatten;
 window.execToggleReadd = execToggleReadd;
@@ -1564,7 +1558,7 @@ function execModifyStart(key) {
   const o = findBookOrder(key);
   if (!o) return;
   orderEdit.key = key;
-  orderEdit.orig = { qty: o.qty, lmt: o.lmt, aux: o.aux, account: state.account, con_id: o.con_id, client_id: o.client_id };
+  orderEdit.orig = { qty: o.qty, lmt: o.lmt, aux: o.aux, account: state.account, con_id: o.con_id, client_id: o.client_id, parent_id: o.parent_id };
   set("orders", renderOrders());
   const q = document.getElementById("me_qty");
   if (q) q.focus();
@@ -1597,6 +1591,18 @@ function execModifySave(permId, orderId, symbol) {
   if (lmt !== undefined && lmt != null && lmt !== Number(orig.lmt)) { payload.new_limit = lmt; changes.push(`lmt ${orig.lmt} -> ${lmt}`); }
   if (stp !== undefined && stp != null && stp !== Number(orig.aux)) { payload.new_stop = stp; changes.push(`stop ${orig.aux} -> ${stp}`); }
   if (!changes.length) { execModifyAbort(); return; }   // nothing changed: just close the editor
+  payload.mutation_kind = Number(orig.parent_id || 0) > 0 ? "modify" : document.getElementById("me_kind")?.value;
+  if (!["entry", "exit", "modify"].includes(payload.mutation_kind)) {
+    alert("Choose whether this order opens/adds inventory or closes/reduces it."); return;
+  }
+  if (payload.mutation_kind === "entry") {
+    payload.risk_usd = read("me_risk");
+    payload.portfolio_direction = document.getElementById("me_direction")?.value;
+    if (!(payload.risk_usd > 0 && Number.isFinite(payload.risk_usd)) || !["long","short"].includes(payload.portfolio_direction)) {
+      alert("Enter the total entry risk after this edit and select long or short."); return;
+    }
+    changes.push(`Total entry risk $${payload.risk_usd} · ${payload.portfolio_direction}`);
+  }
   if (!confirm(`${actionLead("modify")} order ${orderId || permId} (${symbol}, ${state.account})?\n${changes.join("\n")}`)) return;
   sendCommand("modify", payload);
   execModifyAbort();

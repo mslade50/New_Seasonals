@@ -662,19 +662,20 @@ def build_catalog() -> dict[str, PipelineSpec]:
             ),
             JobSpec(
                 id="risk_pm",
-                description="Full daily risk report, email, and private-site inputs",
+                description="Daily risk calculations and private-site inputs",
                 commands=(
                     pull_risk,
                     _py(
-                        "run full risk report",
+                        "refresh risk data",
                         "daily_risk_report.py",
+                        "--data-only",
                         timeout=2700,
                         side_effecting=True,
                     ),
                     publish("risk"),
                 ),
                 workflow=WorkflowSpec("risk_report.yml", (("mode", "full"),), 3600),
-                required_env=R2_ENV + EMAIL_ENV,
+                required_env=R2_ENV,
                 outputs=(
                     _out("data/rd2_fragility.parquet", "rd2_fragility.parquet", minimum=1_000),
                     _out("data/rd2_environment.json", "rd2_environment.json", minimum=50),

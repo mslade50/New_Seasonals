@@ -1,5 +1,7 @@
 # AGENTS.md — Project Guide for New_Seasonals
 
+Current implementation and rollout status: [docs/operations_current.md](docs/operations_current.md). The historical strategy descriptions below do not establish deployed settings; use executable configuration and dated runtime evidence when they disagree.
+
 ## Mandatory Private-Site Build Skill
 
 - For every private-site build, rebuild, publish, deployment, hosting, live-site repair, stale-tab investigation, or production verification task, use `$build-private-site` from `.agents/skills/build-private-site/SKILL.md` before taking action.

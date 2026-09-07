@@ -12,10 +12,9 @@ so scan/ledger parity is structural, not a discipline.
 Semantics are the SCAN's (live truth) wherever the two disagreed, with two
 deliberate mode differences and one scan-only strip:
 
-- ``mode='live'`` (daily_scan): dial_filters FAIL CLOSED — missing/stale
-  fragility cache or missing column rejects the signal (never trade an
-  unknown regime through an explicitly configured dial gate). Staleness =
-  cache older than FRAG_STALE_TD business days vs the signal date.
+- Live mode: unavailable/stale optional dial evidence bypasses only that gate
+  and emits an operational exception. Observed failing gates still reject.
+  Staleness uses the latest finite reading at signal time.
 - ``mode='backtest'`` (engine/ledger): dial_filters pass through NaN /
   missing dials (pre-2016 history is ungradeable point-in-time; penalizing
   it would be lookahead in reverse).
@@ -66,7 +65,7 @@ import pandas as pd
 # 2026-07-16; max_atr_pct still applies to them.)
 ETF_ATR_EXEMPT = {'SPY', 'QQQ', 'IWM', 'DIA'}
 
-# Dial gate staleness: reject (live mode) when the fragility cache's last
+# Dial gate staleness: bypass with an exception (live mode) when the last
 # row is more than this many business days older than the signal date.
 FRAG_STALE_TD = 3
 
@@ -98,7 +97,7 @@ def _col_or(df, col, fill, n):
     return df[col].values if col in df.columns else np.full(n, fill, dtype=float)
 
 
-def evaluate_filter_mask(df, params, sznl_map=None, ticker_name="UNK", mode="backtest"):
+def evaluate_filter_mask(df, params, sznl_map=None, ticker_name="UNK", mode="backtest", diagnostics=None):
     """Boolean mask over df's rows: True where every configured filter passes.
 
     The last row is "today" for the live scan; the engine consumes the whole
@@ -389,50 +388,42 @@ def evaluate_filter_mask(df, params, sznl_map=None, ticker_name="UNK", mode="bac
     if dial_filters:
         frag_df = get_fragility_df_cached()
         if mode == 'live':
-            # Fail closed: missing/stale cache or missing column rejects.
-            ok = np.zeros(n, dtype=bool)
-            passed = False
-            if frag_df is not None and not frag_df.empty:
-                signal_date = df.index[-1]
-                try:
-                    signal_date = pd.Timestamp(signal_date).normalize().tz_localize(None)
-                except (TypeError, AttributeError):
-                    signal_date = pd.Timestamp(signal_date).normalize()
-                _last_frag = pd.Timestamp(frag_df.index[-1]).normalize()
-                try:
-                    fresh = np.busday_count(_last_frag.date(), signal_date.date()) <= FRAG_STALE_TD
-                except (ValueError, AttributeError):
-                    fresh = False
-                if fresh:
-                    passed = True
-                    for dfil in dial_filters:
-                        dial_col = dfil.get('dial')
-                        if dial_col not in frag_df.columns:
-                            passed = False
-                            break
-                        win = max(1, int(dfil.get('window', 1)))
-                        ds = frag_df[dial_col]
-                        if win > 1:
-                            ds = ds.rolling(win, min_periods=win).mean()
-                        try:
-                            val = float(ds.reindex([signal_date], method='ffill').iloc[0])
-                        except (IndexError, KeyError):
-                            passed = False
-                            break
-                        if pd.isna(val):
-                            passed = False
-                            break
+            # Continue otherwise valid setups when optional regime evidence
+            # is unavailable. Observed failing gates still reject.
+            signal_date = pd.Timestamp(df.index[-1]).normalize().tz_localize(None)
+            past = frag_df.loc[frag_df.index <= signal_date] if frag_df is not None else None
+            passed = True
+            for dfil in dial_filters:
+                col = dfil.get('dial')
+                reason = None
+                if past is None or past.empty or col not in past.columns:
+                    reason = f"{col}: dial data unavailable"
+                else:
+                    ds = past[col]
+                    win = max(1, int(dfil.get('window', 1)))
+                    ds = ds.rolling(win, min_periods=win).mean()
+                    valid = ds[np.isfinite(ds)]
+                    if valid.empty:
+                        reason = f"{col}: no finite dial reading"
+                    elif np.busday_count(valid.index[-1].date(), signal_date.date()) > FRAG_STALE_TD:
+                        reason = f"{col}: dial reading stale"
+                    else:
+                        val = float(valid.iloc[-1])
                         thresh = float(dfil.get('thresh', 0))
                         logic = dfil.get('logic', '>')
-                        if ((logic == '>' and not val > thresh)
-                                or (logic == '<' and not val < thresh)
-                                or (logic == '>=' and not val >= thresh)
-                                or (logic == '<=' and not val <= thresh)):
-                            passed = False
-                            break
-            if passed:
-                ok = np.ones(n, dtype=bool)
-            conditions.append(ok)
+                        comparisons = {'>': val > thresh, '<': val < thresh,
+                                       '>=': val >= thresh, '<=': val <= thresh}
+                        if logic not in comparisons:
+                            raise ValueError(f"Unsupported dial logic: {logic}")
+                        passed = passed and comparisons[logic]
+                if reason:
+                    message = f"{reason}; optional gate bypassed, remaining signal rules apply"
+                    if diagnostics is not None:
+                        diagnostics.append(message)
+                    else:
+                        import warnings
+                        warnings.warn(message, RuntimeWarning, stacklevel=2)
+            conditions.append(np.full(n, passed, dtype=bool))
         else:
             # Backtest: NaN/missing dial passes through (pre-2016 history is
             # ungradeable PIT; don't penalize it).
@@ -749,7 +740,7 @@ def evaluate_filter_mask(df, params, sznl_map=None, ticker_name="UNK", mode="bac
 _LIVE_STRIP_KEYS = ('use_t1_open_filter', 'use_t1_gap_kill')
 
 
-def live_signal_mask(df, params, sznl_map=None, ticker=None):
+def live_signal_mask(df, params, sznl_map=None, ticker=None, diagnostics=None):
     """The full live-mode signal mask (T+1 gates stripped). check_signal_live
     is its last row; the signal-recency ladder counts its trailing window."""
     if any(params.get(k) for k in _LIVE_STRIP_KEYS):
@@ -757,7 +748,7 @@ def live_signal_mask(df, params, sznl_map=None, ticker=None):
         for k in _LIVE_STRIP_KEYS:
             params[k] = False
     return evaluate_filter_mask(df, params, sznl_map=sznl_map,
-                                ticker_name=(ticker or 'UNK'), mode='live')
+                                ticker_name=(ticker or 'UNK'), mode='live', diagnostics=diagnostics)
 
 
 def recency_prior_from_mask(mask, window_td):
@@ -766,8 +757,8 @@ def recency_prior_from_mask(mask, window_td):
     return int(mask.iloc[-(int(window_td) + 1):-1].sum())
 
 
-def check_signal_live(df, params, sznl_map=None, ticker=None):
+def check_signal_live(df, params, sznl_map=None, ticker=None, diagnostics=None):
     """daily_scan's signal check: the shared mask's last row, live mode,
     with the T+1 gates stripped (stamped for order_staging instead)."""
     return bool(live_signal_mask(df, params, sznl_map=sznl_map,
-                                 ticker=ticker).iloc[-1])
+                                 ticker=ticker, diagnostics=diagnostics).iloc[-1])
