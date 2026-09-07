@@ -11,24 +11,32 @@ Stats added (the engine's own ex-ante confidence measures):
   rank_ext    seasonal-rank extremity in the trade's direction (0..50; higher = more extreme)
   disagree    cycle vs all-years sign conflict (engine's C-grade flag)
 """
-import os
+import argparse
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = r"C:\Users\McKinley Slade\dev\New_Seasonals"
-sys.path.insert(0, ROOT)
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 import scripts.seasonal_edge as se
 from scripts.seasonal_sharpe import dedup
 
-IN = os.path.join(ROOT, "data", "seasonal_ideas_backtest.parquet")
-OUT = os.path.join(ROOT, "data", "seasonal_ideas_backtest_enriched.parquet")
+IN = ROOT / "data" / "seasonal_ideas_backtest.parquet"
+OUT = ROOT / "artifacts" / "seasonal_research" / "seasonal_ideas_backtest_enriched.parquet"
 BLEND = 0.75
 
 
-def enrich():
-    df = pd.read_parquet(IN)
+def enrich(*, input_path=IN, output_path=OUT):
+    output_path = Path(output_path).resolve()
+    if not output_path.is_relative_to((ROOT / "artifacts").resolve()):
+        raise ValueError("Research enrichment output must remain within this checkout's artifacts directory")
+    if output_path == Path(input_path).resolve():
+        raise ValueError("Research output must differ from its input")
+    if output_path.exists():
+        raise FileExistsError("Research output exists; use --reuse or choose a new --output path")
+    df = pd.read_parquet(input_path)
     df["asof"] = pd.to_datetime(df["asof"]); df["entry_date"] = pd.to_datetime(df.entry_date)
     df["exit_date"] = pd.to_datetime(df.exit_date)
     df["asset"] = np.where(df.channel == "detect_seasonal", "stock", "macro")
@@ -80,8 +88,11 @@ def enrich():
 
     for k, v in cols.items():
         df[k] = v
-    df.to_parquet(OUT, index=False)
-    print(f"wrote {OUT}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Exclusive creation also protects evidence if another run wins the race.
+    with output_path.open("xb") as handle:
+        df.to_parquet(handle, index=False)
+    print(f"wrote {output_path}")
     return df
 
 
@@ -116,8 +127,13 @@ def study(df):
 
 
 if __name__ == "__main__":
-    if os.path.exists(OUT) and "--reuse" in sys.argv:
-        d = pd.read_parquet(OUT)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", type=Path, default=IN)
+    parser.add_argument("--output", type=Path, default=OUT, help="New artifact path; existing evidence is never overwritten.")
+    parser.add_argument("--reuse", action="store_true", help="Read an existing enriched output without writing.")
+    args = parser.parse_args()
+    if args.reuse:
+        d = pd.read_parquet(args.output)
     else:
-        d = enrich()
+        d = enrich(input_path=args.input, output_path=args.output)
     study(d)

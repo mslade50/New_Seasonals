@@ -202,7 +202,9 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
         # then hold to the original time-stop (asof + n). Used to enter at the
         # EXPECTED seasonal-path nadir (long) / peak (short) day, computed
         # ex-ante from prior years — tradeable, not look-ahead on this instance.
-        d = max(0, min(int(entry_window or 0), n - 1, len(fwd) - 1))
+        d = max(0, min(int(entry_window or 0), n - 1))
+        if len(fwd) <= d:
+            return None
         entry_price = float(fwd.iloc[d]["Open"])
         entry_date = fwd.index[d]
         window = fwd.iloc[d:n]
@@ -210,7 +212,9 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
         # MOC on the expected path-nadir day: enter at that day's CLOSE (the low
         # of the close-to-close path) and hold to the time-stop. Stop/target are
         # checked from the NEXT bar — the entry day is finished at the close.
-        d = max(0, min(int(entry_window or 0), n - 1, len(fwd) - 1))
+        d = max(0, min(int(entry_window or 0), n - 1))
+        if len(fwd) <= d:
+            return None
         entry_price = float(fwd.iloc[d]["Close"])
         entry_date = fwd.index[d]
         window = fwd.iloc[d + 1:n]
@@ -243,10 +247,12 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
     elif entry_mode == "delayed_limit":
         # COMBINED: wait to the expected path-nadir day `entry_window`, then rest a
         # persistent limit at THAT day's open -/+ mult*ATR through the time-stop.
-        # Fill on the first day >= nadir the price trades through it; if never
-        # touched, fall back to market-on-open at the nadir day (keeps fill rate up
-        # while still capturing a deeper pullback when one shows).
-        d0 = max(0, min(int(entry_window or 0), n - 1, len(fwd) - 1))
+        # Fill on the first touch after that delay. A later miss cannot justify
+        # entering retroactively at the earlier open. An unfinished resting
+        # window remains pending; a completed untouched window is NoFill.
+        d0 = max(0, min(int(entry_window or 0), n - 1))
+        if len(fwd) <= d0:
+            return None
         atr = _atr_at(df, asof)
         if not np.isfinite(atr) or atr <= 0:
             return None
@@ -262,7 +268,13 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
             d = d0 + int(fills[0])
             entry_price = float(lim)
         else:
-            d, entry_price = d0, o  # MOO fallback at the nadir day
+            if len(fwd) < n:
+                return None
+            return {"filled": False, "exit_type": "NoFill", "R": np.nan,
+                    "entry_date": pd.Timestamp(fwd.index[d0]), "entry_price": round(o, 4),
+                    "limit_price": round(float(lim), 4), "exit_date": pd.NaT,
+                    "exit_price": np.nan, "mae_R": np.nan, "mfe_R": np.nan,
+                    "bars_held": 0, "risk_per_unit": round(float(risk), 4)}
         entry_date = fwd.index[d]
         window = fwd.iloc[d:n]
     else:  # t1_open
