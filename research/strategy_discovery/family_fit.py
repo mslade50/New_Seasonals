@@ -13,7 +13,13 @@ import re
 from datetime import timedelta
 from pathlib import Path
 
-from .contracts import ContractError, canonical_json, parse_timestamp, sha256_json, validate_report
+from .contracts import (
+    ContractError,
+    canonical_json,
+    parse_timestamp,
+    sha256_json,
+    validate_report,
+)
 from .journal import is_symlink_or_reparse
 
 BEHAVIORS = {"MEAN_REVERSION", "MOMENTUM", "CALENDAR", "VOLATILITY_CARRY", "HEDGE", "RELATIVE_VALUE", "FLOW", "UNCLASSIFIED"}
@@ -21,6 +27,12 @@ MARKETS = {"EQUITY_INDEX", "SINGLE_EQUITY", "SECTOR_EQUITY", "RATES", "COMMODITI
 HORIZONS = {"INTRADAY", "SHORT_TERM", "SWING", "LONG_TERM", "VARIABLE"}
 ACTIVE_STATUS = "PREVIOUSLY_OBSERVED_ACTIVE"
 REFERENCE_STATUSES = {"PAPER", "NOT_ACTIVATED", "RESEARCH_ONLY", "UNVERIFIED"}
+FIT_STATUSES = {
+    "NEEDS_CLASSIFICATION",
+    "INCOMPLETE_BASELINE",
+    "ACTIVE_FAMILY_OVERLAP",
+    "NO_ACTIVE_FAMILY_MATCH",
+}
 
 
 def horizon_bucket(sessions):
@@ -106,15 +118,17 @@ def assess_family_fit(report, catalog, annotations, *, max_status_age_days=30):
         profile = profiles.get(candidate["fingerprint"])
         if profile and profile["horizon"] != horizon_bucket(candidate["structure"]["exit"]["time_stop_sessions"]):
             raise ContractError("family horizon contradicts the candidate's bounded holding rule")
-        def matches(rows):
-            if not profile or profile["behavior"] == "UNCLASSIFIED":
+        def matches(rows, candidate_profile, candidate_direction):
+            if not candidate_profile or candidate_profile["behavior"] == "UNCLASSIFIED":
                 return []
             return [{"name": r["name"], "status": r["status"], "sleeve": r["sleeve"],
-                     "direction_relationship": "SAME" if r["direction"] == candidate["structure"]["direction"] else "DIFFERENT_OR_BOTH"}
-                    for r in rows if r["profile"]["behavior"] == profile["behavior"]
-                    and set(r["profile"]["markets"]) & set(profile["markets"])
-                    and (r["profile"]["horizon"] == profile["horizon"] or "VARIABLE" in {r["profile"]["horizon"], profile["horizon"]})]
-        peers, reference_peers = matches(active), matches(references)
+                     "direction_relationship": "SAME" if r["direction"] == candidate_direction else "DIFFERENT_OR_BOTH"}
+                    for r in rows if r["profile"]["behavior"] == candidate_profile["behavior"]
+                    and set(r["profile"]["markets"]) & set(candidate_profile["markets"])
+                    and (r["profile"]["horizon"] == candidate_profile["horizon"] or "VARIABLE" in {r["profile"]["horizon"], candidate_profile["horizon"]})]
+        direction = candidate["structure"]["direction"]
+        peers = matches(active, profile, direction)
+        reference_peers = matches(references, profile, direction)
         if not profile or profile["behavior"] == "UNCLASSIFIED":
             status = "NEEDS_CLASSIFICATION"
         elif status_stale or incomplete or report["completeness"] != "COMPLETE":
@@ -144,6 +158,113 @@ def assess_family_fit(report, catalog, annotations, *, max_status_age_days=30):
                 "Paper and unactivated sleeves are references, including when they share a family.",
                 "Active sleeves remain in the baseline while cash-gated; current positions are irrelevant.",
             ]}
+
+
+def validate_family_fit_assessment(assessment, report):
+    """Validate the digest-bound family companion before an email decision."""
+    validate_report(report)
+    fields = {
+        "schema_version", "discovery_run_id", "discovery_report_digest",
+        "catalog_digest", "profiles_digest", "as_of",
+        "operating_status_checked_at", "operating_status_stale",
+        "operating_status_max_age_days", "runtime_verified_now",
+        "positions_used", "research_only", "active_algorithm_count",
+        "reference_algorithm_count", "candidates", "limitations",
+    }
+    if (
+        not isinstance(assessment, dict)
+        or set(assessment) != fields
+        or assessment.get("schema_version") != "strategy-family-fit.v1"
+    ):
+        raise ContractError("invalid strategy family-fit assessment contract")
+    if assessment["discovery_run_id"] != report["run_id"]:
+        raise ContractError("family-fit assessment references a different discovery run")
+    if assessment["discovery_report_digest"] != sha256_json(report):
+        raise ContractError("family-fit assessment does not bind the supplied discovery report")
+    digest = lambda value: isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
+    if not digest(assessment["catalog_digest"]) or not digest(assessment["profiles_digest"]):
+        raise ContractError("family-fit assessment provenance digest is invalid")
+    if assessment["as_of"] != report["as_of"]:
+        raise ContractError("family-fit assessment cutoff differs from the discovery report")
+    as_of = parse_timestamp(assessment["as_of"], "family_fit.as_of")
+    checked = parse_timestamp(
+        assessment["operating_status_checked_at"],
+        "family_fit.operating_status_checked_at",
+    )
+    if checked > as_of:
+        raise ContractError("family-fit operating status is after the decision cutoff")
+    if not isinstance(assessment["operating_status_stale"], bool):
+        raise ContractError("family-fit stale flag must be boolean")
+    age_limit = assessment["operating_status_max_age_days"]
+    if type(age_limit) is not int or not 1 <= age_limit <= 30:
+        raise ContractError("family-fit operating-status age limit is invalid")
+    if (
+        assessment["runtime_verified_now"] is not False
+        or assessment["positions_used"] is not False
+        or assessment["research_only"] is not True
+    ):
+        raise ContractError("family-fit assessment violates its research-only boundary")
+    for key in ("active_algorithm_count", "reference_algorithm_count"):
+        if type(assessment[key]) is not int or assessment[key] < 0:
+            raise ContractError(f"family-fit {key} must be a nonnegative integer")
+    if assessment["active_algorithm_count"] < 1:
+        raise ContractError("family-fit assessment has no active algorithm baseline")
+    limitations = assessment["limitations"]
+    if not isinstance(limitations, list) or not limitations or not all(
+        isinstance(value, str) and value.strip() for value in limitations
+    ):
+        raise ContractError("family-fit limitations are invalid")
+
+    report_rows = {row["fingerprint"]: row for row in report["candidates"]}
+    rows = assessment["candidates"]
+    if not isinstance(rows, list):
+        raise ContractError("family-fit candidates must be a list")
+    seen = set()
+    expected_row_fields = {
+        "fingerprint", "name", "fit_status", "active_matches",
+        "reference_matches", "classification", "email_eligible",
+        "required_validation",
+    }
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != expected_row_fields:
+            raise ContractError("invalid family-fit candidate row")
+        fingerprint = row["fingerprint"]
+        source = report_rows.get(fingerprint)
+        if source is None or fingerprint in seen or row["name"] != source["name"]:
+            raise ContractError("family-fit candidate identity/coverage is invalid")
+        seen.add(fingerprint)
+        if row["fit_status"] not in FIT_STATUSES or row["email_eligible"] is not False:
+            raise ContractError("family-fit candidate status is invalid")
+        profile = row["classification"]
+        if profile is not None:
+            validate_profile(profile)
+        required = row["required_validation"]
+        if not isinstance(required, list) or not required or not all(
+            isinstance(value, str) and value.strip() for value in required
+        ):
+            raise ContractError("family-fit required validation is invalid")
+        for key, allowed_statuses in (
+            ("active_matches", {ACTIVE_STATUS}),
+            ("reference_matches", REFERENCE_STATUSES),
+        ):
+            matches = row[key]
+            if not isinstance(matches, list):
+                raise ContractError(f"family-fit {key} must be a list")
+            for match in matches:
+                if (
+                    not isinstance(match, dict)
+                    or set(match) != {"name", "status", "sleeve", "direction_relationship"}
+                    or not isinstance(match["name"], str)
+                    or not match["name"].strip()
+                    or not isinstance(match["sleeve"], str)
+                    or not match["sleeve"].strip()
+                    or match["status"] not in allowed_statuses
+                    or match["direction_relationship"] not in {"SAME", "DIFFERENT_OR_BOTH"}
+                ):
+                    raise ContractError(f"family-fit {key} row is invalid")
+    if seen != set(report_rows):
+        raise ContractError("family-fit candidates do not exactly cover the discovery report")
+    return assessment
 
 
 def publish_family_fit(output_dir: Path, assessment: dict) -> Path:

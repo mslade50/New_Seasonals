@@ -12,8 +12,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from research.strategy_discovery.contracts import ContractError, load_json, sha256_json
-from research.strategy_discovery.family_fit import ACTIVE_STATUS, MARKETS, horizon_bucket, validate_family_catalog
-from research.strategy_discovery.family_fit import publish_family_catalog
+from research.strategy_discovery.family_fit import (
+    ACTIVE_STATUS,
+    MARKETS,
+    horizon_bucket,
+    publish_family_catalog,
+    validate_family_catalog,
+)
 from scripts.run_strategy_discovery import _local_output_dir
 
 REGISTRY = "research/strategy_discovery/algorithm_family_registry.json"
@@ -30,7 +35,7 @@ def source_literal(path: Path, name: str):
     raise ContractError(f"missing source configuration: {name}")
 
 
-def build_catalog(strategy_book, event_sleeve, trend_universe, registry, source_digests, *, as_of):
+def build_catalog(strategy_book, event_sleeve, trend_universe, registry, source_digests, *, as_of, checked_at=None):
     if registry.get("schema_version") != "algorithm-family-registry.v1":
         raise ContractError("unsupported algorithm family registry")
     records = []
@@ -66,12 +71,12 @@ def build_catalog(strategy_book, event_sleeve, trend_universe, registry, source_
             ref, status=ref["status"])
     records.sort(key=lambda record: record["name"])
     return validate_family_catalog({"schema_version": "algorithm-family-catalog.v1", "as_of": as_of,
-        "checked_at": registry["checked_at"], "operating_evidence": registry["operating_evidence"],
+        "checked_at": checked_at or registry["checked_at"], "operating_evidence": registry["operating_evidence"],
         "source_digests": source_digests, "records": records, "records_digest": sha256_json(records),
         "runtime_verified_now": False, "positions_used": False})
 
 
-def catalog_from_source(*, as_of):
+def catalog_from_source(*, as_of, configured_status_current=False):
     # strategy_config loads native universe configuration only; this command
     # never imports Event/Trend producers or reads their live state files.
     from strategy_config import STRATEGY_BOOK
@@ -79,24 +84,28 @@ def catalog_from_source(*, as_of):
     source_paths = ["strategy_config.py", "event_sleeve.py", "trend_sleeve.py", REGISTRY, registry["operating_evidence"]]
     source_digests = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in source_paths}
     return build_catalog(STRATEGY_BOOK, source_literal(ROOT / "event_sleeve.py", "EVENT_SLEEVE"),
-        source_literal(ROOT / "trend_sleeve.py", "TREND_UNIVERSE"), registry, source_digests, as_of=as_of)
+        source_literal(ROOT / "trend_sleeve.py", "TREND_UNIVERSE"), registry, source_digests, as_of=as_of,
+        checked_at=as_of if configured_status_current else None)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--as-of", required=True, help="UTC decision cutoff; does not refresh operating-status observations.")
+    parser.add_argument("--configured-status-current", action="store_true",
+                        help="date the configured-algorithm observation at --as-of; does not claim live runtime verification")
     parser.add_argument("--output-dir", default=str(ROOT / "artifacts/strategy_discovery/catalogs"))
     args = parser.parse_args(argv)
     try:
         output = _local_output_dir(args.output_dir, ROOT / "artifacts/strategy_discovery")
-        catalog = catalog_from_source(as_of=args.as_of)
+        catalog = catalog_from_source(as_of=args.as_of, configured_status_current=args.configured_status_current)
         output.mkdir(parents=True, exist_ok=True)
         path = publish_family_catalog(output, catalog)
     except (ContractError, OSError) as exc:
         print(f"ALGORITHM CATALOG BLOCKED: {exc}", file=sys.stderr)
         return 2
     print(f"algorithm catalog: {path}")
-    print(f"{sum(r['status'] == ACTIVE_STATUS for r in catalog['records'])} previously observed active algorithms; positions excluded; runtime status not refreshed")
+    observation = "configured status observed at cutoff" if args.configured_status_current else "dated status evidence retained"
+    print(f"{sum(r['status'] == ACTIVE_STATUS for r in catalog['records'])} active algorithms; {observation}; positions excluded; live runtime not asserted")
     return 0
 
 

@@ -13,7 +13,8 @@ from typing import Any
 SCHEMA_VERSION = "1.0"
 RUN_MODES = {"DISABLED", "FIXTURE", "SHADOW", "LIVE"}
 COMPLETENESS = {"COMPLETE", "PARTIAL", "UNKNOWN"}
-ITEM_KINDS = {"POST", "REPLY", "QUOTE", "REPOST"}
+PLATFORMS = {"X", "SSRN"}
+ITEM_KINDS = {"POST", "REPLY", "QUOTE", "REPOST", "PAPER"}
 CLAIM_TYPES = {
     "STRATEGY_LOGIC",
     "ENTRY",
@@ -24,7 +25,7 @@ CLAIM_TYPES = {
 }
 DIRECTIONS = {"LONG", "SHORT", "BOTH"}
 TIMINGS = {"PREOPEN", "OPEN", "INTRADAY", "CLOSE", "CLOSE_FINAL"}
-LOCATOR_KINDS = {"ACCOUNT", "LIST", "SEARCH"}
+LOCATOR_KINDS = {"ACCOUNT", "LIST", "SEARCH", "SSRN_QUERY"}
 PROVIDER_STATUSES = {"OK", "PARTIAL", "ERROR"}
 MEMBERSHIP_MODES = {"POINT_IN_TIME", "FIXED_INSTRUMENTS", "CURRENT_STATIC"}
 CONDITION_OPERATORS = {
@@ -60,6 +61,11 @@ PERMALINK_RE = re.compile(
     r"^https://(?:www\.)?(?:x\.com|twitter\.com)/"
     r"(?P<handle>[A-Za-z0-9_]{1,30})/status/"
     r"(?P<post_id>[A-Za-z0-9:_-]+)(?:[/?#].*)?$"
+)
+SSRN_PERMALINK_RE = re.compile(
+    r"^https://papers\.ssrn\.com/sol3/papers\.cfm\?"
+    r"(?:[^#]*&)?abstract[_]?id=(?P<abstract_id>[0-9]+)(?:[&#].*)?$",
+    re.IGNORECASE,
 )
 
 
@@ -316,14 +322,17 @@ def validate_manifest(raw: Any) -> dict[str, Any]:
         if capture_id in captures:
             raise _where(f"{path}.capture_id", "must be globally unique")
         captures.add(capture_id)
-        if source["platform"] != "X":
-            raise _where(f"{path}.platform", "must equal X")
+        platform = _enum(source["platform"], PLATFORMS, f"{path}.platform")
         if source["discovery_only"] is not True:
             raise _where(f"{path}.discovery_only", "must be true")
         locator = _object(source["locator"], f"{path}.locator")
         _strict(locator, f"{path}.locator", {"kind", "value"})
-        _enum(locator["kind"], LOCATOR_KINDS, f"{path}.locator.kind")
+        locator_kind = _enum(locator["kind"], LOCATOR_KINDS, f"{path}.locator.kind")
         _string(locator["value"], f"{path}.locator.value")
+        if platform == "SSRN" and locator_kind != "SSRN_QUERY":
+            raise _where(f"{path}.locator.kind", "SSRN sources require SSRN_QUERY")
+        if platform == "X" and locator_kind == "SSRN_QUERY":
+            raise _where(f"{path}.locator.kind", "X sources cannot use SSRN_QUERY")
         parse_timestamp(source["captured_at"], f"{path}.captured_at")
         window = _object(source["window"], f"{path}.window")
         _strict(window, f"{path}.window", {"start", "end"})
@@ -657,6 +666,7 @@ def validate_item(raw: Any, index: int) -> dict[str, Any]:
             "claims",
             "strategy_proposal",
         },
+        {"source_document"},
     )
     if item["schema_version"] != SCHEMA_VERSION:
         raise _where(f"{path}.schema_version", f"must equal {SCHEMA_VERSION}")
@@ -664,15 +674,24 @@ def validate_item(raw: Any, index: int) -> dict[str, Any]:
         _string(item[key], f"{path}.{key}")
     if not POST_ID_RE.fullmatch(item["post_id"]):
         raise _where(f"{path}.post_id", "contains unsupported characters")
-    if item["platform"] != "X":
-        raise _where(f"{path}.platform", "must equal X")
+    platform = _enum(item["platform"], PLATFORMS, f"{path}.platform")
     kind = _enum(item["kind"], ITEM_KINDS, f"{path}.kind")
     item_text = _string(item["text"], f"{path}.text", nonempty=False)
     claims = _list(item["claims"], f"{path}.claims")
     for key in ("thread_id", "parent_post_id", "quoted_post_id", "reposted_post_id"):
         if item[key] is not None:
             _string(item[key], f"{path}.{key}")
-    if kind == "POST":
+    if platform == "SSRN":
+        if kind != "PAPER":
+            raise _where(f"{path}.kind", "SSRN items must use PAPER")
+        if item["canonical_post_id"] != item["post_id"]:
+            raise _where(f"{path}.canonical_post_id", "PAPER must canonicalize to post_id")
+        if item["thread_id"] != item["post_id"] or any(
+            item[key] is not None
+            for key in ("parent_post_id", "quoted_post_id", "reposted_post_id")
+        ):
+            raise _where(path, "PAPER requires its own thread identity and no social lineage")
+    elif kind == "POST":
         if item["canonical_post_id"] != item["post_id"]:
             raise _where(f"{path}.canonical_post_id", "POST must canonicalize to post_id")
         if any(item[key] is not None for key in ("parent_post_id", "quoted_post_id", "reposted_post_id")):
@@ -706,24 +725,56 @@ def validate_item(raw: Any, index: int) -> dict[str, Any]:
     captured_at = parse_timestamp(item["captured_at"], f"{path}.captured_at")
     if captured_at < created_at:
         raise _where(f"{path}.captured_at", "must be on or after created_at")
-    if not HANDLE_RE.fullmatch(item["author_handle"]):
-        raise _where(f"{path}.author_handle", "must be a canonical X handle beginning with @")
-    permalink_match = PERMALINK_RE.fullmatch(item["permalink"])
-    if permalink_match is None:
-        raise _where(
-            f"{path}.permalink",
-            "must be an https X/Twitter status permalink",
+    if platform == "X":
+        if item.get("source_document") is not None:
+            raise _where(f"{path}.source_document", "X items cannot carry SSRN document metadata")
+        if not HANDLE_RE.fullmatch(item["author_handle"]):
+            raise _where(f"{path}.author_handle", "must be a canonical X handle beginning with @")
+        permalink_match = PERMALINK_RE.fullmatch(item["permalink"])
+        if permalink_match is None:
+            raise _where(
+                f"{path}.permalink",
+                "must be an https X/Twitter status permalink",
+            )
+        if permalink_match.group("handle").casefold() != item["author_handle"][1:].casefold():
+            raise _where(f"{path}.permalink", "status handle must match author_handle")
+        if permalink_match.group("post_id") != item["post_id"]:
+            raise _where(f"{path}.permalink", "status id must match post_id")
+    else:
+        document = _object(item.get("source_document"), f"{path}.source_document")
+        _strict(
+            document,
+            f"{path}.source_document",
+            {
+                "doi", "abstract_id", "title", "authors", "published_at",
+                "deposited_at", "version_digest", "metadata_source", "metadata_url",
+            },
         )
-    if permalink_match.group("handle").casefold() != item["author_handle"][1:].casefold():
-        raise _where(
-            f"{path}.permalink",
-            "status handle must match author_handle",
-        )
-    if permalink_match.group("post_id") != item["post_id"]:
-        raise _where(
-            f"{path}.permalink",
-            "status id must match post_id",
-        )
+        doi = _string(document["doi"], f"{path}.source_document.doi")
+        if not doi.casefold().startswith("10.2139/ssrn."):
+            raise _where(f"{path}.source_document.doi", "must be an SSRN DOI")
+        abstract_id = _string(document["abstract_id"], f"{path}.source_document.abstract_id")
+        if not abstract_id.isdigit():
+            raise _where(f"{path}.source_document.abstract_id", "must be numeric")
+        if item["post_id"] != f"ssrn:{abstract_id}":
+            raise _where(f"{path}.post_id", "must bind the SSRN abstract id")
+        _string(document["title"], f"{path}.source_document.title")
+        authors = _list(document["authors"], f"{path}.source_document.authors")
+        if not authors:
+            raise _where(f"{path}.source_document.authors", "must not be empty")
+        for author_index, author in enumerate(authors):
+            _string(author, f"{path}.source_document.authors[{author_index}]")
+        for field in ("published_at", "deposited_at"):
+            parse_timestamp(document[field], f"{path}.source_document.{field}")
+        version_digest = _string(document["version_digest"], f"{path}.source_document.version_digest")
+        if not SHA256_RE.fullmatch(version_digest):
+            raise _where(f"{path}.source_document.version_digest", "must be a lowercase SHA-256")
+        if document["metadata_source"] != "CROSSREF":
+            raise _where(f"{path}.source_document.metadata_source", "must equal CROSSREF")
+        _string(document["metadata_url"], f"{path}.source_document.metadata_url")
+        permalink_match = SSRN_PERMALINK_RE.fullmatch(item["permalink"])
+        if permalink_match is None or permalink_match.group("abstract_id") != abstract_id:
+            raise _where(f"{path}.permalink", "must be the matching SSRN abstract permalink")
     claim_ids: set[str] = set()
     for i, raw_claim in enumerate(claims):
         cpath = f"{path}.claims[{i}]"
@@ -738,7 +789,7 @@ def validate_item(raw: Any, index: int) -> dict[str, Any]:
         if claim["evidence_class"] != "SOURCE_CLAIMED":
             raise _where(
                 f"{cpath}.evidence_class",
-                "X-derived claims must equal SOURCE_CLAIMED",
+                "source-derived claims must equal SOURCE_CLAIMED",
             )
         for j, metric in enumerate(_list(claim["metrics"], f"{cpath}.metrics")):
             _validate_metric(metric, f"{cpath}.metrics[{j}]", internal=False)
@@ -1013,8 +1064,9 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
         coverage = _object(raw_coverage, path)
         _strict(coverage, path, coverage_keys)
         _string(coverage["source_id"], f"{path}.source_id")
-        if coverage["platform"] != "X" or coverage["discovery_only"] is not True:
-            raise _where(path, "source coverage must remain X discovery-only")
+        _enum(coverage["platform"], PLATFORMS, f"{path}.platform")
+        if coverage["discovery_only"] is not True:
+            raise _where(path, "source coverage must remain discovery-only")
         _string(coverage["provider"], f"{path}.provider")
         _string(coverage["provider_version"], f"{path}.provider_version")
         if coverage["provider_status"] not in PROVIDER_STATUSES | {"MISSING"}:
@@ -1449,6 +1501,7 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
             "source_window",
             "capture_digest",
             "native_content_hash",
+            "platform",
             "post_id",
             "canonical_post_id",
             "thread_id",
@@ -1458,6 +1511,7 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
             "kind",
             "author_handle",
             "created_at",
+            "source_document",
         }
         provenance_rows = _list(candidate["provenance"], f"{path}.provenance")
         for j, raw_provenance in enumerate(provenance_rows):
@@ -1475,6 +1529,7 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
                 "provider_status",
                 "capture_digest",
                 "native_content_hash",
+                "platform",
                 "post_id",
                 "canonical_post_id",
                 "kind",
@@ -1482,6 +1537,11 @@ def validate_report(report_raw: Any) -> dict[str, Any]:
                 "created_at",
             ):
                 _string(provenance[key], f"{ppath}.{key}")
+            _enum(provenance["platform"], PLATFORMS, f"{ppath}.platform")
+            if provenance["platform"] == "SSRN":
+                _object(provenance["source_document"], f"{ppath}.source_document")
+            elif provenance["source_document"] is not None:
+                raise _where(f"{ppath}.source_document", "X provenance cannot carry SSRN metadata")
             _object(provenance["source_locator"], f"{ppath}.source_locator")
             _object(provenance["source_window"], f"{ppath}.source_window")
         _integer(candidate["duplicate_proposal_count"], f"{path}.duplicate_proposal_count", minimum=1)

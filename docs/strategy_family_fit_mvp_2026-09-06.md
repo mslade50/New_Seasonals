@@ -5,8 +5,10 @@ imported into the repair branch. Its contracts, journal, pipeline, renderer,
 examples and 160 tests are preserved. The CLI adds optional family-fit inputs;
 the native discovery report and lifecycle contracts are unchanged.
 
-This is a local structured-input research boundary. It is not an active
-X/SSRN collector, automated empirical research worker, or email schedule.
+This document describes the family-fit boundary delivered in the audit repair.
+The subsequent active collector, empirical agent workflow, deterministic email
+gate, and scheduler are documented in
+[strategy_research_pipeline.md](strategy_research_pipeline.md).
 
 ## What runs
 
@@ -70,28 +72,19 @@ exact-structure catalog: hashing scanner settings would not produce a valid
 normalized proposal fingerprint. Running without the optional inputs explicitly
 prints that family fit was not assessed.
 
-## Remaining integration
+## Integration completed after this MVP
 
-- Configure an official read-only X collector, credentials, approved account or
-  list sources, pagination/watermark behavior and budget. No service or paid
-  request was enabled. V1 consumes local captures and explicit strategy rules;
-  it does not fetch posts or autonomously interpret prose.
-- Add an SSRN capture/normalization adapter with publication/version provenance.
-  V1 source contracts accept X only. No SSRN coverage is claimed.
-- Export native strategies into the exact normalized structural catalog before
-  claiming complete exact-duplicate suppression against the trading book. The
-  family catalog supplies broad peer comparison now; fixture exact catalogs are
-  not production book snapshots.
-- Implement the empirical validation runner: point-in-time data, costs,
-  borrow/capacity, out-of-sample robustness, strategy return and bad-period
-  overlap, capital occupancy and marginal portfolio improvement. A verified
-  artifact digest proves integrity, not methodological correctness or that this
-  adapter executed the research.
-- Connect useful validated findings to write-up and delivery. Every family-fit
-  candidate currently has `email_eligible=false`. Overlap alone cannot justify
-  email. No-finding days should remain silent; a useful report needs the rules,
-  our empirical validation, incremental fit against active algorithms and a
-  practical implementation plan. Existing editorial products are unchanged.
+- Official X v2 and Crossref/SSRN adapters now preserve cursors, raw text,
+  social lineage, DOI/version provenance, request budgets, and complete versus
+  partial coverage. X sources remain disabled until the owner supplies the
+  approved list/query and bearer token.
+- A native configured-strategy snapshot catches direct rule reuse; this broad
+  family catalog remains the semantic overlap authority.
+- The scheduled research skill preregisters candidates, builds costed and
+  frozen empirical artifacts, tests active-book correlation/bad-period overlap,
+  capacity and marginal portfolio improvement, and journals later validation.
+- A deterministic finalizer applies the worthwhile gate and sends at most once.
+  It writes a no-email decision without contacting SMTP when nothing qualifies.
 
 No change here allocates capital, stages orders, changes activation, sends email,
 uploads research, or modifies a scheduled task.

@@ -596,7 +596,7 @@ def _source_coverage(
         )
     return {
         "source_id": source["source_id"],
-        "platform": "X",
+        "platform": source["platform"],
         "discovery_only": True,
         "provider": provider,
         "provider_version": provider_version,
@@ -647,9 +647,9 @@ def _catalog_health(catalog: dict[str, Any], as_of: Any, max_age_days: int) -> d
 
 
 def _native_content(item: dict[str, Any]) -> dict[str, Any]:
-    """Stable native-post projection, excluding observation metadata."""
+    """Stable native-source projection, excluding observation metadata."""
 
-    return {
+    content = {
         key: deepcopy(item[key])
         for key in (
             "platform",
@@ -667,6 +667,9 @@ def _native_content(item: dict[str, Any]) -> dict[str, Any]:
             "strategy_proposal",
         )
     }
+    if item.get("source_document") is not None:
+        content["source_document"] = deepcopy(item["source_document"])
+    return content
 
 
 def _observation(
@@ -905,6 +908,7 @@ def _candidate_groups(
                 provenance.append(
                     {
                     **deepcopy(observation),
+                    "platform": item["platform"],
                     "post_id": item["post_id"],
                     "canonical_post_id": item["canonical_post_id"],
                     "thread_id": item["thread_id"],
@@ -914,6 +918,7 @@ def _candidate_groups(
                     "kind": item["kind"],
                     "author_handle": item["author_handle"],
                     "created_at": item["created_at"],
+                    "source_document": deepcopy(item.get("source_document")),
                     }
                 )
             for claim in item["claims"]:
@@ -1149,15 +1154,16 @@ def run_discovery(
             )
         )
     for source_id in sorted(set(config["required_source_ids"]) - manifest_ids):
+        missing_locator = config["source_locator_allowlist"][source_id]
         coverage.append(
             {
                 "source_id": source_id,
-                "platform": "X",
+                "platform": "SSRN" if missing_locator["kind"] == "SSRN_QUERY" else "X",
                 "discovery_only": True,
                 "provider": manifest["provider"],
                 "provider_version": manifest["provider_version"],
                 "provider_status": "MISSING",
-                "locator": deepcopy(config["source_locator_allowlist"][source_id]),
+                "locator": deepcopy(missing_locator),
                 "capture_id": None,
                 "captured_at": None,
                 "window": None,
@@ -1680,12 +1686,12 @@ def run_discovery(
         "summary": summary,
         "candidates": candidates,
         "limitations": [
-            "X content is untrusted discovery input, never evidence of edge.",
+            "X and SSRN content are untrusted discovery inputs, never evidence of edge.",
             "Source-claimed metrics are not recomputed or promoted.",
             "No network, email, storage, scheduler, strategy, order, or broker action occurs here.",
             (
                 "COMPLETE describes configured source-window capture, not completeness "
-                "of all X or all possible strategies."
+                "of all X, SSRN, or all possible strategies."
             ),
         ],
     }

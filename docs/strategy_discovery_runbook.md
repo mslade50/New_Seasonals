@@ -4,9 +4,11 @@ The source repair integration adds an optional algorithm-family companion;
 see [family-fit scope and commands](strategy_family_fit_mvp_2026-09-06.md).
 The V1 report and lifecycle below remain unchanged.
 
-Status: implemented as an offline, research-only file processor. It does not
-browse X, call an API, use a browser, send email, schedule itself, mutate the
-strategy book, stage orders, or touch a broker. Those boundaries are deliberate.
+Status: the strict processor remains offline and file-only. The separate,
+bounded source collector and worthwhile-only delivery workflow are documented
+in [the strategy research pipeline](strategy_research_pipeline.md). This
+processor still cannot browse, send email, mutate the strategy book, stage
+orders, or touch a broker.
 
 ## What one daily output says
 
@@ -56,7 +58,7 @@ verified zero. A provider outage with zero items is `UNKNOWN`, never a clean day
 ## Trust and authority boundary
 
 ```text
-future official read-only X adapter
+official read-only X/Crossref collector
            |
            | strict local JSON / JSONL only
            v
@@ -336,11 +338,10 @@ for an exact same-run replay; on a genuinely new run, omit it and rely on its
 validated historical authority rather than creating an unpersistable duplicate
 global event key.
 
-## Future official X adapter: required design
+## Official X and Crossref adapters
 
-The collector is a separate, later change. It should use the official X
-read-only API rather than HTML scraping or a session-bearing browser. Minimum
-controls:
+The separate collector in `scripts/collect_strategy_sources.py` now implements
+the original adapter design:
 
 1. Read-only scopes only; no post, like, follow, direct-message, or account-write
    permission. Secrets come from the existing secret manager/environment, never
@@ -369,26 +370,20 @@ controls:
    multi-post thread, pinned old post, pagination, zero-result, rate-limit, and
    cursor-reset behavior. No real API call belongs in unit tests.
 
-## Decisions required before any operational activation
+The collector is read-only, secret values stay in environment/.env inputs, the
+source registry is fixed in versioned configuration, and every request/item/
+page budget is bounded. Native X lineage and SSRN DOI/version metadata cross a
+strict contract. Provider errors fail the run rather than becoming zero-result
+days. Captures are immutable and cursor advancement requires a later explicit
+acknowledgement after discovery commits that exact bundle.
 
-V1 intentionally leaves these to the owner:
-
-- whether to procure/pay for official X API access and the acceptable daily
-  request/cost budget;
-- exact accounts, private/public lists, and bounded search queries;
-- capture window, cadence, timezone, holiday/weekend behavior, and retention;
-- whether the digested catalog exporter is allowed to read the live book and
-  which negative-research registry is authoritative;
-- shadow acceptance period and service-level thresholds for complete captures;
-- report recipients and the separate email delivery design;
-- scheduler/host identity, credential storage, alert escalation, and retry
-  policy;
-- named human actors allowed to record `OWNER_REVIEW` transitions.
-
-Recommended rollout is fixture validation, then at least 20 market sessions in
-`SHADOW`, then a reviewed completeness/cursor/dedupe scorecard. Change to
-`LIVE`, add scheduling, and add email only through separate explicit owner
-approvals. No stage should enable trading or automatic strategy mutation.
+The remaining owner inputs are limited to X service configuration: the approved
+account/list/search locators, bearer token, and chosen spend ceiling. X entries
+remain disabled until those are supplied. Crossref/SSRN collection, empirical
+validation, active-algorithm fit, no-finding silence, durable email delivery,
+and the daily Task Scheduler entry point are implemented in
+[strategy_research_pipeline.md](strategy_research_pipeline.md). Registering the
+task and running the first production email remain explicit cutover actions.
 
 ## Operator response to failures
 
@@ -409,6 +404,6 @@ approvals. No stage should enable trading or automatic strategy mutation.
 - stale/digest-failing catalog: rebuild from the authoritative source and have
   the snapshot independently verified before use.
 
-This V1 has no delivery guarantee because email and scheduling are out of
-scope. The files are the result until those separately controlled layers are
-approved and built.
+This file-only V1 processor still has no transport responsibility. The separate
+finalizer owns delivery claims and the scheduled runner verifies a confirmed
+email or an explicit `NO_EMAIL` decision.

@@ -1,0 +1,48 @@
+{
+  "crossref_contact_email_env": "STRATEGY_RESEARCH_CONTACT_EMAIL",
+  "item_budget": 250,
+  "report_title": "Daily strategy research discovery",
+  "request_budget": 12,
+  "run_mode": "LIVE",
+  "schema_version": "strategy-source-config.v1",
+  "sources": [
+    {
+      "enabled": true,
+      "kind": "SSRN_QUERY",
+      "max_items": 75,
+      "max_pages": 2,
+      "platform": "SSRN",
+      "source_id": "ssrn:systematic-liquid-strategies",
+      "value": "systematic liquid trading momentum reversal seasonality volatility portfolio"
+    },
+    {
+      "enabled": true,
+      "kind": "SSRN_QUERY",
+      "max_items": 75,
+      "max_pages": 2,
+      "platform": "SSRN",
+      "source_id": "ssrn:portfolio-complements",
+      "value": "portfolio diversification anomaly transaction costs capital efficiency trading strategy"
+    },
+    {
+      "enabled": false,
+      "kind": "LIST",
+      "max_items": 50,
+      "max_pages": 2,
+      "platform": "X",
+      "source_id": "x:owner-research-list",
+      "value": "REPLACE_WITH_X_LIST_ID"
+    },
+    {
+      "enabled": false,
+      "kind": "SEARCH",
+      "max_items": 50,
+      "max_pages": 2,
+      "platform": "X",
+      "source_id": "x:owner-research-search",
+      "value": "REPLACE_WITH_BOUNDED_X_QUERY"
+    }
+  ],
+  "window_hours": 48,
+  "x_bearer_token_env": "X_BEARER_TOKEN"
+}

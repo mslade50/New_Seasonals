@@ -43,27 +43,19 @@ full orchestrator rejection on changed input and actual balanced preview.
 Existing context tests now require corrupt-baseline preservation. Evidence is
 under `artifacts/research-fixes/research-addendum-*`.
 
-## Remaining source work versus owner inputs
+## Subsequent source-work implementation
 
-The [family-fit MVP](strategy_family_fit_mvp_2026-09-06.md) is useful offline
-infrastructure. It does not fulfill the requested daily worthwhile-only research
-email loop by itself. These are missing code pieces, not missing credentials:
-
-| Source work | Bounded next implementation |
-| --- | --- |
-| X capture | Read-only collector with allowlists, pagination, window/cursor receipts, explicit request limits, and fake-provider tests. |
-| SSRN intake | Publication/version capture and normalization into a reviewed research contract; V1 currently accepts X only. |
-| Native exact duplicate catalog | Translate supported scanner rules faithfully into normalized discovery structures; report unsupported rules rather than invent a fingerprint. Family overlap is already available. |
-| Empirical validation | Execute supported hypotheses against frozen data and record actual test results, costs, out-of-sample checks, bad-period overlap and marginal capital use against active algorithms. Verified artifact hashes alone are insufficient. |
-| Useful-finding decision and write-up | Require that empirical evidence and incremental-fit evidence pass; write strategy, our validation, why it helps the algorithm book, and practical implementation. Missing evidence cannot become an email-ready item. |
-| Delivery and scheduling | Build an outbox only for newly useful validated findings, deduplicate with durable receipts, and emit nothing on no-finding days. Source-collection failures require an explicit operational status rather than being called a quiet research day. Existing scheduling/email infrastructure can host this once implemented. |
+The missing source-to-email layers listed in this addendum were implemented in
+the follow-on [strategy research pipeline](strategy_research_pipeline.md):
+official read-only X and Crossref/SSRN collection, two-phase cursors, native and
+family catalogs, preregistered reproducible empirical work, active-algorithm
+portfolio-fit gates, worthwhile-only writeups, at-most-once email delivery, and
+an inert-until-registered daily scheduler.
 
 Owner-supplied X credentials/access tier, a spending ceiling, and desired
-accounts/lists are configuration inputs for that collector. SSRN access may be
-public or restricted per source; no credential need should be invented before
-the chosen source is known. None of those owner inputs is needed to implement
-and test the interfaces with offline fixtures. No new paid service is required
-for the present source repairs.
+accounts/lists remain configuration inputs. The public SSRN path requires no
+paid service. X stays disabled until those inputs are supplied; this does not
+block SSRN research.
 
 Other architectural limitations from the original audit remain explicit:
 research journals/receipts use a local single-writer contract, not distributed
