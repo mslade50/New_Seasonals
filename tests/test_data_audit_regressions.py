@@ -48,6 +48,18 @@ def test_annual_stats_reconcile_first_days_and_single_observation_year():
     assert result.loc[2026, "Max Drawdown"] == pytest.approx(-50 / 920)
 
 
+def test_single_strategy_drawdown_includes_initial_capital():
+    fn = functions('pages/backtester.py', ['compute_portfolio_stats'])['compute_portfolio_stats']
+    equity = pd.DataFrame({'Equity_Close':[900.,920.], 'Equity_High':[1000.,920.],
+                           'Equity_Low':[895.,900.], 'InMarket':[True,True]},
+                          index=pd.to_datetime(['2025-01-02','2025-01-03']))
+    result = fn(equity, 1000)
+    assert result['TotalReturn_Pct'] == pytest.approx(-8.)
+    assert result['MaxDD_Pct'] == pytest.approx(-10.)
+    assert result['MaxDD_Low_Pct'] == pytest.approx(-10.5)
+    assert result['DDStillOngoing']
+
+
 def test_trailing_windows_are_calendar_months():
     fn = functions("daily_portfolio_report.py", ["calculate_trailing_strategy_stats"])["calculate_trailing_strategy_stats"]
     today = pd.Timestamp("2026-09-06")

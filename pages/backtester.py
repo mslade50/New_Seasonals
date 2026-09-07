@@ -550,7 +550,7 @@ def compute_portfolio_stats(equity_df, starting_equity, risk_bps=None, trades_df
              'TimeInMarket_Pct': 0, 'FinalEquity': starting_equity,
              'UnderwaterDays': 0, 'TradesDuringDD': None, 'DDStillOngoing': False,
              'PeakDate': None, 'TroughDate': None, 'RecoveryDate': None}
-    if equity_df.empty:
+    if equity_df.empty or len(equity_df) < 2:
         return empty
 
     close = equity_df['Equity_Close']
