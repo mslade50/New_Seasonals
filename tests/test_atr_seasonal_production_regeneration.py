@@ -92,6 +92,33 @@ def test_regeneration_refuses_missing_frozen_price_history(tmp_path, monkeypatch
         )
 
 
+def test_regeneration_drops_stale_predecessor_tickers(tmp_path, monkeypatch):
+    prices = tmp_path / "data/master_prices.parquet"
+    ranks = tmp_path / "atr_seasonal_ranks.parquet"
+    receipt = tmp_path / "receipt.json"
+    _prices(prices)
+    predecessor = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2026-01-02", "2026-01-02"]),
+            **{column: [50.0, 50.0] for column in regen.RANK_COLUMNS},
+            "ticker": ["SPY", "DELISTED"],
+        }
+    )
+    predecessor.to_parquet(ranks, index=False)
+    monkeypatch.setattr(regen, "CSV_UNIVERSE", ["SPY"])
+    monkeypatch.setattr(regen, "LIQUID_PLUS_COMMODITIES", ["SPY"])
+
+    result = regen.regenerate_if_needed(
+        prices_path=prices,
+        ranks_path=ranks,
+        receipt_path=receipt,
+        now=dt.datetime(2026, 9, 6, tzinfo=dt.timezone.utc),
+    )
+
+    assert result["status"] == "REGENERATED"
+    assert pd.read_parquet(ranks)["ticker"].unique().tolist() == ["SPY"]
+
+
 def test_future_dated_predecessor_cannot_expand_rebuild_horizon(tmp_path, monkeypatch):
     prices = tmp_path / "data/master_prices.parquet"
     ranks = tmp_path / "atr_seasonal_ranks.parquet"
