@@ -113,8 +113,10 @@ The artifact metric names must exactly include:
 `bad_day_co_loss_pct`, `incremental_portfolio_sharpe`,
 `marginal_capital_occupancy_pct`, `estimated_strategy_capacity_usd`,
 `round_trip_cost_bps`, `liquid_ibkr_instrument_count`,
-`total_instrument_count`, and `point_in_time_universe_flag` (1 only when
-verified).
+`total_instrument_count`, and `point_in_time_universe_flag`. Set that flag to 1
+only for a verified point-in-time universe. Use 0 for an explicitly fixed
+instrument set; the finalizer verifies that allowed alternative from the
+journaled candidate structure.
 
 Do not attach an artifact that merely repeats source results. Failed research
 stays a durable artifact and may be added to

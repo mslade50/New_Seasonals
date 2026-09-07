@@ -1,11 +1,18 @@
 # Corrected ATR-seasonal production regeneration
 
-Status: implemented and ready for an explicit production workflow cutover.
+Status: production migration completed and deployed on 2026-09-07.
 
 The prior audit corrected the annual outcome cutoff in
 `build_atr_seasonal_ranks.py`, but production R2 still held history generated
-under the old formula. `scripts/regenerate_atr_seasonal_ranks.py` closes that
-data gap inside the mandatory cloud-only private-site workflow.
+under the old formula. The 2026-09-07 cloud-only private-site run rebuilt and
+promoted 5,660,705 rank rows for the 1,025 configured active tickers, archived
+the exact predecessor, rebuilt the 4,711-row canonical trade ledger, and
+deployed the bound bundle. The canonical rank SHA-256 is
+`ceeadf4bed239a86c92892794a5444c4334dcdb517f0f7a12f6ee86a535eed04`;
+the ledger SHA-256 is
+`ab83b6e9c9335573f25d6fd021cf290491c898df47c1753d9b7cfdb6c2573144`.
+Production evidence is retained in GitHub Actions run `34124625338` and the
+R2 predecessor archive under `migrations/atr_seasonal_ranks/34124625338-1/`.
 
 On every `deploy_site.yml` run, the isolated generator now:
 

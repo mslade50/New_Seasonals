@@ -168,8 +168,20 @@ def _validate_package(raw: Any, report: dict[str, Any], family_fit: dict[str, An
     return raw
 
 
-def _gate_reasons(metrics: dict[str, float], fit: dict[str, Any]) -> list[str]:
+def _gate_reasons(
+    metrics: dict[str, float],
+    fit: dict[str, Any],
+    candidate: dict[str, Any],
+) -> list[str]:
     failures: list[str] = []
+    membership_mode = candidate["structure"]["universe_history"]["membership_mode"]
+    universe_history_verified = (
+        membership_mode == "POINT_IN_TIME"
+        and metrics["point_in_time_universe_flag"] == 1
+    ) or (
+        membership_mode == "FIXED_INSTRUMENTS"
+        and metrics["point_in_time_universe_flag"] == 0
+    )
     checks = (
         (metrics["sample_size"] >= 40, "fewer than 40 costed observations"),
         (metrics["net_mean_bps"] > 0, "net average return is not positive"),
@@ -214,7 +226,7 @@ def _gate_reasons(metrics: dict[str, float], fit: dict[str, Any]) -> list[str]:
             "not every proposed instrument was verified liquid and IBKR-tradeable",
         ),
         (
-            metrics["point_in_time_universe_flag"] == 1,
+            universe_history_verified,
             "universe history is neither point-in-time nor an explicitly fixed instrument set",
         ),
     )
@@ -258,7 +270,7 @@ def evaluate_email_package(
                 f"{fit['fit_status']}"
             )
         metrics = _metrics(candidate)
-        failures = _gate_reasons(metrics, fit)
+        failures = _gate_reasons(metrics, fit, candidate)
         source_links = sorted({row["permalink"] for row in candidate["provenance"]})
         decisions.append(
             {

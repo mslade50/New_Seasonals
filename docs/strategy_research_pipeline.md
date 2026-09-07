@@ -1,7 +1,8 @@
 # Strategy research-to-email pipeline
 
-Status: implemented, tested, and ready for an explicit scheduler cutover. The
-repository code does not register the task by itself.
+Status: live and scheduled on this Windows host as of 2026-09-07. The
+repository keeps registration explicit; the installed task runs daily at
+12:30 AM ET with a three-hour deadline and start-when-available behavior.
 
 The daily pipeline collects strategy ideas from supported public sources,
 converts only executable ideas into strict research specifications, tests them
@@ -110,11 +111,11 @@ A source, agent, or final completion failure sends a separate deduplicated
 operational alert through `send_strategy_research_failure_email.py`. This keeps
 a broken run distinguishable from a successful `NO_EMAIL` research day.
 
-`scripts/register_strategy_research_task.ps1` registers a daily 12:30 AM ET
-Windows task with a three-hour deadline and start-when-available behavior. The
-timing keeps normal research clear of the 4:10 AM premarket pipeline. The
-registration script is intentionally inert until the owner approves the
-production cutover.
+`scripts/register_strategy_research_task.ps1` owns the installed daily 12:30 AM
+ET Windows task. It has a three-hour deadline and start-when-available behavior,
+which keeps normal research clear of the 4:10 AM premarket pipeline.
+Registration remains an explicit operator action; rerunning the script updates
+the existing task rather than creating a second schedule.
 
 Manual non-email verification:
 
@@ -131,12 +132,22 @@ python scripts/finalize_strategy_research.py `
 The finalizer sends only when `--send` is explicitly passed and at least one
 candidate clears every gate.
 
-## Verification completed during implementation
+## Verification completed during production cutover
 
-- The Crossref adapter was exercised against the live public API: two requests
-  produced 78 DOI-bound SSRN observations with complete cursor windows.
+- The first production capture completed both enabled SSRN queries with 64
+  DOI-bound observations. One executable candidate reached preregistered,
+  reproducible validation; the other 63 observations remained non-actionable.
+- The candidate's 2004-2026 replay produced 16,823 costed legs. It failed the
+  worthwhile gate on negative gross, net, median, and recent returns, zero of
+  six positive neighbors, a 0.9855 bootstrap probability of a nonpositive
+  mean, excessive bad-day co-loss, and negative incremental portfolio Sharpe.
+  The finalizer recorded `NO_EMAIL` without opening SMTP, and both complete
+  SSRN cursors advanced only after that decision was digest-bound and written.
+- The Windows task is installed, enabled, and ready for its next daily 12:30 AM
+  ET run. The completion checker passes with no pending capture.
 - Collector, pending/acknowledgement, discovery, family-fit, research gate,
   catalog, scheduling-wire, cloud rank migration, predecessor backup, and R2
-  promotion tests pass.
-- SMTP, X, Task Scheduler registration, R2 mutation, private-site deployment,
-  and any trading action were not exercised during development.
+  promotion tests pass. The operational-failure email path was exercised during
+  recovery from the initial failed run.
+- X remains disabled pending the owner list/query and API setup. No trading
+  action was taken.
