@@ -37,10 +37,13 @@ written immutably under
 `pending`. The next run reuses a pending capture without calling a provider.
 Only `collect_strategy_sources.py acknowledge` clears it, and that command
 first verifies the exact source/capture/content digest in the validated
-discovery journal. For a complete capture it also requires a terminal email or
-`NO_EMAIL` decision bound to the source-bundle digest. Only complete sources
-then advance their cursor. A failed or merely assertive research agent
-therefore cannot skip unread posts or papers; a crash after SMTP acceptance
+discovery journal. The acknowledgement receives the normalized item file and
+proves that it differs from the immutable raw capture only in `claims` and
+`strategy_proposal`. For a complete capture it also requires a terminal email
+or `NO_EMAIL` decision bound to the source-bundle digest. Journal coverage,
+rather than the provider's optimistic status alone, decides completeness; only
+sources journaled `COMPLETE` advance their cursor. A failed or merely assertive
+research agent therefore cannot skip unread posts or papers; a crash after SMTP acceptance
 replays safely through the delivery receipt and then acknowledges.
 
 Partial coverage is journaled and acknowledged without a quiet-day decision.

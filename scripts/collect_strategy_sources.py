@@ -144,9 +144,54 @@ def collect(config_path: Path, state_path: Path, capture_root: Path, env_file: P
     return capture_dir
 
 
-def _verify_capture_journaled(manifest: dict, items: list[dict], journal_path: Path) -> None:
+def _normalized_items_for_capture(raw_items: list[dict], normalized_path: Path | None) -> list[dict]:
+    """Load journal inputs while proving they preserve the immutable capture.
+
+    Discovery may add only ``claims`` and ``strategy_proposal``.  Every native
+    source field must remain byte-for-byte equivalent after canonical JSON
+    normalization, otherwise acknowledgement fails closed.
+    """
+    if normalized_path is None:
+        return raw_items
+    normalized_items = load_jsonl(normalized_path)
+    for index, item in enumerate(normalized_items):
+        validate_item(item, index)
+
+    def by_id(items: list[dict], label: str) -> dict[str, dict]:
+        indexed: dict[str, dict] = {}
+        for item in items:
+            item_id = item["item_id"]
+            if item_id in indexed:
+                raise CollectorError(f"{label} items contain duplicate item_id {item_id}")
+            indexed[item_id] = item
+        return indexed
+
+    raw_by_id = by_id(raw_items, "raw")
+    normalized_by_id = by_id(normalized_items, "normalized")
+    if raw_by_id.keys() != normalized_by_id.keys():
+        raise CollectorError("normalized items do not contain the exact immutable capture item set")
+    enrichment_fields = {"claims", "strategy_proposal"}
+    for item_id, raw_item in raw_by_id.items():
+        normalized_item = normalized_by_id[item_id]
+        raw_native = {key: value for key, value in raw_item.items() if key not in enrichment_fields}
+        normalized_native = {
+            key: value for key, value in normalized_item.items() if key not in enrichment_fields
+        }
+        if canonical_json(raw_native) != canonical_json(normalized_native):
+            raise CollectorError(
+                f"normalized item {item_id} changed an immutable source field"
+            )
+    return normalized_items
+
+
+def _verify_capture_journaled(
+    manifest: dict,
+    items: list[dict],
+    journal_path: Path,
+) -> dict[str, dict]:
     records = load_journal(journal_path)
     source_events = [record["payload"] for record in records if record["event_type"] == "SOURCE_CAPTURE"]
+    matched_events: dict[str, dict] = {}
     for source in manifest["sources"]:
         source_items = [
             item
@@ -154,16 +199,19 @@ def _verify_capture_journaled(manifest: dict, items: list[dict], journal_path: P
             if item["source_id"] == source["source_id"] and item["capture_id"] == source["capture_id"]
         ]
         digest = _capture_digest(source, source_items)
-        matched = any(
-            event.get("source_id") == source["source_id"]
+        matched = next((
+            event
+            for event in reversed(source_events)
+            if event.get("source_id") == source["source_id"]
             and event.get("capture_id") == source["capture_id"]
             and event.get("capture_digest") == digest
-            for event in source_events
-        )
-        if not matched:
+        ), None)
+        if matched is None:
             raise CollectorError(
                 f"capture is not committed in the discovery journal: {source['source_id']}"
             )
+        matched_events[source["source_id"]] = matched
+    return matched_events
 
 
 def acknowledge(
@@ -172,6 +220,7 @@ def acknowledge(
     capture_dir_raw: Path,
     journal_path: Path = DEFAULT_JOURNAL,
     decision_path: Path = DEFAULT_DECISION,
+    normalized_items_path: Path | None = None,
 ) -> dict:
     with file_lock(state_path):
         state = _load_state(state_path)
@@ -184,9 +233,10 @@ def acknowledge(
         manifest, items, _, _, digest = _read_bundle(supplied)
         if digest != state["pending"]["bundle_digest"]:
             raise CollectorError("acknowledgement digest differs from pending state")
-        _verify_capture_journaled(manifest, items, journal_path)
+        journal_items = _normalized_items_for_capture(items, normalized_items_path)
+        journal_events = _verify_capture_journaled(manifest, journal_items, journal_path)
         sources_complete = all(
-            source["provider_status"] == "OK" and source["cursor"]["exhausted"]
+            journal_events[source["source_id"]]["status"] == "COMPLETE"
             for source in manifest["sources"]
         )
         if sources_complete:
@@ -203,7 +253,15 @@ def acknowledge(
             acceptable = {"SENT", "ALREADY_SENT"} if decision.get("email_required") else {"NO_EMAIL"}
             if delivery not in acceptable:
                 raise CollectorError("final research decision lacks a terminal delivery outcome")
-        advances = accepted_from_manifest(manifest, capture_digest=digest)
+        complete_manifest = {
+            **manifest,
+            "sources": [
+                source
+                for source in manifest["sources"]
+                if journal_events[source["source_id"]]["status"] == "COMPLETE"
+            ],
+        }
+        advances = accepted_from_manifest(complete_manifest, capture_digest=digest)
         state["accepted"].update(advances)
         state["pending"] = None
         write_json(state_path, state)
@@ -223,6 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("collect")
     ack = sub.add_parser("acknowledge")
     ack.add_argument("--capture-dir", type=Path, required=True)
+    ack.add_argument(
+        "--normalized-items",
+        type=Path,
+        help="normalized JSONL committed to the discovery journal",
+    )
     return parser
 
 
@@ -238,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.capture_dir,
                 args.journal,
                 args.decision,
+                args.normalized_items,
             )
     except (CollectorError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"SOURCE COLLECTION FAILED: {exc}", file=sys.stderr)
