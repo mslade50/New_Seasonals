@@ -40,7 +40,7 @@ function fillStorageKey(fill) {
   return `${String((fill && fill.account_key) || "")}\u0000${executionFamilyId(fill && fill.exec_id)}`;
 }
 
-function boundedFillRows(rows, now) {
+function effectiveFillRows(rows, now) {
   const byExecution = new Map();
   for (const fill of rows || []) {
     if (!fill || !fill.exec_id) continue;
@@ -54,13 +54,22 @@ function boundedFillRows(rows, now) {
       const byIngest = Number(b.ingested_at || 0) - Number(a.ingested_at || 0);
       if (byIngest) return byIngest;
       return String(b.exec_id || "").localeCompare(String(a.exec_id || ""));
-    })
-    .slice(0, FILLS_DAY_CAP);
+    });
+}
+
+function boundedFillRows(rows, now) {
+  return effectiveFillRows(rows, now).slice(0, FILLS_DAY_CAP);
+}
+
+function publicCommand(record) {
+  const { envelope, intent_identity, ...visible } = record;
+  return visible;
 }
 
 export class ExecBroker extends DurableObject {
   _authed(request, token) {
-    return (request.headers.get("Authorization") || "") === `Bearer ${token}`;
+    return typeof token === "string" && token.trim().length > 0 &&
+      (request.headers.get("Authorization") || "") === `Bearer ${token}`;
   }
 
   // Newest socket = most recently accepted or heartbeated (attachment stamps).
@@ -118,32 +127,62 @@ export class ExecBroker extends DurableObject {
       if (!signed || !sig) return Response.json({ ok: false, error: "missing signed/sig" }, { status: 400 });
       let cmd;
       try { cmd = JSON.parse(signed); } catch { return Response.json({ ok: false, error: "bad signed payload" }, { status: 400 }); }
-      // Idempotency: an id already in the ring is a resubmit of the same intent
-      // (retry after a client-side timeout/error) — do NOT push it to the agent
-      // again; return the existing record so the client can display it.
+      if (!cmd || typeof cmd.id !== "string" || !/^[a-zA-Z0-9-]{1,100}$/.test(cmd.id)) {
+        return Response.json({ok:false,error:"invalid command identity"},{status:400});
+      }
+      const identity = JSON.stringify({type:cmd.type,account:cmd.account,dry_run:cmd.dry_run,payload:cmd.payload});
+      const key = `command:${cmd.id}`;
       const recent = (await this.ctx.storage.get("recent_commands")) || [];
       const scheduled = (await this.ctx.storage.get("scheduled_commands")) || [];
-      const existing = recent.find((r) => r.id === cmd.id) || scheduled.find((r) => r.id === cmd.id);
-      if (existing) {
-        return Response.json({ ok: true, deduped: true, id: cmd.id, state: existing.state, command: existing });
+      let record = await this.ctx.storage.get(key);
+      const prior = record || recent.find(r => r.id === cmd.id) || scheduled.find(r => r.id === cmd.id);
+      if (prior && prior.intent_identity && prior.intent_identity !== identity) {
+        return Response.json({ok:false,error:"command id belongs to a different intent"},{status:409});
       }
-      const sockets = this.ctx.getWebSockets();
-      if (!sockets.length) return Response.json({ ok: false, error: "agent offline" }, { status: 503 });
-      // record + push to the NEWEST agent socket only (it verifies the sig and
-      // validates); >1 connected socket is an anomaly worth keeping in the audit trail
-      const record = { id: cmd.id, type: cmd.type, account: cmd.account, dry_run: cmd.dry_run !== false,
-                       state: "pushed", created_at: Date.now(), result: null };
-      const fillMatch = commandFillMatch(cmd);
-      if (fillMatch) record.fill_match = fillMatch;
-      if (sockets.length > 1) record.sockets_at_delivery = sockets.length;
-      recent.unshift(record);
-      await this.ctx.storage.put("recent_commands", recent.slice(0, CMD_CAP));
-      if (cmd.type === "scheduled_option") {
-        scheduled.unshift({ ...record });
-        await this.ctx.storage.put("scheduled_commands", scheduled.slice(0, SCHEDULED_CMD_CAP));
+      if (prior && !["queued","delivery_unknown"].includes(prior.state)) {
+        return Response.json({ok:true,deduped:true,id:cmd.id,state:prior.state,command:publicCommand(prior)});
       }
-      this._newestSocket(sockets).send(JSON.stringify({ type: "command", signed, sig }));
-      return Response.json({ ok: true, id: cmd.id, state: "pushed" });
+      if (prior && !record) {
+        // Legacy records cannot prove safe replay. Retain their identity.
+        return Response.json({ok:true,deduped:true,id:cmd.id,state:prior.state,command:publicCommand(prior)});
+      }
+      if (!record) {
+        if (!Number.isFinite(cmd.expires_at) || cmd.expires_at <= Date.now()) {
+          return Response.json({ok:false,error:"command expired before acceptance"},{status:400});
+        }
+        record = {id:cmd.id,type:cmd.type,account:cmd.account,dry_run:cmd.dry_run,
+          state:"queued",created_at:Date.now(),result:null,intent_identity:identity,
+          envelope:{signed,sig},expires_at:cmd.expires_at};
+        const fillMatch=commandFillMatch(cmd); if(fillMatch)record.fill_match=fillMatch;
+        await this.ctx.storage.put(key,record);
+      }
+      if (record.expires_at <= Date.now()) {
+        return Response.json({ok:false,id:record.id,state:record.state,error:"original delivery window expired; reconcile this intent before a new order"},{status:409});
+      }
+      const sockets=this.ctx.getWebSockets();
+      if (!sockets.length) return Response.json({ok:false,id:record.id,state:record.state,error:"agent offline; intent retained"},{status:503});
+      // Persist uncertainty BEFORE attempting the socket write. A crash or throw
+      // must not masquerade as delivery. Same-ID retries use the original envelope.
+      record.state="delivery_unknown";
+      record.delivery_attempts=(record.delivery_attempts||0)+1;
+      await this.ctx.storage.put(key,record);
+      try {
+        this._newestSocket(sockets).send(JSON.stringify({type:"command",...record.envelope}));
+        record.state="pushed";
+        record.delivery_error=null;
+      } catch(e) {
+        record.delivery_error=String(e && e.message || e);
+      }
+      await this.ctx.storage.put(key,record);
+      const visible=publicCommand(record);
+      const next=[visible,...recent.filter(r=>r.id!==record.id)].slice(0,CMD_CAP);
+      await this.ctx.storage.put("recent_commands",next);
+      if(record.type==="scheduled_option") {
+        await this.ctx.storage.put("scheduled_commands",[visible,...scheduled.filter(r=>r.id!==record.id)].slice(0,SCHEDULED_CMD_CAP));
+      }
+      const delivered=record.state==="pushed";
+      return Response.json({ok:delivered,id:record.id,state:record.state,
+        ...(delivered?{}:{error:"delivery uncertain; retry this same intent"})},{status:delivered?200:503});
     }
 
     // --- Recent commands + results (site polls this) ---
@@ -168,11 +207,27 @@ export class ExecBroker extends DurableObject {
     //     day's fills, so the ring built by _mergeFills IS the history. ---
     if (url.pathname === "/fills") {
       if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
-      const days = await this.ctx.storage.list({ prefix: "fills:" });
-      const fills = [];
-      for (const v of days.values()) fills.push(...v);
-      fills.sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")));
-      return Response.json({ fills, retention_days: FILLS_RETENTION_DAYS, server_now: Date.now() });
+      const fills = await this._retainedFills();
+      const receipt = (await this.ctx.storage.get("fill_receipt")) || {accounts:{}};
+      const now=Date.now(), accounts={};
+      for(const [key,value] of Object.entries(receipt.accounts || {})) {
+        const sourceTime=Date.parse(value.source_at || "");
+        const fresh=now-Number(value.received_at_ms || 0)<=90000 && Number.isFinite(sourceTime) && now-sourceTime<=90000;
+        accounts[key]={...value,complete:value.complete===true && fresh};
+        if(!fresh)accounts[key].error="fill receipt stale";
+      }
+      const legacy = await this._listAll("fill_incomplete:");
+      const cutoff=new Date(now-FILLS_RETENTION_DAYS*86400000).toISOString().slice(0,10);
+      const incompleteDays=[...legacy.keys()].map(k=>k.slice("fill_incomplete:".length)).filter(d=>d>=cutoff);
+      const mergeError=await this.ctx.storage.get("fill_merge_error");
+      const complete=Object.keys(accounts).length>0 && Object.values(accounts).every(a=>a.complete) && !incompleteDays.length && !mergeError;
+      const reasons=[...(!Object.keys(accounts).length?["no verified fill receipt"]:[]),
+        ...Object.entries(accounts).filter(([,a])=>!a.complete).map(([k,a])=>`${k}: ${a.error || "unverified source"}`),
+        ...(incompleteDays.length?["legacy fill history may be truncated"]:[]),...(mergeError?[String(mergeError)]:[])];
+      return Response.json({fills,retention_days:FILLS_RETENTION_DAYS,server_now:now,
+        completeness:{complete,complete_through:complete?receipt.complete_through:null,
+          reasons,merge_error:mergeError || null,truncated:incompleteDays.length>0,incomplete_days:incompleteDays,accounts}});
+
     }
 
     // --- Option spread query: POST kicks off a read-only chain fetch on the agent ---
@@ -296,7 +351,11 @@ export class ExecBroker extends DurableObject {
       await this.ctx.storage.put("book", { ...book, accounts });
       await this.ctx.storage.put("last_seen", Date.now());
       try { await this._mergeFills(book); }
-      catch (e) { await this.ctx.storage.put("last_error", `mergeFills: ${String((e && e.message) || e)}`); }
+      catch (e) {
+        const error=`mergeFills: ${String((e && e.message) || e)}`;
+        await this.ctx.storage.put("last_error",error);
+        await this.ctx.storage.put("fill_merge_error",error);
+      }
       return;
     }
 
@@ -343,6 +402,13 @@ export class ExecBroker extends DurableObject {
 
     // Command result from the agent -> attach to the recent-commands ring.
     if (msg.type === "result" && msg.id) {
+      const durable=await this.ctx.storage.get(`command:${msg.id}`);
+      if(durable) {
+        durable.state=msg.state || "done";
+        durable.result=mergeCommandResult(durable.result,{ok:msg.ok,detail:msg.detail,validation:msg.validation,preview:msg.preview,fill:msg.fill,at:msg.at});
+        await this.ctx.storage.put(`command:${msg.id}`,durable);
+      }
+
       const recent = (await this.ctx.storage.get("recent_commands")) || [];
       const i = recent.findIndex((r) => r.id === msg.id);
       if (i >= 0) {
@@ -372,6 +438,29 @@ export class ExecBroker extends DurableObject {
   // agent re-pushes the same day's fills every cycle, and commission reports
   // lag the execution by a beat, so later pushes fill in commission/PnL.
   // Day keys older than the retention window are pruned on every merge.
+  async _listAll(prefix) {
+    const rows=new Map(); let startAfter;
+    for(;;) {
+      const page=await this.ctx.storage.list({prefix,limit:1000,...(startAfter?{startAfter}:{})});
+      for(const [key,value] of page)rows.set(key,value);
+      if(page.size<1000)break;
+      const last=[...page.keys()].at(-1);
+      if(last===startAfter)throw Error("storage cursor did not advance");
+      startAfter=last;
+    }
+    return rows;
+  }
+
+  async _retainedFills() {
+    const now=Date.now(), cutoff=new Date(now-FILLS_RETENTION_DAYS*86400000).toISOString().slice(0,10);
+    const legacy=await this._listAll("fills:");
+    const archive=await this._listAll("fill_row:");
+    const rows=[];
+    for(const [key,value] of legacy)if(key.slice(6)>=cutoff && Array.isArray(value))rows.push(...value);
+    for(const [key,value] of archive)if(key.slice(9,19)>=cutoff)rows.push(value);
+    return effectiveFillRows(rows,now);
+  }
+
   async _mergeFills(book) {
     const incoming = [];
     for (const acc of (book && book.accounts) || []) {
@@ -393,14 +482,38 @@ export class ExecBroker extends DurableObject {
       // Keep the newest executions when an unusually busy day exceeds the
       // storage cap. Map insertion order would otherwise discard every later
       // fill once the first 500 rows had been retained.
+      const archivedDay=await this.ctx.storage.get(`fill_archive_day:${day}`);
+      if(!archivedDay && ring.length>=FILLS_DAY_CAP) {
+        await this.ctx.storage.put(`fill_incomplete:${day}`,{reason:"legacy capped history"});
+      }
+      // Each effective execution has its own small value; the old ring is only
+      // a compatibility cache and never the complete history after migration.
+      for(const f of effectiveFillRows([...ring,...dayFills],now)) {
+        const rowKey=`fill_row:${day}:${encodeURIComponent(fillStorageKey(f))}`;
+        const prior=await this.ctx.storage.get(rowKey);
+        const next=mergeExecutionFill(prior,f,now);
+        if(JSON.stringify(prior)!==JSON.stringify(next)) await this.ctx.storage.put(rowKey,next);
+      }
+      await this.ctx.storage.put(`fill_archive_day:${day}`,true);
       await this.ctx.storage.put(key, boundedFillRows([...ring, ...dayFills], now));
     }
     const cutoffDay = new Date(now - FILLS_RETENTION_DAYS * 86_400_000).toISOString().slice(0, 10);
+    // The per-execution archive follows the same existing 14-day retention
+    // contract as the legacy ring; long history belongs in the durable harvester.
+    for (const prefix of ["fill_row:", "fill_archive_day:", "fill_incomplete:"]) {
+      for (const [key] of await this._listAll(prefix)) {
+        if (key.slice(prefix.length, prefix.length + 10) < cutoffDay) await this.ctx.storage.delete(key);
+      }
+    }
     const days = await this.ctx.storage.list({ prefix: "fills:" });
     const retained = [];
     for (const [key, fills] of days) {
       if (key.slice("fills:".length) < cutoffDay) await this.ctx.storage.delete(key);
       else if (Array.isArray(fills)) {
+        const day=key.slice("fills:".length);
+        if(fills.length>=FILLS_DAY_CAP && !await this.ctx.storage.get(`fill_archive_day:${day}`)) {
+          await this.ctx.storage.put(`fill_incomplete:${day}`,{reason:"legacy capped history"});
+        }
         // Migrate any pre-deploy .01/.02 duplicates even when that historical
         // day is no longer present in the agent's current-day snapshot.
         const identities = fills.map(fillStorageKey);
@@ -413,7 +526,22 @@ export class ExecBroker extends DurableObject {
         }
       }
     }
-    await this._reconcileCommandFills(retained, now);
+    await this._reconcileCommandFills(await this._retainedFills(), now);
+    const accounts={};
+    for(const acc of book.accounts || []) {
+      const inputTime=acc.fills_source_at || book.at || 0;
+      const raw=Number.isFinite(Number(inputTime))?Number(inputTime):Date.parse(inputTime);
+      const sourceMs=raw>0 && raw<1e12?raw*1000:raw;
+      const sourceFresh=Number.isFinite(sourceMs)&&sourceMs>0&&now-sourceMs<=90000&&sourceMs<=now+5000;
+      const complete=acc.fills_complete===true && !acc.error && !acc.fills_error && sourceFresh;
+      accounts[acc.key]={complete,received_at:new Date(now).toISOString(),received_at_ms:now,
+        source_at:sourceFresh?new Date(sourceMs).toISOString():null,
+        complete_through:complete?new Date(sourceMs).toISOString():null,
+        error:acc.fills_error || acc.error || (!sourceFresh?"source timestamp unavailable/stale":!complete?"source completeness unverified":null)};
+    }
+    const verifiedTimes=Object.values(accounts).filter(a=>a.complete).map(a=>Date.parse(a.source_at));
+    await this.ctx.storage.put("fill_receipt",{accounts,complete_through:verifiedTimes.length?new Date(Math.min(...verifiedTimes)).toISOString():null});
+    await this.ctx.storage.put("fill_merge_error",null);
   }
 
   // Resting orders often return to the Activity table as Submitted, before
@@ -423,7 +551,16 @@ export class ExecBroker extends DurableObject {
     for (const key of ["recent_commands", "scheduled_commands"]) {
       const ring = (await this.ctx.storage.get(key)) || [];
       const reconciled = reconcileCommandFills(ring, incoming, now);
-      if (reconciled.changed) await this.ctx.storage.put(key, reconciled.commands);
+      if (reconciled.changed) {
+        await this.ctx.storage.put(key, reconciled.commands);
+        for (const command of reconciled.commands) {
+          const durableKey=`command:${command.id}`;
+          const durable=await this.ctx.storage.get(durableKey);
+          if(durable && (durable.state!==command.state || JSON.stringify(durable.result)!==JSON.stringify(command.result))) {
+            await this.ctx.storage.put(durableKey,{...durable,state:command.state,result:command.result});
+          }
+        }
+      }
     }
   }
 

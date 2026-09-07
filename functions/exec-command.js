@@ -7,11 +7,10 @@
  * + is the final gatekeeper), and POSTs {signed, sig} to the broker. The broker
  * relays it down the agent's socket.
  *
- * LIVE-ORDER WARNING: dry_run is forwarded from the request body and defaults
- * to false (= live). It is NOT forced here. The agent honors dry_run:true as a
+ * The caller must supply an explicit dry_run boolean. The agent honors true as a
  * preview override layered on top of its own LIVE_* env gates, so the Pages
- * layer can request a no-transmit preview; with dry_run false or omitted the
- * agent's env decides. When the agent is armed and dry_run is not set, a command
+ * layer can request a no-transmit preview; with dry_run false the
+ * agent's env decides. When the agent is armed and dry_run is false, a command
  * sent through here transmits a REAL order. Do not treat this endpoint as
  * preview-only.
  *
@@ -41,14 +40,21 @@ export async function onRequestPost({ request, env }) {
   let body;
   try { body = await request.json(); } catch { return new Response(JSON.stringify({ ok: false, error: "bad json" }), { status: 400, headers }); }
 
+  if (!body || !["primary", "pa"].includes(body.account)) {
+    return new Response(JSON.stringify({ ok: false, error: "explicit valid account required" }), { status: 400, headers });
+  }
+  if (typeof body.dry_run !== "boolean") {
+    return new Response(JSON.stringify({ ok: false, error: "explicit dry_run boolean required" }), { status: 400, headers });
+  }
+
   const now = Date.now();
   const command = {
     // client-minted idempotency id (one per user intent, reused on retry) when
     // well-formed; otherwise minted fresh here. Broker + agent dedup on it.
     id: typeof body.id === "string" && UUID_RE.test(body.id) ? body.id : crypto.randomUUID(),
     type: String(body.type || ""),
-    account: body.account === "primary" ? "primary" : "pa",
-    dry_run: body.dry_run === true,   // forwarded from body (default false = live); agent honors dry_run:true as a preview override
+    account: body.account,
+    dry_run: body.dry_run,  // immutable no-transmit intent; downstream may only restrict further
     payload: body.payload || {},
     created_at: now,
     expires_at: now + 60_000,                       // 60s validity

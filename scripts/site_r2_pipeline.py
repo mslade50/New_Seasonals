@@ -251,6 +251,32 @@ def _run_prefix(run_id: str) -> str:
 def publish_generated(root: Path, run_id: str) -> dict:
     marker = _require_cloud_stage(root, empty_runtime=False)
     prefix = _run_prefix(run_id)
+    provenance = json.loads((root / PROVENANCE_PATH).read_text(encoding="utf-8"))
+    if provenance.get("phase") != "generator" or provenance.get("source_sha") != marker.get("source_sha"):
+        raise RuntimeError("generator input provenance/source mismatch")
+    original = {entry["name"]: entry for entry in provenance.get("entries", [])}
+    snapshots: list[dict] = []
+    # Validate every input before publishing any part of this generation.
+    for item in CANONICAL_INPUTS:
+        expected = original.get(item.name)
+        if expected is None:
+            if item.required:
+                raise RuntimeError(f"generator input missing: {item.name}")
+            continue
+        path = root / item.path
+        if not path.is_file() or _sha256(path) != expected.get("sha256"):
+            raise RuntimeError(f"generator input changed after materialization: {item.name}")
+    for item in CANONICAL_INPUTS:
+        if item.name not in original:
+            continue
+        path = root / item.path
+        key = f"{prefix}/inputs/{item.key}"
+        if not cache_io.upload_from_local(str(path), key):
+            raise RuntimeError(f"failed to freeze generated bundle input: {key}")
+        record = _entry(item, path, key=key)
+        if record["sha256"] != original[item.name]["sha256"]:
+            raise RuntimeError(f"generator input changed during publication: {item.name}")
+        snapshots.append(record)
     entries: list[dict] = []
     for item in GENERATED_INPUTS:
         path = root / item.path
@@ -269,6 +295,7 @@ def publish_generated(root: Path, run_id: str) -> dict:
         "run_id": str(run_id),
         "source_sha": marker.get("source_sha"),
         "published_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "inputs": snapshots,
         "entries": entries,
     }
     local_manifest = root / "data" / ".site-generated-bundle.json"
@@ -284,7 +311,7 @@ def publish_generated(root: Path, run_id: str) -> dict:
 
 def pull_assembler(root: Path, run_id: str) -> dict:
     marker = _require_cloud_stage(root, empty_runtime=True)
-    entries = [rec for item in CANONICAL_INPUTS if (rec := _download(root, item)) is not None]
+    entries: list[dict] = []
 
     prefix = _run_prefix(run_id)
     manifest_path = root / "data" / ".site-generated-bundle.json"
@@ -294,6 +321,22 @@ def pull_assembler(root: Path, run_id: str) -> dict:
     bundle = json.loads(manifest_path.read_text(encoding="utf-8"))
     if bundle.get("mode") != "private-site-generated-bundle" or str(bundle.get("run_id")) != str(run_id):
         raise RuntimeError("generated bundle manifest identity mismatch")
+    if not marker.get("source_sha") or bundle.get("source_sha") != marker.get("source_sha"):
+        raise RuntimeError("generated bundle source revision mismatch")
+    inputs = {entry.get("name"): entry for entry in bundle.get("inputs") or []}
+    for item in CANONICAL_INPUTS:
+        expected = inputs.get(item.name)
+        if expected is None:
+            if item.required:
+                raise RuntimeError(f"generated bundle missing frozen input: {item.name}")
+            continue
+        key = f"{prefix}/inputs/{item.key}"
+        if expected.get("key") != key:
+            raise RuntimeError(f"frozen input key mismatch: {item.name}")
+        rec = _download(root, item, key=key)
+        if rec is None or rec["sha256"] != expected.get("sha256"):
+            raise RuntimeError(f"frozen input digest mismatch: {item.name}")
+        entries.append(rec)
     by_name = {entry.get("name"): entry for entry in bundle.get("entries") or []}
     for item in GENERATED_INPUTS:
         expected = by_name.get(item.name)

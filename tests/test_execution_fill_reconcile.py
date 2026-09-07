@@ -222,8 +222,9 @@ class Storage {{
   async get(key) {{ const v=this.values.get(key); return v == null ? v : structuredClone(v); }}
   async put(key, value) {{ this.values.set(key, structuredClone(value)); }}
   async delete(key) {{ this.values.delete(key); }}
-  async list({{prefix=""}}={{}}) {{
-    return new Map([...this.values].filter(([key]) => key.startsWith(prefix))
+  async list({{prefix="",startAfter="",limit=1000}}={{}}) {{
+    return new Map([...this.values].filter(([key]) => key.startsWith(prefix) && key > startAfter)
+      .sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0).slice(0,limit)
       .map(([key,value]) => [key, structuredClone(value)]));
   }}
 }}

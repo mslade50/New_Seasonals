@@ -33,9 +33,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas numpy pyarrow scipy scikit-learn joblib plotly \
-            yfinance gspread google-auth boto3 requests streamlit pytest \
-            python-dotenv exchange-calendars
+          pip install -r requirements.txt pytest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Browser and Worker contract tests
+        run: node scripts/test_js.mjs
 
       - name: Run test suite
         run: python -m pytest tests/ -q

@@ -11,10 +11,14 @@ const path = require("path");
 const vm = require("vm");
 
 const ASSETS = path.join(__dirname, "..", "..", "site", "assets");
+class FixtureDate extends Date {
+  constructor(...args) { super(...(args.length ? args : ["2026-08-18T16:00:00Z"])); }
+  static now() { return Date.parse("2026-08-18T16:00:00Z"); }
+}
 
 function loadRadar() {
   const source = fs.readFileSync(path.join(ASSETS, "radar.js"), "utf8");
-  const context = { console, document: { addEventListener() {} }, window: {},
+  const context = { console, Date: FixtureDate, document: { addEventListener() {} }, window: {},
                     location: { search: "" }, URLSearchParams, module: { exports: {} } };
   vm.createContext(context);
   vm.runInContext(source, context, { filename: "radar.js" });

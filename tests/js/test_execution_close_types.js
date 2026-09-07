@@ -46,9 +46,9 @@ const position = { symbol: "UNH", sec_type: "STK", expiry: "", con_id: 42,
       `${t} must share the close ticket fields`);
     assert.strictEqual(vm.runInContext(`MUTATING_COMMANDS.has(${JSON.stringify(t)})`, ctx), true,
       `${t} must be gated as a mutation`);
-    // Unknown execution mode must block every one of them.
+    // Owner policy: missing snapshots do not disable manual controls.
     vm.runInContext("state.book = null; state.status = { online: false };", ctx);
-    assert.strictEqual(vm.runInContext(`mutationBlocked(${JSON.stringify(t)})`, ctx), true);
+    assert.strictEqual(vm.runInContext(`mutationBlocked(${JSON.stringify(t)})`, ctx), false);
   }
   assert.match(source, /<option value="close_resize">/, "close_resize must be in the type dropdown");
 }

@@ -1271,8 +1271,10 @@ def main():
 
         payload["nuggets"] = build_nuggets(payload)
 
+        from scripts.json_payloads import dumps_payload
+        encoded = dumps_payload(payload)
         with open(OUT, "w", encoding="utf-8") as f:
-            json.dump(payload, f, separators=(",", ":"), ensure_ascii=False)
+            f.write(encoded)
         print(f"risk: wrote {OUT} ({os.path.getsize(OUT)/1024:.0f} KB)")
     except Exception:
         print("risk: FAILED (site will ship without risk payload)")
