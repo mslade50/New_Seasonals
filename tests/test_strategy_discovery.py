@@ -33,6 +33,7 @@ from research.strategy_discovery.journal import (
     transaction_commitment_digest,
 )
 from research.strategy_discovery.pipeline import (
+    research_spec,
     research_spec_digest,
     run_discovery,
     structural_fingerprint,
@@ -530,6 +531,43 @@ class TestCompleteness:
 
 
 class TestCanonicalizationAndDedupe:
+    def test_canonicalization_preserves_between_bounds_and_sorts_set_members(self):
+        candidate = proposal()
+        candidate["signal"]["conditions"].extend(
+            [
+                {
+                    "field": "forecast_percentile",
+                    "operator": "between",
+                    "value": [80, 100],
+                    "unit": "percentile",
+                    "lookback_sessions": 1260,
+                },
+                {
+                    "field": "market_regime",
+                    "operator": "in",
+                    "value": ["volatile", "calm"],
+                    "unit": None,
+                    "lookback_sessions": None,
+                },
+            ]
+        )
+
+        report, _ = run(items=[item(proposal_value=candidate)])
+        structure = report["candidates"][0]["structure"]
+        values = {
+            condition["field"]: condition["value"]
+            for condition in structure["signal"]["conditions"]
+        }
+        assert values["forecast_percentile"] == [80, 100]
+        assert values["market_regime"] == ["calm", "volatile"]
+
+        spec_values = {
+            condition["field"]: condition["value"]
+            for condition in research_spec(candidate)["signal"]["conditions"]
+        }
+        assert spec_values["forecast_percentile"] == [80, 100]
+        assert spec_values["market_regime"] == ["calm", "volatile"]
+
     def test_structural_dedupe_ignores_name_prose_and_condition_order(self):
         p1 = proposal()
         p2 = copy.deepcopy(p1)
