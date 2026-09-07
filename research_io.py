@@ -12,6 +12,10 @@ _locks: dict[str, threading.RLock] = {}
 _held = threading.local()
 
 
+def _invalid_constant(value: str):
+    raise ValueError(f"invalid JSON numeric constant: {value}")
+
+
 @contextmanager
 def file_lock(path: Path):
     """Reentrant thread/process lock. Persistent lock files are intentional."""
@@ -64,8 +68,8 @@ def read_jsonl(path: Path) -> list[dict]:
             if not line.strip():
                 continue
             try:
-                record = json.loads(line)
-            except json.JSONDecodeError as exc:
+                record = json.loads(line, parse_constant=_invalid_constant)
+            except ValueError as exc:
                 raise ValueError(f"corrupt journal at line {number}; evidence preserved: {path}") from exc
             if not isinstance(record, dict):
                 raise ValueError(f"invalid journal object at line {number}: {path}")
@@ -75,6 +79,8 @@ def read_jsonl(path: Path) -> list[dict]:
 
 def append_jsonl(path: Path, records: list[dict]) -> None:
     # Serialize the entire batch first so encoding errors cannot write half a batch.
+    if any(not isinstance(record, dict) for record in records):
+        raise ValueError("invalid journal record: every record must be an object")
     encoded = "".join(json.dumps(r, allow_nan=False) + "\n" for r in records).encode("utf-8")
     path = Path(path)
     with file_lock(path):

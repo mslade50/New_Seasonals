@@ -50,6 +50,27 @@ def test_concurrent_journal_batches_are_never_interleaved_or_lost(tmp_path):
     assert all(len({r["batch"] for r in records[start:start + 25]}) == 1 for start in range(0, 200, 25))
 
 
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_nonfinite_jsonl_is_preserved_and_blocks_append(tmp_path, constant):
+    from research_io import append_jsonl, read_jsonl
+    path = tmp_path / "invalid.jsonl"
+    original = ('{"value":' + constant + '}\n').encode()
+    path.write_bytes(original)
+    with pytest.raises(ValueError, match="corrupt"):
+        read_jsonl(path)
+    with pytest.raises(ValueError, match="corrupt"):
+        append_jsonl(path, [{"value": 1}])
+    assert path.read_bytes() == original
+
+
+def test_nonobject_append_rejects_whole_batch_before_writing(tmp_path):
+    from research_io import append_jsonl
+    path = tmp_path / "journal.jsonl"
+    with pytest.raises(ValueError, match="object"):
+        append_jsonl(path, [{"good": 1}, ["bad"]])
+    assert not path.exists()
+
+
 @pytest.mark.parametrize("action", ["PASS", "WATCH"])
 def test_suppressed_review_is_archived_not_in_current_inbox(tmp_path, action, v2_underwrite_factory):
     candidate = apply_research_controls(
