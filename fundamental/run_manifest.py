@@ -43,12 +43,16 @@ def freeze_sources(paths: dict[str, str | Path]) -> dict[str, dict[str, Any]]:
             frozen[label] = {"path": str(path), "available": False}
             continue
         stat = path.stat()
+        digest = file_sha256(path)
+        after = path.stat()
+        if (stat.st_mtime_ns, stat.st_size) != (after.st_mtime_ns, after.st_size):
+            raise RuntimeError(f"Research input changed while hashing: {path}")
         frozen[label] = {
             "path": str(path),
             "available": True,
             "size_bytes": int(stat.st_size),
             "modified_at": iso_utc_from_epoch(stat.st_mtime),
-            "sha256": file_sha256(path),
+            "sha256": digest,
         }
     return frozen
 

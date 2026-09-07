@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -217,16 +218,8 @@ def main() -> None:
             candidates["research_route"].isin({"HYPOTHESIS_TEST", "WATCH_FOR_CHANGE"}).sum()
         )
 
-    endpoint_counts = (
-        fmp_snapshot.assign(ticker=fmp_snapshot["ticker"].astype(str).str.upper())
-        .groupby("ticker")["endpoint"]
-        .agg(lambda values: set(values.dropna().astype(str)))
-    )
-    baseline_endpoints = set(FMP_ENDPOINTS[:4])
-    deep_endpoints = set(FMP_ENDPOINTS)
-    baseline_ready = {ticker for ticker, endpoints in endpoint_counts.items() if baseline_endpoints <= endpoints}
-    sec_ready = set(sec_snapshot["ticker"].astype(str).str.upper()) if not sec_snapshot.empty else set()
-    deep_ready = {ticker for ticker, endpoints in endpoint_counts.items() if deep_endpoints <= endpoints} & sec_ready
+    from fundamental.coverage import ready_coverage
+    baseline_ready, deep_ready, sec_ready = ready_coverage(fmp_snapshot, sec_snapshot, as_of=as_of)
     current_candidates = {str(row["ticker"]).upper(): row for row in candidates.to_dict("records")}
     decision_ready = [record for record in underwrite_decisions
                       if is_surfaceable_quick_review(record, decision_as_of=as_of)

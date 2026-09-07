@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -77,6 +78,13 @@ def read_jsonl(path: Path) -> list[dict]:
         return records
 
 
+def read_json(path: Path) -> dict:
+    value = json.loads(Path(path).read_text(encoding="utf-8"), parse_constant=_invalid_constant)
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid JSON object; evidence preserved: {path}")
+    return value
+
+
 def append_jsonl(path: Path, records: list[dict]) -> None:
     # Serialize the entire batch first so encoding errors cannot write half a batch.
     if any(not isinstance(record, dict) for record in records):
@@ -95,3 +103,16 @@ def append_jsonl(path: Path, records: list[dict]) -> None:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
+
+
+def write_json(path: Path, value: dict) -> None:
+    """Atomically replace a materialized view; failed temporary files preserve evidence."""
+    content = json.dumps(value, allow_nan=False, sort_keys=True, indent=2).encode("utf-8")
+    path = Path(path)
+    with file_lock(path):
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        with temporary.open("xb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
