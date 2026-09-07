@@ -13,7 +13,7 @@ const ACTIONS = new Set(["DEEPEN", "WATCH", "PASS", "CLEAR"]);
 const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 
 function defaultState() {
-  return { version: 1, updated_at: null, actions: {} };
+  return { version: 1, updated_at: null, actions: {}, history: [] };
 }
 
 function response(body, status = 200) {
@@ -22,16 +22,20 @@ function response(body, status = 200) {
 
 async function loadState(bucket) {
   const object = await bucket.get(STATE_KEY);
-  if (!object) return defaultState();
-  try {
-    const parsed = JSON.parse(await object.text());
-    if (!parsed || typeof parsed !== "object" || !parsed.actions || typeof parsed.actions !== "object") {
-      return defaultState();
-    }
-    return { version: 1, updated_at: parsed.updated_at || null, actions: parsed.actions };
-  } catch (_) {
-    return defaultState();
+  if (!object) return { state: defaultState(), etag: null };
+  const parsed = JSON.parse(await object.text());
+  if (!parsed || Array.isArray(parsed) || parsed.version !== 1
+      || !parsed.actions || typeof parsed.actions !== "object" || Array.isArray(parsed.actions)
+      || (parsed.history != null && !Array.isArray(parsed.history)) || !object.etag) {
+    throw new Error("Invalid stored research state");
   }
+  for (const [ticker, record] of Object.entries(parsed.actions)) {
+    if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(ticker) || !record || Array.isArray(record)
+        || !ACTIONS.has(record.action)) throw new Error("Invalid stored research action");
+  }
+  // Preserve existing fields and evidence. A corrupt object is never replaced
+  // with a synthetic empty state by a subsequent POST.
+  return { state: { ...parsed, history: parsed.history || [] }, etag: object.etag };
 }
 
 async function gate(request, env) {
@@ -44,7 +48,8 @@ async function gate(request, env) {
 export async function onRequestGet({ request, env }) {
   const denied = await gate(request, env);
   if (denied) return denied;
-  return response(await loadState(env.CHARTS));
+  try { return response((await loadState(env.CHARTS)).state); }
+  catch (_) { return response({ ok: false, error: "research-state history is unavailable; stored evidence was preserved" }, 503); }
 }
 
 export async function onRequestPost({ request, env }) {
@@ -68,15 +73,24 @@ export async function onRequestPost({ request, env }) {
   }
   if (!ACTIONS.has(action)) return response({ ok: false, error: "invalid research action" }, 400);
 
-  const state = await loadState(env.CHARTS);
-  const now = new Date().toISOString();
-  if (action === "CLEAR") delete state.actions[ticker];
-  else state.actions[ticker] = { action, updated_at: now, as_of: asOf };
-  state.version = 1;
-  state.updated_at = now;
-
-  await env.CHARTS.put(STATE_KEY, JSON.stringify(state), {
-    httpMetadata: { contentType: "application/json", cacheControl: "no-store" },
-  });
-  return response(state);
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { state, etag } = await loadState(env.CHARTS);
+      const now = new Date().toISOString();
+      if (action === "CLEAR") delete state.actions[ticker];
+      else state.actions[ticker] = { action, updated_at: now, as_of: asOf };
+      state.history.push({ ticker, action, updated_at: now, as_of: asOf });
+      state.updated_at = now;
+      // R2 conditional put returns null on conflict. Refetch and merge, never
+      // acknowledge a choice whose write was rejected. Protect first creation too.
+      const written = await env.CHARTS.put(STATE_KEY, JSON.stringify(state), {
+        onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
+        httpMetadata: { contentType: "application/json", cacheControl: "no-store" },
+      });
+      if (written) return response(state);
+    }
+    return response({ ok: false, error: "research state changed concurrently; retry this choice" }, 409);
+  } catch (_) {
+    return response({ ok: false, error: "research-state update failed; stored history was preserved" }, 503);
+  }
 }

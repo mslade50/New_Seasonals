@@ -1,6 +1,6 @@
 """Outcome grader and scoreboard for the Daily Posts pipeline.
 
-Every IDEA draft is replayed against master_prices with the pitch grader's
+Every IDEA draft is replayed against raw OHLC bars with the pitch grader's
 pessimistic conventions - the replay itself is IMPORTED from
 grade_pitch_journal so the two products can never drift apart on fill
 mechanics (day-2 stop arming, stop-and-target bar books the stop, gapped
@@ -35,7 +35,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import posts_journal  # noqa: E402
 from posts_grammar import derive_order_row  # noqa: E402
-from pitch_grammar import load_prices  # noqa: E402
+from research_price_history import load_raw_prices, replay_cutoff  # noqa: E402
 from trading_calendar import TRADING_DAY  # noqa: E402
 from grade_pitch_journal import replay_leg  # noqa: E402
 
@@ -120,13 +120,14 @@ def main() -> int:
     today = pd.Timestamp(args.asof or dt.date.today()).normalize()
 
     todo = [d for d in ideas
-            if args.regrade or (d.get("outcome") or {}).get("status")
-            in (None, "open", "ungradeable")]
+            if args.regrade or (d.get("outcome") or {}).get("price_basis") != "RAW"
+            or (d.get("outcome") or {}).get("status") in (None, "open", "ungradeable")]
     outcomes = []
     if todo:
-        prices = load_prices()
         wanted = {str((d["idea"].get("proxy_ticker") or d["idea"]["ticker"])).upper()
                   for d in todo}
+        starts = [derive_order_row(d)["Execute_On"] for d in todo]
+        prices = load_raw_prices(wanted, start=min(starts), end=replay_cutoff(today))
         bars_by_ticker = {}
         for ticker, group in prices[prices["ticker"].isin(wanted)].groupby("ticker"):
             frame = group.sort_values("date").set_index("date")
@@ -147,7 +148,7 @@ def main() -> int:
                 continue
             risk = float(row["Risk_Amt"])
             pnl = leg.get("pnl", 0.0)
-            outcome = {**leg,
+            outcome = {**leg, "price_basis": "RAW",
                        "r_multiple": (round(pnl / risk, 3)
                                       if risk and leg["status"] == "closed"
                                       else (0.0 if leg["status"] == "no_fill"

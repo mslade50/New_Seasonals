@@ -127,6 +127,28 @@ def validate_underwrite_record(
     elif price_age is None or price_age < 0 or price_age > UNDERWRITE_POLICY.current_price_max_age_days:
         errors.append("price snapshot is missing, future-dated, or stale")
 
+    # Dollar amounts and the share count must reconcile in the declared units.
+    # Extra EV components (preferred stock, minorities, etc.) are explicit,
+    # sourced amounts in the same currency/unit as net debt and enterprise value.
+    adjustments = _sequence(price.get("ev_adjustments"))
+    adjustments_valid = (price.get("ev_adjustments") is None or isinstance(price.get("ev_adjustments"), list)) and all(
+        isinstance(item, dict) and _text_value(item.get("label"))
+        and np.isfinite(_finite(item.get("amount"))) and _source_ids(item.get("source_ids"))
+        for item in adjustments
+    )
+    share_scale = _finite(price.get("share_unit_multiplier", 1))
+    money_scale = _finite(price.get("money_unit_multiplier", 1))
+    expected_ev = (price_value * _finite(price.get("diluted_shares")) * share_scale / money_scale
+                   + _finite(price.get("net_debt"))
+                   + sum(_finite(_mapping(item).get("amount")) for item in adjustments)) if money_scale > 0 else float("nan")
+    gates["enterprise_value_bridge"] = bool(
+        adjustments_valid and share_scale > 0 and money_scale > 0
+        and np.isfinite(expected_ev)
+        and np.isclose(_finite(price.get("enterprise_value")), expected_ev, rtol=0.005, atol=0.01)
+    )
+    if not gates["enterprise_value_bridge"]:
+        errors.append("enterprise value must reconcile to price × diluted shares + net debt + sourced EV adjustments in declared units")
+
     variant = _mapping(record.get("variant_hypothesis"))
     causal_chain = [_text_value(item) for item in _sequence(variant.get("causal_chain"))]
     variant_complete = all(
@@ -187,8 +209,13 @@ def validate_underwrite_record(
     base = _finite(valuation.get("base"))
     bull = _finite(valuation.get("bull"))
     horizon = _finite(valuation.get("horizon_years"))
+    same_currency = (_text_value(valuation.get("currency")).upper()
+                     == _text_value(price.get("currency")).upper())
+    gates["valuation_currency"] = bool(same_currency and _text_value(price.get("currency")))
+    if not gates["valuation_currency"]:
+        errors.append("valuation cases must be converted to the security price currency before promotion")
     values_ordered = bool(
-        price_value > 0
+        same_currency and price_value > 0
         and bear > 0
         and bear < base < bull
         and horizon > 0
@@ -271,6 +298,18 @@ def validate_underwrite_record(
     sources = [source for source in _sequence(record.get("sources")) if isinstance(source, dict)]
     source_id_list = [_text_value(source.get("source_id")) for source in sources]
     source_ids = {source_id for source_id in source_id_list if source_id}
+    quote_ids = _source_ids(price.get("quote_source_ids") or price.get("source_ids"))
+    quote_sources = [source for source in sources if _text_value(source.get("source_id")) in quote_ids]
+    gates["current_price_evidence"] = bool(
+        quote_ids and quote_ids.issubset(source_ids) and quote_sources
+        and all(
+            (age := _dated_age_days(source.get("as_of"), as_of)) is not None
+            and 0 <= age <= UNDERWRITE_POLICY.current_price_max_age_days
+            for source in quote_sources
+        )
+    )
+    if not gates["current_price_evidence"]:
+        errors.append("price quote source IDs must resolve to current dated evidence; snapshot relabeling cannot refresh old evidence")
     primary_sources = [source for source in sources if source.get("primary") is True]
     unique_sources = len(source_ids) == len(source_id_list) and len(source_ids) >= UNDERWRITE_POLICY.min_evidence_items
     current_primary = sum(
@@ -311,6 +350,9 @@ def validate_underwrite_record(
     referenced_source_ids = set()
     referenced_source_ids |= _source_ids(price.get("source_ids"))
     referenced_source_ids |= _source_ids(valuation.get("source_ids"))
+    referenced_source_ids |= quote_ids
+    for item in adjustments:
+        referenced_source_ids |= _source_ids(_mapping(item).get("source_ids"))
     for driver in drivers:
         referenced_source_ids |= _source_ids(_mapping(driver).get("source_ids"))
     for trigger in triggers:
@@ -408,7 +450,7 @@ def normalize_underwrite_record(record: dict[str, Any]) -> dict[str, Any]:
     realization = _mapping(record.get("realization"))
     downside = _mapping(record.get("downside"))
     next_review = _mapping(record.get("next_review"))
-    currency = _text_value(price.get("currency"))
+    currency = _text_value(valuation.get("currency"))
     range_text = (
         f"{valuation.get('primary_method')} with {valuation.get('secondary_method')}; "
         f"bear/base/bull {currency} {valuation.get('bear')}/{valuation.get('base')}/{valuation.get('bull')} "
@@ -434,7 +476,7 @@ def normalize_underwrite_record(record: dict[str, Any]) -> dict[str, Any]:
             f"{_text_value(realization.get('trend_state'))} trend; revision signal "
             f"{_text_value(realization.get('revision_signal'))}."
         ),
-        "price_as_of": f"{price.get('as_of')} close {currency} {price.get('price')}",
+        "price_as_of": f"{price.get('as_of')} close {_text_value(price.get('currency'))} {price.get('price')}",
         "proof_required": [
             _trigger_text(trigger)
             for trigger in _sequence(record.get("proof_triggers"))

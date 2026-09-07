@@ -21,6 +21,8 @@ import datetime as dt
 import json
 from pathlib import Path
 
+from research_io import append_jsonl, read_jsonl, file_lock
+
 ROOT = Path(__file__).resolve().parent
 JOURNAL_PATH = ROOT / "data" / "posts_journal.jsonl"
 JOURNAL_R2_KEY = "posts_journal.jsonl"
@@ -31,41 +33,31 @@ KINDS = {"draft", "posted", "outcome"}
 def sync_down(path: Path = JOURNAL_PATH) -> None:
     if path != JOURNAL_PATH or path.exists():
         return
-    try:
-        from cache_io import download_to_local, is_configured
-        if is_configured():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            download_to_local(JOURNAL_R2_KEY, str(path))
-    except Exception as exc:  # noqa: BLE001
-        print(f"NOTE: posts journal R2 pull skipped ({exc})")
+    from cache_io import download_to_local, is_configured
+    if is_configured():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not download_to_local(JOURNAL_R2_KEY, str(path)):
+            raise RuntimeError("journal mirror download failed; refusing to create replacement history")
+        read_jsonl(path)
+
 
 
 def sync_up(path: Path = JOURNAL_PATH) -> None:
     if path != JOURNAL_PATH:
         return
-    try:
-        from cache_io import is_configured, upload_from_local
-        if is_configured() and path.exists():
-            upload_from_local(str(path), JOURNAL_R2_KEY)
-    except Exception as exc:  # noqa: BLE001
-        print(f"NOTE: posts journal R2 push skipped ({exc})")
+    from cache_io import is_configured, upload_from_local
+    if is_configured() and path.exists():
+        with file_lock(path):
+            read_jsonl(path)
+            if not upload_from_local(str(path), JOURNAL_R2_KEY):
+                raise RuntimeError("journal mirror upload failed; local evidence was preserved")
+
 
 
 def load(path: Path = JOURNAL_PATH, pull: bool = True) -> list[dict]:
     if pull:
         sync_down(path)
-    if not path.exists():
-        return []
-    records = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            records.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return records
+    return read_jsonl(path)
 
 
 def append(records: list[dict], path: Path = JOURNAL_PATH,
@@ -76,12 +68,11 @@ def append(records: list[dict], path: Path = JOURNAL_PATH,
     if bad:
         raise ValueError(f"unknown journal record kind(s): {bad}")
     stamp = dt.datetime.now().isoformat(timespec="seconds")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        for record in records:
-            handle.write(json.dumps({**record, "written_at": stamp}) + "\n")
-    if push:
-        sync_up(path)
+    with file_lock(path):
+        sync_down(path)
+        append_jsonl(path, [{**record, "written_at": stamp} for record in records])
+        if push:
+            sync_up(path)
     return len(records)
 
 

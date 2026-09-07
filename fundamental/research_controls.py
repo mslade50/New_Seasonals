@@ -15,6 +15,14 @@ from .config import CONTROL_STATE_MAX_AGE_DAYS
 ALLOWED_ACTIONS = {"DEEPEN", "WATCH", "PASS", "CLEAR"}
 
 
+def current_research_allowed(candidate: dict[str, Any] | None) -> bool:
+    """Current inbox membership requires a current, unsuppressed candidate."""
+    if not candidate:
+        return False
+    suppressed = candidate.get("research_suppressed", False)
+    return not (pd.notna(suppressed) and bool(suppressed)) and candidate.get("research_eligible") is not False
+
+
 def load_research_controls(
     path: str | Path,
     *,
@@ -76,8 +84,9 @@ def apply_research_controls(
     candidates: pd.DataFrame,
     controls: dict[str, dict[str, Any]],
     *,
-    thesis_changed_tickers: Iterable[str] = (),
-    fired_trigger_tickers: Iterable[str] = (),
+    thesis_events: Iterable[dict[str, Any]] = (),
+    trigger_events: Iterable[dict[str, Any]] = (),
+    completed_control_requests: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Apply controls to research priority only.
 
@@ -88,8 +97,11 @@ def apply_research_controls(
     result = candidates.copy()
     if result.empty:
         return result
-    changed = {str(ticker).upper() for ticker in thesis_changed_tickers}
-    fired = {str(ticker).upper() for ticker in fired_trigger_tickers}
+    thesis_events = list(thesis_events)
+    trigger_events = list(trigger_events)
+    if "research_base_queue_priority" not in result:
+        result["research_base_queue_priority"] = result.get("research_queue_priority", 0.0)
+    result["research_queue_priority"] = result["research_base_queue_priority"]
     result["research_control"] = ""
     result["research_suppressed"] = False
     result["control_disposition"] = "NONE"
@@ -103,19 +115,31 @@ def apply_research_controls(
         action = str(control.get("action") or "").upper()
         result.at[idx, "research_control"] = action
         result.at[idx, "control_updated_at"] = control.get("updated_at")
+        control_at = pd.to_datetime(control.get("updated_at"), errors="coerce", utc=True)
+        def newer(event):
+            stamp = pd.to_datetime(event.get("observed_at"), errors="coerce", utc=True)
+            return (str(event.get("ticker", "")).upper() == ticker
+                    and pd.notna(control_at) and pd.notna(stamp) and stamp > control_at)
+        changed = any(newer(event) and event.get("materiality") in {"THESIS_CHANGING", "DECISION_CHANGING"}
+                      for event in thesis_events)
+        fired = any(newer(event) and event.get("evaluation") == "FIRED"
+                    and event.get("kind") in {"PROOF", "REOPEN"} for event in trigger_events)
         if action == "DEEPEN":
+            if (completed_control_requests or {}).get(ticker) == control.get("updated_at"):
+                result.at[idx, "control_disposition"] = "COMPLETED_BOUNDED_DILIGENCE_PASS"
+                continue
             result.at[idx, "control_disposition"] = "NEXT_BOUNDED_DILIGENCE_PASS"
             result.at[idx, "research_queue_priority"] = max(
                 float(row.get("research_queue_priority") or 0.0), 10_000.0
             )
         elif action == "WATCH":
-            reopened = ticker in fired or ticker in changed
+            reopened = fired or changed
             result.at[idx, "research_suppressed"] = not reopened
             result.at[idx, "control_disposition"] = (
                 "REOPENED_BY_TRIGGER" if reopened else "WAIT_FOR_RECORDED_TRIGGER"
             )
         elif action == "PASS":
-            reopened = ticker in changed
+            reopened = changed
             result.at[idx, "research_suppressed"] = not reopened
             result.at[idx, "control_disposition"] = (
                 "REOPENED_BY_THESIS_CHANGE" if reopened else "SUPPRESS_UNCHANGED_EVIDENCE"
@@ -130,4 +154,30 @@ def apply_research_controls(
     return result
 
 
-__all__ = ["ALLOWED_ACTIONS", "apply_research_controls", "load_research_controls"]
+def completed_diligence_requests(
+    decisions: list[dict[str, Any]], controls: dict[str, dict], *, as_of: str | date | None = None,
+) -> dict[str, str]:
+    """Consume only an explicitly completed pass for this exact request revision.
+
+    Building a screen/report is not diligence completion. The completed
+    underwrite records which request it answered and its completion timestamp.
+    """
+    completed = {}
+    cutoff = (pd.Timestamp(as_of, tz="UTC") + pd.Timedelta(days=1)
+              if as_of is not None else pd.Timestamp.now(tz="UTC"))
+    for record in decisions:
+        ticker = str(record.get("ticker", "")).upper()
+        control = controls.get(ticker, {})
+        revision = record.get("research_control_updated_at")
+        started = pd.to_datetime(revision, errors="coerce", utc=True)
+        finished = pd.to_datetime(record.get("completed_at"), errors="coerce", utc=True)
+        if (control.get("action") == "DEEPEN" and revision == control.get("updated_at")
+                and record.get("schema_version") == "fundamental-underwrite.v2"
+                and pd.notna(started) and pd.notna(finished) and started <= finished < cutoff
+                and record.get("decision") in {"QUICK_REVIEW", "WAIT_FOR_PROOF", "WAIT_FOR_EVENT", "PASS"}):
+            completed[ticker] = revision
+    return completed
+
+
+__all__ = ["ALLOWED_ACTIONS", "apply_research_controls", "load_research_controls",
+           "current_research_allowed", "completed_diligence_requests"]

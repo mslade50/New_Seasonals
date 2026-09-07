@@ -226,6 +226,7 @@ def _material_changes(
     cutoff = _cutoff(as_of)
     since_at = _utc_timestamp(since)
     changed: set[str] = set()
+    events: list[dict[str, Any]] = []
     material_rows = 0
     invalid_rows = 0
     for row in rows:
@@ -258,7 +259,11 @@ def _material_changes(
         explicitly_new = row.get("new_since_last_run") is True
         if observed_at > cutoff:
             continue
-        if not explicitly_new and (since_at is None or observed_at <= since_at):
+        events.append({"ticker": ticker, "evidence_id": evidence_id,
+                       "observed_at": observed_at.isoformat(), "materiality": materiality})
+        # A mutable producer flag can bootstrap first-run attention, but never
+        # make an already-consumed observation new after a completed run.
+        if (since_at is not None and observed_at <= since_at) or (since_at is None and not explicitly_new):
             continue
         material_rows += 1
         changed.add(ticker)
@@ -266,6 +271,7 @@ def _material_changes(
         "schema_version": schema_version,
         "status": "AVAILABLE_WITH_INVALID_ROWS" if invalid_rows else "AVAILABLE",
         "changed_tickers": sorted(changed),
+        "events": events,
         "material_rows": material_rows,
         "invalid_rows": invalid_rows,
         "since": since_at.isoformat() if since_at is not None else None,
@@ -298,14 +304,25 @@ def load_research_event_state(
         else {"status": evidence_file_status, "changed_tickers": [], "material_rows": 0,
               "invalid_rows": 0, "since": previous_completed_at, "schema_version": None}
     )
+    since_at = _utc_timestamp(previous_completed_at)
+    new_firings = [row for row in triggers.get("events", [])
+                   if row.get("evaluation") == "FIRED"
+                   and row.get("kind") in {"PROOF", "REOPEN"}
+                   and (since_at is None or _utc_timestamp(row.get("observed_at")) > since_at)]
+    completed_requests = ((previous_manifest.get("research_controls") or {}).get("completed_requests", {})
+                          if isinstance(previous_manifest, dict) else {})
     return {
-        "fired_trigger_tickers": set(triggers.get("fired_tickers", [])),
+        "fired_trigger_tickers": {row["ticker"] for row in new_firings},
         "thesis_changed_tickers": set(evidence.get("changed_tickers", [])),
+        "trigger_events": triggers.get("events", []),
+        "thesis_events": evidence.get("events", []),
+        "completed_control_requests": completed_requests if isinstance(completed_requests, dict) else {},
         "health": {
             "trigger_ledger": {
                 "file_status": trigger_file_status,
                 "expected_schema": TRIGGER_SCHEMA_VERSION,
                 **triggers,
+                "new_event_ids": [row["trigger_id"] for row in new_firings],
             },
             "evidence_ledger": {
                 "file_status": evidence_file_status,

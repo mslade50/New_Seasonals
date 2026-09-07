@@ -25,7 +25,9 @@ from fundamental.config import (  # noqa: E402
     FMP_ENDPOINTS,
     REPORT_ROOT,
 )
-from fundamental.research_controls import load_research_controls  # noqa: E402
+from fundamental.research_controls import (  # noqa: E402
+    apply_research_controls, completed_diligence_requests, current_research_allowed, load_research_controls,
+)
 from fundamental.research_state import (  # noqa: E402
     EVIDENCE_STATE_PATH,
     PORTFOLIO_SNAPSHOT_PATH,
@@ -150,6 +152,14 @@ def build_run_plan(
 
     price_health = {"available": False, "stale": None}
     candidates = _read_parquet(CANDIDATES_CURRENT)
+    candidates = apply_research_controls(
+        candidates, controls, thesis_events=events["thesis_events"], trigger_events=events["trigger_events"],
+        completed_control_requests={**events["completed_control_requests"],
+                                    **completed_diligence_requests(decisions, controls, as_of=as_of)},
+    )
+    current_candidates = {str(row["ticker"]).upper(): row for row in candidates.to_dict("records")}
+    review_ready = [record for record in review_ready
+                    if current_research_allowed(current_candidates.get(str(record.get("ticker", "")).upper()))]
     if not candidates.empty and "price_as_of" in candidates:
         dates = pd.to_datetime(candidates["price_as_of"], errors="coerce")
         ages = (pd.Timestamp(as_of) - dates.dt.normalize()).dt.days

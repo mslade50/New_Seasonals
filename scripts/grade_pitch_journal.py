@@ -1,7 +1,7 @@
 """Outcome grader and scoreboard for the Daily Pitch pipeline.
 
 Spec: daily_pitch_agent_spec_2026-08-06.html section 8. Every pitched idea is
-replayed against master_prices exactly as it was specced (this is the reason
+replayed against raw OHLC bars exactly as it was specced (this is the reason
 the grammar is mandatory) and booked at its hypothetical R and dollars.
 APPROVED AND DECLINED IDEAS ARE BOTH GRADED, so the scoreboard measures the
 filter as well as the pipeline: if declined ideas outperform approved ones,
@@ -47,7 +47,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import pitch_journal  # noqa: E402
-from pitch_grammar import load_prices  # noqa: E402
+from research_price_history import load_raw_prices, replay_cutoff  # noqa: E402
 from trading_calendar import TRADING_DAY  # noqa: E402
 
 DEFAULT_OUT = ROOT / "data" / "pitch_scoreboard.json"
@@ -296,18 +296,20 @@ def main() -> int:
         return 0
 
     today = pd.Timestamp(args.asof or dt.date.today()).normalize()
-    prices = load_prices()
+    todo = [i for i in ideas
+            if args.regrade or (i.get("outcome") or {}).get("price_basis") != "RAW"
+            or (i.get("outcome") or {}).get("status") in (None, "open", "ungradeable")]
     wanted = {str(r.get("Proxy_Ticker") or r["Ticker"]).upper()
-              for idea in ideas for r in idea.get("orders", [])}
+              for idea in todo for r in idea.get("orders", [])}
+    starts = [r["Execute_On"] for idea in todo for r in idea.get("orders", [])]
+    prices = load_raw_prices(wanted, start=min(starts) if starts else today,
+                             end=replay_cutoff(today))
     bars_by_ticker = {}
     for ticker, group in prices[prices["ticker"].isin(wanted)].groupby("ticker"):
         frame = group.sort_values("date").set_index("date")
         frame.index = pd.DatetimeIndex(frame.index).normalize()
         bars_by_ticker[ticker] = frame[~frame.index.duplicated(keep="last")]
 
-    todo = [i for i in ideas
-            if args.regrade or (i.get("outcome") or {}).get("status")
-            in (None, "open", "ungradeable")]
     outcomes, still_open = [], 0
     for idea in todo:
         result = replay_idea(idea, bars_by_ticker)
@@ -315,7 +317,7 @@ def main() -> int:
             still_open += 1
             continue
         outcomes.append({"kind": "outcome", "idea_id": idea["idea_id"],
-                         "date": idea["date"], "outcome": result,
+                         "date": idea["date"], "outcome": {**result, "price_basis": "RAW"},
                          "graded_at": dt.datetime.now().isoformat(
                              timespec="seconds")})
         r = result.get("r_multiple")

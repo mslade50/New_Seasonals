@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,7 +27,7 @@ class CloudflareAccessClient:
         self.account_id = account_id
         self.token = token
 
-    def request(self, method: str, path: str, payload: dict | None = None):
+    def request(self, method: str, path: str, payload: dict | None = None, *, include_info: bool = False):
         body = None if payload is None else json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
             f"{API_ROOT}{path}",
@@ -56,18 +57,29 @@ class CloudflareAccessClient:
             ) from error
         if not result.get("success"):
             raise RuntimeError("Cloudflare Access API reported an unsuccessful response")
-        return result.get("result")
+        return result if include_info else result.get("result")
+
+    def _list_all(self, path: str) -> list[dict]:
+        rows = []
+        for page in range(1, 1001):
+            envelope = self.request("GET", f"{path}?per_page=100&page={page}", include_info=True)
+            batch = envelope.get("result")
+            if not isinstance(batch, list):
+                raise RuntimeError("Cloudflare Access list response is invalid")
+            rows.extend(batch)
+            total_pages = (envelope.get("result_info") or {}).get("total_pages")
+            if (total_pages is not None and page >= int(total_pages)) or (total_pages is None and len(batch) < 100):
+                return rows
+        raise RuntimeError("Cloudflare Access pagination limit reached; policy verification incomplete")
 
     def list_apps(self) -> list[dict]:
         account = urllib.parse.quote(self.account_id, safe="")
-        return self.request("GET", f"/accounts/{account}/access/apps?per_page=100") or []
+        return self._list_all(f"/accounts/{account}/access/apps")
 
     def list_policies(self, app_id: str) -> list[dict]:
         account = urllib.parse.quote(self.account_id, safe="")
         app = urllib.parse.quote(app_id, safe="")
-        return self.request(
-            "GET", f"/accounts/{account}/access/apps/{app}/policies?per_page=100"
-        ) or []
+        return self._list_all(f"/accounts/{account}/access/apps/{app}/policies")
 
 def app_for_domain(apps: list[dict], domain: str) -> dict | None:
     wanted = domain.lower().rstrip("/")
@@ -90,19 +102,28 @@ def verify_domain(client: CloudflareAccessClient, apps: list[dict], domain: str)
     target = app_for_domain(apps, domain)
     if target is None:
         raise ValueError(f"Access application was not found for {domain}")
-    verified_allow = next(
-        (
-            policy
-            for policy in client.list_policies(target["id"])
-            if policy.get("decision") == "allow"
-            and str(policy.get("name", "")).lower() == TARGET_POLICY_NAME.lower()
-        ),
-        None,
-    )
-    if verified_allow is None or not verified_allow.get("include"):
+    policies = client.list_policies(target["id"])
+    allows = [p for p in policies if p.get("decision") == "allow"]
+    # A named allow is insufficient: bypass/additional allow/service-auth
+    # policies may independently admit an unintended audience.
+    if any(p.get("decision") not in {"allow", "deny", "block"} for p in policies):
+        raise RuntimeError(f"{domain} has an unapproved Access policy decision")
+    if len(allows) != 1 or str(allows[0].get("name", "")).lower() != TARGET_POLICY_NAME.lower():
+        raise RuntimeError(f"{domain} must have exactly one {TARGET_POLICY_NAME} allow policy")
+    verified_allow = allows[0]
+    if not verified_allow.get("include"):
         raise RuntimeError(
             f"{domain} is not protected by a populated {TARGET_POLICY_NAME} allow policy"
         )
+    # This deployment supports explicit team email identities. A reusable
+    # group or new selector requires reviewed support, not implicit trust in
+    # a nested policy which could contain everyone/domain-wide access.
+    for rule in verified_allow["include"]:
+        value = rule.get("email") if isinstance(rule, dict) else None
+        email = value.get("email") if isinstance(value, dict) else None
+        if (not isinstance(rule, dict) or set(rule) != {"email"} or not isinstance(email, str)
+                or not re.fullmatch(r"[^\s@*]+@[^\s@*]+\.[^\s@*]+", email)):
+            raise RuntimeError(f"{domain} allow policy must contain explicit team email identities")
     return {
         "app": target.get("name") or TARGET_APP_NAME,
         "domain": domain,

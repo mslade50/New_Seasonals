@@ -59,30 +59,9 @@ def _persistable_receipt(receipt: dict) -> dict:
 
 @contextmanager
 def _receipt_lock(path: Path):
-    """Serialize same-machine claims without deleting a lock file."""
-    lock_path = path.with_suffix(path.suffix + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+b") as handle:
-        handle.seek(0, os.SEEK_END)
-        if handle.tell() == 0:
-            handle.write(b"0")
-            handle.flush()
-        handle.seek(0)
-        if os.name == "nt":
-            import msvcrt
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-            try:
-                yield
-            finally:
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    from research_io import file_lock
+    with file_lock(path):
+        yield
 
 
 def verdict_records(records: Iterable[dict], asof: str | None = None
@@ -464,7 +443,8 @@ def _reconcile_journal_locked(records: list[dict], journal_path: Path) -> int:
             missing.append(record)
             missing_counts[line] -= 1
 
-    written = pitch_journal.append(missing, journal_path)
+    # This function performs and verifies the mirror write below; do it once.
+    written = pitch_journal.append(missing, journal_path, push=False)
     final = verdict_records(pitch_journal.load(journal_path, pull=False), asof)
     final_lines = _canonical_lines(final)
     if (Counter(final_lines) != target_counts

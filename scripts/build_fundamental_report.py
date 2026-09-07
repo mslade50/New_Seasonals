@@ -27,6 +27,8 @@ from fundamental.metrics import build_metric_frame, compute_trend_metrics  # noq
 from fundamental.report import render_candidate_report  # noqa: E402
 from fundamental.research_controls import (  # noqa: E402
     apply_research_controls,
+    completed_diligence_requests,
+    current_research_allowed,
     load_research_controls,
 )
 from fundamental.research_process import summarize_research_funnel  # noqa: E402
@@ -83,16 +85,32 @@ def _load_research_prices(tickers: set[str]) -> pd.DataFrame:
 def _load_current_or_snapshots(
     kind: str, as_of: str, requested: list[str] | None
 ) -> pd.DataFrame:
+    # Restore missing historical issuer/datasets from immutable history, while
+    # retaining dated current rows on machines that only have current mirrors.
+    archived = load_latest_snapshot_parts(kind, as_of, requested)
     current_path = CURRENT_ROOT / f"{kind}_latest.parquet"
-    if current_path.exists():
-        frame = pd.read_parquet(current_path)
-        if "snapshot_as_of" in frame.columns:
-            frame = frame[frame["snapshot_as_of"].astype(str).le(as_of)]
-        if requested and "ticker" in frame.columns:
-            frame = frame[frame["ticker"].astype(str).str.upper().isin(requested)]
-        if not frame.empty:
-            return frame.reset_index(drop=True)
-    return load_latest_snapshot_parts(kind, as_of, requested)
+    current = pd.read_parquet(current_path) if current_path.exists() else pd.DataFrame()
+    frames = []
+    for origin, frame in enumerate((current, archived)):
+        if frame.empty or "snapshot_as_of" not in frame or "ticker" not in frame:
+            continue
+        frame = frame.copy()
+        frame["ticker"] = frame["ticker"].astype(str).str.upper()
+        dates = pd.to_datetime(frame["snapshot_as_of"], errors="coerce")
+        frame = frame[dates.notna() & dates.le(pd.Timestamp(as_of))]
+        if requested:
+            frame = frame[frame["ticker"].isin(requested)]
+        frame["_snapshot_origin"] = origin
+        frames.append(frame)
+    if not frames:
+        return pd.DataFrame()
+    combined = pd.concat(frames, ignore_index=True, sort=False)
+    keys = [column for column in ("ticker", "endpoint", "dataset") if column in combined]
+    combined = combined[combined["snapshot_as_of"].eq(combined.groupby(keys, dropna=False)["snapshot_as_of"].transform("max"))]
+    # For equal vintages prefer the immutable part as a whole, preserving its
+    # multiple historical statement rows instead of collapsing each dataset.
+    combined = combined[combined["_snapshot_origin"].eq(combined.groupby(keys, dropna=False)["_snapshot_origin"].transform("max"))]
+    return combined.drop(columns="_snapshot_origin").reset_index(drop=True)
 
 
 def _research_eligible_symbols(symbols: pd.DataFrame) -> pd.DataFrame:
@@ -158,11 +176,16 @@ def main() -> None:
     candidates = score_candidates(metrics, trend, as_of=as_of)
     research_controls, control_health = load_research_controls(SITE_STATE, as_of=as_of)
     event_state = load_research_event_state(as_of=as_of)
+    underwrite_decisions = load_underwrite_decisions(Path(args.underwrite_decisions))
+    completed_requests = {**event_state["completed_control_requests"],
+                          **completed_diligence_requests(underwrite_decisions, research_controls, as_of=as_of)}
+    control_health["completed_requests"] = completed_requests
     candidates = apply_research_controls(
         candidates,
         research_controls,
-        thesis_changed_tickers=event_state["thesis_changed_tickers"],
-        fired_trigger_tickers=event_state["fired_trigger_tickers"],
+        thesis_events=event_state["thesis_events"],
+        trigger_events=event_state["trigger_events"],
+        completed_control_requests=completed_requests,
     )
     research_funnel = summarize_research_funnel(candidates)
     research_funnel["controls"] = {
@@ -173,7 +196,6 @@ def main() -> None:
         "suppressed": int(candidates.get("research_suppressed", pd.Series(dtype=bool)).fillna(False).sum()),
     }
     portfolio_snapshot, portfolio_health = load_portfolio_snapshot(as_of=as_of)
-    underwrite_decisions = load_underwrite_decisions(Path(args.underwrite_decisions))
     metrics_path = write_current_parquet(metrics, "metrics_latest.parquet")
     candidates_path = write_current_parquet(candidates, "candidates_latest.parquet")
     company_maps_path, company_maps_support_path = build_company_maps_report(
@@ -205,9 +227,10 @@ def main() -> None:
     baseline_ready = {ticker for ticker, endpoints in endpoint_counts.items() if baseline_endpoints <= endpoints}
     sec_ready = set(sec_snapshot["ticker"].astype(str).str.upper()) if not sec_snapshot.empty else set()
     deep_ready = {ticker for ticker, endpoints in endpoint_counts.items() if deep_endpoints <= endpoints} & sec_ready
-    decision_ready = [
-        record for record in underwrite_decisions if is_surfaceable_quick_review(record)
-    ]
+    current_candidates = {str(row["ticker"]).upper(): row for row in candidates.to_dict("records")}
+    decision_ready = [record for record in underwrite_decisions
+                      if is_surfaceable_quick_review(record, decision_as_of=as_of)
+                      and current_research_allowed(current_candidates.get(str(record.get("ticker", "")).upper()))]
     lane_depth: dict[str, dict[str, int]] = {}
     if "research_lane" in symbols.columns:
         for lane, lane_rows in symbols.groupby("research_lane"):
