@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow"><title>Theo vs Actual — Seasonals</title>
+<link rel="stylesheet" href="assets/style.css"><script src="assets/common.js"></script><script src="assets/comparison.js"></script></head>
+<body><header class="topbar" id="topbar"></header><main class="wrap">
+<nav class="portfolio-tabs" aria-label="Portfolio views"><a href="index.html">Theoretical</a><a href="comparison.html" aria-current="page">Theo vs Actual</a></nav>
+<h1>Theo vs Actual · Primary algorithms</h1>
+<p class="sub">Recent closed-trade results alongside broker-reported realized PnL. Model dollars use the fixed $750k book; actual dollars use executed sizes. These are different accounting bases.</p>
+<div class="filters"><label>Window <select id="compare-days"><option value="7">7 calendar days</option><option value="14">14 calendar days</option></select></label><button class="btn" id="compare-refresh">Refresh</button></div>
+<p id="compare-status" role="status">Loading…</p><div class="card" id="compare-table"></div>
+<p class="cap">This view excludes untagged trades and strategy tags absent from the theoretical catalog. It does not infer live holdings from the modeled portfolio, compute execution slippage, or compare account returns. Missing broker PnL remains unknown. Actual mark-to-market and older history require the reconciled allocation ledger.</p>
+<a href="tradelog.html">Inspect executions and excluded tags in Trade Log →</a>
+</main></body></html>

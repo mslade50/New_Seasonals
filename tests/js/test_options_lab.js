@@ -77,6 +77,22 @@ assert.deepStrictEqual(
 const single = context.structureFrom("long put", [{ side: "BUY", row: shortPut }], "", { category: "single" });
 assert.strictEqual(single.mid, 2.00);
 assert.strictEqual(context.riskPerUnit(single), 201.30);
+assert.strictEqual(single.tradeable, true);
+assert.strictEqual(credit.tradeable, true);
+for (const legs of [
+  [{side:"SELL", row:shortPut}],
+  [{side:"BUY", row:shortPut}, {side:"BUY", row:{...longPut,right:"C"}}],
+  [{side:"SELL", row:shortPut}, {side:"BUY", row:{...longPut,expiry:"20270115"}}],
+  [{side:"BUY", row:{...shortPut,con_id:null}}],
+  [{side:"SELL", row:shortPut}, {side:"BUY", row:longPut}, {side:"BUY", row:longPut}],
+]) {
+  const unsupported=context.structureFrom("analysis",legs,"",{category:"analysis"});
+  assert.ok(context.optionExecutionIssue(legs,"20260918"));
+  if (unsupported) {
+    assert.strictEqual(unsupported.tradeable,false);
+    assert.ok(unsupported.execution_issue);
+  }
+}
 
 vm.runInNewContext(`
 state.params = {};

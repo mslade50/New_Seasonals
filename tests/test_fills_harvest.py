@@ -248,28 +248,17 @@ def test_empty_ring_with_a_recent_store_is_a_quiet_fortnight():
     assert "no-trade" in info["reason"]
 
 
-def test_empty_ring_threshold_is_retention_minus_one_trading_sessions():
-    # 13 sessions before Fri 2026-09-04 is Tue 2026-08-18: a store whose
-    # newest session IS the threshold day is inside the window; one session
-    # earlier (Mon 08-17) is outside it.
-    threshold = pd.Timestamp(TODAY) - 13 * hf.TRADING_DAY
-    assert threshold == pd.Timestamp("2026-08-18")
-    on = _store("2026-08-18T19:59:00+00:00")
-    before = _store("2026-08-17T19:59:00+00:00")
-    assert hf.detect_gap(on, hf.empty_frame(), retention_days=14, today=TODAY)["gap"] is False
-    assert hf.detect_gap(before, hf.empty_frame(), retention_days=14, today=TODAY)["gap"] is True
-
-
-def test_empty_ring_window_counts_trading_sessions_not_calendar_days():
-    # Anchor after Labor Day (Mon 2026-09-07 is an NYSE closure). 13 sessions
-    # before Tue 2026-09-08 is 2026-08-19; a calendar-day count would land on
-    # 08-26, and pd.bdate_range (no holidays) on 08-20.
+def test_empty_ring_threshold_matches_calendar_retention():
     today = "2026-09-08"
-    assert pd.Timestamp(today) - 13 * hf.TRADING_DAY == pd.Timestamp("2026-08-19")
-    inside = _store("2026-08-19T19:59:00+00:00")
-    outside = _store("2026-08-18T19:59:00+00:00")
+    inside = _store("2026-08-26T19:59:00+00:00")
+    outside = _store("2026-08-25T19:59:00+00:00")
     assert hf.detect_gap(inside, hf.empty_frame(), retention_days=14, today=today)["gap"] is False
     assert hf.detect_gap(outside, hf.empty_frame(), retention_days=14, today=today)["gap"] is True
+
+
+def test_empty_ring_does_not_extend_retention_over_holidays():
+    stored = _store("2026-08-19T19:59:00+00:00")
+    assert hf.detect_gap(stored, hf.empty_frame(), retention_days=14, today="2026-09-08")["gap"]
 
 
 def test_empty_ring_and_empty_store_is_a_clean_first_run():

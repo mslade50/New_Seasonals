@@ -4,18 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Pipeline — Seasonals</title>
+<title>System status — Seasonals</title>
 <link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/sleeve-status.css">
 <script src="assets/common.js"></script>
 <script src="assets/pipeline.js"></script>
+<script src="assets/sleeve-status.js"></script>
 </head>
 <body>
 <header class="topbar" id="topbar"></header>
 <div class="wrap">
-  <h1>Pipeline health</h1>
-  <p class="sub" id="subtitle">Data freshness, ledger provenance, and the automated schedule.</p>
+  <h1>System status</h1>
+  <p class="sub" id="subtitle">Strategy deployment, latest reports, and the daily pipeline.</p>
+  <section id="sleeves" aria-label="Sleeves and hedging">
+    <div class="sleeve-toolbar"><h2>Sleeves &amp; hedging</h2><button class="btn" id="sleeve-refresh" type="button">Refresh status</button></div>
+    <p class="cap">A scheduled task or intended position does not confirm a broker fill. Paper and research systems are labeled explicitly.</p>
+    <p class="cap" id="sleeve-updated" role="status" aria-live="polite">Checking source reports…</p>
+    <div class="sleeve-grid" id="sleeve-cards"></div>
+  </section>
   <div id="content"><div class="spin">Loading...</div></div>
-  <footer>Freshness is judged against the expected last trading day (US federal holiday calendar).</footer>
+  <footer>Sleeve reports refresh independently of the site build. Pipeline dates below describe the build's data snapshot.</footer>
 </div>
 </body>
 </html>

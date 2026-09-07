@@ -1141,7 +1141,7 @@ function renderCalendarBuilder() {
       <div class="cap">${backRow ? `Front/back IV ${fmt.pctRaw(frontRow.atm_iv * 100, 1)} / ${fmt.pctRaw(backRow.atm_iv * 100, 1)} · implied forward ${fwd != null ? fmt.pctRaw(fwd * 100, 1) : "invalid variance"}` : "Back expiry must follow the front."}</div></div>
     ${state.calendar.error ? `<div class="opt-risk-warn">${esc(state.calendar.error)}</div>` : ""}
     ${structure ? `<div class="opt-evidence-bar"><b>Added to Structure Shootout:</b> ${esc(structure.name)} at ${fmt.num(structure.mid, 2)} debit. Each leg retains its own expiry and time-to-expiry in scenario repricing.</div>` :
-      '<div class="cap" style="margin-top:8px">Long calendars are supported. Short calendars remain screen-only until the execution layer has an explicit margin and tail-loss model.</div>'}
+      '<div class="cap" style="margin-top:8px">Calendars are available for analysis. Execution currently supports long single options and same-expiry verticals.</div>'}
   </div>`;
   ["cal_front", "cal_back"].forEach((id) => document.getElementById(id).addEventListener("change", () => {
     state.calendar.front = document.getElementById("cal_front").value;
@@ -1319,6 +1319,17 @@ function legPrice(row, side, kind) {   // kind: "mid" | "nat"
   if (kind === "mid") return row.mid;
   return side === "BUY" ? row.ask : row.bid;   // natural: pay the ask, hit the bid
 }
+function optionExecutionIssue(legs, expiry) {
+  if (!legs || !legs.length || legs.some(l => !l.row || !l.row.con_id)) return "Contract qualification required";
+  if (legs.length === 1) return legs[0].side === "BUY" ? null : "Only long single options are executable";
+  if (legs.length !== 2) return "Analysis only: execution supports long single options and verticals";
+  const [a, b] = legs;
+  if (a.side === b.side || a.row.right !== b.row.right ||
+      (a.row.expiry || expiry) !== (b.row.expiry || expiry) || a.row.strike === b.row.strike) {
+    return "Analysis only: execution requires a same-expiry, same-right vertical";
+  }
+  return null;
+}
 function structureFrom(name, legs, note, meta = {}) {
   if (!legs || !legs.length || legs.length > 4 || legs.some((l) => !l.row)) return null;
   let signedMid = 0, signedNat = 0, delta = 0, gamma = 0, theta = 0, vega = 0, ok = true;
@@ -1340,7 +1351,8 @@ function structureFrom(name, legs, note, meta = {}) {
   return { name, legs, mid: round2(mid), nat: round2(nat), delta: round2(delta, 3),
            gamma: round2(gamma, 4), theta: round2(theta, 3), vega: round2(vega, 3),
            width: meta.width == null ? null : meta.width, credit, category: meta.category || "directional",
-           note: note || "", tradeable: legs.every((l) => l.row.con_id) };
+           note: note || "", execution_issue: optionExecutionIssue(legs, state.wb && state.wb.chain && state.wb.chain.expiry),
+           tradeable: !optionExecutionIssue(legs, state.wb && state.wb.chain && state.wb.chain.expiry) };
 }
 function spreadFrom(name, longRow, shortRow, right, note) {
   if (!longRow || (shortRow && longRow.strike === shortRow.strike)) return null;
@@ -1431,7 +1443,7 @@ function buildStructures() {
     add(calendarStructureFrom(state.calendar.frontChain, state.calendar.backChain,
       ["bearish", "hedge"].includes(view) ? "P" : "C", spot));
   }
-  if (!state.structures.some((s) => s.tradeable)) return;
+  if (!state.structures.length) return;
   if (!state.selStructure || !state.structures.some((s) => s.name === state.selStructure)) {
     state.selStructure = state.structures[0].name;
   }
@@ -1907,7 +1919,8 @@ function renderTicket() {
   const el = document.getElementById("ticket");
   const s = selStruct();
   const wb = state.wb;
-  if (!s || !s.tradeable || !wb) { el.innerHTML = ""; return; }
+  if (!s || !wb) { el.innerHTML = ""; return; }
+  if (!s.tradeable) { el.innerHTML = `<div class="card">${esc(s.execution_issue || "Analysis only: structure is not supported for execution")}</div>`; return; }
   const n = contractsFor(s, sizeAlloc());
   const action = s.credit ? "SELL" : "BUY";
   const dfltLimit = snapNetLimit(Math.max(0.05, s.mid + (s.credit ? 0.01 : -0.01)), action).toFixed(2);
@@ -1946,14 +1959,8 @@ function actionLead(verb) {
   return m === "dry-run" ? `Dry-run ${verb} (places nothing):` : `[WARN] LIVE — really ${verb}`;
 }
 
-const idemState = { id: null, key: null };
-function commandId(type, account, payload) {
-  const key = JSON.stringify({ type, account, payload });
-  if (idemState.key !== key || !idemState.id) {
-    idemState.id = crypto.randomUUID();
-    idemState.key = key;
-  }
-  return idemState.id;
+function commandId(type, account, payload, dryRun = false) {
+  return ExecutionIntents.getStore().begin({ type, account, payload, dry_run: dryRun }).id;
 }
 
 function canonicalPayloadLegs(struct, expiry, action) {
@@ -1970,10 +1977,12 @@ function sendOptionOrder() {
   const wb = state.wb, p = state.params;
   const msg = document.getElementById("tk_msg");
   if (!s || !wb) return;
+  const issue = optionExecutionIssue(s.legs, wb.chain.expiry);
+  if (issue) { msg.textContent = issue; return; }
   if (state.account !== "primary") { msg.textContent = "BLOCKED: options execution remains disabled for PA"; return; }
-  const qty = Math.floor(Number(document.getElementById("tk_qty").value));
+  const qty = Number(document.getElementById("tk_qty").value);
   const limit = Number(document.getElementById("tk_limit").value);
-  if (!(qty > 0)) { msg.textContent = "BLOCKED: qty must be a positive integer"; return; }
+  if (!(qty > 0) || !Number.isInteger(qty)) { msg.textContent = "BLOCKED: qty must be a positive integer"; return; }
   if (!(limit > 0)) { msg.textContent = "BLOCKED: limit must be > 0"; return; }
   if (s.width != null && limit >= s.width) { msg.textContent = `BLOCKED: net ${s.credit ? "credit" : "debit"} ${limit} >= width ${s.width}`; return; }
   const action = s.credit ? "SELL" : "BUY";
@@ -2010,23 +2019,30 @@ function sendOptionOrder() {
   sendCommand("option_spread", payload, "tk_msg");
 }
 
-async function sendCommand(type, payload, msgId) {
+async function sendCommand(type, payload, msgId, context = {}) {
   const msg = document.getElementById(msgId);
   if (msg) msg.textContent = "sending...";
-  const id = commandId(type, state.account, payload);
+  const account = context.account || state.account;
+  const dryRun = context.dryRun == null ? execMode() === "dry-run" : context.dryRun;
+  const request = { type, account, payload, dry_run: dryRun };
+  let sentId = null;
   try {
+    const store = ExecutionIntents.getStore();
+    const intent = store.begin(request);
     const r = await fetch("/exec-command", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, type, account: state.account, payload }),
+      body: JSON.stringify({ id: intent.id, ...request }),
     });
     const d = await r.json();
     const ok = r.ok && d && d.ok;
-    if (ok) { idemState.id = null; idemState.key = null; }
-    if (msg) msg.textContent = ok ? `queued ${(d.id || id).slice(0, 8)} — see Activity below` : `error: ${(d && d.error) || ("HTTP " + r.status)}`;
+    if (ok) { sentId = d.id || intent.id; store.accepted(intent); }
+    if (msg) msg.textContent = ok ? `accepted ${sentId.slice(0, 8)} — check Activity for delivery and fills`
+      : `not confirmed: ${(d && d.error) || ("HTTP " + r.status)}; retry retains the same intent`;
   } catch (e) {
-    if (msg) msg.textContent = "error: " + e;
+    if (msg) msg.textContent = "not confirmed: " + e + "; check Activity before retrying";
   }
   setTimeout(pollExec, 800);
+  return sentId;
 }
 
 /* ---------------- execution status / activity ---------------- */

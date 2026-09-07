@@ -23,7 +23,7 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_seasonal_map():
     """
     Loads seasonal ranks with EXACT DATE matching (YYYY-MM-DD).
@@ -67,7 +67,7 @@ def get_sznl_val_series(ticker, dates, sznl_map):
     # Strict Lookup: If date doesn't exist in CSV, return 50 (Neutral)
     return normalized_dates.map(t_map).fillna(50.0)
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def download_data(ticker):
     if not ticker: return pd.DataFrame()
     try:

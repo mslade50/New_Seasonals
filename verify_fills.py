@@ -24,6 +24,7 @@ TIMING NOTE:
     this script will mark them PENDING today and verify them tomorrow.
 """
 
+from sheets_io import replace_worksheet_values
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -433,8 +434,17 @@ def run_fill_verification():
     worksheet = sh.sheet1
     all_values = worksheet.get_all_values()
 
+    from producer_status import write_status
+
+    def receipt(requested, unavailable):
+        write_status(os.path.join(os.path.dirname(__file__), 'data', 'fill_verification_status.json'), {
+            'producer': 'fill_verification', 'status': 'degraded' if unavailable else 'ok',
+            'evidence_type': 'raw_bar_model_not_broker_confirmation', 'requested': requested,
+            'unavailable': unavailable, 'fallback': 'Preserve prior fill state on missing prices; verify available rows'})
+
     if len(all_values) < 2:
         print("[INFO]  No signals in log.")
+        receipt(0, [])
         return
 
     headers = all_values[0]
@@ -462,6 +472,7 @@ def run_fill_verification():
 
     if not indices_to_check:
         print("[OK] All signals within lookback window already verified.")
+        receipt(0, [])
         df.drop(columns=['_signal_date'], inplace=True)
         return
 
@@ -472,7 +483,7 @@ def run_fill_verification():
 
     # ── 5. Determine tickers and date range, fetch prices ──
     check_df = df.loc[indices_to_check]
-    tickers_needed = check_df['Ticker'].unique().tolist()
+    tickers_needed = check_df['Ticker'].astype(str).str.upper().str.strip().unique().tolist()
 
     min_signal_date = check_df['_signal_date'].min()
     exit_dates = pd.to_datetime(check_df['Time Exit'], errors='coerce')
@@ -486,6 +497,12 @@ def run_fill_verification():
     price_data = fetch_price_data(tickers_needed, min_signal_date, max_date)
     print(f"   [OK] Got data for {len(price_data)} / {len(tickers_needed)} tickers.\n")
 
+    missing_prices = sorted(t for t in tickers_needed
+                            if price_data.get(t) is None or price_data[t].empty)
+    receipt(len(tickers_needed), missing_prices)
+    if len(missing_prices) == len(tickers_needed):
+        raise RuntimeError('No usable price data for fill verification; existing fill states preserved')
+
     # ── 6. Verify each signal ──
     updates = 0
     status_summary = {'FILLED': 0, 'EXPIRED': 0, 'PENDING': 0, 'MANUAL_REVIEW': 0}
@@ -498,6 +515,9 @@ def run_fill_verification():
             continue
 
         ticker = str(row['Ticker']).upper().strip()
+        if ticker in missing_prices:
+            print(f'[DEGRADED] {ticker}: price source unavailable; prior fill state preserved')
+            continue
         order_class, offset, tif = classify_order(row, strategy_map)
 
         if order_class == 'UNKNOWN':
@@ -592,8 +612,7 @@ def run_fill_verification():
         last_error = None
         for attempt in range(1, 4):
             try:
-                worksheet.clear()
-                worksheet.update(values=data_to_write)
+                replace_worksheet_values(worksheet, data_to_write, expected_values=all_values)
                 readback = worksheet.get_all_values()
                 if (not readback or readback[0] != data_to_write[0]
                         or len(readback) != len(data_to_write)):

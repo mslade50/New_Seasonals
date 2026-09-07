@@ -22,10 +22,11 @@ sys.path.insert(0, str(ROOT))
 from fundamental.config import (  # noqa: E402
     BROAD_UNIVERSE_POLICY,
     CURRENT_ROOT,
-    FMP_ENDPOINTS,
     REPORT_ROOT,
 )
-from fundamental.research_controls import load_research_controls  # noqa: E402
+from fundamental.research_controls import (  # noqa: E402
+    apply_research_controls, completed_diligence_requests, current_research_allowed, load_research_controls,
+)
 from fundamental.research_state import (  # noqa: E402
     EVIDENCE_STATE_PATH,
     PORTFOLIO_SNAPSHOT_PATH,
@@ -42,7 +43,9 @@ from fundamental.run_manifest import (  # noqa: E402
     git_code_state,
     write_sleeve_run_manifest,
 )
-from fundamental.storage import iso_utc  # noqa: E402
+from fundamental.storage import iso_utc, snapshot_coverage, snapshot_part_path  # noqa: E402
+from fundamental.coverage import ready_coverage  # noqa: E402
+from fundamental.universe import select_balanced_enrichment_batch  # noqa: E402
 from fundamental.underwrite import is_surfaceable_quick_review, load_underwrite_decisions  # noqa: E402
 
 
@@ -72,24 +75,6 @@ def _eligible_universe() -> pd.DataFrame:
     return universe.drop_duplicates("ticker").reset_index(drop=True)
 
 
-def _endpoint_state(fmp: pd.DataFrame) -> tuple[dict[str, set[str]], dict[tuple[str, str], str]]:
-    endpoint_sets: dict[str, set[str]] = {}
-    endpoint_dates: dict[tuple[str, str], str] = {}
-    if fmp.empty or "ticker" not in fmp or "endpoint" not in fmp:
-        return endpoint_sets, endpoint_dates
-    frame = fmp.copy()
-    frame["ticker"] = frame["ticker"].astype(str).str.upper()
-    frame["endpoint"] = frame["endpoint"].astype(str)
-    for ticker, group in frame.groupby("ticker"):
-        endpoint_sets[ticker] = set(group["endpoint"].dropna())
-        if "snapshot_as_of" in group:
-            for endpoint, endpoint_group in group.groupby("endpoint"):
-                dates = pd.to_datetime(endpoint_group["snapshot_as_of"], errors="coerce")
-                if dates.notna().any():
-                    endpoint_dates[(ticker, endpoint)] = str(dates.max().date())
-    return endpoint_sets, endpoint_dates
-
-
 def build_run_plan(
     *,
     as_of: str,
@@ -99,28 +84,13 @@ def build_run_plan(
     universe = _eligible_universe()
     eligible = set(universe.get("ticker", pd.Series(dtype=object)).astype(str).str.upper())
     fmp = _read_parquet(FMP_CURRENT)
-    endpoint_sets, endpoint_dates = _endpoint_state(fmp)
-    baseline_endpoints = set(FMP_ENDPOINTS[:4])
-    deep_endpoints = set(FMP_ENDPOINTS)
-    cutoff = pd.Timestamp(as_of) - pd.Timedelta(days=BROAD_UNIVERSE_POLICY.refresh_after_days)
-
-    baseline_ready: set[str] = set()
-    for ticker in eligible:
-        if not baseline_endpoints <= endpoint_sets.get(ticker, set()):
-            continue
-        dates = [pd.to_datetime(endpoint_dates.get((ticker, endpoint)), errors="coerce") for endpoint in baseline_endpoints]
-        if all(pd.notna(value) and value >= cutoff for value in dates):
-            baseline_ready.add(ticker)
-
     sec = _read_parquet(SEC_CURRENT)
-    sec_ready = (
-        set(sec["ticker"].astype(str).str.upper())
-        if not sec.empty and "ticker" in sec else set()
-    )
-    deep_ready = {
-        ticker for ticker in eligible if deep_endpoints <= endpoint_sets.get(ticker, set())
-    } & sec_ready
+    baseline_ready, deep_ready, sec_ready = ready_coverage(fmp, sec, as_of=as_of)
+    baseline_ready &= eligible
+    deep_ready &= eligible
     baseline_gap = sorted(eligible - baseline_ready)
+    proposed_batch = select_balanced_enrichment_batch(
+        universe, batch_size, exclude_tickers=baseline_ready, include_specialists=True)
 
     lane_depth: dict[str, dict[str, int]] = {}
     if not universe.empty and "research_lane" in universe:
@@ -150,6 +120,14 @@ def build_run_plan(
 
     price_health = {"available": False, "stale": None}
     candidates = _read_parquet(CANDIDATES_CURRENT)
+    candidates = apply_research_controls(
+        candidates, controls, thesis_events=events["thesis_events"], trigger_events=events["trigger_events"],
+        completed_control_requests={**events["completed_control_requests"],
+                                    **completed_diligence_requests(decisions, controls, as_of=as_of)},
+    )
+    current_candidates = {str(row["ticker"]).upper(): row for row in candidates.to_dict("records")}
+    review_ready = [record for record in review_ready
+                    if current_research_allowed(current_candidates.get(str(record.get("ticker", "")).upper()))]
     if not candidates.empty and "price_as_of" in candidates:
         dates = pd.to_datetime(candidates["price_as_of"], errors="coerce")
         ages = (pd.Timestamp(as_of) - dates.dt.normalize()).dt.days
@@ -178,8 +156,8 @@ def build_run_plan(
         "coverage": {
             "baseline_ready": len(baseline_ready),
             "baseline_gap": len(baseline_gap),
-            "bounded_refresh_count": min(len(baseline_gap), batch_size),
-            "bounded_refresh_tickers": baseline_gap[:batch_size],
+            "bounded_refresh_count": len(proposed_batch),
+            "bounded_refresh_tickers": proposed_batch,
             "deep_ready": len(deep_ready),
             "decision_ready": len(review_ready),
             "sec_packages": len(sec_ready & eligible),
@@ -221,6 +199,29 @@ def _output_record(path: Path) -> dict[str, Any]:
     }
 
 
+def _source_paths(as_of):
+    paths = {
+        "broad_universe": BROAD_UNIVERSE, "symbol_master": ROOT / "data" / "symbol_master.parquet",
+        "fmp_current": FMP_CURRENT, "sec_current": SEC_CURRENT,
+        "master_prices": MASTER_PRICES, "overflow_prices": OVERFLOW_PRICES,
+        "underwrite_decisions": UNDERWRITE_DECISIONS, "site_research_controls": SITE_STATE,
+        "trigger_ledger": TRIGGER_STATE_PATH, "evidence_ledger": EVIDENCE_STATE_PATH,
+        "portfolio_snapshot": PORTFOLIO_SNAPSHOT_PATH,
+        "prior_run_manifest": RUN_MANIFEST_LATEST_PATH,
+    }
+    for kind in ("fmp", "sec"):
+        for row in snapshot_coverage(kind, as_of).itertuples(index=False):
+            path = snapshot_part_path(kind, row.snapshot_as_of, row.ticker, row.dataset)
+            paths[f"{kind}_part:{row.ticker}:{row.dataset}"] = path
+    return paths
+
+
+def _assert_sources_unchanged(before, as_of):
+    after = freeze_sources(_source_paths(as_of))
+    if before != after:
+        raise RuntimeError("Research inputs changed during report generation; outputs are unverified and no completed manifest was published")
+
+
 def execute_run(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     started_at = iso_utc()
     if args.refresh_universe or (args.refresh and plan["universe"]["stale"]):
@@ -235,7 +236,7 @@ def execute_run(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any
             sys.executable,
             "scripts/update_fundamentals.py",
             "--as-of", args.as_of,
-            "--balanced-batch", str(args.batch_size),
+            "--tickers", *plan["coverage"]["bounded_refresh_tickers"],
             "--include-specialists",
             "--bundle-depth", "screen",
             "--refresh-after-days", str(BROAD_UNIVERSE_POLICY.refresh_after_days),
@@ -245,6 +246,7 @@ def execute_run(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any
     if args.refresh_prices:
         _run([sys.executable, "scripts/build_overflow_prices.py", "--no-upload", "--exclude-today"])
 
+    source_freeze = freeze_sources(_source_paths(args.as_of))
     _run([
         sys.executable,
         "scripts/build_fundamental_report.py",
@@ -267,6 +269,7 @@ def execute_run(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any
         _run(["node", "tests/js/test_fundamentals_research_actions.js"])
         verification["javascript_tests"] = "PASS"
 
+    _assert_sources_unchanged(source_freeze, args.as_of)
     report_payload = json.loads(DAILY_REPORT_CURRENT.read_text(encoding="utf-8"))
     health = report_payload.get("health", {})
     decisions = report_payload.get("underwrite_decisions", [])
@@ -283,18 +286,6 @@ def execute_run(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any
         run_id=run_id,
         as_of=args.as_of,
     )
-    source_paths = {
-        "broad_universe": BROAD_UNIVERSE,
-        "fmp_current": FMP_CURRENT,
-        "sec_current": SEC_CURRENT,
-        "master_prices": MASTER_PRICES,
-        "overflow_prices": OVERFLOW_PRICES,
-        "underwrite_decisions": UNDERWRITE_DECISIONS,
-        "site_research_controls": SITE_STATE,
-        "trigger_ledger": TRIGGER_STATE_PATH,
-        "evidence_ledger": EVIDENCE_STATE_PATH,
-        "portfolio_snapshot": PORTFOLIO_SNAPSHOT_PATH,
-    }
     manifest = {
         "run_id": run_id,
         "as_of": args.as_of,
@@ -302,7 +293,8 @@ def execute_run(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any
         "completed_at": iso_utc(),
         "completion_status": "BUILT_AWAITING_VISUAL_QA",
         "code": git_code_state(),
-        "source_freeze": freeze_sources(source_paths),
+        "source_freeze": source_freeze,
+        "source_freeze_validation": "UNCHANGED_BEFORE_AND_AFTER_REPORT_BUILD",
         "coverage": health.get("coverage_depth", {}),
         "research_funnel": health.get("research_funnel", {}),
         "research_controls": health.get("research_control_state", {}),

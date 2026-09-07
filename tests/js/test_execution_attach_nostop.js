@@ -159,14 +159,14 @@ run(`state.book.accounts[0].orders = []`);
 // ---- mutation gate covers the new type ---------------------------------------
 assert.ok(run(`MUTATING_COMMANDS.has("exit_attach")`));
 run(`state.book = null; state.status = { online: false }`);   // unknown mode
-assert.strictEqual(run(`mutationBlocked("exit_attach")`), true);
+assert.strictEqual(run(`mutationBlocked("exit_attach")`), false);
 
 // ---- RISK_ACK secondary approval resend --------------------------------------
 run(`state.book = { accounts: [] }; state.status = { online: true }`);
 const sent = [];
 context.__capture = (type, payload) => { sent.push({ type, payload }); return Promise.resolve("new-id"); };
 run(`sendCommand = (type, payload, msgId) => __capture(type, payload)`);
-run(`riskAckPending.set("cmd-1", { type: "entry_bracket",
+run(`riskAckPending.set("cmd-1", { type: "entry_bracket", account: "primary", dryRun: true,
   payload: { symbol: "USO", action: "BUY", quantity: 10, entry: 50, stop: null } })`);
 run(`state.commands = [{ id: "cmd-1", state: "rejected",
   result: { fill: { needs_risk_ack: true, est_risk: 5000, est_bps: 80 } } }]`);

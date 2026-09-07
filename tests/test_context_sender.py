@@ -267,12 +267,13 @@ def test_flag_state_advances_only_what_published(tmp_path, monkeypatch):
     assert flags["E:nfp|^VIX|k1"]["last_published"] == "2026-08-10"
 
 
-def test_corrupt_flag_state_is_rebuilt_not_fatal(tmp_path, monkeypatch):
+def test_corrupt_flag_state_is_preserved_and_reported(tmp_path, monkeypatch):
     path = tmp_path / "flags.json"
     path.write_text("{not json", encoding="utf-8")
     monkeypatch.setattr(snd, "FLAG_STATE_PATH", path)
-    snd.advance_flag_state(GOOD_SIDECAR, "2026-08-09")
-    assert json.loads(path.read_text(encoding="utf-8"))["flags"]
+    with pytest.raises(ValueError):
+        snd.advance_flag_state(GOOD_SIDECAR, "2026-08-09")
+    assert path.read_text(encoding="utf-8") == "{not json"
 
 
 def test_journal_appends_one_record_per_nugget(tmp_path, monkeypatch):

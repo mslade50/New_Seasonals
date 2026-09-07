@@ -11,6 +11,7 @@ import pandas as pd
 
 from .config import POLICY_VERSION
 from .underwrite import is_surfaceable_quick_review
+from .research_controls import current_research_allowed
 
 
 def _esc(value: Any) -> str:
@@ -101,13 +102,16 @@ def render_candidate_report(
     underwrite_decisions = underwrite_decisions or []
     counts = candidates["research_priority"].value_counts().to_dict() if not candidates.empty else {}
     total = len(candidates)
+    current_candidates = {str(row["ticker"]).upper(): row for row in candidates.to_dict("records")}
+    visible_decisions = [r for r in underwrite_decisions
+                         if current_research_allowed(current_candidates.get(str(r.get("ticker", "")).upper()))]
     quick_records = [
-        record for record in underwrite_decisions
+        record for record in visible_decisions
         if str(record.get("decision") or "").upper() == "QUICK_REVIEW"
         and is_surfaceable_quick_review(record, decision_as_of=health.get("as_of"))
     ][:3]
     active_records = [
-        record for record in underwrite_decisions
+        record for record in visible_decisions
         if str(record.get("decision") or "").upper() in {"WAIT_FOR_PROOF", "WAIT_FOR_EVENT"}
     ][:3]
     a_count = len(quick_records)

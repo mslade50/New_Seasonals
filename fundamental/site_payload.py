@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .underwrite import is_surfaceable_quick_review, normalize_underwrite_record
+from .research_controls import current_research_allowed
 
 
 QUICK_REVIEW = "QUICK_REVIEW"
@@ -238,6 +239,8 @@ def _review_row(
         "price_as_of": _text(decision.get("price_as_of")),
         "exact_decision": _text(decision.get("review_request")),
         "sources": _source_rows(decision.get("source_rows") or decision.get("sources")),
+        "control_updated_at": candidate.get("control_updated_at"),
+        "control_disposition": candidate.get("control_disposition"),
         **_company_tags(ticker, candidate, circle_by_ticker, founder_tickers),
     }
 
@@ -257,6 +260,8 @@ def _active_row(
         "verdict": _text(decision.get("verdict")),
         "next_review": _text(decision.get("next_review_summary") or decision.get("next_review")),
         "price_as_of": _text(decision.get("price_as_of")),
+        "control_updated_at": candidate.get("control_updated_at"),
+        "control_disposition": candidate.get("control_disposition"),
         **_company_tags(ticker, candidate, circle_by_ticker, founder_tickers),
     }
 
@@ -306,12 +311,19 @@ def build_fundamental_site_payload(
 
     quick_reviews = []
     active_research = []
+    archived_research = []
     for decision in valid_decisions:
         ticker = _text(decision.get("ticker")).upper()
         if not ticker:
             continue
         candidate = candidate_by_ticker.get(ticker, {})
         status = _text(decision.get("decision")).upper()
+        if not current_research_allowed(candidate):
+            archived_research.append({
+                **_active_row(decision, candidate, circle_by_ticker, founder_tickers),
+                "archive_reason": candidate.get("research_control") or "NOT_IN_CURRENT_UNIVERSE",
+            })
+            continue
         if (
             status == QUICK_REVIEW
             and is_surfaceable_quick_review(decision, decision_as_of=health_as_of)
@@ -337,6 +349,7 @@ def build_fundamental_site_payload(
         "as_of": _text(health.get("as_of") or maps_meta.get("as_of")),
         "status": QUICK_REVIEW if quick_reviews else "NO_REVIEW",
         "reviews": quick_reviews,
+        "archived_research": archived_research,
         "active_research": active_research,
         "portfolio": {
             "position_count": None,

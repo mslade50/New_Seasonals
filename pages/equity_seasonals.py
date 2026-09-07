@@ -113,7 +113,7 @@ def get_current_cycle_label():
 # -----------------------------------------------------------------------------
 # DATA LOADING (TOP TABLE)
 # -----------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_seasonal_map():
     """
     Loads the CSV and creates a dictionary of TimeSeries for each ticker.
@@ -160,7 +160,7 @@ def get_sznl_val(ticker, target_date, sznl_map):
     except:
         return np.nan
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_atr_seasonal_map():
     """Load ATR seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}.
 
@@ -210,7 +210,7 @@ def percentile_rank(series: pd.Series, value) -> float:
     if np.isnan(v): return np.nan
     return float((s <= v).sum() / s.size * 100.0)
 
-@st.cache_data(show_spinner=True)
+@st.cache_data(ttl=3600, show_spinner=True)
 def load_sector_metrics(tickers):
     sznl_map = load_seasonal_map()
     atr_sznl_map = load_atr_seasonal_map()
@@ -293,7 +293,7 @@ def load_sector_metrics(tickers):
 # CHARTING LOGIC (SEASONALITY)
 # -----------------------------------------------------------------------------
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_chart_data(ticker):
     # Fetch Max History for the Seasonal Chart
     end_date_fetch = dt.datetime.now() + timedelta(days=5)

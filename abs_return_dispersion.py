@@ -251,8 +251,10 @@ def compute_dispersion_series(
         raise ValueError("Price matrix has no constituent columns (only the index).")
 
     # Window returns (simple pct_change, not log — matches Nomura)
-    constituent_returns = price_matrix[constituent_cols].pct_change(window)
-    index_returns = price_matrix[index_col].pct_change(window)
+    # Only observed, finite positive endpoints constitute a return.
+    price_matrix = price_matrix.where(np.isfinite(price_matrix) & (price_matrix > 0))
+    constituent_returns = price_matrix[constituent_cols].pct_change(window, fill_method=None)
+    index_returns = price_matrix[index_col].pct_change(window, fill_method=None)
 
     # Absolute returns
     abs_constituent_returns = constituent_returns.abs()

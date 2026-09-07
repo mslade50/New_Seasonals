@@ -104,7 +104,7 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cuto
     multiplier, fragility score, regime, running equity.
     """
     df = sig_df.copy()
-    df = df[df['Strategy'].isin(enabled_strategies)].sort_values('Exit Date').reset_index(drop=True)
+    df = df[df['Strategy'].isin(enabled_strategies)].sort_values('Entry Date', kind='stable').reset_index(drop=True)
 
     if df.empty:
         return df
@@ -112,8 +112,16 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cuto
     baseline_equity = starting_equity
     test_equity = starting_equity
     rows = []
+    import heapq
+    pending_exits = []
 
-    for _, row in df.iterrows():
+    for sequence, row in df.iterrows():
+        entry_date = pd.Timestamp(row["Entry Date"])
+        # Same-day exits are close events and cannot finance that day's entries.
+        while pending_exits and pending_exits[0][0] < entry_date:
+            _, _, settled_base, settled_test = heapq.heappop(pending_exits)
+            baseline_equity += settled_base
+            test_equity += settled_test
         signal_date = row['Date']
         # Look up fragility
         frag_score = 0.0
@@ -149,7 +157,7 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cuto
             pnl_per_share = row['Price'] - row['Exit Price']
 
         base_pnl = round(pnl_per_share * base_shares, 0)
-        baseline_equity += base_pnl
+        # Realized only when the exit date is reached.
 
         # Fragility-adjusted sizing
         skipped = False
@@ -170,7 +178,7 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cuto
         test_base_shares = int(test_risk_dollar / dist)
         adj_shares = int(round(test_base_shares * adj_mult)) if not skipped else 0
         adj_pnl = round(pnl_per_share * adj_shares, 0)
-        test_equity += adj_pnl
+        heapq.heappush(pending_exits, (pd.Timestamp(row["Exit Date"]), sequence, base_pnl, adj_pnl))
 
         rows.append({
             'Date': signal_date,
@@ -195,7 +203,15 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cuto
             'Test Equity': test_equity,
         })
 
-    return pd.DataFrame(rows)
+    result = pd.DataFrame(rows)
+    if not result.empty:
+        result = result.sort_values("Exit Date", kind="stable").reset_index(drop=True)
+        # End-of-day reporting includes all exits that date; entry sizing above
+        # uses only capital already realized before the entry session.
+        for pnl_col, equity_col in [("Orig PnL", "Baseline Equity"), ("Adj PnL", "Test Equity")]:
+            daily_equity = starting_equity + result.groupby("Exit Date")[pnl_col].sum().cumsum()
+            result[equity_col] = result["Exit Date"].map(daily_equity)
+    return result
 
 
 # ─── Metrics helpers ────────────────────────────────────────────────────────

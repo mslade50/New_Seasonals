@@ -141,7 +141,8 @@ def test_pass_reopens_only_on_thesis_changing_evidence():
     candidates = apply_research_routes(pd.DataFrame([_screen_row("AAA")]))
     controls = {"AAA": {"action": "PASS", "updated_at": "2026-08-05T12:00:00Z"}}
     unchanged = apply_research_controls(candidates, controls)
-    changed = apply_research_controls(candidates, controls, thesis_changed_tickers={"AAA"})
+    changed = apply_research_controls(candidates, controls, thesis_events=[{"ticker": "AAA", "materiality": "THESIS_CHANGING",
+                       "observed_at": "2026-08-05T13:00:00Z"}])
     assert bool(unchanged.iloc[0]["research_suppressed"])
     assert not bool(changed.iloc[0]["research_suppressed"])
     assert changed.iloc[0]["control_disposition"] == "REOPENED_BY_THESIS_CHANGE"

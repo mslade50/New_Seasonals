@@ -222,13 +222,18 @@ class Storage {{
   async get(key) {{ const v=this.values.get(key); return v == null ? v : structuredClone(v); }}
   async put(key, value) {{ this.values.set(key, structuredClone(value)); }}
   async delete(key) {{ this.values.delete(key); }}
-  async list({{prefix=""}}={{}}) {{
-    return new Map([...this.values].filter(([key]) => key.startsWith(prefix))
+  async list({{prefix="",startAfter="",limit=1000}}={{}}) {{
+    return new Map([...this.values].filter(([key]) => key.startsWith(prefix) && key > startAfter)
+      .sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0).slice(0,limit)
       .map(([key,value]) => [key, structuredClone(value)]));
   }}
 }}
 const storage = new Storage();
 const broker = new mod.ExecBroker({{storage, getWebSockets(){{return [];}}}}, {{}});
+const mergeBook = broker._mergeFills.bind(broker);
+broker._mergeFills = book => mergeBook({{...book, accounts:(book.accounts || []).map(a => ({{
+  ...a, broker_account:"fixture-primary", fills:(a.fills || []).map(f => ({{...f, account:"fixture-primary"}})),
+}}))}});
 const day1 = Date.now() - 86_400_000, day2 = Date.now();
 const command = {{type:"entry_bracket", account:"primary", created_at:day1-60_000,
   payload:{{symbol:"OXY",sec_type:"STK",action:"BUY",quantity:100}},

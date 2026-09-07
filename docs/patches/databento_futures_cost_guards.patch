@@ -1,0 +1,47 @@
+--- a/scripts/databento_futures.py
++++ b/scripts/databento_futures.py
+@@ -13,6 +13,7 @@
+ 
+ import argparse
+ import getpass
++import math
+ import os
+ from dataclasses import dataclass
+ from datetime import date
+@@ -149,10 +150,25 @@
+     env_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+ 
+ 
++def _finite_nonnegative(value: Any, name: str) -> float:
++    if isinstance(value, bool):
++        raise ValueError(f"{name} must be a finite nonnegative number.")
++    try:
++        result = float(value)
++    except (TypeError, ValueError, OverflowError) as exc:
++        raise ValueError(f"{name} must be a finite nonnegative number.") from exc
++    if not math.isfinite(result) or result < 0:
++        raise ValueError(f"{name} must be a finite nonnegative number.")
++    return result
++
++
+ def get_quote(client: Any, spec: RequestSpec) -> tuple[float, int]:
+     kwargs = spec.metadata_kwargs()
+-    cost = float(client.metadata.get_cost(**kwargs))
+-    billable_size = int(client.metadata.get_billable_size(**kwargs))
++    cost = _finite_nonnegative(client.metadata.get_cost(**kwargs), "Fresh quote")
++    size = _finite_nonnegative(client.metadata.get_billable_size(**kwargs), "Billable size")
++    if not size.is_integer():
++        raise ValueError("Billable size must be an integer number of bytes.")
++    billable_size = int(size)
+     return cost, billable_size
+ 
+ 
+@@ -182,6 +198,8 @@
+         )
+     if max_cost_usd is None:
+         raise ValueError("Refusing to submit without --max-cost-usd.")
++    cost = _finite_nonnegative(cost, "Fresh quote")
++    max_cost_usd = _finite_nonnegative(max_cost_usd, "Maximum cost")
+     if cost > max_cost_usd:
+         raise ValueError(
+             f"Fresh quote ${cost:,.2f} exceeds --max-cost-usd ${max_cost_usd:,.2f}."

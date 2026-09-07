@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "run_mode": "SHADOW",
+  "as_of": "2026-09-05T21:30:00+00:00",
+  "source_max_age_hours": 36,
+  "catalog_max_age_days": 30,
+  "required_source_ids": [
+    "x:example_quant_account"
+  ],
+  "source_locator_allowlist": {
+    "x:example_quant_account": {
+      "kind": "ACCOUNT",
+      "value": "@example_quant_account"
+    }
+  },
+  "report_title": "Daily Strategy Discovery — Shadow",
+  "policy": {
+    "auto_lifecycle_ceiling": "RESEARCH_READY",
+    "x_discovery_only": true
+  }
+}

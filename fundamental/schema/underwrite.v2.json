@@ -36,6 +36,8 @@
     "underwrite_id": {"type": "string", "minLength": 8},
     "ticker": {"type": "string", "minLength": 1},
     "as_of": {"type": "string", "format": "date"},
+    "research_control_updated_at": {"type": "string", "format": "date-time", "description": "Exact DEEPEN request revision answered by this completed diligence pass."},
+    "completed_at": {"type": "string", "format": "date-time"},
     "decision": {
       "enum": ["QUICK_REVIEW", "WAIT_FOR_PROOF", "WAIT_FOR_EVENT", "PASS"]
     },
@@ -58,6 +60,15 @@
         "diluted_shares": {"type": "number", "exclusiveMinimum": 0},
         "net_debt": {"type": "number"},
         "enterprise_value": {"type": "number"},
+        "share_unit_multiplier": {"type": "number", "exclusiveMinimum": 0, "default": 1},
+        "money_unit_multiplier": {"type": "number", "exclusiveMinimum": 0, "default": 1},
+        "quote_source_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "Current dated quote evidence; source_ids is used when omitted."},
+        "ev_adjustments": {"type": "array", "items": {
+          "type": "object", "required": ["label", "amount", "source_ids"], "properties": {
+            "label": {"type": "string", "minLength": 1}, "amount": {"type": "number"},
+            "source_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+          }
+        }},
         "source_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}
       },
       "additionalProperties": true

@@ -90,6 +90,24 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/site_r2_pipeline.py pull --phase generator --root .
 
+      - name: Regenerate corrected ATR Seasonal history when required
+        working-directory: generator
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python scripts/regenerate_atr_seasonal_ranks.py \
+            --prices data/master_prices.parquet \
+            --ranks atr_seasonal_ranks.parquet \
+            --receipt data/atr_seasonal_rank_regeneration.json
+          python scripts/site_r2_pipeline.py promote-canonical \
+            --root . \
+            --name atr_seasonal_ranks \
+            --receipt data/atr_seasonal_rank_regeneration.json \
+            --run-id "${{ github.run_id }}-${{ github.run_attempt }}"
+
       - name: Build full-history trade ledger
         working-directory: generator
         # R2 env needed: build_trade_ledger mirrors the ledger to R2 for

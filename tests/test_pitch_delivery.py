@@ -166,6 +166,7 @@ def test_production_journal_reconciliation_fails_when_r2_upload_fails(
     import cache_io
 
     journal_path = tmp_path / "production-journal.jsonl"
+    journal_path.touch()  # Explicit empty bootstrap; a failed remote pull is not an empty journal.
     monkeypatch.setattr(pitch_journal, "JOURNAL_PATH", journal_path)
     monkeypatch.setattr(cache_io, "is_configured", lambda: True)
     monkeypatch.setattr(cache_io, "upload_from_local", lambda *args: False)
@@ -179,6 +180,7 @@ def test_production_journal_is_downloaded_and_digest_verified(
     import cache_io
 
     journal_path = tmp_path / "production-journal.jsonl"
+    journal_path.touch()  # Explicit synthetic bootstrap before the upload/download cycle.
     cloud = {"body": None}
     monkeypatch.setattr(pitch_journal, "JOURNAL_PATH", journal_path)
     monkeypatch.setattr(delivery, "R2_JOURNAL_DOWNLOAD_DIR",

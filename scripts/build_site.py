@@ -197,12 +197,15 @@ def _clean(v):
 
 
 def write_json(obj, path):
+    from scripts.json_payloads import dumps_payload, finite_json
     if _SITE_BUILD_ID and isinstance(obj, dict):
         obj = {"_site_build_id": _SITE_BUILD_ID, **obj}
         obj["_site_build_id"] = _SITE_BUILD_ID
+    obj = finite_json(obj)
+    encoded = dumps_payload(obj)  # serialization must succeed before opening the output
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, separators=(",", ":"), ensure_ascii=False)
+        f.write(encoded)
     print(f"  wrote {os.path.relpath(path, _ROOT)}  ({os.path.getsize(path)/1024:.0f} KB)")
     return obj
 

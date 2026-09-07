@@ -2,7 +2,7 @@
 
 Self-contained by design. The denali report card's sender is the model for the
 mechanics (one colored attachment, mrkdwn conversion, webhook-first delivery,
-429/5xx-only retry, --dry-run) but nothing is imported across repos: the two
+durable delivery claims, --dry-run) but nothing is imported across repos: the two
 products share a channel, not a codebase.
 
     python scripts/send_context_slack.py                    # today's brief
@@ -34,18 +34,21 @@ import json
 import os
 import re
 import sys
-import time
 import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from research_delivery import DeliveryNotSent, DeliveryUncertain, deliver_once, digest
+from research_io import append_jsonl, file_lock, read_json, read_jsonl, write_json
 BRIEF_DIR = ROOT / "data" / "context_briefs"
 CELL_MAP_DIR = ROOT / "scratch" / "context_checks"
 FLAG_STATE_PATH = ROOT / "data" / "context_flag_state.json"
 JOURNAL_PATH = ROOT / "data" / "context_journal.jsonl"
 ENV_PATH = ROOT / ".env"
+DELIVERY_RECEIPT_PATH = ROOT / "data" / "context_delivery_receipts.jsonl"
 
 SLACK_POST_URL = "https://slack.com/api/chat.postMessage"
 
@@ -349,106 +352,103 @@ def build_blocks(brief: dict, sidecar: dict) -> tuple[list[dict], str]:
 
 # ---------- post ----------
 
-def post_via_webhook(url: str, text: str, blocks: list[dict], color: str,
-                     retries: int = 2) -> None:
-    """Webhooks take the chat.postMessage shape minus auth and channel, and
-    answer with the literal body 'ok'. 429 and 5xx are transient and retried;
-    every other 4xx is a config error that will not fix itself."""
-    payload = {"text": text,
-               "attachments": [{"color": color, "fallback": text, "blocks": blocks}]}
-    data = json.dumps(payload).encode("utf-8")
-    last_err: str | None = None
-    for attempt in range(1, retries + 2):
-        req = urllib.request.Request(
-            url, data=data, method="POST",
-            headers={"Content-Type": "application/json; charset=utf-8"})
+def _slack_request(request):
+    # A timeout or 5xx can follow acceptance. There is no automatic replay of
+    # a non-idempotent message request; the durable caller retains uncertainty.
+    try:
+        response = urllib.request.urlopen(request, timeout=30)
+    except urllib.error.HTTPError as exc:
+        if 400 <= exc.code < 500:
+            raise DeliveryNotSent(f"Slack rejected HTTP {exc.code}") from exc
+        raise DeliveryUncertain("Slack delivery response was not confirmed") from exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise DeliveryUncertain("Slack delivery response was not confirmed") from exc
+    try:
+        return response.status, response.read().decode("utf-8").strip()
+    except Exception as exc:
+        raise DeliveryUncertain("Slack delivery response could not be read") from exc
+    finally:
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                body = resp.read().decode("utf-8").strip()
-            if resp.status == 200 and body == "ok":
-                return
-            raise SystemExit(f"Webhook post rejected: HTTP {resp.status} body={body!r}")
-        except urllib.error.HTTPError as err:
-            detail = ""
-            try:
-                detail = err.read().decode("utf-8").strip()
-            except Exception:  # noqa: BLE001
-                pass
-            if err.code == 429 or err.code >= 500:
-                last_err = f"HTTP {err.code} {detail!r}"
-                print(f"  webhook attempt {attempt}/{retries + 1} failed: {last_err}")
-                if attempt <= retries:
-                    try:
-                        delay = float(err.headers.get("Retry-After") or 0)
-                    except (TypeError, ValueError):
-                        delay = 0.0
-                    time.sleep(min(max(delay, 2.0 * attempt), 30.0))
-                continue
-            raise SystemExit(f"Webhook post rejected: HTTP {err.code} {detail!r} "
-                             f"(check SLACK_WEBHOOK_URL is current)")
-        except urllib.error.URLError as err:
-            last_err = f"{type(err).__name__}: {err}"
-            print(f"  webhook attempt {attempt}/{retries + 1} failed: {last_err}")
-    raise SystemExit(f"Webhook post FAILED after {retries + 1} attempts: {last_err}")
+            response.close()
+        except Exception:
+            pass
+
+
+def post_via_webhook(url: str, text: str, blocks: list[dict], color: str,
+                     retries: int = 0) -> None:
+    if retries:
+        raise ValueError("Automatic message retries are unsupported; use the durable delivery receipt")
+    payload = {"text": text, "attachments": [{"color": color, "fallback": text, "blocks": blocks}]}
+    request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json; charset=utf-8"})
+    status, body = _slack_request(request)
+    if status == 200 and body == "ok":
+        return
+    raise DeliveryUncertain("Webhook acceptance was not confirmed; reconcile before retrying")
 
 
 def post_via_token(token: str, channel: str, text: str, blocks: list[dict],
-                   color: str, retries: int = 2) -> None:
+                   color: str, retries: int = 0) -> None:
+    if retries:
+        raise ValueError("Automatic message retries are unsupported; use the durable delivery receipt")
     payload = {"channel": channel, "text": text,
                "attachments": [{"color": color, "fallback": text, "blocks": blocks}]}
-    data = json.dumps(payload).encode("utf-8")
-    last_err: str | None = None
-    for attempt in range(1, retries + 2):
-        req = urllib.request.Request(
-            SLACK_POST_URL, data=data, method="POST",
-            headers={"Authorization": f"Bearer {token}",
-                     "Content-Type": "application/json; charset=utf-8"})
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-            if body.get("ok"):
-                return
-            raise SystemExit(f"Slack post rejected: {body.get('error')} "
-                             f"(channel={channel}; is the bot invited?)")
-        except urllib.error.URLError as err:
-            last_err = f"{type(err).__name__}: {err}"
-            print(f"  post attempt {attempt}/{retries + 1} failed: {last_err}")
-    raise SystemExit(f"Slack post FAILED after {retries + 1} attempts: {last_err}")
+    request = urllib.request.Request(SLACK_POST_URL, data=json.dumps(payload).encode("utf-8"), method="POST",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"})
+    status, text = _slack_request(request)
+    try:
+        body = json.loads(text)
+    except ValueError as exc:
+        raise DeliveryUncertain("Slack returned an unreadable acceptance response") from exc
+    if status == 200 and body.get("ok") is True:
+        return
+    if status == 200 and body.get("ok") is False:
+        raise DeliveryNotSent("Slack explicitly rejected the message")
+    raise DeliveryUncertain("Slack acceptance was not confirmed; reconcile before retrying")
 
 
 # ---------- after publish ----------
 
-def advance_flag_state(sidecar: dict, run_date: str) -> int:
+def _load_flag_state():
+    if not FLAG_STATE_PATH.exists():
+        return {"version": 1, "flags": {}}
+    state = read_json(FLAG_STATE_PATH)
+    if not isinstance(state, dict) or not isinstance(state.get("flags"), dict):
+        raise ValueError("Context novelty baseline is invalid; evidence preserved")
+    return state
+
+
+def advance_flag_state(sidecar: dict, run_date: str, delivery_id=None) -> int:
     """Move the novelty baseline forward for exactly what published.
 
     Deliberately here and not in the engine: the engine runs before anything
     is chosen, so it cannot know what was published, and advancing on a run
     that never posted would block tomorrow's brief from saying something it
     never said."""
-    state = {"version": 1, "flags": {}}
-    if FLAG_STATE_PATH.exists():
-        try:
-            loaded = json.loads(FLAG_STATE_PATH.read_text(encoding="utf-8"))
-            if isinstance(loaded.get("flags"), dict):
-                state = loaded
-        except (OSError, json.JSONDecodeError):
-            pass   # a corrupt baseline is rebuilt, never allowed to block a post
+    with file_lock(FLAG_STATE_PATH):
+        return _advance_flag_state(sidecar, run_date, delivery_id)
+
+
+def _advance_flag_state(sidecar, run_date, delivery_id):
+    state = _load_flag_state()
     flags = state.setdefault("flags", {})
     for nugget in sidecar.get("nuggets") or []:
         fp = nugget.get("fingerprint")
         if not fp:
             continue
         prior = flags.get(fp) or {}
+        if delivery_id and prior.get("delivery_id") == delivery_id:
+            continue
         flags[fp] = {"last_published": run_date,
                      "last_headline_number": nugget.get("mean_pct"),
                      "count": int(prior.get("count", 0)) + 1,
-                     "cell": nugget.get("cell")}
+                     "cell": nugget.get("cell"), "delivery_id": delivery_id}
     state["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
-    FLAG_STATE_PATH.write_text(json.dumps(state, indent=1), encoding="utf-8")
+    write_json(FLAG_STATE_PATH, state)
     return len(sidecar.get("nuggets") or [])
 
 
-def append_journal(sidecar: dict, run_date: str, brief_path: Path) -> int:
+def append_journal(sidecar: dict, run_date: str, brief_path: Path, delivery_id=None) -> int:
     """The audit trail of what was claimed. Nothing replays it (no scoreboard,
     McKinley 2026-08-09); it exists so a claim can be traced back."""
     stamp = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -470,9 +470,14 @@ def append_journal(sidecar: dict, run_date: str, brief_path: Path) -> int:
                                 "brief": brief_path.name, "kind": "quiet",
                                 "model": model, "effort": effort},
                                ensure_ascii=False))
-    with JOURNAL_PATH.open("a", encoding="utf-8") as fh:
-        fh.write("\n".join(rows) + "\n")
-    return len(rows)
+    records = [dict(json.loads(row), delivery_id=delivery_id) for row in rows]
+    with file_lock(JOURNAL_PATH):
+        existing = read_jsonl(JOURNAL_PATH)
+        if delivery_id:
+            seen = {(r.get("delivery_id"), r.get("kind"), r.get("rank")) for r in existing}
+            records = [r for r in records if (delivery_id, r.get("kind"), r.get("rank")) not in seen]
+        append_jsonl(JOURNAL_PATH, records)
+    return len(records)
 
 
 # ---------- main ----------
@@ -502,7 +507,7 @@ def main() -> int:
                          "advance nothing")
     ap.add_argument("--no-state", action="store_true",
                     help="post but do not advance the novelty baseline or the "
-                         "journal (re-posting an already-journaled brief)")
+                         "journal; durable delivery deduplication still applies")
     ap.add_argument("--skip-freshness", action="store_true",
                     help="allow posting a brief that is not dated today")
     args = ap.parse_args()
@@ -554,9 +559,13 @@ def main() -> int:
                          f"brief, not the gate.")
 
     webhook = args.webhook_url or os.environ.get("SLACK_WEBHOOK_URL")
+    if not args.no_state:
+        _load_flag_state()
+        read_jsonl(JOURNAL_PATH)
     if webhook:
         print(f"Posting '{subject}' from {brief_path.name} via incoming webhook...")
-        post_via_webhook(webhook, subject, blocks, color)
+        send = lambda: post_via_webhook(webhook, subject, blocks, color)
+        destination = digest(webhook)
         via = "webhook"
     else:
         token = os.environ.get("SLACK_BOT_TOKEN")
@@ -567,17 +576,22 @@ def main() -> int:
         if not channel:
             raise SystemExit("Missing SLACK_CHANNEL_ID in .env (or --channel)")
         print(f"Posting '{subject}' from {brief_path.name} to {channel}...")
-        post_via_token(token, channel, subject, blocks, color)
+        send = lambda: post_via_token(token, channel, subject, blocks, color)
+        destination = digest(channel)
         via = f"chat.postMessage/{channel}"
 
+    delivery = deliver_once(DELIVERY_RECEIPT_PATH,
+        {"product": "context-slack", "run_date": run_date, "destination_digest": destination},
+        {"subject": subject, "blocks": blocks, "color": color}, send)
+
     ts = datetime.now().astimezone().isoformat(timespec="seconds")
-    print(f"  POSTED ok {ts} | via={via} | brief={brief_path.name}")
+    print(f"  {delivery['status']} {ts} | via={via} | brief={brief_path.name}")
 
     if args.no_state:
         print("  --no-state: novelty baseline and journal left untouched")
         return 0
-    advanced = advance_flag_state(sidecar, run_date)
-    journaled = append_journal(sidecar, run_date, brief_path)
+    advanced = advance_flag_state(sidecar, run_date, delivery["delivery_id"])
+    journaled = append_journal(sidecar, run_date, brief_path, delivery["delivery_id"])
     print(f"  novelty baseline advanced for {advanced} nugget(s); "
           f"{journaled} journal record(s) appended")
     return 0

@@ -20,7 +20,6 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
@@ -28,7 +27,6 @@ if str(_ROOT) not in sys.path:
 
 import cache_io
 from scripts.stage_private_site_cloud_build import STAGE_MARKER
-
 
 PROVENANCE_PATH = "data/.site-r2-provenance.json"
 GENERATED_MANIFEST_NAME = "manifest.json"
@@ -131,6 +129,8 @@ PUBLISH_GROUPS["bootstrap"] = tuple(
     for group in ("risk", "exposure", "cboe", "reference")
     for item in PUBLISH_GROUPS[group]
 )
+
+PROMOTABLE_CANONICAL_INPUTS = {"atr_seasonal_ranks"}
 
 
 def _require_github_actions() -> None:
@@ -251,6 +251,32 @@ def _run_prefix(run_id: str) -> str:
 def publish_generated(root: Path, run_id: str) -> dict:
     marker = _require_cloud_stage(root, empty_runtime=False)
     prefix = _run_prefix(run_id)
+    provenance = json.loads((root / PROVENANCE_PATH).read_text(encoding="utf-8"))
+    if provenance.get("phase") != "generator" or provenance.get("source_sha") != marker.get("source_sha"):
+        raise RuntimeError("generator input provenance/source mismatch")
+    original = {entry["name"]: entry for entry in provenance.get("entries", [])}
+    snapshots: list[dict] = []
+    # Validate every input before publishing any part of this generation.
+    for item in CANONICAL_INPUTS:
+        expected = original.get(item.name)
+        if expected is None:
+            if item.required:
+                raise RuntimeError(f"generator input missing: {item.name}")
+            continue
+        path = root / item.path
+        if not path.is_file() or _sha256(path) != expected.get("sha256"):
+            raise RuntimeError(f"generator input changed after materialization: {item.name}")
+    for item in CANONICAL_INPUTS:
+        if item.name not in original:
+            continue
+        path = root / item.path
+        key = f"{prefix}/inputs/{item.key}"
+        if not cache_io.upload_from_local(str(path), key):
+            raise RuntimeError(f"failed to freeze generated bundle input: {key}")
+        record = _entry(item, path, key=key)
+        if record["sha256"] != original[item.name]["sha256"]:
+            raise RuntimeError(f"generator input changed during publication: {item.name}")
+        snapshots.append(record)
     entries: list[dict] = []
     for item in GENERATED_INPUTS:
         path = root / item.path
@@ -269,6 +295,7 @@ def publish_generated(root: Path, run_id: str) -> dict:
         "run_id": str(run_id),
         "source_sha": marker.get("source_sha"),
         "published_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "inputs": snapshots,
         "entries": entries,
     }
     local_manifest = root / "data" / ".site-generated-bundle.json"
@@ -282,9 +309,128 @@ def publish_generated(root: Path, run_id: str) -> dict:
     return payload
 
 
+def promote_canonical(
+    root: Path,
+    *,
+    name: str,
+    receipt_path: Path,
+    run_id: str,
+) -> dict:
+    """Conditionally replace one reviewed canonical input and refresh provenance.
+
+    The generator pull records the exact R2 object bytes and ETag before any
+    computation.  A migration may replace only its named object, only when its
+    receipt binds the old and new digests, and only if R2 still has the object
+    that was originally materialized.  This prevents a site build from
+    overwriting a newer rank generation produced by another workflow.
+    """
+    marker = _require_cloud_stage(root, empty_runtime=False)
+    if name not in PROMOTABLE_CANONICAL_INPUTS:
+        raise RuntimeError(f"canonical input is not migration-promotable: {name}")
+    by_name = {item.name: item for item in CANONICAL_INPUTS}
+    item = by_name[name]
+    provenance_path = root / PROVENANCE_PATH
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    if provenance.get("phase") != "generator" or provenance.get("source_sha") != marker.get("source_sha"):
+        raise RuntimeError("generator input provenance/source mismatch")
+    entries = list(provenance.get("entries") or [])
+    original = next((entry for entry in entries if entry.get("name") == name), None)
+    if original is None:
+        raise RuntimeError(f"generator provenance is missing canonical input: {name}")
+    if not receipt_path.is_file():
+        raise RuntimeError(f"canonical migration receipt is missing: {receipt_path}")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    expected_receipt_fields = {
+        "schema_version", "status", "checked_at", "rank_version",
+        "before_sha256", "after_sha256", "prices_sha256", "ticker_count",
+        "target_year", "reasons",
+    }
+    if not isinstance(receipt, dict) or not expected_receipt_fields <= set(receipt):
+        raise RuntimeError("canonical migration receipt has an invalid contract")
+    if receipt.get("schema_version") != "atr-seasonal-regeneration.v1":
+        raise RuntimeError("canonical migration receipt schema is unsupported")
+    if receipt.get("status") not in {"CURRENT", "REGENERATED"}:
+        raise RuntimeError("canonical migration receipt status is unsupported")
+    candidate = root / item.path
+    if not candidate.is_file():
+        raise RuntimeError(f"canonical migration candidate is missing: {item.path}")
+    candidate_sha = _sha256(candidate)
+    if receipt.get("after_sha256") != candidate_sha:
+        raise RuntimeError("canonical migration receipt does not bind the candidate bytes")
+
+    if receipt["status"] == "CURRENT":
+        if candidate_sha != original.get("sha256") or receipt.get("before_sha256") != candidate_sha:
+            raise RuntimeError("CURRENT migration receipt disagrees with materialized provenance")
+        return {"status": "CURRENT", "name": name, "sha256": candidate_sha}
+
+    if receipt.get("before_sha256") != original.get("sha256"):
+        raise RuntimeError("canonical migration receipt does not bind the materialized predecessor")
+    remote = cache_io.head(item.key)
+    if not remote or not remote.get("ETag"):
+        raise RuntimeError(f"cannot establish current canonical ETag before promotion: {item.key}")
+    remote_etag = str(remote["ETag"])
+    if remote_etag.strip('"') != str(original.get("etag") or "").strip('"'):
+        raise RuntimeError(f"canonical input changed after materialization: {name}")
+
+    migration_prefix = f"migrations/{name}/{_run_prefix(run_id).split('/')[-1]}"
+    suffix = Path(item.key).suffix or ".bin"
+    predecessor_path = root / "data" / ".canonical-predecessors" / f"{name}{suffix}"
+    predecessor_path.parent.mkdir(parents=True, exist_ok=True)
+    if not cache_io.download_to_local(item.key, str(predecessor_path)):
+        raise RuntimeError(f"canonical predecessor could not be materialized for rollback: {name}")
+    if _sha256(predecessor_path) != original.get("sha256"):
+        raise RuntimeError(f"canonical predecessor bytes differ from generator provenance: {name}")
+    predecessor_key = f"{migration_prefix}/predecessor{suffix}"
+    predecessor_result, _predecessor_etag = cache_io.conditional_upload_from_local(
+        str(predecessor_path), predecessor_key, create_only=True
+    )
+    if predecessor_result != "uploaded":
+        raise RuntimeError(f"canonical predecessor could not be archived: {predecessor_key}")
+    _verify_uploaded_file(predecessor_path, predecessor_key)
+
+    audit_key = f"{migration_prefix}/receipt.json"
+    receipt_result, _receipt_etag = cache_io.conditional_upload_from_local(
+        str(receipt_path), audit_key, create_only=True
+    )
+    if receipt_result != "uploaded":
+        raise RuntimeError(f"canonical promotion receipt could not be archived: {audit_key}")
+    _verify_uploaded_file(receipt_path, audit_key)
+
+    result, _new_etag = cache_io.conditional_upload_from_local(
+        str(candidate), item.key, expected_etag=remote_etag
+    )
+    if result == "precondition_failed":
+        raise RuntimeError(f"canonical input changed concurrently during promotion: {name}")
+    if result != "uploaded":
+        raise RuntimeError(f"conditional canonical promotion failed: {name}")
+    promoted = _entry(item, candidate)
+    if promoted["sha256"] != candidate_sha:
+        raise RuntimeError(f"canonical object differs after promotion: {name}")
+
+    updated_entries = [entry for entry in entries if entry.get("name") != name]
+    updated_entries.append(promoted)
+    updated_entries.sort(key=lambda entry: str(entry.get("name")))
+    _write_provenance(
+        root,
+        phase="generator",
+        run_id=None,
+        marker=marker,
+        entries=updated_entries,
+    )
+
+    print(f"[site-r2] promoted canonical {name} sha256={candidate_sha[:12]}")
+    return {
+        "status": "PROMOTED",
+        "name": name,
+        "sha256": candidate_sha,
+        "receipt_key": audit_key,
+        "predecessor_key": predecessor_key,
+    }
+
+
 def pull_assembler(root: Path, run_id: str) -> dict:
     marker = _require_cloud_stage(root, empty_runtime=True)
-    entries = [rec for item in CANONICAL_INPUTS if (rec := _download(root, item)) is not None]
+    entries: list[dict] = []
 
     prefix = _run_prefix(run_id)
     manifest_path = root / "data" / ".site-generated-bundle.json"
@@ -294,6 +440,22 @@ def pull_assembler(root: Path, run_id: str) -> dict:
     bundle = json.loads(manifest_path.read_text(encoding="utf-8"))
     if bundle.get("mode") != "private-site-generated-bundle" or str(bundle.get("run_id")) != str(run_id):
         raise RuntimeError("generated bundle manifest identity mismatch")
+    if not marker.get("source_sha") or bundle.get("source_sha") != marker.get("source_sha"):
+        raise RuntimeError("generated bundle source revision mismatch")
+    inputs = {entry.get("name"): entry for entry in bundle.get("inputs") or []}
+    for item in CANONICAL_INPUTS:
+        expected = inputs.get(item.name)
+        if expected is None:
+            if item.required:
+                raise RuntimeError(f"generated bundle missing frozen input: {item.name}")
+            continue
+        key = f"{prefix}/inputs/{item.key}"
+        if expected.get("key") != key:
+            raise RuntimeError(f"frozen input key mismatch: {item.name}")
+        rec = _download(root, item, key=key)
+        if rec is None or rec["sha256"] != expected.get("sha256"):
+            raise RuntimeError(f"frozen input digest mismatch: {item.name}")
+        entries.append(rec)
     by_name = {entry.get("name"): entry for entry in bundle.get("entries") or []}
     for item in GENERATED_INPUTS:
         expected = by_name.get(item.name)
@@ -370,6 +532,11 @@ def main() -> int:
             f"{LOCAL_PRIMARY_ENV}=1 and a nonempty {LOCAL_RUN_TOKEN_ENV}"
         ),
     )
+    promoter = sub.add_parser("promote-canonical")
+    promoter.add_argument("--root", default=".")
+    promoter.add_argument("--name", choices=sorted(PROMOTABLE_CANONICAL_INPUTS), required=True)
+    promoter.add_argument("--receipt", required=True)
+    promoter.add_argument("--run-id", required=True)
     args = parser.parse_args()
     root = Path(args.root).resolve()
 
@@ -382,8 +549,15 @@ def main() -> int:
             pull_assembler(root, args.run_id)
     elif args.command == "publish-generated":
         publish_generated(root, args.run_id)
-    else:
+    elif args.command == "publish-group":
         publish_group(root, args.group, local_primary=args.local_primary)
+    else:
+        promote_canonical(
+            root,
+            name=args.name,
+            receipt_path=Path(args.receipt).resolve(),
+            run_id=args.run_id,
+        )
     return 0
 
 

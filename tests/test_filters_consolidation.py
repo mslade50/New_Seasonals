@@ -100,20 +100,31 @@ def test_live_strips_t1_gates_backtest_keeps_them():
 def test_dial_mode_split(monkeypatch):
     params = dict(BASE, dial_filters=[{'dial': '63d', 'window': 1, 'logic': '<', 'thresh': 50.0}])
     df = _frame()
-    # missing fragility cache: live fails closed, backtest passes through
+    # missing optional fragility cache: live continues with an exception
     monkeypatch.setitem(filters._FRAG_DF_CACHE, 'loaded', None)
-    assert not check_signal_live(df, params, ticker='TEST')
+    notes = []
+    assert check_signal_live(df, params, ticker='TEST', diagnostics=notes)
+    assert notes and 'bypassed' in notes[0]
     mask = evaluate_filter_mask(df, params, ticker_name='TEST', mode='backtest')
     assert bool(mask.iloc[-1])
-    # stale cache: live fails closed even with the column present
+    # stale optional cache: same explicit fallback
     stale = pd.DataFrame({'63d': [40.0]},
                          index=[df.index[-1] - pd.Timedelta(days=30)])
     monkeypatch.setitem(filters._FRAG_DF_CACHE, 'loaded', stale)
-    assert not check_signal_live(df, params, ticker='TEST')
+    notes = []
+    assert check_signal_live(df, params, ticker='TEST', diagnostics=notes)
+    assert 'stale' in notes[0]
     # fresh cache under threshold: live passes
     fresh = pd.DataFrame({'63d': [40.0]}, index=[df.index[-1]])
     monkeypatch.setitem(filters._FRAG_DF_CACHE, 'loaded', fresh)
     assert check_signal_live(df, params, ticker='TEST')
+    fresh['63d'] = 60.0
+    assert not check_signal_live(df, params, ticker='TEST')
+    future = pd.DataFrame({'63d': [10.0]}, index=[df.index[-1] + pd.Timedelta(days=1)])
+    monkeypatch.setitem(filters._FRAG_DF_CACHE, 'loaded', future)
+    notes = []
+    assert check_signal_live(df, params, ticker='TEST', diagnostics=notes)
+    assert notes
 
 
 def test_vix_missing_column_fails_toward_reject():

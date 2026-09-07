@@ -11,12 +11,13 @@ this to compare entry models (open vs limit ± k·ATR) or sweep the offset.
 import argparse
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = r"C:\Users\McKinley Slade\dev\New_Seasonals"
-sys.path.insert(0, ROOT)
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 import scripts.seasonal_edge as se
 from scripts.seasonal_ticket_sim import simulate_ticket
 from scripts.seasonal_sharpe import dedup, ratios
@@ -24,8 +25,8 @@ from scripts.seasonal_sharpe import dedup, ratios
 CAND = os.path.join(ROOT, "data", "seasonal_ideas_candidates.parquet")
 
 
-def resim(entry_mode="limit", entry_atr_mult=0.25, do_dedup=True):
-    cand = pd.read_parquet(CAND)
+def resim(entry_mode="limit", entry_atr_mult=0.25, do_dedup=True, *, candidates_path=CAND):
+    cand = pd.read_parquet(candidates_path)
     cand["asof"] = pd.to_datetime(cand["asof"])
     full = se.load_prices(list(se.IDEA_UNIVERSE), include_overflow=True)
     trades, nofill = [], 0
@@ -78,8 +79,9 @@ if __name__ == "__main__":
     ap.add_argument("--entry-mode", default="limit", choices=["t1_open", "asof_close", "limit"])
     ap.add_argument("--entry-atr-mult", type=float, default=0.25)
     ap.add_argument("--compare", action="store_true", help="also run t1_open for comparison")
+    ap.add_argument("--candidates", type=Path, default=CAND, help="Candidate input; default is this checkout's data cache. Prints results only.")
     a = ap.parse_args()
-    df = resim(a.entry_mode, a.entry_atr_mult)
+    df = resim(a.entry_mode, a.entry_atr_mult, candidates_path=a.candidates)
     report(df, f"{a.entry_mode} {a.entry_atr_mult}ATR")
     if a.compare and a.entry_mode != "t1_open":
-        report(resim("t1_open"), "t1_open (market on open)")
+        report(resim("t1_open", candidates_path=a.candidates), "t1_open (market on open)")

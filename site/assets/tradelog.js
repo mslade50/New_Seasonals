@@ -11,7 +11,7 @@
 document.addEventListener("DOMContentLoaded", initTradeLog);
 
 const TL_REFRESH_MS = 30_000;
-const tlState = { days: 7, account: "all", fills: [], raw: false, error: null };
+const tlState = { days: 7, account: "all", fills: [], raw: false, error: null, lastSuccessfulAt: null };
 let tlTable = null;
 
 function stratFromRef(ref) {
@@ -196,12 +196,18 @@ async function tlLoad() {
   if (data && Array.isArray(data.fills)) {
     tlState.fills = data.fills;
     tlState.error = null;
+    tlState.lastSuccessfulAt = new Date();
   } else if (data && data.configured === false) {
     tlState.error = "Execution broker not configured for this deploy.";
-  } else if (!tlState.fills.length) {
-    tlState.error = "Could not reach the execution broker.";
+  } else {
+    tlState.error = tlState.fills.length
+      ? "Refresh failed. Showing previously received fills."
+      : "Could not reach the execution broker.";
   }
-  setAsof(`fills as of ${new Date().toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false })} ET`);
+  const stamp = tlState.lastSuccessfulAt;
+  setAsof(stamp
+    ? `${tlState.error ? "Stale · " : ""}fills last received ${stamp.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false })} ET`
+    : "Fills unavailable");
   renderData();
 }
 

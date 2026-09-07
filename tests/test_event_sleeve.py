@@ -70,7 +70,7 @@ def test_t1_entry_and_exit_nonmidterm():
         pd.Timestamp("2027-01-27"), px_for("2027-01-27"), state)
     assert len(rows2) == 1 and rows2[0]["Action"] == "SELL"
     assert rows2[0]["Order_Type"] == "MOO" and rows2[0]["TIF"] == "OPG"
-    assert not state["positions"]
+    assert all(p.get("status") == "exit_pending" for p in state["positions"].values())
 
 
 def test_t1_idempotent_rerun():
@@ -112,7 +112,7 @@ def test_t3_cover_on_sep_last_session():
         pd.Timestamp("2026-09-30"), px_for("2026-09-30"), state)
     assert len(rows) == 1 and rows[0]["Action"] == "BUY_TO_COVER"
     assert rows[0]["Order_Type"] == "MOC"
-    assert not state["positions"]
+    assert all(p.get("status") == "exit_pending" for p in state["positions"].values())
 
 
 def test_t4_dec_window():
@@ -149,7 +149,7 @@ def test_missed_exit_self_heals():
         pd.Timestamp("2026-10-02"), px_for("2026-10-02"), state)
     assert len(rows) == 1 and rows[0]["Action"] == "BUY_TO_COVER"
     assert "LATE" in rows[0]["Note"]
-    assert not state["positions"]
+    assert all(p.get("status") == "exit_pending" for p in state["positions"].values())
 
 
 def test_v4_normal_opex_entry_and_exit():

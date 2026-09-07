@@ -21,6 +21,7 @@ from email.message import EmailMessage
 from email.utils import parseaddr
 from pathlib import Path
 from typing import Any, Literal
+from research_io import append_jsonl, file_lock
 
 from .config import DEFAULT_POLICY
 from .premarket import nominate_candidates
@@ -494,23 +495,23 @@ def _existing_delivery(
         raise EmailDeliveryError(f"invalid existing email receipt: {receipt_path}") from exc
     if receipt.get("status") != "SENT":
         raise EmailDeliveryError(
-            f"existing email receipt is not a successful delivery: {receipt_path}"
+            f"existing email delivery is pending or ambiguous; reconcile it before retrying: {receipt_path}"
         )
     return "MATCH" if receipt.get("delivery_id") == delivery_id else "CONFLICT"
 
 
 def _write_receipt(
-    payload: EmailPayload, settings: EmailSettings, *, delivery_id: str
+    payload: EmailPayload, settings: EmailSettings, *, delivery_id: str, status: str = "SENT"
 ) -> None:
     receipt = {
         "schema_version": 1,
         "record_type": "EP_RESEARCH_EMAIL_DELIVERY_V1",
-        "status": "SENT",
+        "status": status,
         "delivery_id": delivery_id,
         "kind": payload.kind,
         "subject": payload.subject,
         "source_sha256": payload.source_sha256,
-        "sent_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "recipient_count": len(settings.recipients),
         "smtp_host": SMTP_HOST,
         "research_only": True,
@@ -518,11 +519,15 @@ def _write_receipt(
         "order_submission_allowed": False,
         "metadata": payload.metadata,
     }
+    if status == "SENT":
+        receipt["sent_at"] = receipt["updated_at"]
     payload.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    append_jsonl(payload.receipt_path.with_suffix(".history.jsonl"), [receipt])
     temporary = payload.receipt_path.with_suffix(payload.receipt_path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
     temporary.replace(payload.receipt_path)
 
 
@@ -532,6 +537,15 @@ def deliver_email(
     *,
     send: bool,
     resend: bool = False,
+) -> str:
+    if not send:
+        return _deliver_email_locked(payload, settings, send=False, resend=resend)
+    with file_lock(payload.receipt_path):
+        return _deliver_email_locked(payload, settings, send=True, resend=resend)
+
+
+def _deliver_email_locked(
+    payload: EmailPayload, settings: EmailSettings, *, send: bool, resend: bool = False
 ) -> str:
     delivery_id = _delivery_id(payload, settings)
     existing = _existing_delivery(payload.receipt_path, delivery_id)
@@ -556,6 +570,7 @@ def deliver_email(
     message["From"] = settings.sender
     message["To"] = ", ".join(settings.recipients)
     message["X-EP-Research-Only"] = "true"
+    message["Message-ID"] = f"<ep-{delivery_id}@research.local>"
     message.set_content(payload.plain_body)
     message.add_alternative(payload.html_body, subtype="html")
     for path in payload.attachments:
@@ -567,18 +582,37 @@ def deliver_email(
             path.read_bytes(), maintype=maintype, subtype=subtype, filename=path.name
         )
 
+    delivery_started = False
+    accepted = False
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
             server.ehlo()
             server.starttls(context=ssl.create_default_context())
             server.ehlo()
             server.login(settings.sender, settings.password)
-            server.send_message(message)
+            _write_receipt(payload, settings, delivery_id=delivery_id, status="SENDING")
+            delivery_started = True
+            refused = server.send_message(message)
+            if refused:
+                raise EmailDeliveryError("SMTP accepted only some recipients; delivery is ambiguous")
+            accepted = True
+            # SMTP DATA acceptance is the delivery boundary. A later QUIT
+            # disconnect does not undo it and must never cause another email.
+            _write_receipt(payload, settings, delivery_id=delivery_id)
     except (OSError, smtplib.SMTPException) as exc:
+        if accepted:
+            # If writing SENT failed, the durable SENDING claim still blocks
+            # retries; report that outcome instead of claiming a clean receipt.
+            if _existing_delivery(payload.receipt_path, delivery_id) == "MATCH":
+                return "SENT"
+        if delivery_started:
+            _write_receipt(payload, settings, delivery_id=delivery_id, status="AMBIGUOUS")
+            raise EmailDeliveryError(
+                f"EP email outcome is ambiguous ({type(exc).__name__}); receipt blocks automatic retry"
+            ) from exc
         raise EmailDeliveryError(
             f"EP email send failed ({type(exc).__name__}); no delivery receipt was written"
         ) from exc
-    _write_receipt(payload, settings, delivery_id=delivery_id)
     return "SENT"
 
 

@@ -136,8 +136,8 @@ assert.strictEqual(plainQuarter.lastCommand.payload.con_id, 12345);
 assert.strictEqual(plainQuarter.lastCommand.payload.fraction, undefined);
 
 vm.runInContext("state.book = null; state.status = { online: false };", context);
-assert.strictEqual(vm.runInContext("mutationBlocked('trim_readd')", context), true);
-assert.strictEqual(vm.runInContext("mutationBlocked('add_to_position')", context), true);
-assert.strictEqual(vm.runInContext("mutationBlocked('close_only')", context), true);
+assert.strictEqual(vm.runInContext("mutationBlocked('trim_readd')", context), false);
+assert.strictEqual(vm.runInContext("mutationBlocked('add_to_position')", context), false);
+assert.strictEqual(vm.runInContext("mutationBlocked('close_only')", context), false);
 
-console.log("PASS execution fast-action payloads, quarter/half trims, close-only gate, rounding, and unknown-mode block");
+console.log("PASS execution fast-action payloads, quarter/half trims, close-only gate, rounding, and unknown-mode availability");

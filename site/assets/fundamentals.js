@@ -26,6 +26,16 @@ function actionName(state, ticker) {
   return record && FUND_ACTIONS.has(record.action) ? record.action : "";
 }
 
+function inboxSuppressed(state, row) {
+  const control = actionRecord(state, row.ticker);
+  if (!control || !["PASS", "WATCH"].includes(control.action)) return false;
+  // A completed build can explicitly reopen the same control revision after
+  // newer sourced evidence; a new user click always takes precedence.
+  const reopened = String(row.control_disposition || "").startsWith("REOPENED_")
+    && row.control_updated_at === control.updated_at;
+  return !reopened;
+}
+
 function localState() {
   try {
     const parsed = JSON.parse(localStorage.getItem(FUND_STATE_KEY) || "null");
@@ -174,13 +184,15 @@ function activeCard(row, state) {
 }
 
 function suppressedHTML(payload, state) {
-  const rows = [...(payload.reviews || []), ...(payload.active_research || [])]
-    .filter(row => actionName(state, row.ticker) === "PASS");
+  const rows = [...(payload.archived_research || []), ...(payload.reviews || []), ...(payload.active_research || [])]
+    .filter((row, index, all) => all.findIndex(other => other.ticker === row.ticker) === index)
+    .filter(row => row.archive_reason || inboxSuppressed(state, row));
   if (!rows.length) return "";
-  return `<details class="fund-drawer"><summary>Suppressed <span>${rows.length}</span></summary>
+  return `<details class="fund-drawer"><summary>Research archive <span>${rows.length}</span></summary>
     <div class="fund-suppressed">
       ${rows.map(row => `<div><span><strong>${esc(row.ticker)}</strong> ${esc(row.company_name)}</span>
-        <button class="fund-action" type="button" data-ticker="${esc(row.ticker)}" data-action="CLEAR">Undo</button></div>`).join("")}
+        <span>${esc(row.archive_reason || actionName(state, row.ticker))}</span>
+        ${actionName(state, row.ticker) ? `<button class="fund-action" type="button" data-ticker="${esc(row.ticker)}" data-action="CLEAR">Undo</button>` : ""}</div>`).join("")}
     </div>
   </details>`;
 }
@@ -244,9 +256,8 @@ function auditHTML(audit) {
 
 function render(payload, state, mode, message) {
   const root = document.getElementById("fundamentalContent");
-  const passed = ticker => actionName(state, ticker) === "PASS";
-  const reviews = (payload.reviews || []).filter(row => !passed(row.ticker)).slice(0, 3);
-  const active = (payload.active_research || []).filter(row => !passed(row.ticker)).slice(0, 3);
+  const reviews = (payload.reviews || []).filter(row => !inboxSuppressed(state, row)).slice(0, 3);
+  const active = (payload.active_research || []).filter(row => !inboxSuppressed(state, row)).slice(0, 3);
   const needsReview = reviews.length > 0;
   const portfolio = payload.portfolio || {};
   const modeText = mode === "cloud" ? "Synced to private research state" : "Saved on this device";
@@ -259,7 +270,7 @@ function render(payload, state, mode, message) {
         <h1>${needsReview ? `${reviews.length} quick review${reviews.length === 1 ? "" : "s"}` : "Nothing needs your attention"}</h1>
         <p>${needsReview
           ? "These names cleared the research bar far enough to require a judgment."
-          : `${active.length ? `${active.length} ${active.length === 1 ? "name remains" : "names remain"} in active research.` : "No names are waiting in active research."} None currently has a proven mispricing, adequate valuation support, and observable thesis trigger.`}</p>
+          : `${active.length ? `${active.length} ${active.length === 1 ? "name remains" : "names remain"} in active research.` : "No research decisions are waiting in your inbox."} Use the archive to revisit saved research.`}</p>
         <div class="fund-safety">Research controls only. Your clicks change what gets researched next; they never allocate capital or create orders.</div>
       </div>
       <div class="fund-cap-card" aria-label="Fundamental sleeve limits">

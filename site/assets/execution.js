@@ -359,10 +359,10 @@ const MUTATING_COMMANDS = new Set([
 // outside RTH / TIF); only what happens to the WORKING orders differs.
 const CLOSE_COMMANDS = new Set(["close_only", "close_resize", "flatten"]);
 function mutationBlocked(type) {
-  return execMode() === "unknown" && (!type || MUTATING_COMMANDS.has(type));
+  return false; // Owner policy: snapshot age never disables manual access.
 }
 function syncMutationControls() {
-  const blocked = execMode() === "unknown";
+  const blocked = false;
   document.querySelectorAll("[data-mutation]").forEach((control) => {
     const staticBlocked = control.dataset.staticDisabled === "true";
     control.disabled = blocked || staticBlocked;
@@ -373,10 +373,7 @@ function syncMutationControls() {
   });
 }
 function rejectUnknownMutation(msgId) {
-  if (execMode() !== "unknown") return false;
-  const msg = msgId ? document.getElementById(msgId) : null;
-  if (msg) msg.textContent = "BLOCKED: execution mode unknown — reconnect the agent and wait for a fresh book";
-  return true;
+  return false; // Broker validation and explicit outcomes still apply.
 }
 function renderModeBanner() {
   const mode = execMode();
@@ -387,7 +384,7 @@ function renderModeBanner() {
   if (mode === "unknown") {
     return `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
       [WARN] MODE UNKNOWN &mdash; assume LIVE. No fresh book confirms dry-run (book missing/stale or agent offline).
-      Mutating controls are disabled until the agent is online and publishes a fresh book confirming execution mode.</div>`;
+      Controls remain available. Confirmations assume live execution; the broker validates the request when received.</div>`;
   }
   return `<div class="card" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
     [DRY-RUN] Actions are validated and previewed, but <u>nothing is transmitted</u> to IBKR.</div>`;
@@ -1163,7 +1160,7 @@ function orderRow(o) {
     <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
     <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
     <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
-    <td class="l" style="white-space:nowrap">${canModify ? `<button class="btn xs ghost" data-mutation onclick='execModifyStart("${orderKey(o)}")'>Modify</button> ` : ""}<button class="btn xs ghost" data-mutation onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
+    <td class="l" style="white-space:nowrap">${canModify ? `<button class="btn xs ghost" data-mutation onclick='execModifyStart("${orderKey(o)}")'>Modify</button> ` : ""}<button class="btn xs ghost" data-mutation onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}",${o.con_id || 0},${o.client_id == null ? "null" : o.client_id})'>Cancel</button></td>
   </tr>`;
 }
 // Inline edit row: qty always; limit price on *LMT orders; stop trigger on STP*.
@@ -1177,6 +1174,11 @@ function orderEditRow(o) {
     (hasStp ? `<span class="cap" style="display:inline">stop</span> <input id="me_stp" value="${o.aux != null ? esc(String(o.aux)) : ""}" style="width:70px"> ` : "") +
     (hasLmt ? `<span class="cap" style="display:inline">lmt</span> <input id="me_lmt" value="${o.lmt != null ? esc(String(o.lmt)) : ""}" style="width:70px">` : "") +
     (!hasStp && !hasLmt ? "&mdash;" : "");
+  const purpose = Number(o.parent_id || 0) > 0 ? "" : `<tr class="modify-purpose"><td colspan="10" class="l">
+    <label>Order purpose <select id="me_kind"><option value="">Choose…</option><option value="exit">Close / reduce existing inventory</option><option value="entry">Open / add inventory</option></select></label>
+    <label>Entry direction <select id="me_direction"><option value="">Choose for entries…</option><option value="long">Long</option><option value="short">Short</option></select></label>
+    <label>Total entry risk after edit ($) <input id="me_risk" type="number" min="0" step="any" placeholder="Required for entries"></label>
+  </td></tr>`;
   return `<tr style="background:rgba(77,163,255,.08)">
     <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
     <td class="l" style="font-weight:600">${esc(o.action)}</td>
@@ -1190,7 +1192,7 @@ function orderEditRow(o) {
     <td class="l" style="white-space:nowrap">
       <button class="btn xs" data-mutation onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
       <button class="btn xs ghost" onclick='execModifyAbort()'>&times;</button></td>
-  </tr>`;
+  </tr>${purpose}`;
 }
 const expandedTickers = new Set();   // Open Orders: which tickers are expanded (persists across 4s polls)
 const orderEdit = { key: null, orig: null };   // inline Modify: row being edited + its pre-edit values
@@ -1494,26 +1496,15 @@ function execAddToPosition(pos, fraction) {
   if (!confirm(summary)) return;
   sendCommand("add_to_position", addPositionPayload(pos, fraction));
 }
-function execCancel(permId, orderId, symbol) {
+function execCancel(permId, orderId, symbol, conId = null, clientId = null) {
   if (rejectUnknownMutation()) return;
   if (permId || orderId) {
-    // A real order/perm id in hand: cancel EXACTLY this order. The agent matches on
-    // perm_id and falls through to order_id, so a nonzero order_id alone is enough — a
-    // missing perm_id must NEVER widen to symbol scope (that would take out a position's
-    // protective stop/target).
+    // Every mutation binds account, contract and owning-client order identity.
     if (!confirm(`${actionLead("cancel")} order ${orderId || permId} (${symbol}, ${state.account})?`)) return;
-    sendCommand("cancel", { scope: "order", perm_id: permId || null, order_id: orderId || null });
+    sendCommand("cancel", { scope: "order", symbol, con_id: conId || null, client_id: clientId, perm_id: permId || null, order_id: orderId || null });
     return;
   }
-  // No id at all: the only available command is SYMBOL-scoped, which cancels EVERY working
-  // order on the ticker, INCLUDING protective stops/targets of any open position. Require an
-  // explicit symbol type-in and say so plainly — never send it silently.
-  const typed = prompt(
-    `${actionLead("cancel")} — this ${symbol} order has no id yet, so this will cancel ALL working ` +
-    `orders for ${symbol} on ${state.account}, INCLUDING protective stops/targets of any open ` +
-    `position.\n\nType the symbol (${symbol}) to proceed, or Cancel to abort:`);
-  if (typed == null || typed.trim().toUpperCase() !== String(symbol).toUpperCase().trim()) return;
-  sendCommand("cancel", { scope: "symbol", symbol });
+  alert("The broker has not assigned this order an identity yet. Refresh the order row, then cancel that exact order.");
 }
 window.execFlatten = execFlatten;
 window.execToggleReadd = execToggleReadd;
@@ -1567,7 +1558,7 @@ function execModifyStart(key) {
   const o = findBookOrder(key);
   if (!o) return;
   orderEdit.key = key;
-  orderEdit.orig = { qty: o.qty, lmt: o.lmt, aux: o.aux };
+  orderEdit.orig = { qty: o.qty, lmt: o.lmt, aux: o.aux, account: state.account, con_id: o.con_id, client_id: o.client_id, parent_id: o.parent_id };
   set("orders", renderOrders());
   const q = document.getElementById("me_qty");
   if (q) q.focus();
@@ -1582,6 +1573,7 @@ function execModifyAbort() {
 function execModifySave(permId, orderId, symbol) {
   if (rejectUnknownMutation()) return;
   const orig = orderEdit.orig || {};
+  if (orig.account && orig.account !== state.account) { alert("Account changed; reopen this order before editing"); return; }
   const read = (id) => {
     const e = document.getElementById(id);
     if (!e) return undefined;                       // field not rendered for this order type
@@ -1591,7 +1583,7 @@ function execModifySave(permId, orderId, symbol) {
   const qty = read("me_qty"), lmt = read("me_lmt"), stp = read("me_stp");
   const bad = [qty, lmt, stp].some((v) => v !== undefined && v !== null && (!isFinite(v) || v <= 0));
   if (bad) { alert("qty / prices must be positive numbers"); return; }
-  const payload = { symbol };
+  const payload = { symbol, con_id: orig.con_id || null, client_id: orig.client_id == null ? null : orig.client_id };
   if (permId) payload.perm_id = permId;
   if (orderId) payload.order_id = orderId;
   const changes = [];
@@ -1599,6 +1591,18 @@ function execModifySave(permId, orderId, symbol) {
   if (lmt !== undefined && lmt != null && lmt !== Number(orig.lmt)) { payload.new_limit = lmt; changes.push(`lmt ${orig.lmt} -> ${lmt}`); }
   if (stp !== undefined && stp != null && stp !== Number(orig.aux)) { payload.new_stop = stp; changes.push(`stop ${orig.aux} -> ${stp}`); }
   if (!changes.length) { execModifyAbort(); return; }   // nothing changed: just close the editor
+  payload.mutation_kind = Number(orig.parent_id || 0) > 0 ? "modify" : document.getElementById("me_kind")?.value;
+  if (!["entry", "exit", "modify"].includes(payload.mutation_kind)) {
+    alert("Choose whether this order opens/adds inventory or closes/reduces it."); return;
+  }
+  if (payload.mutation_kind === "entry") {
+    payload.risk_usd = read("me_risk");
+    payload.portfolio_direction = document.getElementById("me_direction")?.value;
+    if (!(payload.risk_usd > 0 && Number.isFinite(payload.risk_usd)) || !["long","short"].includes(payload.portfolio_direction)) {
+      alert("Enter the total entry risk after this edit and select long or short."); return;
+    }
+    changes.push(`Total entry risk $${payload.risk_usd} · ${payload.portfolio_direction}`);
+  }
   if (!confirm(`${actionLead("modify")} order ${orderId || permId} (${symbol}, ${state.account})?\n${changes.join("\n")}`)) return;
   sendCommand("modify", payload);
   execModifyAbort();
@@ -2289,12 +2293,13 @@ function sendTicket() {
       p.risk_ack = true;
     }
   }
-  sendCommand(t, p, "cmdMsg").then((id) => {
+  const intentContext = { account: state.account, dryRun: execMode() === "dry-run" };
+  sendCommand(t, p, "cmdMsg", intentContext).then((id) => {
     // Unprotected entry: remember the intent so a RISK_ACK_REQUIRED bounce can
     // re-prompt for secondary approval and resend with risk_ack.
     if (id && t === "entry_bracket" && (p.stop == null ||
         (p.sec_type === "FUT" && state.account === "primary" && !p.risk_ack))) {
-      riskAckPending.set(id, { type: t, payload: p });
+      riskAckPending.set(id, { type: t, payload: structuredClone(p), ...intentContext });
     }
   });
 }
@@ -2303,32 +2308,30 @@ function sendTicket() {
 // retry of the SAME {type, account, payload} after a failed send (network error / non-2xx),
 // so the server can dedup a double-submit. A payload change or a confirmed 2xx success
 // mints a fresh id for the next intent.
-const idemState = { id: null, key: null };
-function commandId(type, account, payload) {
-  const key = JSON.stringify({ type, account, payload });
-  if (idemState.key !== key || !idemState.id) {
-    idemState.id = crypto.randomUUID();
-    idemState.key = key;
-  }
-  return idemState.id;
+function commandId(type, account, payload, dryRun = false) {
+  return ExecutionIntents.getStore().begin({ type, account, payload, dry_run: dryRun }).id;
 }
-async function sendCommand(type, payload, msgId) {
-  if (mutationBlocked(type) && rejectUnknownMutation(msgId)) return null;
-  const msg = msgId ? document.getElementById(msgId) : null;
+async function sendCommand(type, payload, msgId, context = {}) {
+  const msg = document.getElementById(msgId);
   if (msg) msg.textContent = "sending...";
-  const id = commandId(type, state.account, payload);
+  const account = context.account || state.account;
+  const dryRun = context.dryRun == null ? execMode() === "dry-run" : context.dryRun;
+  const request = { type, account, payload, dry_run: dryRun };
   let sentId = null;
   try {
+    const store = ExecutionIntents.getStore();
+    const intent = store.begin(request);
     const r = await fetch("/exec-command", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, type, account: state.account, payload }),
+      body: JSON.stringify({ id: intent.id, ...request }),
     });
     const d = await r.json();
     const ok = r.ok && d && d.ok;
-    if (ok) { idemState.id = null; idemState.key = null; sentId = d.id || id; }   // confirmed success: next intent gets a fresh id
-    if (msg) msg.textContent = ok ? `queued ${(d.id || id).slice(0, 8)}` : `error: ${(d && d.error) || ("HTTP " + r.status)}`;
+    if (ok) { sentId = d.id || intent.id; store.accepted(intent); }
+    if (msg) msg.textContent = ok ? `accepted ${sentId.slice(0, 8)} — check Activity for delivery and fills`
+      : `not confirmed: ${(d && d.error) || ("HTTP " + r.status)}; retry retains the same intent`;
   } catch (e) {
-    if (msg) msg.textContent = "error: " + e;                // id kept: an unchanged resend reuses it
+    if (msg) msg.textContent = "not confirmed: " + e + "; check Activity before retrying";
   }
   setTimeout(poll, 600);
   return sentId;
@@ -2339,7 +2342,7 @@ async function sendCommand(type, payload, msgId) {
    by the executor with fill.needs_risk_ack (an approval gate, not a cap). When
    that rejection lands in the commands feed, re-prompt with the machine's own
    numbers and resend the identical payload + risk_ack:true on approval. */
-const riskAckPending = new Map();   // command id -> {type, payload}
+const riskAckPending = new Map();   // command id -> immutable account, mode and payload
 function checkRiskAck() {
   for (const c of state.commands || []) {
     if (!c || !c.id || !riskAckPending.has(c.id)) continue;
@@ -2356,8 +2359,8 @@ function checkRiskAck() {
         : `The agent could not compare risk with NLV (${basis}; NLV unavailable).`;
       const approve = confirm(
         `[WARN] SECONDARY RISK APPROVAL\n\n${detail}\n\n` +
-        `Approve and resend ${p.action} ${p.quantity} ${p.symbol} @ ${p.entry}${p.stop == null ? " with NO STOP" : ` with stop ${p.stop}`} on ${state.account}?`);
-      if (approve) sendCommand(intent.type, { ...p, risk_ack: true }, "cmdMsg");
+        `Approve and resend ${p.action} ${p.quantity} ${p.symbol} @ ${p.entry}${p.stop == null ? " with NO STOP" : ` with stop ${p.stop}`} on ${intent.account}?`);
+      if (approve) sendCommand(intent.type, { ...p, risk_ack: true }, "cmdMsg", intent);
       else { const m = document.getElementById("cmdMsg"); if (m) m.textContent = "secondary risk approval declined — nothing sent"; }
     } else if (st && st !== "pushed" && st !== "queued" && st !== "pending") {
       riskAckPending.delete(c.id);                 // resolved without needing an ack

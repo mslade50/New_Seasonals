@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from daily_pitch import smtp_credentials  # noqa: E402
+from research_delivery import DeliveryNotSent, deliver_once  # noqa: E402
 
 DEFAULT_RECIPIENTS = "mckinleyslade@gmail.com"
 
@@ -68,11 +69,40 @@ def build_html(payload: dict, md_note: str) -> str:
             f'the record, this email is a mirror. Nothing auto-posts.</p></div>')
 
 
+def send_queue_email(sender, password, recipients, msg):
+    server = None
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender, password)
+    except Exception as exc:
+        if server is not None:
+            try:
+                server.close()
+            except Exception:
+                pass
+        raise DeliveryNotSent("SMTP connection/authentication failed before message submission") from exc
+    try:
+        refused = server.sendmail(sender, recipients, msg.as_string())
+        if refused:
+            raise RuntimeError("Some recipients were refused; reconcile partial delivery before retry")
+    finally:
+        # DATA acceptance is authoritative; QUIT failure must not undo it.
+        try:
+            server.quit()
+        except Exception:
+            try:
+                server.close()
+            except Exception:
+                pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--asof", default=None)
     ap.add_argument("--queue-dir", default=str(ROOT / "content" / "queue"))
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--receipt-path", type=Path, default=ROOT / "data" / "posts_email_receipts.jsonl")
     args = ap.parse_args()
 
     day = str(args.asof or dt.date.today())
@@ -101,21 +131,23 @@ def main() -> int:
         print("EMAIL_USER/EMAIL_PASS not set - queue email skipped "
               "(the queue file on disk is still the delivery)")
         return 1
+    if not recipients:
+        print("No Posts recipients configured; queue email skipped")
+        return 1
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(body, "html"))
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(sender, password)
-            server.sendmail(sender, recipients, msg.as_string())
-    except smtplib.SMTPException as exc:
-        print(f"QUEUE EMAIL FAILED ({exc}) - the queue file on disk is "
+        result = deliver_once(args.receipt_path,
+            {"product": "posts-email", "day": day, "sender": sender, "recipients": sorted(recipients)},
+            {"subject": subject, "body": body}, lambda: send_queue_email(sender, password, recipients, msg))
+    except Exception as exc:
+        print(f"QUEUE EMAIL NOT CONFIRMED ({type(exc).__name__}); inspect the delivery receipt before retry - the queue file on disk is "
               f"still the delivery")
         return 1
-    print(f"queue email sent to {', '.join(recipients)}")
+    print(f"queue email {result['status']}")
     return 0
 
 

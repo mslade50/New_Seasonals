@@ -10,12 +10,13 @@ by sqrt(252). Same constant-per-trade-risk basis as seasonal_sharpe.py.
 """
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = r"C:\Users\McKinley Slade\dev\New_Seasonals"
-sys.path.insert(0, ROOT)
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 import scripts.seasonal_edge as se
 from scripts.seasonal_sharpe import dedup, ratios
 

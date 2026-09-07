@@ -2,9 +2,9 @@
 "use strict";
 
 const PAGES = [
+  { href: "execution.html", label: "Execution" },
   { href: "index.html",    label: "Portfolio" },
   { href: "seasonal.html", label: "Seasonal" },
-  { href: "execution.html", label: "Execution" },
   { href: "radar.html",    label: "Radar" },
   { href: "focus.html",    label: "Focus" },
   { href: "events.html",   label: "Events" },
@@ -14,7 +14,7 @@ const PAGES = [
   { href: "orders.html",   label: "Orders" },
   { href: "options.html",  label: "Options" },
   { href: "charts.html",   label: "Charts" },
-  { href: "pipeline.html", label: "Pipeline" },
+  { href: "pipeline.html", label: "Status" },
   { href: "futures.html",  label: "Futures Lab" },
   { href: "entry.html",    label: "Entry Lab" },
   { href: "montecarlo.html", label: "Monte Carlo" },
@@ -24,10 +24,14 @@ const PAGES = [
 function renderNav(active) {
   const el = document.getElementById("topbar");
   if (!el) return;
-  const links = PAGES.map(p =>
-    `<a href="${p.href}" class="${p.href === active ? "active" : ""}">${p.label}</a>`).join("");
+  const link = p =>
+    `<a href="${p.href}" class="${p.href === active ? "active" : ""}">${p.label}</a>`;
+  const links = PAGES.slice(0,3).map(link).join("");
+  const secondary = PAGES.slice(3);
+  const current = secondary.find(p=>p.href===active);
+  const more = `<details class="nav-more"><summary>${current ? current.label : "More"}</summary><div>${secondary.map(link).join("")}</div></details>`;
   el.innerHTML = `<div class="brand">Seasonals <span>/</span> Private</div>
-    <nav>${links}</nav><div class="asof" id="navAsof"></div>`;
+    <nav>${links}${more}</nav><div class="asof" id="navAsof"></div>`;
 }
 
 async function fetchJSON(path) {
@@ -182,9 +186,13 @@ const PALETTE = ["#4da3ff", "#00d18f", "#ff5d5d", "#ffc14d", "#b07cff", "#3ddbd9
    makeTable(el, {
      columns: [{key, label, align:'l'|'r', fmt: fn(v,row), cls: fn(v,row)}],
      rows: [...], pageSize: 25|0 (0 = all), search: true|false,
-     csvName: "trades.csv"|null, defaultSort: {key, dir} })
+     csvName: "trades.csv"|null, defaultSort: {key, dir}, textOnly: true|false })
+   Plain cells are text. A custom formatter may return trusted HTML unless
+   textOnly is true; use that mode for tables built from external reports.
 */
 function makeTable(el, opts) {
+  const escapeText = value => String(value ?? "").replace(/[&<>"']/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const state = {
     rows: opts.rows.slice(),
     view: opts.rows.slice(),
@@ -272,14 +280,15 @@ function makeTable(el, opts) {
 
     const head = "<thead><tr>" + opts.columns.map(c => {
       const arr = state.sortKey === c.key ? `<span class="arr">${state.sortDir > 0 ? "▲" : "▼"}</span>` : "";
-      return `<th class="${c.align === "l" ? "l" : ""}" data-k="${c.key}">${c.label}${arr}</th>`;
+      return `<th class="${c.align === "l" ? "l" : ""}" data-k="${escapeText(c.key)}">${escapeText(c.label)}${arr}</th>`;
     }).join("") + "</tr></thead>";
 
     const body = "<tbody>" + rows.map(r => "<tr>" + opts.columns.map(c => {
       const v = r[c.key];
-      const txt = c.fmt ? c.fmt(v, r) : (v == null ? "" : v);
+      const formatted = c.fmt ? c.fmt(v, r) : (v == null ? "" : v);
+      const txt = opts.textOnly || !c.fmt ? escapeText(formatted) : formatted;
       const cls = (c.align === "l" ? "l " : "") + (c.cls ? c.cls(v, r) : "");
-      return `<td class="${cls}">${txt}</td>`;
+      return `<td class="${escapeText(cls)}">${txt}</td>`;
     }).join("") + "</tr>").join("") + "</tbody>";
 
     table.innerHTML = head + body;

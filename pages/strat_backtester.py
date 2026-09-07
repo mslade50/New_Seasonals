@@ -412,12 +412,22 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     engine-only T+1/NextOpen gates stay active. Guards:
     tests/test_filters_consolidation.py, tests/test_atr_sznl_parity.py;
     ship-time proof scratch/verify_filters_consolidation.py."""
+    if params.get('use_ref_ticker_filter'):
+        ref = params.get('ref_ticker', 'IWM').replace('.', '-')
+        reference_columns = {}
+        for rule in params.get('ref_filters', []):
+            window = rule['window']
+            scoped = f'Ref_{ref}_rank_ret_{window}d'
+            if scoped in df:
+                reference_columns[f'Ref_rank_ret_{window}d'] = df[scoped]
+        if reference_columns:
+            df = df.assign(**reference_columns)
     return evaluate_filter_mask(df, params, sznl_map=sznl_map,
                                 ticker_name=ticker_name, mode='backtest')
 
 
 # Bump when indicators.py changes in a way that invalidates old cache files.
-INDICATOR_CACHE_VERSION = "v3"
+INDICATOR_CACHE_VERSION = "v4-content"
 _INDICATOR_CACHE_REQUIRED_COLUMNS = {
     OLV_PIVOT_HIGH_COL,
     OLV_PIVOT_HIGH_DATE_COL,
@@ -442,19 +452,18 @@ def _indicator_cache_has_required_schema(df):
 
 
 def _indicator_cache_path(t_clean, df, params_sig):
-    """Per-ticker indicator cache file path. Key = ticker + row count +
-    last date + params signature + indicator version."""
+    """Cache identity includes all price values plus calculation dependencies."""
     import hashlib
-    last_date = df.index[-1].strftime('%Y%m%d') if len(df) else 'empty'
-    first_date = df.index[0].strftime('%Y%m%d') if len(df) else 'empty'
-    key_str = f"{len(df)}|{first_date}|{last_date}|{params_sig}|{INDICATOR_CACHE_VERSION}"
-    key_hash = hashlib.md5(key_str.encode()).hexdigest()[:10]
+    from cache_fingerprint import content_fingerprint
+    key_str = f"{content_fingerprint(df)}|{params_sig}|{INDICATOR_CACHE_VERSION}|content-v2"
+    key_hash = hashlib.sha256(key_str.encode()).hexdigest()[:24]
     cache_dir = os.path.join(parent_dir, "data", "bt_indicator_cache")
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, f"{t_clean}_{key_hash}.parquet")
 
 
 def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series, _atr_sznl_map=None):
+    from cache_fingerprint import content_fingerprint
     processed = {}
 
     spy_df = _master_dict.get('SPY')
@@ -467,30 +476,27 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
         temp['SMA200'] = temp['Close'].rolling(200).mean()
         market_series = temp['Close'] > temp['SMA200']
     
+    dependency_sig = content_fingerprint((_sznl_map, market_series, _vix_series))
+
     # Precompute reference ticker ranks for strategies that use ref_ticker_filter
-    ref_ticker_ranks_map = {}  # {ref_ticker: {window: rank_series}}
+    ref_windows = {}
     for strat in _strategies:
         settings = strat['settings']
         if settings.get('use_ref_ticker_filter', False) and settings.get('ref_filters'):
             ref_ticker = settings.get('ref_ticker', 'IWM').replace('.', '-')
-            if ref_ticker not in ref_ticker_ranks_map:
-                ref_df = _master_dict.get(ref_ticker)
-                if ref_df is not None and len(ref_df) >= 200:
-                    try:
-                        ref_calc = calculate_indicators(ref_df.copy(), _sznl_map, ref_ticker, market_series, _vix_series)
-                        ref_ranks = {}
-                        for rf in settings['ref_filters']:
-                            col = f"rank_ret_{rf['window']}d"
-                            if col in ref_calc.columns:
-                                ref_ranks[rf['window']] = ref_calc[col]
-                        ref_ticker_ranks_map[ref_ticker] = ref_ranks
-                    except Exception:
-                        pass
-
-    # Build a merged ref_ticker_ranks dict across all strategies
-    all_ref_ticker_ranks = {}
-    for ref_ranks in ref_ticker_ranks_map.values():
-        all_ref_ticker_ranks.update(ref_ranks)
+            ref_windows.setdefault(ref_ticker, set()).update(rf['window'] for rf in settings['ref_filters'])
+    ref_ticker_ranks_map = {}  # {(reference ticker, window): rank_series}
+    for ref_ticker, windows in ref_windows.items():
+        ref_df = _master_dict.get(ref_ticker)
+        if ref_df is not None and len(ref_df) >= 200:
+            try:
+                ref_calc = calculate_indicators(ref_df.copy(), _sznl_map, ref_ticker, market_series, _vix_series)
+            except Exception:
+                continue
+            for window in windows:
+                col = f'rank_ret_{window}d'
+                if col in ref_calc:
+                    ref_ticker_ranks_map[(ref_ticker, window)] = ref_calc[col]
 
     # Build cross-sectional rank matrices (if any strategy uses xsec filters or or_filter_groups)
     xsec_windows_needed = set()
@@ -516,15 +522,12 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
     if xsec_windows_needed:
         RANK_MIN_PERIODS = 252
         # Disk cache: xsec matrices are slow (O(n^2) expanding rank per ticker per window,
-        # previously run serially) but depend only on the universe + latest date, so they
-        # cache well. Key = (sorted universe, sorted windows, latest shared date, version).
+        # previously run serially). Identity includes exact membership and every
+        # source price, so same-date provider revisions cannot reuse stale ranks.
         import hashlib as _hashlib
-        _universe_sig = tuple(sorted(_master_dict.keys()))
         _windows_sig = tuple(sorted(xsec_windows_needed))
-        _latest_dates = [df.index[-1] for df in _master_dict.values() if df is not None and len(df) > 0]
-        _latest = max(_latest_dates).strftime('%Y%m%d') if _latest_dates else 'empty'
-        _xsec_key = f"{len(_universe_sig)}|{_latest}|{_windows_sig}|{INDICATOR_CACHE_VERSION}"
-        _xsec_hash = _hashlib.md5(_xsec_key.encode()).hexdigest()[:10]
+        _xsec_key = f"{content_fingerprint(_master_dict)}|{_windows_sig}|{INDICATOR_CACHE_VERSION}|content-v2"
+        _xsec_hash = _hashlib.sha256(_xsec_key.encode()).hexdigest()[:24]
         _xsec_dir = os.path.join(parent_dir, "data", "bt_xsec_cache")
         os.makedirs(_xsec_dir, exist_ok=True)
         _xsec_cache_path = os.path.join(_xsec_dir, f"xsec_{_xsec_hash}.pkl")
@@ -535,6 +538,16 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
                 import pickle
                 with open(_xsec_cache_path, 'rb') as _f:
                     xsec_rank_matrices = pickle.load(_f)
+                expected_columns = {t for t, frame in _master_dict.items()
+                                    if frame is not None and "Close" in frame and len(frame) >= 50}
+                if not isinstance(xsec_rank_matrices, dict) or any(
+                    w not in xsec_rank_matrices
+                    or not isinstance(xsec_rank_matrices[w], pd.DataFrame)
+                    or set(xsec_rank_matrices[w].columns) != expected_columns
+                    or not xsec_rank_matrices[w].index.is_unique
+                    for w in xsec_windows_needed
+                ):
+                    xsec_rank_matrices = None
             except Exception:
                 xsec_rank_matrices = None
 
@@ -551,7 +564,7 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
                 close = df['Close']
                 out = {}
                 for w in xsec_windows_needed:
-                    ret = close.pct_change(w)
+                    ret = close.pct_change(w, fill_method=None)
                     out[w] = ret.expanding(min_periods=RANK_MIN_PERIODS).rank(pct=True) * 100.0
                 return ticker, out
 
@@ -606,7 +619,7 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
 
         params_sig = (
             params['gap'], params['acc'], params['dist'],
-            tuple(sorted(params['mas'])),
+            tuple(sorted(params['mas'])), dependency_sig,
         )
         cache_path = _indicator_cache_path(t_clean, df, params_sig)
 
@@ -688,9 +701,9 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
                         t_df[col] = mat[t_clean].reindex(t_df.index).fillna(50.0)
                     else:
                         t_df[col] = 50.0
-            if all_ref_ticker_ranks:
-                for window, series in all_ref_ticker_ranks.items():
-                    t_df[f'Ref_rank_ret_{window}d'] = series.reindex(
+            if ref_ticker_ranks_map:
+                for (reference, window), series in ref_ticker_ranks_map.items():
+                    t_df[f'Ref_{reference}_rank_ret_{window}d'] = series.reindex(
                         t_df.index, method='ffill'
                     ).fillna(50.0)
 
@@ -2164,23 +2177,37 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
 
     return sig_df.sort_values(by="Exit Date")
 
-def get_daily_mtm_series(sig_df, master_dict, start_date=None):
+def get_daily_mtm_series(sig_df, master_dict, start_date=None, end_date=None, session_dates=None):
     """
     Optimized daily MTM calculation using vectorized operations.
     
-    FIXED: Use explicit column access instead of positional (_3, _4)
-    to handle new "Exit Type" column.
+    Bounds default to the supplied trades/prices, never wall-clock time.
+    The default calendar is NYSE; other markets may supply explicit sessions.
+    A bounded view retains earlier marks but never realizes a later exit.
     """
     if sig_df.empty:
         return pd.Series(dtype=float)
     
     if start_date is not None:
-        min_date = pd.Timestamp(start_date)
+        view_start = pd.Timestamp(start_date).normalize()
     else:
-        min_date = sig_df['Entry Date'].min()
-    
-    max_date = max(sig_df['Exit Date'].max(), pd.Timestamp.today())
-    all_dates = pd.date_range(start=min_date, end=max_date, freq='B')
+        view_start = pd.Timestamp(sig_df['Entry Date'].min()).normalize()
+    min_date = min(view_start, pd.Timestamp(sig_df['Entry Date'].min()).normalize())
+    if end_date is None:
+        observed_ends = [pd.Timestamp(sig_df['Exit Date'].max()).normalize()]
+        for ticker in sig_df['Ticker'].unique():
+            frame = master_dict.get(ticker.replace('.', '-'))
+            if frame is not None and not frame.empty:
+                observed_ends.append(pd.Timestamp(frame.index.max()).normalize())
+        max_date = max(observed_ends)
+    else:
+        max_date = pd.Timestamp(end_date).normalize()
+    if session_dates is None:
+        from trading_calendar import TRADING_DAY
+        all_dates = pd.date_range(start=min_date, end=max_date, freq=TRADING_DAY)
+    else:
+        all_dates = pd.DatetimeIndex(session_dates).normalize().unique().sort_values()
+        all_dates = all_dates[(all_dates >= min_date) & (all_dates <= max_date)]
     daily_pnl = pd.Series(0.0, index=all_dates)
     
     # Pre-process price data
@@ -2254,7 +2281,8 @@ def get_daily_mtm_series(sig_df, master_dict, start_date=None):
         # run, so the correction stays scale-invariant.
         last_date = trade_dates[-1]
         last_close = trade_closes.get(last_date, np.nan)
-        if (last_date in daily_pnl.index and not pd.isna(last_close)
+        if (pd.Timestamp(exit_date) <= max_date
+                and last_date in daily_pnl.index and not pd.isna(last_close)
                 and not pd.isna(_pnl_values[i])):
             if action == "BUY":
                 curve_pnl = (last_close - entry_price) * shares
@@ -2262,11 +2290,11 @@ def get_daily_mtm_series(sig_df, master_dict, start_date=None):
                 curve_pnl = (entry_price - last_close) * shares
             daily_pnl[last_date] += float(_pnl_values[i]) - curve_pnl
 
-    return daily_pnl
+    return daily_pnl.loc[view_start:]
 
 
-def calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=None):
-    daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date)
+def calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=None, end_date=None, session_dates=None):
+    daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date, end_date, session_dates)
     if daily_pnl.empty:
         return pd.DataFrame(columns=['Equity'])
 
@@ -2404,8 +2432,10 @@ def calculate_annual_stats(daily_pnl_series, starting_equity, trades_df=None):
     if daily_pnl_series.empty:
         return pd.DataFrame()
 
+    daily_pnl_series = daily_pnl_series.sort_index()
     equity_series = starting_equity + daily_pnl_series.cumsum()
-    daily_rets = equity_series.pct_change().fillna(0)
+    prior_equity = equity_series.shift(1, fill_value=starting_equity)
+    daily_rets = daily_pnl_series / prior_equity.replace(0, np.nan)
 
     trades_by_year = {}
     total_trades = None
@@ -2422,16 +2452,16 @@ def calculate_annual_stats(daily_pnl_series, starting_equity, trades_df=None):
 
         year_mask = equity_series.index.year == year
         year_eq = equity_series[year_mask]
-        if len(year_eq) < 2:
+        if year_eq.empty:
             continue
 
-        year_start = year_eq.iloc[0]
+        year_start = prior_equity[year_mask].iloc[0]
         year_end = year_eq.iloc[-1]
 
         total_ret_pct = (year_end - year_start) / year_start if year_start != 0 else 0
         total_ret_dollar = year_end - year_start
 
-        std_dev = rets.std() * np.sqrt(252)
+        std_dev = rets.std() * np.sqrt(252) if len(rets) > 1 else 0
         mean_ret = rets.mean() * 252
         sharpe = mean_ret / std_dev if std_dev != 0 else 0
 
@@ -2439,7 +2469,7 @@ def calculate_annual_stats(daily_pnl_series, starting_equity, trades_df=None):
         downside_std = np.sqrt((neg_rets**2).mean()) * np.sqrt(252) if len(neg_rets) > 0 else 0
         sortino = mean_ret / downside_std if downside_std != 0 else 0
 
-        running_max = year_eq.expanding().max()
+        running_max = year_eq.cummax().clip(lower=year_start)
         drawdown = (year_eq - running_max) / running_max
         max_dd = drawdown.min()
 
@@ -2455,18 +2485,18 @@ def calculate_annual_stats(daily_pnl_series, starting_equity, trades_df=None):
         })
 
     # Full-lifespan total row — same metrics computed across the entire series.
-    if yearly_stats and len(equity_series) >= 2:
-        tot_start = equity_series.iloc[0]
+    if yearly_stats:
+        tot_start = starting_equity
         tot_end = equity_series.iloc[-1]
         tot_ret_pct = (tot_end - tot_start) / tot_start if tot_start != 0 else 0
         tot_ret_dollar = tot_end - tot_start
-        tot_std = daily_rets.std() * np.sqrt(252)
+        tot_std = daily_rets.std() * np.sqrt(252) if len(daily_rets) > 1 else 0
         tot_mean = daily_rets.mean() * 252
         tot_sharpe = tot_mean / tot_std if tot_std != 0 else 0
         tot_neg = daily_rets[daily_rets < 0]
         tot_downside = np.sqrt((tot_neg**2).mean()) * np.sqrt(252) if len(tot_neg) > 0 else 0
         tot_sortino = tot_mean / tot_downside if tot_downside != 0 else 0
-        tot_running_max = equity_series.expanding().max()
+        tot_running_max = equity_series.cummax().clip(lower=starting_equity)
         tot_dd = ((equity_series - tot_running_max) / tot_running_max).min()
         yearly_stats.append({
             "Year": "Total",

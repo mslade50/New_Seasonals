@@ -19,7 +19,7 @@ st.set_page_config(layout="wide", page_title="Market Heatmap Inspector")
 # -----------------------------------------------------------------------------
 # DATA LOADERS & CACHING
 # -----------------------------------------------------------------------------
-@st.cache_resource
+@st.cache_data(ttl=3600)
 def load_seasonal_map():
     """
     Loads seasonal ranks with EXACT DATE matching (YYYY-MM-DD).
@@ -46,7 +46,7 @@ def load_seasonal_map():
         ).to_dict()
     return output_map
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_market_metrics():
     try:
         df = pd.read_csv(METRICS_PATH)
@@ -70,7 +70,7 @@ def load_market_metrics():
         results[f"Mkt_Total_NH_{w}d_Rank"] = ma_col.expanding(min_periods=126).rank(pct=True) * 100.0
     return results
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_naaim_data():
     try:
         df = pd.read_csv(NAAIM_PATH)
@@ -92,7 +92,7 @@ def load_naaim_data():
     except Exception:
         return pd.DataFrame()
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def download_data(ticker):
     try:
         # threads=True speeds up download
@@ -123,7 +123,7 @@ def get_sznl_val_series(ticker, dates, sznl_map):
     # Both 'dates' and 't_map' keys are now timezone-naive timestamps
     return dates.map(t_map).fillna(50.0)
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_spy_context():
     spy = download_data("SPY")
     if spy.empty: return pd.DataFrame()
@@ -132,7 +132,7 @@ def get_spy_context():
         spy_features[f'SPY_Ret_{w}d_Rank'] = spy['Close'].pct_change(w).expanding(min_periods=252).rank(pct=True) * 100.0
     return spy_features
 
-@st.cache_data(show_spinner=True)
+@st.cache_data(ttl=3600, show_spinner=True)
 def calculate_heatmap_variables(df, _sznl_map, market_metrics_df, ticker):
     # _sznl_map has underscore to prevent Streamlit hashing (Speed Boost)
     df = df.copy()

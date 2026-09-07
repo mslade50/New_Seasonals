@@ -11,7 +11,7 @@ Safety properties:
 * Event and Trend are separately receipted, duplicate-sensitive components;
 * a single OS file lock prevents overlapping local pipelines;
 * secrets are loaded only from explicitly supplied paths and are never logged;
-* producer jobs validate their R2 object sizes (and freshness where useful);
+* producer jobs validate R2 object content, generation, and freshness;
 * private/shared site builds are dispatch-only and can never run locally here.
 
 Run ``python scripts/automation_supervisor.py --help`` for the operational
@@ -74,6 +74,7 @@ import argparse
 import dataclasses
 import datetime as dt
 import glob
+import hashlib
 import json
 import os
 import queue
@@ -662,19 +663,20 @@ def build_catalog() -> dict[str, PipelineSpec]:
             ),
             JobSpec(
                 id="risk_pm",
-                description="Full daily risk report, email, and private-site inputs",
+                description="Daily risk calculations and private-site inputs",
                 commands=(
                     pull_risk,
                     _py(
-                        "run full risk report",
+                        "refresh risk data",
                         "daily_risk_report.py",
+                        "--data-only",
                         timeout=2700,
                         side_effecting=True,
                     ),
                     publish("risk"),
                 ),
                 workflow=WorkflowSpec("risk_report.yml", (("mode", "full"),), 3600),
-                required_env=R2_ENV + EMAIL_ENV,
+                required_env=R2_ENV,
                 outputs=(
                     _out("data/rd2_fragility.parquet", "rd2_fragility.parquet", minimum=1_000),
                     _out("data/rd2_environment.json", "rd2_environment.json", minimum=50),
@@ -703,6 +705,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                     _py(
                         "harvest broker fills",
                         "scripts/harvest_fills.py",
+                        "--assert-no-gap",
                         "--summary-json",
                         "data/live_fills_status.json",
                         timeout=900,
@@ -1308,7 +1311,16 @@ class SubprocessClient:
             bufsize=1,
             shell=False,
             creationflags=creationflags,
+            start_new_session=os.name != "nt",
         )
+        from scripts.process_tree import ProcessTree
+        try:
+            tree = ProcessTree(proc)
+        except Exception:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
+            raise
         assert proc.stdout is not None
         output: queue.Queue[str | None] = queue.Queue()
 
@@ -1324,13 +1336,16 @@ class SubprocessClient:
         deadline = time.monotonic() + timeout_seconds
         done_reading = False
         while not done_reading or proc.poll() is None:
-            if time.monotonic() >= deadline and proc.poll() is None:
+            if time.monotonic() >= deadline:
                 logger.line(f"ERROR: command exceeded {timeout_seconds}s; terminating")
-                proc.terminate()
+                tree.close()
+                if proc.poll() is None:
+                    proc.terminate()
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     proc.kill()
+                    proc.wait(timeout=10)
                 thread.join(timeout=2)
                 return 124
             try:
@@ -1342,7 +1357,9 @@ class SubprocessClient:
             else:
                 logger.line(item)
         thread.join(timeout=2)
-        return int(proc.wait())
+        result = int(proc.wait())
+        tree.close()
+        return result
 
     def capture(
         self,
@@ -1425,6 +1442,27 @@ class R2Backend:
                 return None
             raise AutomationError(f"R2 HEAD failed for {key}: {type(exc).__name__}") from exc
 
+    def content_hash(self, key: str, etag: str) -> str:
+        """Hash the exact HEAD generation; a concurrent replacement is an error."""
+        if not etag:
+            raise ValidationError(f"R2 generation identity missing for {key}")
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key, IfMatch=etag)
+            body = response["Body"]
+            try:
+                if response.get("ETag") != etag:
+                    raise ValidationError(f"R2 generation changed for {key}")
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: body.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                return digest.hexdigest()
+            finally:
+                body.close()
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(f"R2 content verification failed for {key}: {type(exc).__name__}") from exc
+
     def get_json(self, key: str) -> tuple[dict[str, Any] | None, str | None]:
         try:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
@@ -1491,6 +1529,8 @@ class Receipt:
     github_url: str | None = None
     detail: str | None = None
     duplicate_sensitive: bool = False
+    health_status: str | None = None
+    artifact_evidence: list[dict[str, Any]] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -1521,6 +1561,8 @@ def effective_status(receipt: Receipt | None, now_utc: dt.datetime) -> str:
     """
     if receipt is None:
         return "missing"
+    if receipt.status == "success" and receipt.health_status == "degraded":
+        return "degraded"
     if receipt.status == "running" and receipt.lease_expired(now_utc):
         return "expired"
     return receipt.status
@@ -1742,6 +1784,7 @@ class OutputValidator:
         started_at_utc: dt.datetime,
         logger: RunLogger,
     ) -> None:
+        self.evidence = []
         for spec in outputs:
             pattern = str(repo_root / spec.local_pattern)
             matches = [Path(p) for p in sorted(glob.glob(pattern))]
@@ -1773,7 +1816,16 @@ class OutputValidator:
                         modified = modified.replace(tzinfo=UTC)
                     if modified.astimezone(UTC) < started_at_utc - self.freshness_slack:
                         raise ValidationError(f"R2 object was not refreshed by this run: {key}")
-                logger.line(f"validation: r2://{key} size={size} verified")
+                with path.open("rb") as stream:
+                    local_digest = hashlib.sha256()
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        local_digest.update(chunk)
+                etag = str(metadata.get("ETag") or "")
+                digest = local_digest.hexdigest()
+                if self.backend.content_hash(key, etag) != digest:
+                    raise ValidationError(f"R2 content mismatch for {key}")
+                self.evidence.append({"key": key, "size": size, "sha256": digest, "etag": etag})
+                logger.line(f"validation: r2://{key} size={size} sha256={digest} generation verified")
 
 
 @dataclass(frozen=True)
@@ -2437,7 +2489,13 @@ class AutomationSupervisor:
                 started=started,
                 phase="completed",
             )
+            from scripts.producer_health import inspect_health
+            health, health_detail = inspect_health(job.commands, self.repo_root, started)
+            success = dataclasses.replace(success, health_status=health, detail=health_detail,
+                artifact_evidence=list(getattr(self.validator, "evidence", [])) if job.outputs else None)
             self.receipts.transition(success, update_latest=True)
+            if health == "degraded":
+                logger.line(f"WARNING: {job.id} completed with degraded coverage: {health_detail}")
             logger.line(f"success {job.id} (local)")
             return JobOutcome(job.id, "success", "local")
         except Exception as exc:  # noqa: BLE001 - local failures share one fallback path

@@ -15,22 +15,24 @@ before order staging); local manual runs work the same way:
     python event_sleeve.py [--dry-run] [--asof YYYY-MM-DD] [--force]
 
 Each run recomputes today's actions from the macro calendar and writes the
-`Event` Sheets tab (clear + rewrite; empty when no action today). The tab
+`Event` Sheets tab in one atomic replacement (empty when no action today). The tab
 is consumed by the pre-market runner event_moo.py (OneDrive trading_ibkr),
 which places the auction orders on the primary account.
 
-State (open positions + their scheduled exits) lives in
-data/event_sleeve_state.json and round-trips through R2 so GHA runs share
-it. EXITS COME FROM STATE, not the calendar: each entry records exit_on +
-exit order type, and any run with today >= exit_on stages the exit — a
-failed morning run delays an exit by a session instead of dropping it.
-All filters use the prior session's close (master_prices pre-market has
-yesterday's bar at newest) — lag-1 by construction, matching the prereg.
+State records entry intentions, attributed inventory, and pending exit obligations
+in data/event_sleeve_state.json, shared through R2. Each entry preserves its
+scheduled exit date/type and stable entry identity. Staging an exit keeps that
+obligation pending; only matched Primary executions confirm completion. Missed
+unsubmitted auctions retain next-auction intent. Submitted or uncertain attempts
+remain held for broker reconciliation through durable executor claims.
 
-Known bound (trend-sleeve convention): state marks a position open at
-STAGING time. If the staged order was never executed (runner off, order
-rejected), clear the position from the state json or the sleeve will
-stage a phantom exit later.
+Before another live staging run, existing obligations are reconciled against the
+verified canonical fill generation. Missing entry confirmation or incomplete
+history raises an exception and preserves state. Correct the broker evidence or
+review the inventory bootstrap; do not remove an obligation to manufacture flat
+inventory. Dry runs remain intention previews and perform no reconciliation I/O.
+All signal filters use the prior session's close, matching the preregistration.
+
 """
 from __future__ import annotations
 
@@ -215,8 +217,8 @@ def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
                    f"MOC — {note} (exit {exit_order_type} {exit_on.date()})")
 
     # ---- exits first, FROM STATE: any open position at/past its exit date.
-    # A failed morning run therefore delays an exit by a session instead of
-    # dropping it (the calendar day itself is never load-bearing).
+    # Missing execution preserves the obligation; stable executor claims prevent
+    # a submitted/uncertain prior attempt from becoming a duplicate order.
     for trade, pos in sorted(positions.items()):
         exit_on = pd.Timestamp(pos["exit_on"])
         if today < exit_on:
@@ -228,7 +230,11 @@ def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
         action = "SELL" if cfg["side"] == "LONG" else "BUY_TO_COVER"
         rows.append(_row(trade, cfg, action, int(pos["shares"]), ref, today,
                          ot, f"scheduled exit{late}"))
-        positions.pop(trade)
+        rows[-1]["Entry_Date"] = pos["entry_date"]
+        rows[-1]["Execution_ID"] = f"{trade}|{pos['entry_date']}|exit"
+        pos["status"] = "exit_pending"
+        pos["exit_staged_on"] = str(today.date())
+        log.append(f"[CRITICAL] {trade}: exit obligation remains pending until attributed fills confirm it")
         log.append(f"{trade}: EXIT staged {action} {pos['shares']} "
                    f"{cfg['ticker']} {ot}{late}")
 
@@ -743,17 +749,15 @@ def write_sheet(rows: list[dict], dry_run: bool) -> None:
             ws = sh.worksheet(TAB_NAME)
         except gspread.exceptions.WorksheetNotFound:
             ws = sh.add_worksheet(title=TAB_NAME, rows=20, cols=12)
-        ws.clear()
         if not rows:
             expected = [["No event-sleeve action",
                          datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]]
-            ws.update(expected)
         else:
             df = pd.DataFrame(rows)
             expected = [df.columns.tolist()] + df.astype(str).values.tolist()
-            ws.update(expected)
+        from sheets_io import replace_worksheet_values
+        actual = replace_worksheet_values(ws, expected)
         if os.environ.get("LOCAL_AUTOMATION_STRICT", "").strip() == "1":
-            actual = ws.get_all_values()
             if actual != expected:
                 raise RuntimeError(
                     f"Event tab readback mismatch: wrote {len(expected)} rows, "
@@ -793,6 +797,16 @@ def main() -> None:
     tickers = sorted({c["ticker"] for c in EVENT_SLEEVE.values()})
     px = {t: load_ticker(t) for t in tickers}
     state = load_state()
+    if state.get("positions") and not args.dry_run:
+        from sleeve_fills import load_verified_fills, reconcile_event_fills
+        previous = (today - TRADING_DAY).tz_localize("America/New_York") + pd.Timedelta(hours=16)
+        fills = load_verified_fills(previous)
+        reconcile_event_fills(state, fills, EVENT_SLEEVE)
+        unresolved = [trade for trade, pos in state.get("positions", {}).items()
+                      if pos.get("inventory_basis") != "attributed_executions"]
+        if unresolved:
+            save_state(state, False)
+            raise RuntimeError("Event entry inventory remains unconfirmed; obligation preserved")
     rows, log = compute_actions(today, px, state)
 
     print(f"Event sleeve {today.date()} - {len(rows)} action(s)")

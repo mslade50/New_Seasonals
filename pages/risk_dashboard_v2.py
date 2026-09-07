@@ -655,7 +655,7 @@ def compute_fomc_signal(spy_close: pd.Series) -> dict:
             break
 
     # Compute 5d trailing return percentile
-    pre_return = spy_close.pct_change(pre_window)
+    pre_return = spy_close.pct_change(pre_window, fill_method=None)
     pre_pctile = _rolling_percentile(pre_return, lookback)
 
     latest_pctile = float(pre_pctile.iloc[-1]) if len(pre_pctile) > 0 and not np.isnan(pre_pctile.iloc[-1]) else 0.0
@@ -999,7 +999,7 @@ def compute_dispersion_signal(sp500_closes: pd.DataFrame,
     if sp500_closes is None or (hasattr(sp500_closes, 'empty') and sp500_closes.empty):
         return empty
 
-    component_returns = sp500_closes.pct_change()
+    component_returns = sp500_closes.pct_change(fill_method=None)
 
     # Per-stock trailing RV (annualized)
     component_rv = component_returns.rolling(
@@ -1013,7 +1013,7 @@ def compute_dispersion_signal(sp500_closes: pd.DataFrame,
     avg_component_rv = component_rv.mean(axis=1).where(sufficient_data)
 
     # SPY RV (close-to-close)
-    spy_returns = spy_close.pct_change()
+    spy_returns = spy_close.pct_change(fill_method=None)
     spy_rv = spy_returns.rolling(
         rv_window, min_periods=max(5, rv_window // 2)
     ).std() * np.sqrt(252)
@@ -1104,21 +1104,25 @@ def compute_price_context(spy_close: pd.Series) -> dict:
     Compute the three dimensions of price context.
     Returns dict with all values needed for the banner.
     """
-    latest = float(spy_close.iloc[-1])
+    spy_close = pd.to_numeric(spy_close, errors="coerce")
+    spy_close = spy_close.where(np.isfinite(spy_close) & (spy_close > 0))
+    def finite(value):
+        return float(value) if value is not None and np.isfinite(value) else None
+    latest = finite(spy_close.iloc[-1]) if not spy_close.empty else None
 
     # Trailing 12-month return
-    if len(spy_close) >= 252:
-        ret_12m = (latest / float(spy_close.iloc[-252]) - 1)
+    if len(spy_close) >= 253 and latest is not None:
+        ret_12m = finite(latest / spy_close.iloc[-253] - 1)
     else:
         ret_12m = None
 
     # Extension vs 200d SMA
-    sma_200 = float(spy_close.rolling(200).mean().iloc[-1]) if len(spy_close) >= 200 else None
-    extension_200d = (latest / sma_200 - 1) if sma_200 else None
+    sma_200 = finite(spy_close.rolling(200).mean().iloc[-1]) if len(spy_close) >= 200 else None
+    extension_200d = (latest / sma_200 - 1) if sma_200 and latest is not None else None
 
     # Drawdown from 52-week high
-    high_52w = float(spy_close.rolling(252).max().iloc[-1]) if len(spy_close) >= 252 else None
-    drawdown = (latest / high_52w - 1) if high_52w else None
+    high_52w = finite(spy_close.rolling(252).max().iloc[-1]) if len(spy_close) >= 252 else None
+    drawdown = (latest / high_52w - 1) if high_52w and latest is not None else None
 
     # Price regime label
     if ret_12m is not None and extension_200d is not None and drawdown is not None:
@@ -1142,7 +1146,7 @@ def compute_price_context(spy_close: pd.Series) -> dict:
         regime_label = "Insufficient data"
 
     # Days since 5% / 10% correction from rolling 52w high
-    if len(spy_close) >= 252:
+    if len(spy_close) >= 252 and latest is not None and high_52w is not None:
         rolling_high = spy_close.rolling(252).max()
         dd_series = spy_close / rolling_high - 1
         corr_5 = dd_series[dd_series <= -0.05]
@@ -1213,6 +1217,7 @@ def compute_regime_multiplier(price_ctx: dict) -> float:
 def render_price_context(price_ctx: dict):
     """Render the price context banner."""
     p = price_ctx
+    price_str = f"${p['price']:.2f}" if p.get('price') is not None else "N/A"
 
     ret_str = f"{p['ret_12m']:+.1%}" if p['ret_12m'] is not None else "N/A"
     ext_str = f"{p['extension_200d']:+.1%}" if p['extension_200d'] is not None else "N/A"
@@ -1229,7 +1234,7 @@ def render_price_context(price_ctx: dict):
                 padding: 10px 16px; border-radius: 6px; margin-bottom: 10px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
             <div>
-                <span style="font-size: 15px; font-weight: 600;">SPY: ${p['price']:.2f}</span>
+                <span style="font-size: 15px; font-weight: 600;">SPY: {price_str}</span>
                 <span style="font-size: 13px; color: #999; margin-left: 12px;">
                     {ret_str} 12mo &nbsp;|&nbsp; {ext_str} vs 200d &nbsp;|&nbsp; {dd_str} from high
                 </span>
@@ -2371,7 +2376,7 @@ def compute_regime_deep_dive(_spy_df, _closes, _frag_df, cache_key, sma_filter=F
             buckets_10d[below_sma & buckets_10d.isin(['Robust', 'Calm'])] = np.nan
 
         # Daily returns
-        daily_ret = sd['Close'].pct_change()
+        daily_ret = sd['Close'].pct_change(fill_method=None)
 
         # Align VIX/VIX3M
         vix_a = vix.reindex(common)
@@ -3067,7 +3072,7 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
 
     sector_cols = [c for c in SECTOR_ETFS if c in _closes.columns]
     sector_closes = _closes[sector_cols].dropna(axis=1, how="all")
-    sector_returns = sector_closes.pct_change().dropna(how="all")
+    sector_returns = sector_closes.pct_change(fill_method=None).dropna(how="all")
 
     da = compute_da_signal(_spy_df)
     vix_close = _closes["^VIX"].dropna() if "^VIX" in _closes.columns else pd.Series(dtype=float)

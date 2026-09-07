@@ -14,6 +14,7 @@ Author: McKinley
 Last Modified: 2026-02-04
 """
 
+from sheets_io import replace_worksheet_values
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -157,9 +158,9 @@ def write_portfolio_to_sheet(open_positions_df, workbook_name='Trade_Signals_Log
     """Write the current open-positions snapshot to a dedicated tab so other
     scripts (daily_scan, local_overflow_scan) can read it for ladder sizing.
 
-    Always clears the tab at start — even on a zero-position day — so stale
-    rows from a prior run never linger. Silently no-ops on auth failure so
-    the report email still sends.
+    Replaces the whole table atomically, including a timestamp-only snapshot
+    on a zero-position day. Strict automation raises on authentication/write
+    failures; interactive reports return False so the caller can report them.
     """
     gc = get_google_client()
     if not gc:
@@ -183,10 +184,9 @@ def write_portfolio_to_sheet(open_positions_df, workbook_name='Trade_Signals_Log
         except Exception:
             worksheet = sh.add_worksheet(title=tab_name, rows=500, cols=max(26, len(df.columns) + 2))
 
-        worksheet.clear()
         if df.empty:
             # Still write a headers-only row so readers can detect the snapshot ran.
-            worksheet.update(range_name='A1', values=[['Snapshot_Timestamp'], [datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')]])
+            replace_worksheet_values(worksheet, [['Snapshot_Timestamp'], [datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')]])
             print(f"   [CLEAR] No open positions - '{tab_name}' cleared (timestamp-only)")
             if _automation_strict():
                 rows = worksheet.get_all_values()
@@ -194,7 +194,7 @@ def write_portfolio_to_sheet(open_positions_df, workbook_name='Trade_Signals_Log
                     raise RuntimeError("Portfolio tab timestamp-only readback failed")
             return True
         data = [df.columns.tolist()] + df.astype(str).values.tolist()
-        worksheet.update(range_name='A1', values=data)
+        replace_worksheet_values(worksheet, data)
         if _automation_strict():
             rows = worksheet.get_all_values()
             if not rows or rows[0] != data[0] or len(rows) != len(data):
@@ -717,7 +717,7 @@ def get_todays_activity(sig_df, master_dict):
 # 4c. TRAILING STRATEGY PERFORMANCE STATS
 # -----------------------------------------------------------------------------
 
-def calculate_trailing_strategy_stats(sig_df):
+def calculate_trailing_strategy_stats(sig_df, as_of=None):
     """
     Calculate strategy performance stats for trailing 3, 6, and 12 month periods.
 
@@ -727,19 +727,15 @@ def calculate_trailing_strategy_stats(sig_df):
     if sig_df.empty:
         return {'3M': pd.DataFrame(), '6M': pd.DataFrame(), '12M': pd.DataFrame()}
 
-    today = pd.Timestamp(datetime.date.today())
-
-    periods = {
-        '3M': today - pd.Timedelta(days=63),   # ~3 months of trading days
-        '6M': today - pd.Timedelta(days=126),  # ~6 months
-        '12M': today - pd.Timedelta(days=252)  # ~12 months
-    }
+    today = pd.Timestamp(as_of if as_of is not None else datetime.date.today()).normalize()
+    periods = {f"{months}M": today - pd.DateOffset(months=months) for months in (3, 6, 12)}
 
     results = {}
 
     for period_name, cutoff_date in periods.items():
         # Filter signals by Entry Date within the period
-        period_df = sig_df[sig_df['Entry Date'] >= cutoff_date].copy()
+        entry_dates = pd.to_datetime(sig_df['Entry Date'])
+        period_df = sig_df[(entry_dates >= cutoff_date) & (entry_dates < today + pd.Timedelta(days=1))].copy()
 
         if period_df.empty:
             results[period_name] = pd.DataFrame()
