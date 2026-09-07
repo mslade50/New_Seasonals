@@ -22,7 +22,7 @@ def metric(name, value, unit="value"):
         "unit": unit,
         "sample_size": 60,
         "definition": f"Fixture definition for {name}.",
-        "methodology": "Frozen point-in-time costed portfolio replay.",
+        "methodology": "Frozen decision-available costed portfolio replay.",
     }
 
 
@@ -46,7 +46,7 @@ def qualifying_metrics():
         "round_trip_cost_bps": 5,
         "liquid_ibkr_instrument_count": 2,
         "total_instrument_count": 2,
-        "point_in_time_universe_flag": 1,
+        "point_in_time_universe_flag": 0,
     }
     return [metric(name, value) for name, value in values.items()]
 
@@ -85,7 +85,7 @@ def validated_inputs(tmp_path: Path, *, behavior="MEAN_REVERSION"):
                 "fingerprint": fp,
                 "writeup": {
                     "strategy": "Buy a precisely defined three-session liquid-index reversal.",
-                    "validation": "The point-in-time replay survived costs and recent-era checks.",
+                    "validation": "The fixed-universe replay survived costs and recent-era checks.",
                     "why_it_fits": "Portfolio replay adds Sharpe with low active-book correlation.",
                     "implementation": "Research implementation uses SPY and QQQ with next-open entry.",
                     "risks_and_falsifiers": "Stop if net edge or marginal portfolio benefit decays.",
@@ -108,6 +108,34 @@ def test_worthwhile_candidate_renders_full_email_and_excludes_positions(tmp_path
         assert heading in body
     assert "Current positions were not used" in body
     assert "https://x.com/alpha/status/100" in body
+
+
+def test_explicit_fixed_universe_does_not_require_a_false_point_in_time_claim(tmp_path: Path):
+    report, fit, package = validated_inputs(tmp_path)
+    candidate = report["candidates"][0]
+    assert candidate["structure"]["universe_history"]["membership_mode"] == "FIXED_INSTRUMENTS"
+    decision = evaluate_email_package(report, fit, package)
+    assert decision["email_required"] is True
+
+
+def test_universe_metric_must_match_the_journaled_membership_mode(tmp_path: Path):
+    report, fit, package = validated_inputs(tmp_path)
+    candidate = report["candidates"][0]
+    target = next(
+        row
+        for row in candidate["internally_validated_metrics"]
+        if row["name"] == "point_in_time_universe_flag"
+    )
+    target["value"] = 1
+    package["discovery_report_digest"] = sha256_json(report)
+    fit["discovery_report_digest"] = sha256_json(report)
+    package["family_fit_digest"] = sha256_json(fit)
+    decision = evaluate_email_package(report, fit, package)
+    assert decision["email_required"] is False
+    assert (
+        "universe history is neither point-in-time nor an explicitly fixed instrument set"
+        in decision["candidates"][0]["failed_gates"]
+    )
 
 
 def test_active_family_overlap_uses_stricter_incremental_fit_gate(tmp_path: Path):

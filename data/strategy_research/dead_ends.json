@@ -1,0 +1,11 @@
+{
+  "schema_version": "strategy-dead-ends.v1",
+  "records": [
+    {
+      "name": "Dispersion-normalized cross-sectional equity forecast (location-to-spread)",
+      "structural_fingerprint": "cf2e7d4df0a43ad9d823020725be44bf2038d6fbae6086c17d83b740216a6dd9",
+      "rejection_reason": "Rejected after the preregistered 2004-2026 costed replay: gross and net mean returns were -21.04 and -33.13 bps per leg, the recent-era mean was -50.86 bps, zero of six neighboring specifications were positive, bootstrap P(mean <= 0) was 0.9855, and incremental portfolio Sharpe was -0.0785. Dispersion normalization underperformed the raw-location control by 41.19 bps per leg.",
+      "decided_at": "2026-09-07T17:16:02.074035Z"
+    }
+  ]
+}
