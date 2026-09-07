@@ -27,7 +27,7 @@ append-only journal:
   verified journal head; an unreferenced generation is not a committed run.
 
 The report and run content ID include an explicit processor version (currently
-`1.0.6`). Any
+`1.0.7`). Any
 content-affecting contract/classification/rendering release must bump it, so a
 new implementation cannot collide with an immutable generation produced by an
 older one from identical input snapshots.

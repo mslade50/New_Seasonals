@@ -38,7 +38,7 @@ from .journal import (
 )
 
 STATUS_ORDER = {"COMPLETE": 0, "PARTIAL": 1, "UNKNOWN": 2}
-PROCESSOR_VERSION = "1.0.6"
+PROCESSOR_VERSION = "1.0.7"
 INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+|previous\s+)*instructions", re.IGNORECASE),
     re.compile(r"(?:system|developer)\s+prompt", re.IGNORECASE),
@@ -79,6 +79,16 @@ def _normalize_value(value: Any) -> Any:
     return value
 
 
+def _normalize_condition_value(operator: str, value: Any) -> Any:
+    """Normalize a predicate value without erasing ordered range semantics."""
+    if not isinstance(value, list):
+        return _normalize_value(value)
+    normalized = [_normalize_value(member) for member in value]
+    if operator in {"in", "not_in"}:
+        return sorted(normalized, key=canonical_json)
+    return normalized
+
+
 def _is_substantive(value: str | None) -> bool:
     return value is not None and _normalize_text(value) not in PLACEHOLDER_VALUES
 
@@ -103,7 +113,7 @@ def structural_spec(proposal: dict[str, Any]) -> dict[str, Any]:
         {
             "field": _normalize_text(condition["field"]),
             "operator": _normalize_text(condition["operator"]),
-            "value": _normalize_value(condition["value"]),
+            "value": _normalize_condition_value(condition["operator"], condition["value"]),
             "unit": _normalize_text(condition["unit"]) if condition["unit"] else None,
             "lookback_sessions": condition["lookback_sessions"],
         }
