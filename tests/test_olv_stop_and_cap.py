@@ -337,16 +337,28 @@ import gspread
 
 
 class _FakeWS:
+    id, row_count, col_count = 1, 1000, 100
+
     def __init__(self, rows=None):
         self._rows = rows or []
-        self.cleared = False
+        self.replaced = False
         self.written = None
+        self.spreadsheet = self
+
+    def batch_update(self, payload):
+        request = payload['requests'][-1]['updateCells']
+        assert request['fields'] == 'userEnteredValue'
+        assert request['range']['endRowIndex'] >= self.row_count
+        self.written = [[cell['userEnteredValue']['stringValue'] for cell in row['values']]
+                        for row in request['rows']]
+        self._rows = self.written
+        self.replaced = True
 
     def get_all_values(self):
         return self._rows
 
     def clear(self):
-        self.cleared = True
+        raise AssertionError('Whole-table writes must not use a separate clear')
 
     def update(self, values=None, **kw):
         self.written = values
@@ -408,7 +420,7 @@ def test_stage_olv_exits_confirms_loud_holds_quiet(monkeypatch):
     }
     daily_scan.stage_olv_vol_confirm_exits(master)
 
-    assert exits_ws.cleared
+    assert exits_ws.replaced
     assert exits_ws.written is not None
     header, *rows = exits_ws.written
     assert len(rows) == 1, f"only AAA should confirm, got {rows}"
@@ -436,7 +448,7 @@ def test_stage_olv_exits_always_rewrites_tab_even_when_empty(monkeypatch):
         "BBB": _px_frame(close_last=100.0, vol_last=1_000_000.0),
     }
     daily_scan.stage_olv_vol_confirm_exits(master)
-    assert exits_ws.cleared, "stale exit rows must be cleared on every run"
+    assert exits_ws.replaced, "stale exit rows must be removed in the atomic replacement"
     assert len(exits_ws.written) == 1, "header-only write expected"
 
 
