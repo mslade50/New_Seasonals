@@ -78,6 +78,9 @@ research and finalization. After the first discovery run has journaled every
 capture, acknowledge the partial bundle so complete source cursors may advance
 while partial cursors remain unchanged. Report the run as failed; do not write
 `NO_EMAIL`, because incomplete source coverage is not a quiet research day.
+Use the same acknowledgement command from step 6, including the normalized
+item file; no decision file is required while any journaled source is
+`PARTIAL` or `UNKNOWN`.
 
 ## 4. Research each preregistered candidate
 
@@ -155,11 +158,14 @@ opening SMTP. Never send a stand-down or “nothing today” email.
 After reading a terminal `SENT`, `ALREADY_SENT`, or `NO_EMAIL` decision, run:
 
 ```powershell
-python scripts/collect_strategy_sources.py acknowledge --capture-dir <capture-dir>
+python scripts/collect_strategy_sources.py acknowledge --capture-dir <capture-dir> `
+  --normalized-items <run-workspace/items.normalized.jsonl>
 ```
 
-Acknowledgement verifies the exact capture in the discovery journal and the
-terminal decision's source-bundle digest before advancing any complete cursor.
+Acknowledgement verifies that normalization changed only `claims` and
+`strategy_proposal`, verifies that exact normalized capture in the discovery
+journal, and checks the terminal decision's source-bundle digest before
+advancing any complete cursor.
 This remains mandatory on a complete zero-candidate day. A partial capture may
 be acknowledged after it is journaled so its cursor does not advance and the
 next collection retries from the prior complete high-water mark.

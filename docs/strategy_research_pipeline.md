@@ -19,7 +19,10 @@ Current positions are never an input.
 - SSRN coverage uses Crossref's REST metadata for DOI prefix `10.2139`.
   Deposit time captures both new papers and revised metadata. The default two
   queries are enabled and require no paid service. A contact email may be
-  supplied through `STRATEGY_RESEARCH_CONTACT_EMAIL`.
+  supplied through `STRATEGY_RESEARCH_CONTACT_EMAIL`. SSRN item `created_at`
+  records this deposit-time availability event so it matches the source cursor
+  and capture window; the original paper date remains in
+  `source_document.published_at`.
 
 The source registry is `config/strategy_research_sources.json`. It fixes the
 sources, global and per-source item ceilings, request limits, maximum pages,
@@ -34,10 +37,13 @@ written immutably under
 `pending`. The next run reuses a pending capture without calling a provider.
 Only `collect_strategy_sources.py acknowledge` clears it, and that command
 first verifies the exact source/capture/content digest in the validated
-discovery journal. For a complete capture it also requires a terminal email or
-`NO_EMAIL` decision bound to the source-bundle digest. Only complete sources
-then advance their cursor. A failed or merely assertive research agent
-therefore cannot skip unread posts or papers; a crash after SMTP acceptance
+discovery journal. The acknowledgement receives the normalized item file and
+proves that it differs from the immutable raw capture only in `claims` and
+`strategy_proposal`. For a complete capture it also requires a terminal email
+or `NO_EMAIL` decision bound to the source-bundle digest. Journal coverage,
+rather than the provider's optimistic status alone, decides completeness; only
+sources journaled `COMPLETE` advance their cursor. A failed or merely assertive
+research agent therefore cannot skip unread posts or papers; a crash after SMTP acceptance
 replays safely through the delivery receipt and then acknowledges.
 
 Partial coverage is journaled and acknowledged without a quiet-day decision.
