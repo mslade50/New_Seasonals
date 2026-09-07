@@ -36,6 +36,8 @@ def signed_inventory(fills: pd.DataFrame, strategy: str) -> dict[str, int]:
         return {}
     if rows["account"].nunique() != 1 or rows["con_id"].isna().any():
         raise RuntimeError("tagged inventory account/contract identity is incomplete")
+    if (rows.groupby("symbol")["con_id"].nunique() > 1).any():
+        raise RuntimeError("tagged inventory symbol maps to multiple contracts")
     quantities = pd.to_numeric(rows["qty"], errors="raise")
     sides = rows["side"].str.upper().map({"BOT": 1, "BUY": 1, "SLD": -1, "SELL": -1})
     if sides.isna().any():

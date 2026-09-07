@@ -1,29 +1,21 @@
 """Copy the execution-broker's /fills ring into a durable R2-canonical parquet.
 
-The broker Durable Object is the only place actual IBKR executions accumulate:
-`book_snapshot.py` pushes each account's fills with the book, the DO folds them
-into per-day keys, and it drops them after `retention_days` (14). IBKR's API
-only ever serves the CURRENT session's executions, so a row that ages out of
-the ring is gone from every machine-readable record we control -- only IBKR's
-own Flex/activity statements still have it.
+The broker accumulates account executions in a bounded rolling history. The
+canonical parquet is the durable copy; local parquet is only a working artifact.
+Publishing requires a verified canonical read and an ETag compare-and-swap.
+Both old and new bytes are retained as immutable content-addressed generations.
+Read errors never authorize replacing the canonical history with a local/empty
+fallback; first initialization requires an explicit flag and confirmed absence.
 
-This harvest is the durable copy. Store: `data/live_fills.parquet`, R2 key
-`live_fills.parquet` (gitignored like every other cache; R2 is canonical).
+Effective fills are keyed by account plus IB execution family. A higher revision
+supersedes the original quantity rather than adding to it. Repeated identical
+executions retain stored commission/PnL enrichment when the newer row omits it.
 
-Two properties matter more than speed:
-
-1. **Upsert, never append.** The DO upserts by `exec_id` because commission
-   reports lag the fill by a beat, and an MOC fill can miss the day's last book
-   push entirely and only appear in tomorrow's ring. So the same `exec_id` is
-   re-fetched with better data; we merge rather than duplicate, and we never
-   let a later fetch NULL out a commission we already stored.
-2. **Loud on gaps.** If the machine is off for longer than the retention
-   window, rows are lost silently. The oldest row in the ring is compared to
-   the newest row we hold: a hole raises a GAP warning (and exits non-zero
-   under --assert-no-gap) instead of a green run over missing history. An
-   EMPTY ring is a gap too whenever our newest stored session is older than
-   the ring's window (today minus `retention_days - 1` calendar days):
-   only a store still inside that window proves the silence was real.
+Coverage is explicit: fresh successful Primary execution-request receipts,
+no truncation/merge errors, calendar-day retention checks, and scheduled
+--assert-no-gap. PA-only source failures do not veto Primary harvests. Missing
+historical coverage is reported; an empty ring does not prove the account flat.
+A snapshot/file digest binds the completeness status to the canonical generation.
 
 `order_ref` carries the book's `SYMBOL|ACTION|Strategy|Date` contract, so the
 strategy, side and signal date are parsed into their own columns here -- that
@@ -186,7 +178,7 @@ def empty_frame() -> pd.DataFrame:
 
 
 def merge_fills(existing: pd.DataFrame, incoming: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-    """Upsert `incoming` into `existing` by exec_id, never losing enrichment.
+    """Upsert by account/execution family, never losing exact-id enrichment.
 
     The broker is upstream truth, so a re-fetched row wins field for field --
     except on ENRICHMENT_COLUMNS, where a null incoming value keeps whatever we
@@ -194,9 +186,8 @@ def merge_fills(existing: pd.DataFrame, incoming: pd.DataFrame) -> tuple[pd.Data
     back later with the commission attached, and could in principle come back
     again without it.
 
-    Raises if any execution we already held would not survive the merge. This
-    store is the only durable copy, so losing a row has to stop the run rather
-    than quietly write a smaller file.
+    Raises if any stored family disappears. A correction may supersede its
+    previous revision; immutable canonical generations retain the old bytes.
     """
     existing = empty_frame() if existing is None or existing.empty else existing.copy()
     incoming = empty_frame() if incoming is None or incoming.empty else incoming.copy()

@@ -140,11 +140,10 @@ def patch_entry(source):
         marker = text.index('    order_summary = []')
         head, tail = text[:marker], text[marker:]
         head = head.replace('        return\n', '        return 1\n')
-        head = head.replace('    if df.empty:\n', '    if df.empty:\n')
-        tree = ast.parse(head + '\n    pass\n')
-        # Keep empty-file handling nonzero: a producer must write a deliberate
-        # no-action receipt, rather than an unparseable/empty execution CSV.
-        tail += '\n    return 1 if any(o.get("Status") not in {"SENT", "ALREADY_PLACED", "SKIP_DUPLICATE"} for o in order_summary) else 0\n'
+        head = replace_once(head, '        print("[WARN] File is empty.")\n        return 1\n', '        print("[OK] Valid input contains no orders.")\n        return 0\n')
+        # Missing/unreadable/stale input and connection failures are errors;
+        # a successfully parsed empty basket is an intentional no-action run.
+        tail += '\n    return 1 if any(o.get("Status") not in {"SENT", "SKIPPED_DUP", "SKIPPED_FLAT"} for o in order_summary) or stale_count > 0 else 0\n'
         return head + tail
     source = change_function(source, "run_execution", run)
     source = replace_once(source, '    run_execution()', '    raise SystemExit(run_execution())')

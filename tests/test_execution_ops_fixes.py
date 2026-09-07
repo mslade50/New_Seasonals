@@ -116,6 +116,14 @@ def test_event_obligation_clears_only_after_attributed_exit():
     assert state["completed"]
 
 
+def test_sleeve_symbol_does_not_conflate_contracts():
+    from sleeve_fills import signed_inventory
+    rows = harvest.normalize([fill(order_ref="SPY|BUY|Trend Sleeve|2026-09-01"),
+                              fill("other.01", con_id=43, order_ref="SPY|BUY|Trend Sleeve|2026-09-01")])
+    with pytest.raises(RuntimeError, match="multiple contracts"):
+        signed_inventory(rows, "Trend Sleeve")
+
+
 def test_trend_small_band_and_cash_target_keep_actual_inventory(monkeypatch, tmp_path):
     import trend_sleeve as trend
     monkeypatch.setattr(trend, "STATE_LOCAL", str(tmp_path / "state.json"))

@@ -24,11 +24,16 @@ verification + trend_prework_gates.md + scratch/tf_universe_study.py):
 
 Runs weekdays post-close via .github/workflows/trend_sleeve.yml; exits
 immediately unless today is the month's last trading day (--force overrides).
-Rebalance orders are written to the 'Trend' Sheets tab; state (held shares)
-persists in trend_sleeve_state.json on R2. --dry-run prints without writing.
+Rebalance orders atomically replace the Trend Sheets tab. State on R2 separates
+attributed held shares, pending orders, expected post-order shares, and model
+targets. Band-suppressed target changes never change actual inventory. Live
+rebalance requires a reviewed starting inventory and complete Primary execution
+history; missing evidence raises an exception rather than assuming flat.
+--dry-run prints intentions without writing or changing inventory.
 
 When activated, execution is handled by the local pre-market ``trend_moo.py``
-runner at 09:12 ET. It reads only rows whose Execute_On is today and places
+runner at 09:12 ET. The prepared runner retains overdue next-auction intent and
+uses durable claims to prevent repeated submitted/uncertain attempts. It places
 true MKT+OPG orders before the opening auction. An atomic enable marker makes
 the 09:31 order_staging chain ignore Trend rows, preventing MKT/DAY duplicates;
 until activation, the legacy path remains intact.
@@ -275,7 +280,8 @@ def build_orders(targets: pd.DataFrame, state: dict) -> pd.DataFrame:
         # session after this post-close run. On the normal month-end schedule
         # run-date == signal date, so this is the first session of the new
         # month; an off-schedule --force run stages for the next open. Stale
-        # rows are ignored forever after.
+        # intent remains due until reconciled; the prepared runner preserves it
+        # across missed auctions with a stable signal identity.
         exec_on = _today_et() + TRADING_DAY
         out["Execute_On"] = str(exec_on.date())
     return out
@@ -386,13 +392,12 @@ def reset_state():
         else:
             gc = gspread.service_account(filename=os.path.join(current_dir, "credentials.json"))
         ws = gc.open(SHEET_NAME).worksheet(TAB_NAME)
-        ws.clear()
-        ws.update([["Sleeve flat - awaiting next month-end rebalance",
+        from sheets_io import replace_worksheet_values
+        replace_worksheet_values(ws, [["State reset - reviewed inventory bootstrap required",
                     datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]])
-        print(f"Cleared '{TAB_NAME}' tab")
+        print(f"Reset '{TAB_NAME}' tab")
     except Exception as e:
-        print(f"WARNING: Trend tab clear failed ({e}) - stale rows are harmless "
-              "(Execute_On gate ignores them) but untidy")
+        raise RuntimeError("Trend tab reset was not confirmed; prior order intentions require review") from e
 
 
 def main():

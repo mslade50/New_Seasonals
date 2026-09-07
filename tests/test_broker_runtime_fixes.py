@@ -207,7 +207,11 @@ def test_quote_timeout_kills_and_reaps_without_importing_agent():
     fake_async = NS(create_subprocess_exec=spawn, wait_for=wait, subprocess=NS(PIPE=1, DEVNULL=2))
     env = {"asyncio": fake_async, "sys": NS(executable="fixture"), "OPTION_SCRIPT": "fixture", "json": __import__("json")}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "quote-fixture", "exec"), env)
-    result = asyncio.run(env["_fetch_option"]("SPY"))
+    private_loop = asyncio.new_event_loop()
+    try:
+        result = private_loop.run_until_complete(env["_fetch_option"]("SPY"))
+    finally:
+        private_loop.close()
     assert result.get("error") and events == ["kill", "communicate"]
 
 
@@ -250,3 +254,18 @@ def test_stream_deadline_covers_parent_exited_with_inherited_pipe(monkeypatch, t
     monkeypatch.setattr(process_tree, "ProcessTree", lambda proc: NS(close=lambda: closed.append(True)))
     rc = supervisor.SubprocessClient().stream(["fixture"], cwd=tmp_path, env={}, timeout_seconds=3, logger=NS(line=lambda *a: None))
     assert rc == 124 and closed == [True]
+
+
+def test_entry_preflight_distinguishes_valid_empty_from_missing(monkeypatch):
+    if not (SOURCE / "eq_order_entry.py").exists():
+        pytest.skip("requires reviewed external source")
+    import pandas as pd
+    source = prepare.patch_entry((SOURCE / "eq_order_entry.py").read_text(encoding="utf-8-sig").replace("\r\n", "\n"))
+    node = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == "run_execution")
+    env = {"os": NS(path=NS(join=lambda *a: "fixture.csv", exists=lambda path: False, basename=lambda path: path)),
+           "STAGING_FOLDER": "fixture", "pd": NS(read_csv=lambda path: pd.DataFrame()),
+           "IB": lambda: pytest.fail("preflight attempted broker connection")}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), "entry-preflight-fixture", "exec"), env)
+    assert env["run_execution"]() == 1
+    env["os"].path.exists = lambda path: True
+    assert env["run_execution"]() == 0
