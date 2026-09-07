@@ -412,6 +412,16 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     engine-only T+1/NextOpen gates stay active. Guards:
     tests/test_filters_consolidation.py, tests/test_atr_sznl_parity.py;
     ship-time proof scratch/verify_filters_consolidation.py."""
+    if params.get('use_ref_ticker_filter'):
+        ref = params.get('ref_ticker', 'IWM').replace('.', '-')
+        reference_columns = {}
+        for rule in params.get('ref_filters', []):
+            window = rule['window']
+            scoped = f'Ref_{ref}_rank_ret_{window}d'
+            if scoped in df:
+                reference_columns[f'Ref_rank_ret_{window}d'] = df[scoped]
+        if reference_columns:
+            df = df.assign(**reference_columns)
     return evaluate_filter_mask(df, params, sznl_map=sznl_map,
                                 ticker_name=ticker_name, mode='backtest')
 
@@ -469,29 +479,24 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
     dependency_sig = content_fingerprint((_sznl_map, market_series, _vix_series))
 
     # Precompute reference ticker ranks for strategies that use ref_ticker_filter
-    ref_ticker_ranks_map = {}  # {ref_ticker: {window: rank_series}}
+    ref_windows = {}
     for strat in _strategies:
         settings = strat['settings']
         if settings.get('use_ref_ticker_filter', False) and settings.get('ref_filters'):
             ref_ticker = settings.get('ref_ticker', 'IWM').replace('.', '-')
-            if ref_ticker not in ref_ticker_ranks_map:
-                ref_df = _master_dict.get(ref_ticker)
-                if ref_df is not None and len(ref_df) >= 200:
-                    try:
-                        ref_calc = calculate_indicators(ref_df.copy(), _sznl_map, ref_ticker, market_series, _vix_series)
-                        ref_ranks = {}
-                        for rf in settings['ref_filters']:
-                            col = f"rank_ret_{rf['window']}d"
-                            if col in ref_calc.columns:
-                                ref_ranks[rf['window']] = ref_calc[col]
-                        ref_ticker_ranks_map[ref_ticker] = ref_ranks
-                    except Exception:
-                        pass
-
-    # Build a merged ref_ticker_ranks dict across all strategies
-    all_ref_ticker_ranks = {}
-    for ref_ranks in ref_ticker_ranks_map.values():
-        all_ref_ticker_ranks.update(ref_ranks)
+            ref_windows.setdefault(ref_ticker, set()).update(rf['window'] for rf in settings['ref_filters'])
+    ref_ticker_ranks_map = {}  # {(reference ticker, window): rank_series}
+    for ref_ticker, windows in ref_windows.items():
+        ref_df = _master_dict.get(ref_ticker)
+        if ref_df is not None and len(ref_df) >= 200:
+            try:
+                ref_calc = calculate_indicators(ref_df.copy(), _sznl_map, ref_ticker, market_series, _vix_series)
+            except Exception:
+                continue
+            for window in windows:
+                col = f'rank_ret_{window}d'
+                if col in ref_calc:
+                    ref_ticker_ranks_map[(ref_ticker, window)] = ref_calc[col]
 
     # Build cross-sectional rank matrices (if any strategy uses xsec filters or or_filter_groups)
     xsec_windows_needed = set()
@@ -696,9 +701,9 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
                         t_df[col] = mat[t_clean].reindex(t_df.index).fillna(50.0)
                     else:
                         t_df[col] = 50.0
-            if all_ref_ticker_ranks:
-                for window, series in all_ref_ticker_ranks.items():
-                    t_df[f'Ref_rank_ret_{window}d'] = series.reindex(
+            if ref_ticker_ranks_map:
+                for (reference, window), series in ref_ticker_ranks_map.items():
+                    t_df[f'Ref_{reference}_rank_ret_{window}d'] = series.reindex(
                         t_df.index, method='ffill'
                     ).fillna(50.0)
 
@@ -2172,23 +2177,37 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
 
     return sig_df.sort_values(by="Exit Date")
 
-def get_daily_mtm_series(sig_df, master_dict, start_date=None):
+def get_daily_mtm_series(sig_df, master_dict, start_date=None, end_date=None, session_dates=None):
     """
     Optimized daily MTM calculation using vectorized operations.
     
-    FIXED: Use explicit column access instead of positional (_3, _4)
-    to handle new "Exit Type" column.
+    Bounds default to the supplied trades/prices, never wall-clock time.
+    The default calendar is NYSE; other markets may supply explicit sessions.
+    A bounded view retains earlier marks but never realizes a later exit.
     """
     if sig_df.empty:
         return pd.Series(dtype=float)
     
     if start_date is not None:
-        min_date = pd.Timestamp(start_date)
+        view_start = pd.Timestamp(start_date).normalize()
     else:
-        min_date = sig_df['Entry Date'].min()
-    
-    max_date = max(sig_df['Exit Date'].max(), pd.Timestamp.today())
-    all_dates = pd.date_range(start=min_date, end=max_date, freq='B')
+        view_start = pd.Timestamp(sig_df['Entry Date'].min()).normalize()
+    min_date = min(view_start, pd.Timestamp(sig_df['Entry Date'].min()).normalize())
+    if end_date is None:
+        observed_ends = [pd.Timestamp(sig_df['Exit Date'].max()).normalize()]
+        for ticker in sig_df['Ticker'].unique():
+            frame = master_dict.get(ticker.replace('.', '-'))
+            if frame is not None and not frame.empty:
+                observed_ends.append(pd.Timestamp(frame.index.max()).normalize())
+        max_date = max(observed_ends)
+    else:
+        max_date = pd.Timestamp(end_date).normalize()
+    if session_dates is None:
+        from trading_calendar import TRADING_DAY
+        all_dates = pd.date_range(start=min_date, end=max_date, freq=TRADING_DAY)
+    else:
+        all_dates = pd.DatetimeIndex(session_dates).normalize().unique().sort_values()
+        all_dates = all_dates[(all_dates >= min_date) & (all_dates <= max_date)]
     daily_pnl = pd.Series(0.0, index=all_dates)
     
     # Pre-process price data
@@ -2262,7 +2281,8 @@ def get_daily_mtm_series(sig_df, master_dict, start_date=None):
         # run, so the correction stays scale-invariant.
         last_date = trade_dates[-1]
         last_close = trade_closes.get(last_date, np.nan)
-        if (last_date in daily_pnl.index and not pd.isna(last_close)
+        if (pd.Timestamp(exit_date) <= max_date
+                and last_date in daily_pnl.index and not pd.isna(last_close)
                 and not pd.isna(_pnl_values[i])):
             if action == "BUY":
                 curve_pnl = (last_close - entry_price) * shares
@@ -2270,11 +2290,11 @@ def get_daily_mtm_series(sig_df, master_dict, start_date=None):
                 curve_pnl = (entry_price - last_close) * shares
             daily_pnl[last_date] += float(_pnl_values[i]) - curve_pnl
 
-    return daily_pnl
+    return daily_pnl.loc[view_start:]
 
 
-def calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=None):
-    daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date)
+def calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=None, end_date=None, session_dates=None):
+    daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date, end_date, session_dates)
     if daily_pnl.empty:
         return pd.DataFrame(columns=['Equity'])
 
