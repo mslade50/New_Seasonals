@@ -1,0 +1,298 @@
+{
+  "schema_version": "algorithm-family-registry.v1",
+  "checked_at": "2026-09-06T14:40:00Z",
+  "operating_evidence": "docs/strategy_fit_operating_baseline_2026-09-06.md",
+  "core": {
+    "52wh Breakout": {
+      "behavior": "MOMENTUM",
+      "markets": [
+        "EQUITY_INDEX",
+        "SINGLE_EQUITY",
+        "SECTOR_EQUITY",
+        "COMMODITIES"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "Weak Close Decent Sznls": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SECTOR_EQUITY"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "Oversold Low Volume": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SINGLE_EQUITY",
+        "SECTOR_EQUITY",
+        "COMMODITIES"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "Overbot Vol Spike": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SINGLE_EQUITY",
+        "SECTOR_EQUITY",
+        "COMMODITIES"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "LT Trend ST OS": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SINGLE_EQUITY",
+        "SECTOR_EQUITY",
+        "COMMODITIES"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "St OS Sznl": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SINGLE_EQUITY",
+        "SECTOR_EQUITY",
+        "COMMODITIES"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "3x ETF Overbot Fade": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SECTOR_EQUITY",
+        "RATES",
+        "COMMODITIES"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "3x Bear ETF Overbot Fade": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SECTOR_EQUITY"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "3x Leader Gap Fade": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SECTOR_EQUITY",
+        "RATES",
+        "COMMODITIES"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "Indices Oversold Bounce": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "SPY QQQ MonFri Reversion": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "Sector BO": {
+      "behavior": "MOMENTUM",
+      "markets": [
+        "EQUITY_INDEX",
+        "SECTOR_EQUITY"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "Monday Dip": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SECTOR_EQUITY"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "ATR Extended Gap Up": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX",
+        "SINGLE_EQUITY",
+        "SECTOR_EQUITY",
+        "COMMODITIES"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    },
+    "Monthly Weak Close": {
+      "behavior": "MEAN_REVERSION",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "evidence_refs": [
+        "strategy_config.py"
+      ]
+    }
+  },
+  "references": [
+    {
+      "name": "Legend EMA ETF",
+      "status": "NOT_ACTIVATED",
+      "behavior": "MOMENTUM",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "horizon": "INTRADAY",
+      "direction": "BOTH",
+      "instruments": [
+        "SPY",
+        "QQQ"
+      ],
+      "evidence_refs": [
+        "docs/strategy_fit_operating_baseline_2026-09-06.md"
+      ]
+    },
+    {
+      "name": "Dial beta hedge protocol",
+      "status": "NOT_ACTIVATED",
+      "behavior": "HEDGE",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "horizon": "VARIABLE",
+      "direction": "SHORT",
+      "instruments": [],
+      "evidence_refs": [
+        "docs/plan_2026-09-04.md",
+        "docs/strategy_fit_operating_baseline_2026-09-06.md"
+      ]
+    },
+    {
+      "name": "Dial-gated SPY",
+      "status": "PAPER",
+      "behavior": "MOMENTUM",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "horizon": "VARIABLE",
+      "direction": "LONG",
+      "instruments": [
+        "SPY"
+      ],
+      "evidence_refs": [
+        "dial_sleeve.py"
+      ]
+    },
+    {
+      "name": "Treasury month-end research",
+      "status": "RESEARCH_ONLY",
+      "behavior": "CALENDAR",
+      "markets": [
+        "RATES"
+      ],
+      "horizon": "SHORT_TERM",
+      "direction": "LONG",
+      "instruments": [
+        "TLT"
+      ],
+      "evidence_refs": [
+        "research/treasury_month_end/README.md"
+      ]
+    }
+  ],
+  "events": {
+    "T1_FOMC_DRIFT": {
+      "behavior": "CALENDAR",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "horizon": "SHORT_TERM",
+      "evidence_refs": [
+        "event_sleeve.py"
+      ]
+    },
+    "T2_FOMC_MIDTERM_SHORT": {
+      "behavior": "CALENDAR",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "horizon": "SHORT_TERM",
+      "evidence_refs": [
+        "event_sleeve.py"
+      ]
+    },
+    "T3_SEP_POSTQUAD_SHORT": {
+      "behavior": "CALENDAR",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "horizon": "SHORT_TERM",
+      "evidence_refs": [
+        "event_sleeve.py"
+      ]
+    },
+    "T4_DEC_POSTOPEX_LONG": {
+      "behavior": "CALENDAR",
+      "markets": [
+        "EQUITY_INDEX"
+      ],
+      "horizon": "SHORT_TERM",
+      "evidence_refs": [
+        "event_sleeve.py"
+      ]
+    },
+    "V2_NOVDEC_VOL": {
+      "behavior": "VOLATILITY_CARRY",
+      "markets": [
+        "VOLATILITY"
+      ],
+      "horizon": "SWING",
+      "evidence_refs": [
+        "event_sleeve.py"
+      ]
+    },
+    "V4_POSTOPEX_VOL": {
+      "behavior": "VOLATILITY_CARRY",
+      "markets": [
+        "VOLATILITY"
+      ],
+      "horizon": "SHORT_TERM",
+      "evidence_refs": [
+        "event_sleeve.py"
+      ]
+    }
+  }
+}
