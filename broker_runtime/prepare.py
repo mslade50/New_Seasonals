@@ -144,8 +144,74 @@ def patch_entry(source):
         # Missing/unreadable/stale input and connection failures are errors;
         # a successfully parsed empty basket is an intentional no-action run.
         tail += '\n    return 1 if any(o.get("Status") not in {"SENT", "SKIPPED_DUP", "SKIPPED_FLAT"} for o in order_summary) or stale_count > 0 else 0\n'
-        return head + tail
+        text = head + tail
+        text = replace_once(text, 'def run_execution():', 'def _run_execution(journal):')
+        text = replace_once(text, '    existing_trades = ib.openTrades()', '''    from auction_lifecycle import resolve_primary
+    try:
+        primary_account = resolve_primary(ib)
+        ib.reqAllOpenOrders()
+        if ib.reqExecutions() is None:
+            raise ValueError('execution request did not complete')
+    except Exception:
+        ib.disconnect()
+        return 1
+    existing_trades = [trade for trade in ib.openTrades()
+                       if str(getattr(trade.order, 'account', '') or '') == primary_account]''')
+        text = replace_once(text, '        for f in ib.fills():',
+                            "        for f in ib.fills():\n            if str(getattr(f.execution, 'acctNumber', '') or '') != primary_account:\n                continue")
+        text = replace_once(text, 'j_refs, j_fps = load_placed_today(today_str)',
+                            'j_refs, j_fps = journal.references(today_str)\n    unresolved_refs = journal.unresolved_refs()')
+        text = text.replace("'Status': 'SKIPPED_DUP',", "'Status': 'UNKNOWN_PRIOR_ENTRY' if sig_variants & unresolved_refs else 'SKIPPED_DUP',")
+        # Every attempted wire is durably recorded while the runner holds its
+        # journal lock. A parent receipt alone never attests a complete bracket.
+        text = text.replace('guarded_place_order(', 'journal.place(today_str, sig, fp, guarded_place_order,')
+        text = text.replace('journal_placed(today_str, sig, fp)',
+                            'journal.record(today_str, sig, fp, "parent_submitted")')
+        text = replace_once(text, '            child_orders = []', '            child_orders = []\n            child_trades = []')
+        text = replace_once(text, '                # Wait for TWS to acknowledge each child before placing the next.',
+                            '                child_trades.append(child_trade)\n                # Wait for TWS to acknowledge each child before placing the next.')
+        text = replace_once(text, '            bracket_desc =',
+                            '            journal.complete(today_str, sig, fp, [parent_trade, *child_trades])\n            bracket_desc =')
+        start = text.index('            # Validation\n')
+        end = text.index('            gat_time =', start)
+        text = text[:start] + '''            if is_naked_moo:
+                raise ValueError("pending auction intent must use dedicated Event/Trend/OLV runner; no MKT/DAY fallback")
+            if raw_exit_time == "ERROR" or lmt_price == 0:
+                raise ValueError("invalid entry price or time")
+
+''' + text[end:]
+        # The dedicated auction handoff above makes the obsolete model-based
+        # OLV and naked Trend DAY branches unreachable; remove their source
+        # from the prepared candidate to leave only one execution route.
+        start = text.index('            # --- NAKED MOO:')
+        end = text.index('            # =====================================================', start)
+        text = text[:start] + text[end:]
+        text = replace_once(text, "            order_summary.append({'Symbol': symbol, 'Status': 'ERROR', 'Bracket': str(e)})",
+                            "            order_summary.append({'Symbol': symbol, 'Status': 'UNKNOWN_OR_ERROR', 'Bracket': str(e)})")
+        return text
     source = change_function(source, "run_execution", run)
+    source = change_function(source, "load_placed_today", lambda _: '''def load_placed_today(today_str, path=PLACED_JOURNAL):
+    from entry_journal import EntryJournal
+    with EntryJournal(path) as journal:
+        return journal.references(today_str)
+''')
+    source = change_function(source, "journal_placed", lambda _: '''def journal_placed(today_str, sig, fp, path=PLACED_JOURNAL):
+    raise RuntimeError('standalone parent journal writes are retired; use the locked entry runner')
+''')
+    source += '''
+def run_execution():
+    from entry_journal import EntryJournal
+    try:
+        with EntryJournal(PLACED_JOURNAL) as journal:
+            return _run_execution(journal)
+    except Exception as exc:
+        print('[CRITICAL] entry history or runner unavailable: ' + type(exc).__name__)
+        return 1
+'''
+    # Define the locked wrapper before the module's CLI invocation.
+    marker = source.index('if __name__ == "__main__":') if 'if __name__ == "__main__":' in source else source.index("if __name__ == '__main__':")
+    wrapper_start = source.rindex('\ndef run_execution():')
+    source = source[:marker] + source[wrapper_start:] + '\n' + source[marker:wrapper_start]
     source = replace_once(source, '    run_execution()', '    raise SystemExit(run_execution())')
     return source
 
@@ -404,7 +470,7 @@ def prepare(source_dir: Path, output_dir: Path):
     output_dir.mkdir(parents=True)
     for filename, candidate in candidates.items():
         (output_dir / filename).write_text(candidate, encoding="utf-8")
-    for helper in ("execution_lifecycle.py", "auction_lifecycle.py", "olv_contract.py"):
+    for helper in ("execution_lifecycle.py", "auction_lifecycle.py", "olv_contract.py", "entry_journal.py"):
         (output_dir / helper).write_bytes((HERE / helper).read_bytes())
     return sorted(candidates)
 

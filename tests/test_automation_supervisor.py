@@ -972,7 +972,14 @@ class HeadBackend:
         self.heads = heads
 
     def head(self, key):
-        return self.heads.get(key)
+        item = self.heads.get(key)
+        return {**item, "ETag": '"fixture"'} if item else None
+
+    def content_hash(self, key, etag):
+        import hashlib
+        assert etag == '"fixture"'
+        payloads = {"producer.json": b"123456", "intraday/15min/SPY.parquet": b"spy", "intraday/15min/QQQ.parquet": b"qqqq"}
+        return hashlib.sha256(payloads[key]).hexdigest()
 
 
 def test_output_validator_checks_exact_r2_size_and_recent_upload(tmp_path):

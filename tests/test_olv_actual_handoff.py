@@ -76,6 +76,8 @@ def test_corrections_deduplicate_before_contract_or_side_attribution():
     assert contract.sold_for_entry(broker, "TEST_PRIMARY", 42, ENTRY_REF) == 0
     broker.rows.append(fill("fixture.04", side="BOT"))
     assert contract.sold_for_entry(broker, "TEST_PRIMARY", 42, ENTRY_REF) == 0
+    broker.rows.extend([fill("fixture.05"), fill("fixture.06", account="TEST_OTHER")])
+    assert contract.sold_for_entry(broker, "TEST_PRIMARY", 42, ENTRY_REF) == 0
 
 
 def test_rearm_cannot_turn_a_past_or_missing_deadline_into_market_now():

@@ -49,6 +49,8 @@ def _key(row):
     values = [row.get(key) for key in ("account", "con_id", "strategy", "tranche_id", "ref_date")]
     if not all(value is not None and str(value).strip() for value in values) or int(values[1]) <= 0:
         raise ValueError("tranche lacks exact account/contract/allocation identity")
+    if float(values[1]) != int(values[1]):
+        raise ValueError("tranche contract identity is not a whole conId")
     return hashlib.sha256(json.dumps(values).encode()).hexdigest()[:24]
 
 
@@ -74,23 +76,32 @@ def _sources(inventory, book, fills, now):
     _fresh(primary.get("source_at") or primary.get("complete_through"), now)
     if not isinstance(fills.get("fills"), list):
         raise ValueError("execution rows are unavailable")
+    for row in fills["fills"]:
+        if not isinstance(row, dict) or not str(row.get("exec_id") or ""):
+            raise ValueError("execution source contains an unidentified row")
+        if _stamp(row.get("time_utc") or row.get("time")) > now:
+            raise ValueError("execution source contains a future timestamp")
     return account
 
 
-def _closing_fills(rows, obligation):
+def _closing_fills(rows, obligation, asof=None):
     effective = {}
     for row in rows:
-        if row.get("account_key") != "primary" or row.get("account") != obligation["account"]:
-            continue
         exec_id = str(row.get("exec_id") or "")
         match = re.fullmatch(r"(.+)\.(\d+)", exec_id)
         family, revision = (match.group(1), int(match.group(2))) if match else (exec_id, 0)
         if not family:
             raise ValueError("execution has no identity")
+        prior_revision, prior_row = effective.get(family, (-1, None))
+        identity = ("account_key", "account", "con_id", "order_ref", "side", "qty")
+        if revision == prior_revision and any(row.get(key) != prior_row.get(key) for key in identity):
+            raise ValueError("same execution revision has conflicting identity or quantity")
         if revision >= effective.get(family, (-1, None))[0]:
             effective[family] = (revision, row)
     total = 0.0
     for _, row in effective.values():
+        if row.get("account_key") != "primary" or row.get("account") != obligation["account"]:
+            continue
         if int(row.get("con_id") or 0) != int(obligation["con_id"]):
             continue
         ref = str(row.get("order_ref") or "").split("|")
@@ -101,6 +112,11 @@ def _closing_fills(rows, obligation):
         sign = {"BOT": 1, "BUY": 1, "SLD": -1, "SELL": -1}.get(str(row.get("side") or "").upper())
         if sign is None or sign * obligation["baseline_signed_qty"] >= 0:
             continue
+        filled_at = _stamp(row.get("time_utc") or row.get("time"))
+        if asof is not None and filled_at > _stamp(asof):
+            raise ValueError("closing execution is later than verified inventory or source")
+        if filled_at.date() < dt.date.fromisoformat(obligation["ref_date"]):
+            raise ValueError("closing execution predates its tranche reference")
         quantity = float(row.get("qty") or 0)
         if not math.isfinite(quantity) or quantity <= 0:
             raise ValueError("exit execution has invalid quantity")
@@ -109,6 +125,8 @@ def _closing_fills(rows, obligation):
 
 
 def evaluate(inventory, book, fills, previous=None, *, now=None):
+    if not all(isinstance(value, dict) for value in (inventory, book, fills)):
+        raise ValueError("monitor input artifacts must be JSON objects")
     now = dt.datetime.now(UTC) if now is None else _stamp(now)
     state = copy.deepcopy(previous or {"schema_version": 1, "obligations": {}, "notifications": {}})
     if state.get("schema_version") != 1 or not isinstance(state.get("obligations"), dict) or not isinstance(state.get("notifications"), dict):
@@ -116,10 +134,23 @@ def evaluate(inventory, book, fills, previous=None, *, now=None):
     source_error, primary = None, None
     try:
         primary = _sources(inventory, book, fills, now)
+        accepted_asof = _stamp(inventory["asof_utc"])
+        if state.get("accepted_asof_utc") and accepted_asof < _stamp(state["accepted_asof_utc"]):
+            raise ValueError("inventory snapshot is older than the last accepted generation")
+        seen = set()
+        for row in inventory["tranches"]:
+            key = _key(row)
+            if key in seen or row.get("account_key") != "primary" or row.get("account") != primary["broker_account"]:
+                raise ValueError("tagged inventory has duplicate or non-Primary identity")
+            seen.add(key)
+            if not math.isfinite(float(row["signed_qty"])):
+                raise ValueError("tagged quantity is not finite")
+            _stamp(row.get("exit_deadline_utc"))
+        state["accepted_asof_utc"] = accepted_asof.isoformat()
     except (ValueError, TypeError, KeyError, OverflowError) as exc:
         source_error = str(exc)
     current = {}
-    for row in inventory.get("tranches", []) if inventory.get("status") == "known" else []:
+    for row in inventory.get("tranches", []) if source_error is None else []:
         try:
             key = _key(row)
             if row.get("account_key") != "primary":
@@ -138,8 +169,18 @@ def evaluate(inventory, book, fills, previous=None, *, now=None):
     results = []
     def event(kind, record, text):
         fingerprint = hashlib.sha256(json.dumps([kind, record.get("id"), record.get("episode"), record.get("deadline"), record.get("remaining_tagged_qty")]).encode()).hexdigest()
-        state["notifications"].setdefault(fingerprint, {"status": "pending", "kind": kind,
-                                          "created_at": now.isoformat(), "message": text})
+        notice = state["notifications"].setdefault(fingerprint, {"status": "pending", "kind": kind,
+            "created_at": now.isoformat(), "message": text, "obligation_id": record.get("id"),
+            "episode": record.get("episode", 0), "remaining_tagged_qty": record.get("remaining_tagged_qty")})
+        if notice["status"] == "superseded":
+            notice.setdefault("transitions", []).append({"status": "pending", "at": now.isoformat()})
+            notice.update(status="pending", message=text)
+    def previously_delivered(record):
+        return any(notice.get("obligation_id") == record["id"]
+                   and notice.get("episode", 0) == record.get("episode", 0)
+                   and notice.get("kind") in {"missed", "unable_to_verify"}
+                   and notice.get("status") in {"sent", "sending", "delivery_unknown"}
+                   for notice in state["notifications"].values())
     for key, obligation in sorted(state["obligations"].items()):
         row = {"id": key, "tranche_id": obligation["tranche_id"], "strategy": obligation["strategy"],
                "episode": obligation.get("episode", 0),
@@ -163,7 +204,9 @@ def evaluate(inventory, book, fills, previous=None, *, now=None):
             if not all(math.isfinite(value) for value in (row["broker_net_qty"], row["remaining_tagged_qty"], float(obligation["baseline_signed_qty"]))):
                 row["broker_net_qty"] = row["remaining_tagged_qty"] = None
                 raise ValueError("position quantity is not finite")
-            row["closing_fill_qty"] = _closing_fills(fills["fills"], obligation)
+            primary_fills = fills["completeness"]["accounts"]["primary"]
+            fill_asof = min(_stamp(inventory["asof_utc"]), _stamp(primary_fills.get("source_at") or primary_fills["complete_through"]))
+            row["closing_fill_qty"] = _closing_fills(fills["fills"], obligation, fill_asof)
             if row["remaining_tagged_qty"] == 0:
                 if obligation.get("last_status") != "resolved" and row["closing_fill_qty"] < abs(obligation["baseline_signed_qty"]):
                     raise ValueError("flat tagged inventory lacks matched closing execution evidence")
@@ -175,26 +218,54 @@ def evaluate(inventory, book, fills, previous=None, *, now=None):
         except (ValueError, TypeError, KeyError, OverflowError) as exc:
             row.update(status="unable_to_verify", detail=str(exc))
         previous_status = obligation.get("last_status")
-        obligation["last_status"] = row["status"]
+        if source_error is None:
+            obligation["last_status"] = row["status"]
         obligation["last_checked_at"] = now.isoformat()
-        if row["status"] == "resolved" and previous_status in {"missed", "unable_to_verify"}:
+        if (row["status"] == "resolved" and previous_status in {"missed", "unable_to_verify"}
+                and previously_delivered(row)):
             event("resolved", row, f"{row['symbol']} / {row['strategy']}: exit obligation resolved")
         elif row["status"] in {"missed", "unable_to_verify"} and (due or not valid_deadline):
             event(row["status"], row, f"{row['symbol']} / {row['strategy']}: {row['detail']}")
         results.append(row)
     if not results and source_error:
-        row = {"id": "inventory-coverage", "status": "unable_to_verify", "detail": source_error, "remaining_tagged_qty": None}
+        episode = int(state.get("coverage_episode", 0)) + int(state.get("coverage_status") == "resolved")
+        state.update(coverage_episode=episode, coverage_status="unable_to_verify")
+        row = {"id": "inventory-coverage", "episode": episode, "status": "unable_to_verify", "detail": source_error, "remaining_tagged_qty": None}
         results.append(row)
         event("unable_to_verify", row, "Expected exits cannot be verified: " + source_error)
+    active = {row["id"]: row for row in results}
+    if source_error is None:
+        coverage_resolved = {"id": "inventory-coverage", "episode": state.get("coverage_episode", 0), "status": "resolved"}
+        state["coverage_status"] = "resolved"
+        active["inventory-coverage"] = coverage_resolved
+        if previously_delivered(coverage_resolved):
+            event("resolved", coverage_resolved, "Expected-exit inventory coverage is available again")
+    for notice in state["notifications"].values():
+        if notice.get("status") != "pending" or notice.get("kind") == "summary":
+            continue
+        current_notice = active.get(notice.get("obligation_id"))
+        if (current_notice is None or notice.get("kind") != current_notice["status"]
+                or notice.get("episode", 0) != current_notice.get("episode", 0)
+                or notice.get("remaining_tagged_qty") != current_notice.get("remaining_tagged_qty")):
+            notice.update(status="superseded", superseded_at=now.isoformat())
+            notice.setdefault("transitions", []).append({"status": "superseded", "at": now.isoformat()})
     counts = {status: sum(row["status"] == status for row in results) for status in ("pending", "missed", "unable_to_verify", "resolved")}
     local = now.astimezone(ET)
     from trading_calendar import TRADING_DAY
     import pandas as pd
-    summary_due = local.time().replace(tzinfo=None) >= dt.time(16, 10) and TRADING_DAY.is_on_offset(pd.Timestamp(local.date()))
+    summary_due = (bool(counts["missed"] or counts["unable_to_verify"])
+                   and local.time().replace(tzinfo=None) >= dt.time(16, 10)
+                   and TRADING_DAY.is_on_offset(pd.Timestamp(local.date())))
     if summary_due:
         summary_key = f"summary:{local.date()}"
-        state["notifications"].setdefault(summary_key, {"status": "pending", "kind": "summary", "created_at": now.isoformat(),
-            "message": f"16:10 ET exit summary: {counts['missed']} missed, {counts['unable_to_verify']} unverified, {counts['pending']} pending, {counts['resolved']} resolved"})
+        prior = state["notifications"].get(summary_key, {})
+        if prior.get("status") not in {"sent", "sending", "delivery_unknown"}:
+            state["notifications"][summary_key] = {"status": "pending", "kind": "summary", "created_at": now.isoformat(),
+                "message": f"16:10 ET exit summary: {counts['missed']} missed, {counts['unable_to_verify']} unverified, {counts['pending']} pending, {counts['resolved']} resolved"}
+    for key, notice in state["notifications"].items():
+        if notice.get("kind") == "summary" and notice.get("status") == "pending":
+            if key != f"summary:{local.date()}" or not summary_due:
+                notice.update(status="superseded", superseded_at=now.isoformat())
     report = {"schema_version": 1, "generated_at": now.isoformat(), "account_key": "primary",
               "status": "attention" if counts["missed"] else "degraded" if counts["unable_to_verify"] else "ok",
               "counts": counts, "obligations": results, "source_error": source_error,

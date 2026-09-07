@@ -84,16 +84,22 @@ def effective_fills(ib, account):
     effective = {}
     for fill in ib.fills():
         execution = fill.execution
-        if str(getattr(execution, "acctNumber", "")) != account:
-            continue
         exec_id = str(execution.execId)
         if not exec_id:
             raise ValueError("execution lacks identity")
         parts = exec_id.rsplit(".", 1)
         family, revision = (parts[0], int(parts[1])) if len(parts) == 2 and parts[1].isdigit() else (exec_id, 0)
+        prior_revision, prior_fill = effective.get(family, (-1, None))
+        if revision == prior_revision:
+            previous = prior_fill.execution
+            if (int(fill.contract.conId) != int(prior_fill.contract.conId)
+                    or any(getattr(execution, key, None) != getattr(previous, key, None)
+                           for key in ("acctNumber", "orderRef", "side", "shares"))):
+                raise ValueError("same execution revision has conflicting identity or quantity")
         if revision >= effective.get(family, (-1, None))[0]:
             effective[family] = (revision, fill)
-    return [fill for _, fill in effective.values()]
+    return [fill for _, fill in effective.values()
+            if str(getattr(fill.execution, "acctNumber", "")) == account]
 
 
 def sold_for_entry(ib, account, con_id, entry_ref):

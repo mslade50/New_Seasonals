@@ -11,7 +11,7 @@ Safety properties:
 * Event and Trend are separately receipted, duplicate-sensitive components;
 * a single OS file lock prevents overlapping local pipelines;
 * secrets are loaded only from explicitly supplied paths and are never logged;
-* producer jobs validate their R2 object sizes (and freshness where useful);
+* producer jobs validate R2 object content, generation, and freshness;
 * private/shared site builds are dispatch-only and can never run locally here.
 
 Run ``python scripts/automation_supervisor.py --help`` for the operational
@@ -74,6 +74,7 @@ import argparse
 import dataclasses
 import datetime as dt
 import glob
+import hashlib
 import json
 import os
 import queue
@@ -1441,6 +1442,27 @@ class R2Backend:
                 return None
             raise AutomationError(f"R2 HEAD failed for {key}: {type(exc).__name__}") from exc
 
+    def content_hash(self, key: str, etag: str) -> str:
+        """Hash the exact HEAD generation; a concurrent replacement is an error."""
+        if not etag:
+            raise ValidationError(f"R2 generation identity missing for {key}")
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key, IfMatch=etag)
+            body = response["Body"]
+            try:
+                if response.get("ETag") != etag:
+                    raise ValidationError(f"R2 generation changed for {key}")
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: body.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                return digest.hexdigest()
+            finally:
+                body.close()
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(f"R2 content verification failed for {key}: {type(exc).__name__}") from exc
+
     def get_json(self, key: str) -> tuple[dict[str, Any] | None, str | None]:
         try:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
@@ -1508,6 +1530,7 @@ class Receipt:
     detail: str | None = None
     duplicate_sensitive: bool = False
     health_status: str | None = None
+    artifact_evidence: list[dict[str, Any]] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -1761,6 +1784,7 @@ class OutputValidator:
         started_at_utc: dt.datetime,
         logger: RunLogger,
     ) -> None:
+        self.evidence = []
         for spec in outputs:
             pattern = str(repo_root / spec.local_pattern)
             matches = [Path(p) for p in sorted(glob.glob(pattern))]
@@ -1792,7 +1816,16 @@ class OutputValidator:
                         modified = modified.replace(tzinfo=UTC)
                     if modified.astimezone(UTC) < started_at_utc - self.freshness_slack:
                         raise ValidationError(f"R2 object was not refreshed by this run: {key}")
-                logger.line(f"validation: r2://{key} size={size} verified")
+                with path.open("rb") as stream:
+                    local_digest = hashlib.sha256()
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        local_digest.update(chunk)
+                etag = str(metadata.get("ETag") or "")
+                digest = local_digest.hexdigest()
+                if self.backend.content_hash(key, etag) != digest:
+                    raise ValidationError(f"R2 content mismatch for {key}")
+                self.evidence.append({"key": key, "size": size, "sha256": digest, "etag": etag})
+                logger.line(f"validation: r2://{key} size={size} sha256={digest} generation verified")
 
 
 @dataclass(frozen=True)
@@ -2458,7 +2491,8 @@ class AutomationSupervisor:
             )
             from scripts.producer_health import inspect_health
             health, health_detail = inspect_health(job.commands, self.repo_root, started)
-            success = dataclasses.replace(success, health_status=health, detail=health_detail)
+            success = dataclasses.replace(success, health_status=health, detail=health_detail,
+                artifact_evidence=list(getattr(self.validator, "evidence", [])) if job.outputs else None)
             self.receipts.transition(success, update_latest=True)
             if health == "degraded":
                 logger.line(f"WARNING: {job.id} completed with degraded coverage: {health_detail}")
