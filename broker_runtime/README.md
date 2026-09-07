@@ -2,6 +2,8 @@
 
 This package prepares a separate candidate from the exact source hashes in `source_hashes.json`. It does not install, arm, connect, submit orders, change scheduler tasks, or modify the OneDrive source.
 
+Primary-only scope applies to the new actual-inventory, expected-exit monitor and dedicated sleeve handoffs. It does not retire unrelated pre-existing PA automation. The legacy PA entry leg remains in `run_order_staging.bat`; this repair changes only its exit-status propagation. No PA task or runtime setting is enabled, disabled or replaced by this package.
+
 Run `python broker_runtime/prepare.py --source <reviewed checkout> --output <new ignored artifact directory>`. Preparation fails before writing any candidate when a reviewed source hash changes. Candidate files retain the source checkout's private configuration: keep them in ignored artifacts, never commit them. The package itself contains no copied credential literals.
 
 Prepared changes cover exact-account flattening; close recovery capped to actual holdings minus other working closes and confirmed fills; all-owner preflight; exact cancel/modify; independently attached additions; fill-gated trim/re-add; durable cross-day auction claims; explicit per-account execution-history attestation; helper kill/reap; truthful entry/batch exit codes.
