@@ -474,6 +474,7 @@ def _run_main(monkeypatch, tmp_path, argv):
     monkeypatch.setattr(U, "yf", types.SimpleNamespace(download=fake_download))
     monkeypatch.setattr(U, "PATH", str(cache))
     monkeypatch.setattr(U, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(U, "_today", lambda: pd.Timestamp("2026-09-04"))
     monkeypatch.setattr(_sys, "argv", ["update_master_prices.py"] + argv)
     mtime = os.path.getmtime(cache)
     rc = U.main()

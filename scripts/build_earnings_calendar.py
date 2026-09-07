@@ -265,40 +265,43 @@ def build_calendar(
     # against and a shrunken build uploaded unconditionally — able to
     # overwrite a gated local build (2026-07-16). Pull the last good copy
     # from R2 so the gate is live in both environments.
-    if upload and not os.path.exists(output_path):
+    if upload:
+        if not os.path.exists(output_path):
+            try:
+                from cache_io import download_to_local
+                if not download_to_local(r2_key, output_path):
+                    raise RuntimeError("prior object was not retrieved")
+            except Exception as exc:
+                raise SystemExit(f"ABORT: no trusted prior earnings baseline: {exc}. "
+                                 "No replacement published. Initialize a new calendar with a reviewed --no-upload build first.") from exc
         try:
-            from cache_io import download_to_local
-            if download_to_local(r2_key, output_path):
-                print(f"[coverage-check] pulled prior calendar from R2 ({r2_key}) for the gate")
-            else:
-                print(f"[coverage-check] warn: no prior calendar locally or on R2 ({r2_key}) - gate has no baseline this run")
-        except Exception as _e:
-            print(f"[coverage-check] warn: R2 pull of prior calendar failed: {_e}")
-    if upload and os.path.exists(output_path):
-        try:
-            prev = pd.read_parquet(output_path, columns=["ticker"])
-            prev_tickers = prev["ticker"].nunique()
-            prev_rows = len(prev)
-            ticker_floor = prev_tickers * (1 - COVERAGE_DROP_TOL)
-            row_floor = prev_rows * (1 - COVERAGE_DROP_TOL)
-            if new_tickers < ticker_floor or new_rows < row_floor:
-                # SystemExit(str) exits with code 1 — the workflow goes red
-                # instead of a green run that silently kept the stale copy.
-                raise SystemExit(
-                    f"\nABORT: coverage dropped beyond {COVERAGE_DROP_TOL:.0%} tolerance — "
-                    f"tickers {new_tickers} vs prev {prev_tickers}, rows {new_rows:,} vs "
-                    f"prev {prev_rows:,}. Failures={len(failures)}. Keeping last good copy; "
-                    f"not writing or uploading. Failing loud."
-                )
-        except SystemExit:
-            raise
-        except Exception as _e:
-            print(f"[coverage-check] warn: could not read existing parquet: {_e}")
-    elif not upload:
-        print("[coverage-check] skipped prior-object comparison for local-only refresh")
+            prev = pd.read_parquet(output_path)
+            if prev.empty or not {'ticker', 'date'}.issubset(prev.columns):
+                raise ValueError("prior calendar is empty or lacks required columns")
+        except Exception as exc:
+            raise SystemExit(f"ABORT: unreadable prior earnings baseline: {exc}; not writing or uploading") from exc
+        # A failed fetch is unknown, not evidence that prior events vanished.
+        prior_failed = prev[prev['ticker'].isin([t.upper() for t in failures])]
+        if not prior_failed.empty:
+            df = pd.concat([df, prior_failed], ignore_index=True).drop_duplicates(['ticker', 'date'], keep='first')
+        new_tickers, new_rows = df['ticker'].nunique(), len(df)
+        prev_tickers, prev_rows = prev['ticker'].nunique(), len(prev)
+        if new_tickers < prev_tickers * (1-COVERAGE_DROP_TOL) or new_rows < prev_rows * (1-COVERAGE_DROP_TOL):
+            raise SystemExit(
+                f"ABORT: coverage dropped beyond {COVERAGE_DROP_TOL:.0%} tolerance: "
+                f"tickers {new_tickers} vs {prev_tickers}, rows {new_rows} vs {prev_rows}; not writing or uploading")
+    else:
+        print("[coverage-check] local-only refresh; no canonical object replaced")
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    df.to_parquet(output_path, index=False)
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    df.to_parquet(output_path + '.tmp', index=False)
+    os.replace(output_path + '.tmp', output_path)
+    from producer_status import write_status
+    receipt = {'producer': 'earnings_calendar', 'status': 'degraded' if failures else 'ok',
+               'requested': len(tickers), 'fetched': len(tickers)-len(failures),
+               'failed_tickers': failures, 'empty_tickers': empty,
+               'fallback': 'Preserve prior events for failed ticker fetches', 'published': False}
+    write_status(output_path + '.status.json', receipt)
 
     elapsed = time.time() - t0
     print(f"\nDone in {elapsed:.0f}s")
@@ -318,7 +321,10 @@ def build_calendar(
     print(f"\nSaved: {output_path}")
 
     if upload:
-        upload_to_r2(output_path, key=r2_key)
+        if not upload_to_r2(output_path, key=r2_key):
+            raise RuntimeError(f"Earnings calendar upload failed: {r2_key}")
+        receipt['published'] = True
+        write_status(output_path + '.status.json', receipt)
     else:
         print("[r2 upload] skipped (--no-upload)")
 

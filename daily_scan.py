@@ -1,3 +1,4 @@
+from sheets_io import replace_worksheet_values
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -1109,12 +1110,9 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
 
 # ETF_ATR_EXEMPT moved to filters.py (2026-07-16)
 
-# Share of the price cache allowed to be stale before the scan aborts rather
-# than quietly scanning a fraction of the book. Normal attrition (a rename, a
-# delisting) is a handful of names out of ~1100, well under 1%. Anything past
-# this bound means the updater half-failed, and a partial scan that reports
-# green is worse than a red run: it would stage a subset and clear the tabs of
-# everything it never evaluated.
+# Compatibility constant for older callers; coverage receipts now report
+# missing/stale symbols while otherwise executable symbols continue. It is
+# no longer a book-wide veto threshold.
 STALE_TICKER_ABORT_FRAC = 0.05
 
 # Trading-day staleness bound for the fragility cache (data/rd2_fragility.parquet).
@@ -1319,7 +1317,6 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
         except:
             worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
         
-        worksheet.clear()
 
         # Filter and Build Data
         moc_data = []
@@ -1356,11 +1353,11 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
         if moc_data:
             df_moc = pd.DataFrame(moc_data)
             data_to_write = [df_moc.columns.tolist()] + df_moc.astype(str).values.tolist()
-            worksheet.update(values=data_to_write)
+            replace_worksheet_values(worksheet, data_to_write)
             print(f"[SIGNAL] Staged {len(df_moc)} MOC Orders with Exit Dates!")
         else:
             headers = ["Scan_Date", "Symbol", "SecType", "Exchange", "Action", "Quantity", "Order_Type", "Strategy_Ref", "Exit_Date"]
-            worksheet.update(values=[headers])
+            replace_worksheet_values(worksheet, [headers])
             print(f"[CLEAR] '{sheet_name}' cleared.")
             
     except Exception as e:
@@ -1401,7 +1398,8 @@ def _staging_no_client(sheet_name):
     print(f"[WARN] {msg} (local run - continuing)")
 
 
-def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging', tier_filter=None):
+def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging', tier_filter=None,
+                        preserve_unavailable=None):
     """Save non-MOC orders to a Google Sheets tab.
 
     Excludes 'Signal Close' (those go to moc_orders).
@@ -1418,6 +1416,22 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
     - NEW: tier_filter for tier-aware tab writes (Liquid → Order_Staging,
            Overflow → Overflow). If unset, behaves as before (writes everything).
     """
+    preserve_unavailable = set(preserve_unavailable or [])
+
+    def retained_rows(values):
+        if not values:
+            return []
+        return [dict(zip(values[0], row)) for row in values[1:]
+                if dict(zip(values[0], row)).get('Symbol') in preserve_unavailable]
+
+    def replace_empty(ws):
+        before = ws.get_all_values()
+        retained = retained_rows(before)
+        # Preserve the original signal/date/levels; never mint a new order
+        # from an unavailable price. Existing expiry rules still apply.
+        values = [before[0]] + [[row.get(col, '') for col in before[0]] for row in retained] if retained else []
+        replace_worksheet_values(ws, values, expected_values=before)
+
     if tier_filter is not None:
         signals_list = [
             s for s in (signals_list or [])
@@ -1439,7 +1453,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
                 ws = sh.worksheet(sheet_name)
             except gspread.WorksheetNotFound:
                 return  # tab doesn't exist — nothing stale to clear
-            ws.clear()
+            replace_empty(ws)
 
         _sheets_write_with_retry(f"clear '{sheet_name}' (zero-signal day)", _clear_tab)
         print(f"[CLEAR] '{sheet_name}' cleared - no rows for tier_filter={tier_filter}")
@@ -1742,7 +1756,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
                 ws = sh.worksheet(sheet_name)
             except gspread.WorksheetNotFound:
                 return
-            ws.clear()
+            replace_empty(ws)
 
         _sheets_write_with_retry(f"clear '{sheet_name}' (only MOC orders)", _clear_tab_moc)
         print(f"[CLEAR] '{sheet_name}' cleared (only MOC orders found).")
@@ -1755,26 +1769,21 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
         _staging_no_client(sheet_name)
         return
 
-    # clear+update as one retried unit: a failure between the two calls
-    # leaves the tab empty (or half-written) — the retry re-runs both, and
-    # a final failure RAISES so the run goes red instead of the email
-    # claiming these rows were staged (2026-07-16).
+    # One atomic table replacement; retries preserve the previous complete
+    # table if the request fails before commit.
     def _write_tab():
         sh = gc.open("Trade_Signals_Log")
         try:
             worksheet = sh.worksheet(sheet_name)
         except gspread.WorksheetNotFound:
             worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
-        # Preserve Manual_Limit pins across the clear+rewrite (2026-07-16).
+        # Preserve Manual_Limit pins across the replacement.
         # A price typed into the sheet used to be destroyed by ANY re-scan
         # (including the 10:30 UTC fallback) with no trace. Pins are re-applied
         # by (Symbol, Strategy_Ref) to signals still present this scan; a pin
         # whose signal vanished dies with it, which is correct.
-        try:
-            _existing = worksheet.get_all_records()
-        except Exception as _pe:
-            _existing = []
-            print(f"[WARN] could not read existing tab for Manual_Limit pins: {_pe}")
+        _before = worksheet.get_all_values()
+        _existing = [dict(zip(_before[0], row)) for row in _before[1:]] if _before else []
         _pins = {}
         for _r in _existing:
             _ml = str(_r.get('Manual_Limit', '') or '').strip()
@@ -1792,11 +1801,11 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             _lost = len(_pins) - _applied
             print(f"[PINNED] Manual_Limit pins preserved: {_applied}"
                   + (f" ({_lost} pin(s) dropped - signal no longer present)" if _lost else ""))
-        worksheet.clear()
-        data_to_write = [df_stage.columns.tolist()] + df_stage.astype(str).values.tolist()
-        worksheet.update(values=data_to_write)
-        # readback: the tab was just cleared, so anything other than exactly
-        # header + N rows means a truncated/failed write — raise into the retry
+        retained = retained_rows(_before)
+        output = pd.concat([df_stage, pd.DataFrame(retained)], ignore_index=True) if retained else df_stage
+        data_to_write = [output.columns.tolist()] + output.fillna('').astype(str).values.tolist()
+        replace_worksheet_values(worksheet, data_to_write, expected_values=_before)
+        # The shared helper verifies all cells; keep the row-count diagnostic.
         got = len(worksheet.get_all_values())
         if got != len(data_to_write):
             raise RuntimeError(f"readback mismatch: {got} rows in tab, wrote {len(data_to_write)}")
@@ -1858,17 +1867,19 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
             df_existing = pd.DataFrame()
 
         if not df_existing.empty:
-            df_existing = df_existing.reindex(columns=df_new.columns)
-            combined = pd.concat([df_existing, df_new])
+            combined = pd.concat([df_existing, df_new], ignore_index=True)
+            # Re-scans must retain finalized history and its frozen price basis.
+            if 'Fill_Status' in df_existing:
+                frozen = df_existing[df_existing['Fill_Status'].isin(['FILLED', 'EXPIRED', 'INVALIDATED'])]
+                combined = pd.concat([combined, frozen], ignore_index=True)
         else:
             combined = df_new
 
         # Dedup
         combined = combined.drop_duplicates(subset=['Ticker', 'Date', 'Strategy_ID'], keep='last')
         
-        worksheet.clear()
-        data_to_write = [combined.columns.tolist()] + combined.astype(str).values.tolist()
-        worksheet.update(values=data_to_write)
+        data_to_write = [combined.columns.tolist()] + combined.fillna("").astype(str).values.tolist()
+        replace_worksheet_values(worksheet, data_to_write, expected_values=existing_data)
         if os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1':
             rows = worksheet.get_all_values()
             if not rows or rows[0] != data_to_write[0] or len(rows) != len(data_to_write):
@@ -2663,9 +2674,8 @@ def stage_olv_vol_confirm_exits(master_dict=None):
             ws = sh.worksheet("OLV_Exits")
         except gspread.WorksheetNotFound:
             ws = sh.add_worksheet(title="OLV_Exits", rows=50, cols=len(cols))
-        ws.clear()
         data = [cols] + [[str(r.get(c, "")) for c in cols] for r in exit_rows]
-        ws.update(values=data)
+        replace_worksheet_values(ws, data)
 
     try:
         _sheets_write_with_retry(
@@ -2858,7 +2868,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
 
         # If the last row is newer than allowed (e.g. today's date during a morning run), trim it
         if last_row_date > expected_data_date:
-            df = df.iloc[:-1]
+            df = df.loc[df.index.date <= expected_data_date]
 
         # If dataframe is empty after trimming, skip it
         if df.empty:
@@ -2892,19 +2902,19 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         # Loud, never silent. A handful is normal attrition (renames,
         # delistings); a flood means the updater half-failed and the scan would
         # otherwise under-fire on a fraction of the book while reporting green.
-        _frac = len(_stale_drop) / max(1, len(master_dict))
         _sample = sorted(_stale_drop.items(), key=lambda kv: kv[1])[:10]
         _msg = (f"{len(_stale_drop)} ticker(s) dropped as stale vs "
                 f"{_stale_floor} (oldest first): "
                 + ", ".join(f"{t}@{d}" for t, d in _sample))
-        if _frac > STALE_TICKER_ABORT_FRAC:
-            raise RuntimeError(
-                f"Staleness gate: {_frac:.1%} of the cache is stale, over the "
-                f"{STALE_TICKER_ABORT_FRAC:.0%} bound — the updater likely "
-                f"half-failed. Aborting before any staging write rather than "
-                f"scanning a fraction of the book. {_msg}"
-            )
         print(f"[REMOVE] {_msg}")
+
+    from producer_status import scan_coverage, write_status
+    coverage = scan_coverage(all_tickers, master_dict, validated_dict, _stale_drop, effective_book)
+    coverage.update({'producer': 'daily_scan', 'scope': scope, 'bookend': bookend,
+                     'expected_data_date': str(expected_data_date)})
+    print('[COVERAGE] ' + json.dumps(coverage, default=str))
+    if not dry_run:
+        write_status(os.path.join(os.path.dirname(__file__), 'data', f'scan_coverage_{scope}_{bookend}.json'), coverage)
 
     # Replace the master dictionary with the strictly validated version
     master_dict = validated_dict
@@ -3033,7 +3043,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
             if df is None or 'Close' not in df.columns or len(df) < 50:
                 continue
             for w in xsec_windows_needed:
-                ret = df['Close'].pct_change(w)
+                ret = df['Close'].pct_change(w, fill_method=None)
                 temporal_pctile = ret.expanding(min_periods=RANK_MIN_PERIODS).rank(pct=True) * 100.0
                 rank_dict.setdefault(w, {})[ticker] = temporal_pctile
         xsec_rank_matrices = {}
@@ -3044,7 +3054,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         print(f"   Done - {len(next(iter(xsec_rank_matrices.values())).columns)} tickers ranked")
 
     all_signals = []
-    error_tickers = []  # (ticker, reason) tuples for email reporting
+    error_tickers = [(ticker, 'Price input unavailable; not evaluated (see coverage receipt)')
+                     for ticker in coverage['unavailable']]  # email exceptions
 
     # Overflow universe metadata (addv_63d etc.) for the ADV participation cap.
     # {} when the parquet is absent → the cap is a no-op (current behavior).
@@ -3725,6 +3736,15 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         if _derated:
             print(f"[SAME-DAY DERATE] Scaled {_derated} signal(s) - multiple same-strategy signals today.")
 
+    coverage['signal_count'] = len(all_signals)
+    coverage['exceptions'] = [{'ticker': t, 'reason': reason} for t, reason in error_tickers]
+    if error_tickers:
+        coverage['status'] = 'degraded'
+    for signal in all_signals:
+        signal['Data_Coverage_Status'] = coverage['status']
+    if not dry_run:
+        write_status(os.path.join(os.path.dirname(__file__), 'data', f'scan_coverage_{scope}_{bookend}.json'), coverage)
+
     # 6. Save Results
     # Dry-run: print a summary and skip ALL side effects (no Google Sheets
     # writes, no R2, no email). Used to validate a new universe / config safely.
@@ -3769,21 +3789,21 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         if scope in ('liquid', 'all') and not moc_only:
             save_staging_orders(
                 all_signals, effective_book,
-                sheet_name='Order_Staging', tier_filter='Liquid',
+                sheet_name='Order_Staging', tier_filter='Liquid', preserve_unavailable=coverage['unavailable'],
             )
         if scope in ('overflow', 'all') and not moc_only:
             save_staging_orders(
                 all_signals, effective_book,
-                sheet_name='Overflow', tier_filter='Overflow',
+                sheet_name='Overflow', tier_filter='Overflow', preserve_unavailable=coverage['unavailable'],
             )
     else:
         print("No signals found today.")
         # Clear whichever tabs THIS scope owns so stale rows don't linger.
         # moc_only runs intentionally leave Order_Staging / Overflow alone.
         if scope in ('liquid', 'all') and not moc_only:
-            save_staging_orders([], effective_book, sheet_name='Order_Staging', tier_filter='Liquid')
+            save_staging_orders([], effective_book, sheet_name='Order_Staging', tier_filter='Liquid', preserve_unavailable=coverage['unavailable'])
         if scope in ('overflow', 'all') and not moc_only:
-            save_staging_orders([], effective_book, sheet_name='Overflow', tier_filter='Overflow')
+            save_staging_orders([], effective_book, sheet_name='Overflow', tier_filter='Overflow', preserve_unavailable=coverage['unavailable'])
 
     # 6b. OLV vol-confirmed exit staging (2026-07-20). Runs on both bookend
     # scans regardless of signal count: the PM run evaluates today's settled
@@ -3844,17 +3864,17 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
             else:
                 print("[exposure] Fragility dial unavailable (cache missing, "
                       "unreadable, or STALE > 3 td) - exposure leg skipped.")
-                if bookend == 'am' or os.environ.get(
-                        'LOCAL_AUTOMATION_STRICT', '').strip() == '1':
-                    raise RuntimeError(
-                        "AM exposure state was not regenerated from a fresh "
-                        "fragility dial"
-                    )
+                raise RuntimeError("AM exposure state was not regenerated from a fresh fragility dial")
         except Exception as e:
             print(f"[exposure] Failed to compute exposure leg: {e}")
-            if bookend == 'am' or os.environ.get(
-                    'LOCAL_AUTOMATION_STRICT', '').strip() == '1':
-                raise
+            unique_errors.append(('EXPOSURE', f'No new exposure target; existing trade staging retained: {e}'))
+
+    # Include late exit/exposure exceptions in the receipt and still notify
+    # about successfully staged trades from the otherwise executable book.
+    coverage['exceptions'] = [{'ticker': t, 'reason': reason} for t, reason in unique_errors]
+    if unique_errors:
+        coverage['status'] = 'degraded'
+    write_status(os.path.join(os.path.dirname(__file__), 'data', f'scan_coverage_{scope}_{bookend}.json'), coverage)
 
     email_ok = send_email_summary(all_signals, error_tickers=unique_errors,
                                   scope_label=_scope_label, pc_state=pc_state)

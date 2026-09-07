@@ -78,7 +78,7 @@ def test_production_policy_is_live_and_exact():
 
 
 def test_indicator_cache_contract_requires_pivot_columns():
-    assert INDICATOR_CACHE_VERSION == "v3"
+    assert INDICATOR_CACHE_VERSION == "v4-content"
     stale = pd.DataFrame({"Close": [100.0]})
     assert not _indicator_cache_has_required_schema(stale)
     fresh = stale.assign(
@@ -411,8 +411,16 @@ def test_backtester_age_boundary_and_fresh_side_reselection():
 
 
 class _FakeWorksheet:
+    id, row_count, col_count = 1, 1000, 100
+
     def __init__(self):
         self.values = []
+        self.spreadsheet = self
+
+    def batch_update(self, payload):
+        request = payload['requests'][-1]['updateCells']
+        self.values = [[cell['userEnteredValue']['stringValue'] for cell in row['values']]
+                       for row in request['rows']]
 
     def get_all_records(self):
         return []

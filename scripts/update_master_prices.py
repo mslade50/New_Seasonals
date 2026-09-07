@@ -261,6 +261,11 @@ def download_chunk(tickers, start_date):
     return out
 
 
+def _today():
+    """Clock seam for reproducible date-sensitive producer tests."""
+    return pd.Timestamp.today().normalize()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--buffer-days", type=int, default=5)
@@ -322,7 +327,7 @@ def main():
               f"derived from the FULL cache, as a production run would)")
     last_dates = master.groupby("ticker")["date"].max()
     earliest_stale = last_dates.min()
-    today = pd.Timestamp.today().normalize()
+    today = _today()
 
     # New tickers to backfill (Layer A / explicit) — not yet in the cache.
     add_set = set()
@@ -444,6 +449,7 @@ def main():
                       f"rows merged {seg_stats[t]['merged']} for {t}")
         print(f"  [SEGMENT] {len(broken)} ticker(s) with rejected segment(s) this run: "
               f"{sorted(broken)} ({before_rows - len(new_data):,} fetched rows dropped)")
+    unresolved_basis = []
     replaced_rows_dropped = 0
     if basis_changed:
         if len(basis_changed) > MAX_BASIS_REPULLS:
@@ -480,6 +486,12 @@ def main():
                 repull_frames.append(df)
                 replaced_ok.add(t)
             time.sleep(0.3)
+        # Never merge an overlap on a rejected or absent replacement basis.
+        unresolved_basis = sorted(set(basis_changed) - replaced_ok)
+        new_data = new_data[~new_data["ticker"].isin(basis_changed)]
+        if unresolved_basis:
+            print(f"[DEGRADED] Unresolved basis repairs: {unresolved_basis}; "
+                  "retaining complete prior histories; other tickers continue")
         if replaced_ok:
             replaced_rows_dropped = int(master["ticker"].isin(replaced_ok).sum())
             master = master[~master["ticker"].isin(replaced_ok)]
@@ -522,6 +534,12 @@ def main():
     _tmp = out_path + ".tmp"
     combined.to_parquet(_tmp, compression="snappy", index=False)
     os.replace(_tmp, out_path)
+
+    from producer_status import write_status
+    write_status(out_path + ".status.json", {
+        "producer": "master_prices", "status": "degraded" if unresolved_basis or broken else "ok",
+        "unresolved_basis": unresolved_basis, "rejected_segments": sorted(broken),
+        "fallback": "Preserve consistent cached histories for unresolved basis changes; continue other tickers"})
 
     elapsed = time.time() - t_start
     new_max = combined.groupby("ticker")["date"].max().max()

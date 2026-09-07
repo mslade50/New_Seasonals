@@ -44,6 +44,7 @@ OUTPUT_CSV = os.path.join(current_dir, "atr_seasonal_ranks.csv")
 
 ATR_WINDOW = 14
 FWD_WINDOWS = [5, 10, 21, 63, 126, 252]
+SEASONAL_RANK_VERSION = "annual-outcome-cutoff-v2"
 MAX_DAY_COUNT = 251  # Cap: day_counts above this have too few samples
 
 DEFAULT_YEAR = 2026
@@ -231,6 +232,7 @@ def prepare_ticker_data(df):
     for w in FWD_WINDOWS:
         fwd_price = df['Close'].shift(-w)
         df[f'fwd_atr_{w}d'] = (fwd_price - df['Close']) / df['ATR']
+        df[f'fwd_end_{w}d'] = pd.Series(df.index, index=df.index).shift(-w)
 
     # Drop rows without ATR
     df = df.dropna(subset=['ATR'])
@@ -253,6 +255,16 @@ def compute_ranks_for_year(df, target_year):
     hist = df[df['year'] < target_year].copy()
     if hist.empty or len(hist['year'].unique()) < 3:
         return None
+
+    # An anchor before Y is not enough: its outcome must also be known.
+    # Keep legitimate cross-year labels only when they finish before Y.
+    cutoff = pd.Timestamp(year=target_year, month=1, day=1)
+    for w in FWD_WINDOWS:
+        end_col = f'fwd_end_{w}d'
+        if end_col not in hist:
+            raise ValueError('Prepared seasonal data lacks forward outcome dates; re-prepare prices')
+        known = hist[end_col].notna() & (hist[end_col] < cutoff)
+        hist.loc[~known, f'fwd_atr_{w}d'] = np.nan
 
     fwd_cols = [f'fwd_atr_{w}d' for w in FWD_WINDOWS]
 
@@ -424,6 +436,7 @@ def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH, merge=False)
             print(f"   merge failed ({e}) - writing computed tickers only")
 
     print(f"\nSaving to {output_path}...")
+    result_df.attrs['seasonal_rank_version'] = SEASONAL_RANK_VERSION
     result_df.to_parquet(output_path, index=False)
     print(f"   {len(result_df):,} rows, {result_df['ticker'].nunique()} tickers")
 

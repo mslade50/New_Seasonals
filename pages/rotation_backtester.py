@@ -259,7 +259,7 @@ def run_backtest(
         return None
 
     log_rets = compute_log_returns(close_df)
-    simple_rets = close_df.pct_change()
+    simple_rets = close_df.pct_change(fill_method=None)
     sigma_ann = compute_ewma_vol(log_rets, ewma_halflife)
     signal_df = compute_signal(close_df, log_rets, sigma_ann, lookbacks, lookback_weights, signal_cap)
 
@@ -430,8 +430,8 @@ with c1:
     )
 with c2:
     execution_lag = st.checkbox(
-        "Execute next-day open (T+1 lag)", value=True,
-        help="Recommended. Compute signal at rebal-day close, take position next bar.",
+        "Execute next-session close (T+1 lag)", value=True,
+        help="Compute signal at the rebalance close and enter at the next session close. Returns begin after that close; this model has no open prices.",
     )
 
 # --- Run ---

@@ -341,7 +341,7 @@ def build_xsec_rank_matrices(data_dict, windows=[5, 10, 21]):
         if 'Close' not in df.columns or len(df) < 50:
             continue
         for w in windows:
-            ret = df['Close'].pct_change(w)
+            ret = df['Close'].pct_change(w, fill_method=None)
             # Temporal percentile: where is this return vs ticker's own history
             temporal_pctile = ret.expanding(min_periods=RANK_MIN_PERIODS).rank(pct=True) * 100.0
             rank_dict.setdefault(w, {})[ticker] = temporal_pctile
@@ -363,7 +363,7 @@ def _metric_series(df, key, window=63):
     if key == 'adr20':
         if 'High' not in df.columns or 'Low' not in df.columns: return None
         return (df['High'] / df['Low']).rolling(20).mean() - 1
-    ret = close.pct_change()
+    ret = close.pct_change(fill_method=None)
     if key == 'sigma_mad':
         return ret.rolling(window).std() / ret.abs().rolling(window).mean()
     if key == 'autocorr':
@@ -371,9 +371,9 @@ def _metric_series(df, key, window=63):
     if key == 'dvol_roc':
         if 'Volume' not in df.columns: return None
         dv = close * df['Volume']
-        return dv.rolling(20).mean().pct_change(21)
+        return dv.rolling(20).mean().pct_change(21, fill_method=None)
     if key == 'rvol_roc':
-        return ret.rolling(20).std().pct_change(21)
+        return ret.rolling(20).std().pct_change(21, fill_method=None)
     return None
 
 def build_xsec_metric_matrices(data_dict, metric_specs):
@@ -550,7 +550,7 @@ def compute_portfolio_stats(equity_df, starting_equity, risk_bps=None, trades_df
              'TimeInMarket_Pct': 0, 'FinalEquity': starting_equity,
              'UnderwaterDays': 0, 'TradesDuringDD': None, 'DDStillOngoing': False,
              'PeakDate': None, 'TroughDate': None, 'RecoveryDate': None}
-    if equity_df.empty or len(equity_df) < 2:
+    if equity_df.empty:
         return empty
 
     close = equity_df['Equity_Close']
@@ -561,7 +561,7 @@ def compute_portfolio_stats(equity_df, starting_equity, risk_bps=None, trades_df
     total_ret = close.iloc[-1] / starting_equity
     cagr = (total_ret ** (1 / years) - 1) * 100 if total_ret > 0 else -100
 
-    peak = close.cummax()
+    peak = close.cummax().clip(lower=starting_equity)
     dd_series = (close - peak) / peak
     max_dd = dd_series.min() * 100
 
@@ -589,7 +589,7 @@ def compute_portfolio_stats(equity_df, starting_equity, risk_bps=None, trades_df
         # Peak date = last date at-or-before trough where close equals its running peak
         _peak_mask = (equity_df.index <= trough_date) & (close == peak)
         peak_date = equity_df.index[_peak_mask][-1] if _peak_mask.any() else equity_df.index[0]
-        peak_value = close.loc[peak_date]
+        peak_value = peak.loc[peak_date]
         # Recovery = first date after trough where close reaches back to peak value
         _post = close.loc[trough_date:]
         _recov_mask = _post >= peak_value
@@ -608,7 +608,8 @@ def compute_portfolio_stats(equity_df, starting_equity, risk_bps=None, trades_df
             end_cut = recovery_date if recovery_date is not None else equity_df.index[-1]
             trades_during_dd = int(((_ed >= peak_date) & (_ed <= end_cut)).sum())
 
-    daily_ret = close.pct_change().dropna()
+    prior_close = close.shift(1, fill_value=starting_equity)
+    daily_ret = (close / prior_close.replace(0, np.nan) - 1).dropna()
     sharpe = (daily_ret.mean() / daily_ret.std() * np.sqrt(252)) if daily_ret.std() > 0 else 0
     downside = daily_ret[daily_ret < 0]
     sortino = (daily_ret.mean() / downside.std() * np.sqrt(252)) if len(downside) > 1 and downside.std() > 0 else 0
@@ -619,7 +620,7 @@ def compute_portfolio_stats(equity_df, starting_equity, risk_bps=None, trades_df
     # Relationship: sharpe_calendar ≈ sharpe_active * sqrt(TIM).
     if 'InMarket' in equity_df.columns:
         # Align InMarket to daily_ret (both drop first NaN row of pct_change)
-        active_mask = equity_df['InMarket'].iloc[1:].reset_index(drop=True)
+        active_mask = equity_df['InMarket'].reindex(daily_ret.index).reset_index(drop=True)
         active_ret = daily_ret.reset_index(drop=True)[active_mask.values]
         if len(active_ret) > 1 and active_ret.std() > 0:
             sharpe_active = active_ret.mean() / active_ret.std() * np.sqrt(252)
@@ -1997,9 +1998,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 p_max = params.get('vrd_pctile_max', 90.0) / 100.0
                 min_periods = int(params.get('vrd_min_periods', 252))
 
-                rets = df['Close'].pct_change()
+                rets = df['Close'].pct_change(fill_method=None)
                 vol_t = rets.ewm(halflife=halflife, min_periods=halflife).std() * np.sqrt(252)
-                ret_t = df['Close'].pct_change(ret_horizon)
+                ret_t = df['Close'].pct_change(ret_horizon, fill_method=None)
                 d_vol = vol_t.diff(delta_n)
                 d_ret = ret_t.diff(delta_n)
 

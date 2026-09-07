@@ -77,7 +77,11 @@ def build_universe():
 def _normalize_ticker_df(t_df):
     """Return df with [Open, High, Low, Close, Volume] columns and tz-naive Date index."""
     if isinstance(t_df.columns, pd.MultiIndex):
-        t_df.columns = t_df.columns.get_level_values(0)
+        price_levels = [i for i in range(t_df.columns.nlevels)
+                        if "Close" in t_df.columns.get_level_values(i)]
+        if len(price_levels) != 1:
+            return None
+        t_df.columns = t_df.columns.get_level_values(price_levels[0])
     if "Close" not in t_df.columns or t_df["Close"].dropna().empty:
         return None
     if t_df.index.tz is not None:
