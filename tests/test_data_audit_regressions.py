@@ -72,6 +72,16 @@ def test_price_context_unknown_is_json_null(values):
     json.dumps(ctx, allow_nan=False)
 
 
+def test_price_context_banner_renders_missing_price():
+    from types import SimpleNamespace
+    output = []
+    scope = functions('pages/risk_dashboard_v2.py', ['compute_price_context', 'render_price_context'],
+                      st=SimpleNamespace(markdown=lambda text, **kwargs: output.append(text)))
+    context = scope['compute_price_context'](pd.Series(dtype=float))
+    scope['render_price_context'](context)
+    assert 'SPY: N/A' in output[0]
+
+
 def test_compounding_uses_only_profits_realized_before_entry():
     fn = functions("pages/fragility_sizing_lab.py", ["replay_equity"], _assign_regime=lambda _: "neutral")["replay_equity"]
     df = pd.DataFrame({"Ticker": ["EARLY", "LATE", "AFTER"], "Strategy": ["A"]*3,

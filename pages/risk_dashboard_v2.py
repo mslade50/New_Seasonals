@@ -1217,6 +1217,7 @@ def compute_regime_multiplier(price_ctx: dict) -> float:
 def render_price_context(price_ctx: dict):
     """Render the price context banner."""
     p = price_ctx
+    price_str = f"${p['price']:.2f}" if p.get('price') is not None else "N/A"
 
     ret_str = f"{p['ret_12m']:+.1%}" if p['ret_12m'] is not None else "N/A"
     ext_str = f"{p['extension_200d']:+.1%}" if p['extension_200d'] is not None else "N/A"
@@ -1233,7 +1234,7 @@ def render_price_context(price_ctx: dict):
                 padding: 10px 16px; border-radius: 6px; margin-bottom: 10px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
             <div>
-                <span style="font-size: 15px; font-weight: 600;">SPY: ${p['price']:.2f}</span>
+                <span style="font-size: 15px; font-weight: 600;">SPY: {price_str}</span>
                 <span style="font-size: 13px; color: #999; margin-left: 12px;">
                     {ret_str} 12mo &nbsp;|&nbsp; {ext_str} vs 200d &nbsp;|&nbsp; {dd_str} from high
                 </span>
