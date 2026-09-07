@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import hashlib
 import math
 import re
 from dataclasses import dataclass, field
@@ -130,7 +131,7 @@ def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
             row["entry_price"] = _number(row.get("entry_price"), positive=True)
             dt.date.fromisoformat(str(row.get("ref_date")))
             key = str(row.get("tranche_id") or "")
-            if not key or key in tranches or not row["symbol"]:
+            if not key or "|" in key or key in tranches or not row["symbol"]:
                 raise ValueError("seed tranche identity is missing or duplicated")
             tranches[key] = row
         effective = {}
@@ -188,14 +189,15 @@ def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
                 opening_sign = {"BUY": 1, "SELL_SHORT": -1}.get(action)
                 if opening_sign != sign:
                     raise ValueError("exit execution has no owned entry tranche")
-                key = explicit_tranche or f"{symbol}|{strategy}|{ref_date}|{con_id}"
+                key = explicit_tranche or hashlib.sha256(f"{symbol}|{strategy}|{ref_date}|{con_id}".encode()).hexdigest()[:24]
                 if key in tranches:
                     raise ValueError("new execution conflicts with an existing tranche identity")
                 known_metadata = dict(metadata.get(str(row.get("order_ref"))) or {})
                 tranche = {**known_metadata, "tranche_id": key, "account_key": "primary", "account": account,
                            "con_id": con_id, "symbol": symbol, "sec_type": "STK", "currency": "USD",
                            "strategy": strategy, "ref_date": ref_date, "entry_date": stamp.astimezone(ZoneInfo("America/New_York")).date().isoformat(),
-                           "signed_qty": 0, "entry_price": price, "price_basis": "raw"}
+                           "signed_qty": 0, "entry_price": price, "price_basis": "raw",
+                           "entry_order_ref": str(row["order_ref"])}
                 tranches[key] = tranche
             else:
                 tranche = candidates[0]

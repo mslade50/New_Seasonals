@@ -177,7 +177,7 @@ def test_prepare_checks_all_reviewed_hashes_and_writes_new_candidate(tmp_path):
     if not SOURCE.exists():
         pytest.skip("external-source preparation requires the reviewed checkout")
     target = tmp_path / "candidate"
-    assert len(prepare.prepare(SOURCE, target)) == 7
+    assert len(prepare.prepare(SOURCE, target)) == 8
     for file in target.glob("*.py"):
         compile(file.read_text(encoding="utf-8"), file.name, "exec")
     with pytest.raises(ValueError, match="new"):

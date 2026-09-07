@@ -5,5 +5,6 @@
   "eq_order_entry.py": "3e13352b43d1766be51236f1a976004d6fb26d4e4caaae1b55c62e7d72cdb5e3",
   "run_order_staging.bat": "fbffc7f8801792d6b223d622c6ebcf70c344b7b31741158e07dc5367e15380d6",
   "event_moo.py": "f017c40d301e8c37a21f2e95c37b335ac639dd2fb9ac89bdca7695d862e80cd4",
-  "trend_moo.py": "31bbaff9845b4629dc7fec3f1191273b0b6bdcd1c37ede3f087c83977de62441"
+  "trend_moo.py": "31bbaff9845b4629dc7fec3f1191273b0b6bdcd1c37ede3f087c83977de62441",
+  "olv_exit_moo.py": "3e8c1ad947cec79addc6773669155ce625b35dcb6a1795773e479c699d74dca3"
 }
