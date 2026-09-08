@@ -7,6 +7,8 @@ must first create the strict local JSON/JSONL snapshots passed here.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
+import os
 import sys
 from pathlib import Path
 
@@ -101,6 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--family-catalog", help="Optional source-backed algorithm family catalog; requires candidate-families.")
     parser.add_argument("--candidate-families", help="Explicit candidate fingerprint-to-family profiles; requires family-catalog.")
     parser.add_argument("--output-dir", required=True, help="Local output directory; owns its journal.jsonl.")
+    parser.add_argument("--preflight", action="store_true", help="Validate all inputs and proposal gates without publishing or journaling.")
     return parser
 
 
@@ -124,6 +127,14 @@ def main(
         journal_path = output_dir / "journal.jsonl"
         _reject_state_path_escape(journal_path, output_dir)
         config = load_json(Path(args.config))
+        strict = os.environ.get("STRATEGY_RESEARCH_STRICT_PREFLIGHT") == "1"
+        if strict:
+            from research.strategy_discovery.contracts import parse_timestamp
+            if parse_timestamp(config["as_of"], "config.as_of") > dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=5):
+                raise ContractError("scheduled research as_of is in the future; read the actual UTC clock")
+            from scripts.strategy_research_checkpoint import active_output
+            if output_dir != active_output(ROOT):
+                raise ContractError("scheduled research must use the active journal checkpoint")
         manifest = load_json(Path(args.source_manifest))
         items = load_jsonl(Path(args.items))
         strategy_catalog = load_json(Path(args.strategy_catalog))
@@ -177,6 +188,20 @@ def main(
                 artifact_root=artifact_root,
             )
             validate_report(report)
+            # Validate the entire prospective transaction before publishing
+            # immutable reports, including capture-identity conflicts.
+            append_events(journal_path, events, recorded_at=report["as_of"],
+                          lock=journal_lock, dry_run=True)
+            if args.preflight or strict:
+                malformed = [c for c in report["candidates"] if c["disposition"] == "NEEDS_SPEC"]
+                if malformed:
+                    raise ContractError("proposal preflight failed before journal writes: " +
+                                        "; ".join(str(c.get("name", c["fingerprint"])) + ": " +
+                                                  ", ".join(g["gate"] + "=" + g["reason"] for g in c["gates"] if g["status"] == "FAIL")
+                                                  for c in malformed))
+            if args.preflight:
+                print(f"PREFLIGHT OK: {report['summary']['candidate_count']} candidate(s); no journal or report written")
+                return 0
             assessment = assess_family_fit(report, family_catalog, candidate_families) if family_catalog is not None else None
             paths, bundle_manifest = publish_immutable_bundle(output_dir, report)
             if assessment is not None:

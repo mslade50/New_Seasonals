@@ -983,6 +983,7 @@ def append_events(
     *,
     recorded_at: str,
     lock: _JournalLease | None = None,
+    dry_run: bool = False,
 ) -> int:
     """Append new idempotent events with one flushed OS append.
 
@@ -1001,6 +1002,7 @@ def append_events(
                 event_list,
                 recorded_at=recorded_at,
                 lock=acquired,
+                dry_run=dry_run,
             )
     _validate_lock_lease(lock, canonical_lock_path)
     parse_timestamp(recorded_at, "recorded_at")
@@ -1063,6 +1065,8 @@ def append_events(
     if fresh and event_list[0]["event_key"] in existing_keys:
         raise ContractError("journal transaction cannot backfill an already recorded RUN")
     validate_journal_records([*existing, *fresh])
+    if dry_run:
+        return len(fresh)
     if not fresh:
         return 0
     path.parent.mkdir(parents=True, exist_ok=True)

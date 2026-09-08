@@ -275,7 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument("--capture-root", type=Path, default=DEFAULT_CAPTURE_ROOT)
     parser.add_argument("--env-file", type=Path)
-    parser.add_argument("--journal", type=Path, default=DEFAULT_JOURNAL)
+    parser.add_argument("--journal", type=Path, default=None)
     parser.add_argument("--decision", type=Path, default=DEFAULT_DECISION)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("collect")
@@ -295,11 +295,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "collect":
             collect(args.config, args.state, args.capture_root, args.env_file)
         else:
+            from scripts.strategy_research_checkpoint import active_output
             acknowledge(
                 args.state,
                 args.capture_root,
                 args.capture_dir,
-                args.journal,
+                args.journal or active_output(ROOT) / "journal.jsonl",
                 args.decision,
                 args.normalized_items,
             )

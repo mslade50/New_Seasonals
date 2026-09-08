@@ -52,3 +52,28 @@ unattended task, and the earlier operational claim was premature.
 A new source commit, a green mocked test, and a registered task are not completion.
 Record the installed SHA and task definitions, real run receipts, delivery/NO_EMAIL
 decision, cloud build/freshness result, and production deployment SHA at handoff.
+
+## Research launch validation exposed a normalization deadlock
+
+The 06:47 ET Task Scheduler test launched the collector and agent successfully.
+The collector captured 36 observations. The agent then journaled a grid strategy
+with an MOO entry plus a limit price rule, which is contradictory. It could not
+correct that normalized input under the already-immutable capture identity.
+The completion checker returned 2, Task Scheduler reported 2, and the operational
+failure alert was sent. This proves error propagation, not research completion.
+
+Clearing the pending cursor is not a sufficient repair: the discovery journal
+already advanced its COMPLETE source anchor, so recollecting from the older
+collector cursor would introduce a continuity failure. Recovery instead preserves
+the entire failed journal and its hash, leaves the raw bundle and accepted/pending
+collector state unchanged, and starts a new journal branch at the verified prefix
+whose source anchors exactly match the accepted collector cursors. It is allowed
+only for the final unvalidated NEEDS_SPEC transaction, with no validation, owner
+authority, or final delivery decision. The active checkpoint records the reason,
+complete failed transaction, original journal hash, and preserved prefix hash.
+
+Scheduled research now validates proposal gates, real-clock timestamps, the active
+checkpoint, and the prospective journal transaction before publishing anything
+immutable. The research skill requires a separate preflight and a fresh workspace
+for each attempt. Neither original journal entries nor original capture files are
+edited or removed.
