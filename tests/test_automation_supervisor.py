@@ -840,13 +840,15 @@ def test_targeted_github_recovery_runs_only_job_prerequisite_closure(tmp_path):
     ]
 
 
-def test_github_only_discretionary_holiday_is_terminal_not_applicable(tmp_path):
+@pytest.mark.parametrize("gate", ["discretionary_delivery_window", "nyse_session"])
+@pytest.mark.parametrize("github_only", [True, False])
+def test_holiday_is_terminal_not_applicable_without_local_or_remote_effects(tmp_path, gate, github_only):
     job = sup.JobSpec(
         id="focus",
         description="focus",
         commands=(sup.CommandSpec("focus", ("{python}", "focus.py"), side_effecting=True),),
         workflow=sup.WorkflowSpec("focus.yml"),
-        local_gate="discretionary_delivery_window",
+        local_gate=gate,
     )
     pipeline = sup.PipelineSpec(
         "focus", "focus", "weekdays", dt.time(8, 35), dt.time(8, 50), dt.time(9, 20), (job,)
@@ -874,16 +876,22 @@ def test_github_only_discretionary_holiday_is_terminal_not_applicable(tmp_path):
             run_date="2026-09-07",
             logger=logger,
             allow_fallback=True,
-            github_only=True,
+            github_only=github_only,
         )
 
     assert outcome.status == "success"
     assert outcome.detail == "not applicable"
     assert not dispatcher.calls
     receipt = receipts.latest("2026-09-07", "focus")
-    assert receipt.source == "github"
+    assert receipt.source == ("github" if github_only else "local")
     assert receipt.phase == "completed"
     assert receipt.detail.startswith("not applicable:")
+
+
+def test_scans_and_execution_report_require_an_exchange_session():
+    for pipeline, job_id in [("premarket", "scan_am"), ("postclose", "scan_pm"), ("execution", "execution_report")]:
+        job = next(job for job in sup.CATALOG[pipeline].jobs if job.id == job_id)
+        assert job.local_gate == "nyse_session"
 
 
 def test_github_dispatcher_finds_unique_token_in_run_title_and_waits(tmp_path):

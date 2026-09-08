@@ -1,17 +1,24 @@
 # Register the daily 12:30 AM strategy-research collection and email pipeline.
 # This file is inert until deliberately run by the operator.
+[CmdletBinding()]
+param([string]$PythonExe = (Get-Command python.exe -ErrorAction Stop).Source)
 $ErrorActionPreference = 'Stop'
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$bat = Join-Path $dir 'run_strategy_research.bat'
+$runner = Join-Path $dir 'run_strategy_research.py'
 $taskName = 'Strategy Research (agent)'
-if (-not (Test-Path -LiteralPath $bat -PathType Leaf)) { throw "Cannot find $bat" }
+if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) { throw "Cannot find $runner" }
+if (-not [IO.Path]::IsPathRooted($PythonExe) -or -not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
+    throw 'PythonExe must be an absolute existing interpreter'
+}
+$existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($existing -and $existing.State -in @('Running', 'Queued')) { throw 'Research is running; refusing to replace its task' }
 
-$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$bat`"" `
+$action = New-ScheduledTaskAction -Execute $PythonExe -Argument "`"$runner`"" `
     -WorkingDirectory (Split-Path -Parent $dir)
 $trigger = New-ScheduledTaskTrigger -Daily -At '12:30AM'
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType S4U -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 180)
+    -StartWhenAvailable -WakeToRun -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 180)
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
     -Principal $principal -Settings $settings -Force | Out-Null
 $task = Get-ScheduledTask -TaskName $taskName

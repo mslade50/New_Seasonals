@@ -373,6 +373,33 @@ def check_delivery() -> None:
 
 
 # ---------------------------------------------------------------- 6. local Task Scheduler logs
+def check_strategy_research(now=None) -> None:
+    """Require a completed daily run after its 00:30 + three-hour deadline."""
+    from zoneinfo import ZoneInfo
+    current = now or dt.datetime.now(dt.timezone.utc)
+    current = current.astimezone(ZoneInfo("America/New_York"))
+    due = current.date()
+    if current.time().replace(tzinfo=None) < dt.time(3, 30):
+        due -= dt.timedelta(days=1)
+    path = CONFIG_ROOT / "artifacts/strategy_research_agent/last_run.json"
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+        started = dt.datetime.fromisoformat(receipt["started_at"])
+        if started.tzinfo is None:
+            raise ValueError("run timestamp lacks timezone")
+        run_day = started.astimezone(ZoneInfo("America/New_York")).date()
+        if run_day < due or started > current:
+            raise ValueError(f"latest run is {run_day}, required {due}")
+        if receipt.get("status") != "success" or receipt.get("exit_code") != 0:
+            raise ValueError(f"run has no verified success: {receipt.get('status')}")
+        phases = receipt.get("phases", {})
+        if any(phases.get(key) != 0 for key in ("source_collection", "research_agent", "completion_check")):
+            raise ValueError("collection, research, and completion checks did not all pass")
+        report("OK", "delivery:strategy_research", f"{run_day}: verified completion ({receipt.get('run_id')})")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        report("FAIL", "delivery:strategy_research", str(exc))
+
+
 def check_trigger_logs() -> None:
     if not AUTOMATION_LOG_DIR.exists():
         report("WARN", "triggers", f"{AUTOMATION_LOG_DIR} not found")
@@ -429,6 +456,7 @@ def main() -> int:
     check_fragility_pit()
     check_journals()
     check_delivery()
+    check_strategy_research()
     check_trigger_logs()
     if not args.skip_tests:
         check_test_collection()

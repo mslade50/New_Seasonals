@@ -102,10 +102,15 @@ claim before SMTP and blocks ambiguous automatic retries.
 
 ## Scheduling and operations
 
-`scripts/run_strategy_research.bat` is the unattended entry point. It collects
+`scripts/run_strategy_research.py` is the unattended entry point. It collects
 sources, invokes the pinned Opus/xhigh skill, and verifies that the pending
 capture was acknowledged and a new decision was written. Logs live under the
-ignored `artifacts/strategy_research_agent/` directory.
+ignored `artifacts/strategy_research_agent/` directory. Each run has its own log,
+marker, and completion receipt; `last_run.json` points to the newest run. A
+locked legacy `last_run.log` cannot block launch. Exit zero requires collection,
+agent execution, and the final completion checker all to pass. Failure alerts
+cannot replace a failing exit code with success. A persistent OS lock serializes
+manual and scheduled launches.
 
 A source, agent, or final completion failure sends a separate deduplicated
 operational alert through `send_strategy_research_failure_email.py`. This keeps
@@ -114,6 +119,9 @@ a broken run distinguishable from a successful `NO_EMAIL` research day.
 `scripts/register_strategy_research_task.ps1` owns the installed daily 12:30 AM
 ET Windows task. It has a three-hour deadline and start-when-available behavior,
 which keeps normal research clear of the 4:10 AM premarket pipeline.
+The task uses an absolute Python executable, wakes the machine, ignores duplicate
+triggers, and uses S4U so it does not require an interactive login. Registration
+requires an elevated PowerShell session. It refuses to replace a running task.
 Registration remains an explicit operator action; rerunning the script updates
 the existing task rather than creating a second schedule.
 
@@ -132,7 +140,7 @@ python scripts/finalize_strategy_research.py `
 The finalizer sends only when `--send` is explicitly passed and at least one
 candidate clears every gate.
 
-## Verification completed during production cutover
+## Historical manual verification (7 September; unattended proof pending)
 
 - The first production capture completed both enabled SSRN queries with 64
   DOI-bound observations. One executable candidate reached preregistered,
@@ -143,8 +151,10 @@ candidate clears every gate.
   mean, excessive bad-day co-loss, and negative incremental portfolio Sharpe.
   The finalizer recorded `NO_EMAIL` without opening SMTP, and both complete
   SSRN cursors advanced only after that decision was digest-bound and written.
-- The Windows task is installed, enabled, and ready for its next daily 12:30 AM
-  ET run. The completion checker passes with no pending capture.
+- The original Windows task was installed, but the 8 September unattended run
+  failed behind a locked shared log while reporting exit zero. The preceding
+  manual completion was not proof that the unattended launcher worked. See
+  `docs/incidents/2026-09-08_scheduler_recovery.md` for recovery evidence.
 - Collector, pending/acknowledgement, discovery, family-fit, research gate,
   catalog, scheduling-wire, cloud rank migration, predecessor backup, and R2
   promotion tests pass. The operational-failure email path was exercised during
