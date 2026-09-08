@@ -248,16 +248,17 @@ function shell() {
     <aside class="card exec-ticket" id="ticket" aria-label="Order ticket">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
       <details class="exec-help"><summary>Order types &amp; how exits are handled</summary>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. Three ways to close, differing only in what happens to the <b>working orders</b>: <b>Close only</b> touches none of them and so requires a bare position (a resting exit the same size as the close could fill alongside it and reverse you); <b>Close + shrink exits</b> is the partial close for a position that already has exits &mdash; it modifies them down to the remainder <i>first</i>, then sells, so the remainder is never unprotected and nothing is ever cancelled; <b>Flatten</b> cancels the working orders and then closes, which is the only way to close a protected position in <i>full</i> (an exit cannot be resized to zero) and the only one that leaves the position unprotected between the cancel and the fill. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Primary Close</b> accepts shares or a percentage, adjusts existing closing groups proportionally, and cancels their exits for a full close. A confirmed empty broker lookup needs no adjustment. Rounding preserves the total; zero-sized allocations are removed. Resting and partially filled closes are reconciled against broker fills. <b>Add</b> inherits exit prices and timing in separate attached brackets. <b>Re-add</b> is enabled when green: confirmed closed shares receive a DAY limit at the original average cost with inherited exits. Legacy close-only and flatten ticket types remain available for existing workflows. Submits per the mode banner above &mdash; live when armed.</p>
       </details>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
           <option value="entry_bracket">entry bracket</option>
+          <option value="add_to_position">add to position</option>
           <option value="scheduled_option">scheduled option buy</option>
           <option value="exit_attach">attach exits</option>
           <option value="close_only">close only (leave orders)</option>
-          <option value="close_resize">close + shrink exits (partial)</option>
+          <option value="close_resize">close position (adjust exits)</option>
           <option value="flatten">flatten (cancel orders first)</option>
           <option value="echo">echo (ping)</option>
         </select>
@@ -1111,7 +1112,7 @@ function renderPositions() {
     const protectBtn = bare
       ? `<button class="btn xs ghost" style="color:#ffc14d" onclick='execProtectTicket(${posJson(p)})' title="No working exits — prefill the attach-exits ticket (stop / target / time stop)">Protect&hellip;</button>`
       : "";
-    const actions = p.sec_type === "OPT"
+    const legacyActions = p.sec_type === "OPT"
       ? '<span class="cap">combo — close via TWS</span>'
       : p.sec_type === "STK"
         ? `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
@@ -1125,6 +1126,11 @@ function renderPositions() {
           <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.25)'>Trim&frac14;</button>
           <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.5)'>Trim&frac12;</button>
           ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
+    const actions = state.account !== "primary" || p.sec_type === "OPT" ? legacyActions
+      : `<button class="btn xs" onclick='execSellTicket(${posJson(p)})' title="Close shares or a percentage and adjust existing exits">Close&hellip;</button>
+         ${p.sec_type === "STK" ? `<button class="btn xs ghost" onclick='execAddTicket(${posJson(p)})' title="Add shares or a percentage with inherited exits">Add&hellip;</button>
+         <button class="btn xs ghost exec-readd" aria-pressed="${readdOn}" onclick='execToggleReadd(${posJson(p)})' title="When enabled, re-add confirmed closed shares at the original average cost with a DAY limit and attached exits">Re-add</button>` : ""}
+         ${protectBtn}`;
     const priceDigits = p.sec_type === "CASH" ? 5 : 2;
     return `<tr>
       <td class="l" style="font-weight:600">${sym}</td>
@@ -1475,11 +1481,12 @@ function execFlatten(pos, fraction) {
   sendCommand("flatten", { ...positionIdentity(pos), fraction, order_type: "MKT" });
 }
 function execToggleReadd(pos) {
-  if (!hasVisibleProtectiveExit(pos)) return;
+  if (state.account !== "primary" && !hasVisibleProtectiveExit(pos)) return;
   const key = positionKey(pos);
   readdRows.set(key, readdRows.get(key) !== true);
   set("positions", renderPositions());
   syncMutationControls();
+  updateReadout();
 }
 /* Partial close from a position row. Picks the SAFE command for the position's
    shape rather than always reaching for flatten: a position carrying working
@@ -1558,12 +1565,11 @@ window.execTrim = execTrim;
 window.execAddToPosition = execAddToPosition;
 window.execCancel = execCancel;
 
-/* "Close…" on a position row: prefill the close-only ticket (shares / percent /
-   LMT / outside RTH live there) instead of sending anything. */
+/* Row tickets prefill exact identity; the broker resolves current exit coverage. */
 function execSellTicket(pos) {
   const t = document.getElementById("cmdType");
   if (!t) return;
-  t.value = "close_only";
+  t.value = state.account === "primary" ? "close_resize" : "close_only";
   syncFields();                      // rebuilds fields (snapshots the old ticket first)
   const s = document.getElementById("f_symbol");
   if (s) s.value = pos.symbol;
@@ -1575,6 +1581,44 @@ function execSellTicket(pos) {
   t.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 window.execSellTicket = execSellTicket;
+
+function execAddTicket(pos) {
+  const t = document.getElementById("cmdType");
+  if (!t) return;
+  t.value = "add_to_position";
+  syncFields();
+  document.getElementById("f_symbol").value = pos.symbol;
+  ticketDraft.f_symbol = pos.symbol;
+  ticketDraft.fl_position = { account: state.account, ...positionIdentity(pos) };
+  updateReadout();
+  execJump("ticket");
+  document.getElementById("fl_qty").focus();
+}
+window.execAddTicket = execAddTicket;
+
+function actionPosition() {
+  const symbol = String(val("f_symbol") || "").toUpperCase().trim();
+  const bound = ticketDraft.fl_position;
+  const hits = ((acctBook() || {}).positions || []).filter(p => p.position &&
+    String(p.symbol).toUpperCase() === symbol &&
+    (!bound || bound.account !== state.account || String(bound.symbol).toUpperCase() !== symbol ||
+      Number(p.con_id) === Number(bound.con_id)));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+function addWarnings() {
+  const p = actionPosition();
+  const quantity = numOrNull("fl_qty");
+  const percent = numOrNull("fl_pct");
+  const warnings = [];
+  if (state.account !== "primary") warnings.push("Add ticket is Primary-only");
+  if (!p || p.sec_type !== "STK") warnings.push("Select one exact stock position");
+  if (quantity != null ? !Number.isInteger(quantity) || quantity <= 0 :
+      !Number.isFinite(percent) || percent <= 0) warnings.push("Enter positive whole shares or a percentage");
+  if (p && quantity == null && Math.round(Math.abs(p.position) * percent / 100) < 1)
+    warnings.push("Add rounds to zero shares");
+  return warnings;
+}
 
 /* "Protect…" on a bare position row: prefill the attach-exits ticket. Sends
    nothing — stop/target/time stop are typed and confirmed like any ticket. */
@@ -1677,7 +1721,12 @@ function syncFields() {
   snapshotTicket();   // preserve what's typed before the fields are rebuilt
   const t = document.getElementById("cmdType").value;
   const f = document.getElementById("cmdFields");
-  if (t === "echo") {
+  if (t === "add_to_position") {
+    f.innerHTML = `<label class="cap">Symbol</label>${inp("f_symbol", "Symbol", 90)}
+      <label class="cap">Shares</label>${inp("fl_qty", "blank = percent", 110)}
+      <label class="cap">or Percent</label>${inp("fl_pct", "100", 65)}`;
+    if (ticketDraft.fl_pct == null) document.getElementById("fl_pct").value = "100";
+  } else if (t === "echo") {
     f.innerHTML = `<label class="cap">Note</label>${inp("f_note", "ping from site", 200)}`;
   } else if (t === "scheduled_option") {
     const right = String(ticketDraft.so_right || "P").toUpperCase();
@@ -2000,10 +2049,10 @@ function flattenWarnings() {
     if (!(lim > 0)) warns.push("LMT close needs a limit price");
   }
   if (rth && typ !== "LMT") warns.push("outside-RTH close must be LMT");
-  // close_resize shrinks the working exits to the remainder, and an exit cannot
-  // be resized to zero — a full close has to cancel them, which is flatten.
+  // PA retains its legacy partial-only resize. Primary Close also cancels
+  // zero-size exit rungs, so the same ticket supports a full close.
   const cmdType = document.getElementById("cmdType");
-  if (cmdType && cmdType.value === "close_resize" && held != null) {
+  if (cmdType && cmdType.value === "close_resize" && held != null && state.account !== "primary") {
     const n = qn != null ? qn : Math.round(held * Number(numOrNull("fl_pct") || 0) / 100);
     if (n >= held) {
       warns.push("close + shrink exits is a PARTIAL close — use flatten to close the whole position");
@@ -2095,6 +2144,14 @@ function updateReadout() {
   const t = document.getElementById("cmdType").value;
   const el = document.getElementById("ticketReadout");
   if (!el) return;
+  if (t === "add_to_position") {
+    const warnings = addWarnings();
+    if (warnings.length) { el.innerHTML = `<span class="neg">${warnings.map(esc).join(" · ")}</span>`; return; }
+    const pos = actionPosition();
+    const quantity = numOrNull("fl_qty") ?? Math.round(Math.abs(pos.position) * Number(numOrNull("fl_pct")) / 100);
+    el.innerHTML = `<span class="cap">Add ${pos.position > 0 ? "BUY" : "SELL"} <b>${quantity} ${esc(pos.symbol)}</b> MKT · existing exits retained; new shares inherit proportional attached exits.</span>`;
+    return;
+  }
   if (t === "scheduled_option") {
     const warns = scheduledOptionWarnings();
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
@@ -2191,8 +2248,11 @@ function updateReadout() {
     if (t === "close_only") {
       parts.push(`<b style="color:#ffc14d">all working orders remain unchanged</b>`);
     } else if (t === "close_resize") {
-      // Say the ordering out loud — it is the only reason to pick this type.
-      parts.push(`working exits shrink to <b>${rem}</b> <b style="color:#3ddb8f">before</b> the close`);
+      parts.push(rem > 0 ? `existing exit groups adjust to <b>${rem}</b> with proportional rounding`
+        : "<b>full close: associated exits cancelled first</b>");
+      if (state.account === "primary" && readdRows.get(positionKey(pos))) {
+        parts.push("<b class='pos'>Re-add enabled</b> · DAY limit at original average cost, confirmed closed shares only");
+      }
     } else if (rem > 0) parts.push(`<b style="color:#ffc14d">exits cancelled first</b>, re-attached at <b>${rem}</b> after`);
     else if (typ === "LMT") parts.push(`<b style="color:#ffc14d">all exits cancelled — unprotected while the close rests</b>`);
     else parts.push(`<b style="color:#ffc14d">exits cancelled first — unprotected until the close fills</b>`);
@@ -2208,6 +2268,13 @@ function numOrNull(id) {
   return v == null || String(v).trim() === "" ? null : Number(v);
 }
 function ticketPayload(t) {
+  if (t === "add_to_position") {
+    const pos = actionPosition();
+    const quantity = numOrNull("fl_qty");
+    return { ...(pos ? positionIdentity(pos) : {}), symbol: val("f_symbol"),
+      order_type: "MKT", tif: "DAY",
+      ...(quantity != null ? {qty: quantity} : {fraction: Number(numOrNull("fl_pct")) / 100}) };
+  }
   if (t === "echo") return { note: val("f_note") };
   if (t === "scheduled_option") {
     const mode = val("so_expiry_mode") || "min_dte";
@@ -2253,6 +2320,10 @@ function ticketPayload(t) {
       if (pos) p.action = Number(pos.position) > 0 ? "SELL" : "BUY";
     }
     if (qn != null) p.qty = qn; else p.fraction = Number(numOrNull("fl_pct")) / 100;
+    if (t === "close_resize" && state.account === "primary") {
+      const position = actionPosition();
+      p.readd = !!(position && readdRows.get(positionKey(position)));
+    }
     if (typ === "LMT") p.limit = numOrNull("fl_limit");
     return p;
   }
@@ -2295,6 +2366,15 @@ function sendTicket() {
   const p = ticketPayload(t);
   const msg = document.getElementById("cmdMsg");
   if (mutationBlocked(t) && rejectUnknownMutation("cmdMsg")) return;
+  if (t === "add_to_position") {
+    const warnings = addWarnings();
+    if (warnings.length) { if (msg) msg.textContent = "BLOCKED: " + warnings.join("; "); return; }
+    const pos = actionPosition();
+    const quantity = p.qty ?? Math.round(Math.abs(pos.position) * p.fraction);
+    if (!confirm(`${actionLead("add")} ${pos.position > 0 ? "BUY" : "SELL"} ${quantity} ${pos.symbol} MKT on ${state.account}? New shares inherit proportional attached exits; existing exits remain working.`)) return;
+    sendCommand(t, p, "cmdMsg", {account: state.account, dryRun: execMode() === "dry-run"});
+    return;
+  }
   if (t === "entry_bracket") {
     const warns = bracketWarnings();   // hard block: never submit while any warning is up
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
@@ -2339,11 +2419,12 @@ function sendTicket() {
         : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +
           `${p.order_type === "LMT" ? " @ " + p.limit : ""}${p.outside_rth ? " OUTSIDE RTH" : ""} (${p.tif})` +
           `${t === "close_only" ? " — ALL WORKING ORDERS STAY UNCHANGED"
-            : t === "close_resize" ? " — working exits SHRINK to the remainder FIRST, then the close goes out"
+            : t === "close_resize" ? " — existing exits are proportionally adjusted; a full close cancels its exits first" +
+              (p.readd ? "; RE-ADD enabled: confirmed closed shares get a DAY limit at original average cost with attached exits" : "")
             : " — working orders are CANCELLED FIRST; the position is unprotected until the close fills" +
               (p.qty != null || p.fraction < 1 ? ", then exits are re-attached on the remainder" : "")}`;
     const verb = t === "entry_bracket" ? "place" : t === "exit_attach" ? "attach"
-      : t === "close_only" ? "close only" : t === "close_resize" ? "close (shrink exits first)" : "flatten";
+      : t === "close_only" ? "close only" : t === "close_resize" ? "close (adjust exits)" : "flatten";
     if (!confirm(`${actionLead(verb)} ${summary} on ${state.account}?`)) return;
   }
   if (t === "entry_bracket" && p.sec_type === "FUT" && state.account === "primary" && p.stop != null) {
