@@ -3,11 +3,10 @@
    Layout, top to bottom:
      - connection bar: agent online light + account tabs (Primary / PA) + NLV
      - Positions panel  (live read-only book from the agent) + row actions
-     - Hedge scenario card (display-only live-book attribution + futures arithmetic)
      - Open Orders panel (live working orders) + Cancel
      - Scheduled closing orders (legs that fire at today's close)
-     - New Order ticket: entry bracket / scheduled option buy / close-only / flatten / echo
-     - Activity: recent commands + results
+     - New Order ticket alongside the book on desktop, above it on small screens
+     - Expandable hedge, futures sizing, and activity panels
 
    Commands execute LIVE when the agent is armed (mode banner amber) and DRY-RUN
    otherwise — the agent decides by AGENT_LIVE_ENABLED + LIVE_TYPES, and every
@@ -234,14 +233,23 @@ function shell() {
       <button class="btn" data-acct="primary">Primary</button>
       <button class="btn ghost" data-acct="pa">PA</button>
     </div>
-    <div id="positions"></div>
-    <div id="hedge" style="margin-top:14px"></div>
-    <div id="orders" style="margin-top:14px"></div>
-    <div id="closers" style="margin-top:14px"></div>
-
-    <div class="card" style="max-width:760px;margin-top:18px">
+    <nav class="exec-jumps" aria-label="Execution sections">
+      <a href="#ticket" onclick="execJump('ticket')">New order</a>
+      <a href="#positions">Positions</a><a href="#orders">Working orders</a>
+      <a href="#hedge-tools" onclick="execJump('hedge-tools')">Hedge</a>
+      <a href="#activity-tools" onclick="execJump('activity-tools')">Activity</a>
+    </nav>
+    <div class="exec-workspace">
+    <div class="exec-book-panels">
+      <section id="positions" aria-label="Positions"></section>
+      <section id="orders" aria-label="Working orders"></section>
+      <section id="closers" aria-label="Scheduled closes"></section>
+    </div>
+    <aside class="card exec-ticket" id="ticket" aria-label="Order ticket">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
+      <details class="exec-help"><summary>Order types &amp; how exits are handled</summary>
       <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. Three ways to close, differing only in what happens to the <b>working orders</b>: <b>Close only</b> touches none of them and so requires a bare position (a resting exit the same size as the close could fill alongside it and reverse you); <b>Close + shrink exits</b> is the partial close for a position that already has exits &mdash; it modifies them down to the remainder <i>first</i>, then sells, so the remainder is never unprotected and nothing is ever cancelled; <b>Flatten</b> cancels the working orders and then closes, which is the only way to close a protected position in <i>full</i> (an exit cannot be resized to zero) and the only one that leaves the position unprotected between the cancel and the fill. Submits per the mode banner above &mdash; live when armed.</p>
+      </details>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -259,9 +267,14 @@ function shell() {
       <div id="ticketReadout" style="font:12px inherit;margin:0 0 10px;min-height:16px"></div>
       <button class="btn" id="cmdSend" data-mutation disabled>Send order</button>
       <span id="cmdMsg" class="cap" style="margin-left:10px"></span>
+    </aside>
     </div>
-
-    <div class="card" style="max-width:760px;margin-top:18px">
+    <details class="card exec-extra" id="hedge-tools">
+      <summary>Hedge &amp; exposure <span class="cap">Display only</span></summary>
+      <div id="hedge"></div>
+    </details>
+    <details class="card exec-extra" id="futures-tools">
+      <summary>Futures sizing <span class="cap">Risk to contracts</span></summary>
       <div style="font:700 14px inherit;margin-bottom:4px">Futures sizing <span class="cap" style="display:inline;font-weight:400">&mdash; risk &rarr; contracts + notional (read-only)</span></div>
       <p class="cap" style="margin:0 0 10px">Enter a futures symbol with entry/stop and a risk budget; the agent sizes the contract count off the live multiplier and shows the notional exposure. Places nothing. Risk % uses the selected account's NLV.</p>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
@@ -275,9 +288,11 @@ function shell() {
         <span id="fs_msg" class="cap"></span>
       </div>
       <div id="fs_result"></div>
-    </div>
-
-    <div id="activity" style="margin-top:18px"></div>`;
+    </details>
+    <details class="card exec-extra" id="activity-tools">
+      <summary>Activity &amp; order results</summary>
+      <div id="activity"></div>
+    </details>`;
 }
 
 function setAccount(acct) {
@@ -1119,7 +1134,9 @@ function renderPositions() {
       <td>${p.market_value != null ? fmt.money(p.market_value) : "&mdash;"}</td>
       <td class="${clsSign(p.unrealized_pnl)}" style="font-weight:600">${p.unrealized_pnl != null ? fmt.money(p.unrealized_pnl) : "&mdash;"}</td>
       <td class="${clsSign(pct)}">${pct != null ? fmt.pct(pct, 1) : "&mdash;"}</td>
-      <td class="l" style="white-space:nowrap">${actions}</td></tr>`;
+      <td class="l exec-position-actions"><div>${actions}
+        <button class="btn xs ghost" onclick='execShowOrders(${posJson(p)})' title="Open working orders for this symbol">Orders</button>
+      </div></td></tr>`;
   }).join("");
   return head + `<div class="tblwrap"><table class="tbl"><thead><tr>
     <th class="l">Symbol</th><th>Pos</th><th>Avg</th><th>Last</th><th>Mkt Val</th><th>uP&amp;L $</th><th>uP&amp;L %</th><th class="l">Actions</th>
@@ -1145,6 +1162,35 @@ function contractDisplay(x) {
   return x && x.sec_type === "CASH" ? `${sym}/${String(x.currency || "USD").toUpperCase()}` : sym;
 }
 function orderGroupKey(x) { return contractDisplay(x); }
+function orderGroupId(key) { return `exec-orders-${encodeURIComponent(key)}`; }
+
+// Navigation only: do not construct or send a broker command.
+function execJump(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.tagName === "DETAILS") el.open = true;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.execJump = execJump;
+
+function execShowOrders(pos) {
+  // An open Modify contains unsaved edits; do not redraw it to navigate.
+  if (orderEdit.key) {
+    execJump("orders");
+    const field = document.getElementById("me_qty");
+    if (field) field.focus();
+    return;
+  }
+  const key = orderGroupKey(pos);
+  expandedTickers.add(key);
+  set("orders", renderOrders());
+  const row = document.getElementById(orderGroupId(key));
+  if (row) {
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.focus({ preventScroll: true });
+  } else execJump("orders");
+}
+window.execShowOrders = execShowOrders;
 function orderRow(o) {
   const buy = String(o.action).toUpperCase() === "BUY";
   const px = orderPx(o);
@@ -1314,7 +1360,7 @@ function ordersSection(title, list, ab) {
       : (bw.best != null || bw.worst != null)
         ? ` &nbsp;&middot;&nbsp; ${pnlSpan("best", bw.best)} &middot; ${pnlSpan("worst", bw.worst)}`
         : "";
-    body += `<tr style="cursor:pointer;background:rgba(255,255,255,.03)" onclick="toggleOrderGroup('${esc(sym)}')">
+    body += `<tr id="${esc(orderGroupId(sym))}" tabindex="-1" style="cursor:pointer;background:rgba(255,255,255,.03)" onclick="toggleOrderGroup('${esc(sym)}')">
       <td class="l" colspan="10" style="font-weight:600">${caret} ${esc(sym)}
         <span class="cap" style="font-weight:400;display:inline">&nbsp;(${legs.length})${preview ? " &nbsp;&middot;&nbsp; " + preview : ""}${bwFrag}</span></td></tr>`;
     if (open) body += legs.map(orderRow).join("");
@@ -1739,7 +1785,26 @@ function syncFields() {
     renderFutRow();
     syncEntryTypeFields();
   }
+  groupTicketFields(f);
   updateReadout();
+}
+
+function groupTicketFields(fields) {
+  if (!fields.children) return;
+  // Move existing nodes, preserving values, IDs and listeners. Each caption
+  // travels with its controls instead of wrapping onto a different row.
+  for (const label of Array.from(fields.children)) {
+    if (label.tagName !== "LABEL" || !label.nextElementSibling ||
+        !["INPUT", "SELECT"].includes(label.nextElementSibling.tagName)) continue;
+    const group = document.createElement("div");
+    group.className = "exec-field";
+    fields.insertBefore(group, label);
+    const first = label.nextElementSibling;
+    if (first.id) label.htmlFor = first.id;
+    group.appendChild(label);
+    while (group.nextElementSibling && ["INPUT", "SELECT"].includes(group.nextElementSibling.tagName))
+      group.appendChild(group.nextElementSibling);
+  }
 }
 
 function syncScheduledExpiryFields() {
