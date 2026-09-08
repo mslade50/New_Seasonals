@@ -109,7 +109,13 @@ def verify_domain(client: CloudflareAccessClient, apps: list[dict], domain: str)
     if any(p.get("decision") not in {"allow", "deny", "block"} for p in policies):
         raise RuntimeError(f"{domain} has an unapproved Access policy decision")
     if len(allows) != 1 or str(allows[0].get("name", "")).lower() != TARGET_POLICY_NAME.lower():
-        raise RuntimeError(f"{domain} must have exactly one {TARGET_POLICY_NAME} allow policy")
+        observed = [{"name": p.get("name"), "decision": p.get("decision"),
+                     "include_rule_count": len(p.get("include") or [])}
+                    for p in policies]
+        raise RuntimeError(
+            f"{domain} must have exactly one {TARGET_POLICY_NAME} allow policy; "
+            f"observed policies: {json.dumps(observed, sort_keys=True)}"
+        )
     verified_allow = allows[0]
     if not verified_allow.get("include"):
         raise RuntimeError(

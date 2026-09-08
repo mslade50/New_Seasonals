@@ -1,3 +1,5 @@
+import pytest
+
 from scripts.configure_shared_access import (
     PREVIEW_DOMAIN,
     TARGET_DOMAIN,
@@ -61,3 +63,16 @@ def test_configure_access_verifies_denali_team():
     assert target is not None
     assert result["domains"] == [TARGET_DOMAIN, PREVIEW_DOMAIN]
     assert result["include_rule_count"] == 2
+
+
+def test_preview_mismatch_reports_policy_shape_without_private_selectors():
+    client = FakeClient()
+    client.policies["preview-app"] = [dict(client.policies["target-app"][0], name="Legacy preview")]
+    with pytest.raises(RuntimeError) as error:
+        configure_access(client)
+    message = str(error.value)
+    assert PREVIEW_DOMAIN in message
+    assert '"name": "Legacy preview"' in message
+    assert '"include_rule_count": 2' in message
+    assert "example.com" not in message
+    assert "denali-team" not in message
