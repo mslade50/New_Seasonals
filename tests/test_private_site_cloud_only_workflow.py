@@ -14,6 +14,8 @@ def test_private_site_deploy_has_two_isolated_r2_boundaries():
     assert "build_site.py --production" in workflow
     assert "--require-r2-provenance" in workflow
     assert "workingDirectory: assembler" in workflow
+    deploy_command = next(line for line in workflow.splitlines() if "command: pages deploy" in line)
+    assert "--commit-hash=${{ github.sha }}" in deploy_command
     assert "pull_scan_caches.py --set site" not in workflow
 
 

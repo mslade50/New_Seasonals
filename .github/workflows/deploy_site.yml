@@ -210,4 +210,5 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: assembler
           # The Pages config exists only in the isolated assembler workspace.
-          command: pages deploy --project-name=seasonals-mslade --branch=main
+          # assembler has no .git; attach the actual workflow source explicitly.
+          command: pages deploy --project-name=seasonals-mslade --branch=main --commit-hash=${{ github.sha }}
