@@ -27,6 +27,11 @@ def test_execution_fast_actions_javascript_contract():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_execution_navigation_preserves_edits_without_commands():
+    _run_js("test_execution_navigation.js")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_execution_close_types_javascript_contract():
     """close_only / close_resize / flatten tickets and the safe trim routing."""
     _run_js("test_execution_close_types.js")
