@@ -40,7 +40,7 @@ def main(argv=None):
         f"<p><b>Phase:</b> {html.escape(args.phase)}</p>"
         f"<p>{html.escape(args.summary)}</p>"
         "<p>No strategy-research finding email was sent. Inspect "
-        "artifacts/strategy_research_agent/last_run.log before retrying.</p></div>"
+        "artifacts/strategy_research_agent/last_run.json for the run log before retrying.</p></div>"
     )
     if not args.send:
         print(f"DRY_RUN: {subject} ({args.phase})")

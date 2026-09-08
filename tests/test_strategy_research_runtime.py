@@ -57,7 +57,7 @@ def test_family_catalog_can_refresh_configured_status_without_claiming_runtime()
 
 def test_scheduled_runner_has_collection_agent_and_completion_gates():
     root = Path(__file__).resolve().parents[1]
-    runner = (root / "scripts" / "run_strategy_research.bat").read_text(encoding="utf-8")
+    runner = (root / "scripts" / "run_strategy_research.py").read_text(encoding="utf-8")
     assert runner.index("collect_strategy_sources.py") < runner.index("invoke_strategy_research_agent.ps1")
     assert runner.index("invoke_strategy_research_agent.ps1") < runner.index("check_strategy_research_run.py")
     assert "send_strategy_research_failure_email.py" in runner
