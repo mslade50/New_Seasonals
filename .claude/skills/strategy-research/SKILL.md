@@ -32,9 +32,17 @@ capture under `artifacts/strategy_discovery/source_captures/<bundle_digest>`.
 Use only its `source_manifest.json`, `items.raw.jsonl`,
 `discovery_config.json`, and `telemetry.json`. Do not edit that directory.
 
-Create a run workspace under
-`artifacts/strategy_discovery/research_runs/<UTC-date>-<bundle-prefix>`.
-Copy `discovery_config.json` there and set its `as_of` to the current UTC time.
+Create a NEW run workspace under
+`artifacts/strategy_discovery/research_runs/<UTC-date>-<bundle-prefix>-<run-time>`.
+Keep any prior failed workspace unchanged. Copy `discovery_config.json` there
+and set its `as_of` using the actual UTC clock, e.g.
+`[DateTime]::UtcNow.ToString('o')`. Never invent or hardcode a future timestamp.
+
+Run `python scripts/strategy_research_checkpoint.py` to resolve the active
+discovery output directory. Use that exact directory for every discovery run
+and its `journal.jsonl` for acknowledgement. A recovered checkpoint preserves
+the previous failed journal separately; never write to the retired directory.
+The source capture and pending bundle remain unchanged across recovery.
 
 ## 2. Normalize only executable source ideas
 
@@ -66,9 +74,17 @@ title alone.
 
 Run `scripts/run_strategy_discovery.py` with the normalized items, immutable
 source manifest, fresh strategy/dead-end catalogs, and the persistent output
-directory `artifacts/strategy_discovery/daily`. Do not attach research
+directory returned by `strategy_research_checkpoint.py`. Do not attach research
 artifacts on this first pass. Read the report and journal result. Only
 `RESEARCH_READY` candidates proceed.
+
+FIRST run the exact discovery command with `--preflight`. It writes neither
+reports nor journal events. Correct encoding mistakes in this new workspace
+until it passes, then invoke the same command without `--preflight`. Scheduled
+runs also enforce this gate automatically before any immutable publication.
+For example, market orders (`MOO`, `MOC`, `MARKET`) require `price_rule: null`;
+a resting limit ladder uses `LIMIT` with a substantive price rule and a valid
+execution timing. Do not change the source's rule merely to pass validation.
 
 Keep the source capture pending after preregistration. A crash anywhere in the
 empirical or delivery work must replay this same bundle on the next run.

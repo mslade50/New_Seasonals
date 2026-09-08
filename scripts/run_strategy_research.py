@@ -23,7 +23,7 @@ def run(root: Path = ROOT, *, execute=subprocess.run) -> int:
     marker = artifacts / f"{run_id}.marker"
     receipt_path = artifacts / f"{run_id}.json"
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1",
-               CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="0")
+               CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="0", STRATEGY_RESEARCH_STRICT_PREFLIGHT="1")
     # Agent-launched Python commands must use the same tested interpreter.
     env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
     claude = str(Path.home() / ".local" / "bin" / "claude.exe")
