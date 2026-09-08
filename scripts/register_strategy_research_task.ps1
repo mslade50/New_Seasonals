@@ -20,8 +20,12 @@ $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIden
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -WakeToRun -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 180)
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
-    -Principal $principal -Settings $settings -Force | Out-Null
-$task = Get-ScheduledTask -TaskName $taskName
+    -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+if ($task.Actions.Execute -ne $PythonExe -or $task.Actions.Arguments -ne "`"$runner`"" -or
+    [string]$task.Principal.LogonType -ne 'S4U' -or -not $task.Settings.WakeToRun) {
+    throw 'Installed research task does not match the requested definition'
+}
 $info = $task | Get-ScheduledTaskInfo
 Write-Host "Registered task '$taskName' -> daily 12:30 AM"
 Write-Host ("  State: {0}   Next run: {1}" -f $task.State, $info.NextRunTime)
