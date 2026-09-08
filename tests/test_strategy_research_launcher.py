@@ -1,5 +1,7 @@
 import json
 import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +16,7 @@ def test_launcher_propagates_failure_and_requires_all_phases(tmp_path, failure):
 
     def execute(command, **kwargs):
         assert kwargs["stdin"] == subprocess.DEVNULL
+        assert kwargs["env"]["PATH"].startswith(str(Path(sys.executable).parent))
         if "--send" in command:
             calls.append("alert")
             return SimpleNamespace(returncode=0)
