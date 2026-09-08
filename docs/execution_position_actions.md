@@ -1,8 +1,8 @@
 # Execution: consolidated position actions
 
 Updated 2026-09-08. Follow-up to priority 2 of the trading desk working plan.
-Status: Primary backend installed and reconnected, 2026-09-08 18:56 ET.
-The matching cloud site deployment is in progress. Priority 3 remains queued.
+Rollout authorized 2026-09-08. Primary backend installed and verified;
+the cloud publication record is linked below. Priority 3 remains queued.
 
 ## User-visible behavior
 
@@ -116,6 +116,21 @@ exposes only entry parent IDs in the existing top-level order_ids field. A
 regression first reproduced the missing fill price, then passed with both
 entry allocations combined and exit/other-account fills excluded. All 40
 position-action, reviewed-adapter and fill-reconciliation checks passed.
+The correction was installed at 19:06 ET; the agent reconnected and both
+accounts again supplied fresh positions/orders. The final position_actions.py
+SHA-256 is `262f760f1081c069be59e20cb8bb05e3eb05298d35a44f3283d8714f4e5112bd`.
+Its immediate predecessor is preserved under
+`.runtime_backups/add_receipt_20260908T190611`; all other runtime files retain
+their original five-file candidate hashes.
 
-Cloud deployment: https://github.com/mslade50/New_Seasonals/actions/runs/34288428684.
+Both repository-wide Linux and Windows CI jobs passed for
+[PR #29](https://github.com/mslade50/New_Seasonals/actions/runs/34281791620)
+and the [receipt correction](https://github.com/mslade50/New_Seasonals/actions/runs/34289098261).
+For future local adapter tests against the original reviewed executor, set
+`IBKR_REVIEW_SOURCE` to the initial verified backup directory above. These
+tests parse the source without importing or running it.
+
+The frontend source is commit `80c299f40ee40ae55e07282d53e11796ec31d42e`.
+[Cloud publication and freshness record](https://github.com/mslade50/New_Seasonals/actions/runs/34288428684)
+tracks the required R2-only build and production deployment.
 No daily scan, trade or email was initiated during this rollout.
