@@ -138,6 +138,8 @@ body[data-page="execution"] .wrap { max-width: 1840px; }
 .exec-extra[open] > summary { margin-bottom: 16px; }
 .exec-position-actions { width: 290px; min-width: 230px; white-space: normal !important; }
 .exec-position-actions > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.exec-readd[aria-pressed="true"] { color: #a7f3c3; background: #184d35; border-color: #43bd7f; }
+.exec-readd[aria-pressed="true"]:hover { background: #216445; }
 body[data-page="execution"] :is(section, aside, details) { scroll-margin-top: 100px; }
 tr[id^="exec-orders-"]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 @media (max-width: 1199px) {

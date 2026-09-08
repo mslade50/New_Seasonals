@@ -96,8 +96,16 @@ vm.runInContext(`
 `, context);
 
 const renderedPositions = vm.runInContext("renderPositions()", context);
-assert.match(renderedPositions, /execTrim\([^)]*\},0\.25\)'[^>]*>Trim&frac14;/);
-assert.match(renderedPositions, /execTrim\([^)]*\},0\.5\)'[^>]*>Trim&frac12;/);
+assert.match(renderedPositions, /execSellTicket\(/);
+assert.match(renderedPositions, /execAddTicket\(/);
+assert.match(renderedPositions, /aria-pressed="false"[^>]*>Re-add<\/button>/);
+assert.doesNotMatch(renderedPositions, />Trim|>Flatten|>Add&frac|>Re-add (on|off)/);
+// The compact layout is Primary-only; PA retains its existing controls.
+vm.runInContext('state.account = "pa"; state.book.accounts[0].key = "pa";', context);
+const paPositions = vm.runInContext("renderPositions()", context);
+assert.match(paPositions, />Trim&frac14;/);
+assert.match(paPositions, />Trim&frac12;/);
+vm.runInContext('state.account = "primary"; state.book.accounts[0].key = "primary";', context);
 
 vm.runInContext(`
   readdRows.set(positionKey(${JSON.stringify(position)}), true);
@@ -140,4 +148,40 @@ assert.strictEqual(vm.runInContext("mutationBlocked('trim_readd')", context), fa
 assert.strictEqual(vm.runInContext("mutationBlocked('add_to_position')", context), false);
 assert.strictEqual(vm.runInContext("mutationBlocked('close_only')", context), false);
 
-console.log("PASS execution fast-action payloads, quarter/half trims, close-only gate, rounding, and unknown-mode availability");
+// Compact toggle is local state only; Add tickets preserve exact identity and
+// require a positive whole quantity (or a percentage that rounds above zero).
+vm.runInContext(`
+  state.account = "primary";
+  state.book = {mode:"live", accounts:[{key:"primary",positions:[${JSON.stringify(position)}],orders:[]}]};
+  updateReadout = () => {};
+  set = () => {};
+  syncMutationControls = () => {};
+  readdRows.clear();
+  lastCommand = null;
+  execToggleReadd(${JSON.stringify(position)});
+`, context);
+assert.match(vm.runInContext("renderPositions()", context), /aria-pressed="true"[^>]*>Re-add<\/button>/);
+assert.strictEqual(vm.runInContext("lastCommand", context), null);
+vm.runInContext(`
+  execToggleReadd(${JSON.stringify(position)});
+  fields = {f_symbol:"SMH",fl_qty:"",fl_pct:"150"};
+  val = id => fields[id];
+  ticketDraft.fl_position = {account:"primary", ...positionIdentity(${JSON.stringify(position)})};
+  document.getElementById = id => id === "cmdType" ? {value:"add_to_position"} : null;
+`, context);
+assert.match(vm.runInContext("renderPositions()", context), /aria-pressed="false"[^>]*>Re-add<\/button>/);
+assert.strictEqual(vm.runInContext("JSON.stringify(addWarnings())", context), "[]");
+assert.strictEqual(vm.runInContext("ticketPayload('add_to_position').fraction", context), 1.5);
+assert.strictEqual(vm.runInContext("ticketPayload('add_to_position').con_id", context), 12345);
+vm.runInContext('confirm = () => false; sendTicket();', context);
+assert.strictEqual(vm.runInContext("lastCommand", context), null);
+vm.runInContext('confirm = () => true; sendTicket();', context);
+assert.strictEqual(vm.runInContext("lastCommand.type", context), "add_to_position");
+vm.runInContext('fields.fl_pct = "0.01";', context);
+assert.ok(vm.runInContext("addWarnings()", context).some(w=>/zero/.test(w)));
+vm.runInContext('fields.fl_qty = "1.5";', context);
+assert.ok(vm.runInContext("addWarnings()", context).some(w=>/whole/.test(w)));
+vm.runInContext('fields.fl_qty = "25";', context);
+assert.strictEqual(vm.runInContext("JSON.stringify(addWarnings())", context), "[]");
+assert.strictEqual(vm.runInContext("ticketPayload('add_to_position').qty", context), 25);
+console.log("PASS compact Primary controls, Re-add toggle, Add tickets and legacy fast-action contracts");
