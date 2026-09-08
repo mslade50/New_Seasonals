@@ -475,6 +475,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
             JobSpec(
                 id="scan_am",
                 description="Unified liquid + overflow premarket scan",
+                local_gate="nyse_session",
                 commands=(
                     pull_scan,
                     _py(
@@ -620,6 +621,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
             JobSpec(
                 id="execution_report",
                 description="Send the nightly execution report once at 16:30 ET",
+                local_gate="nyse_session",
                 commands=(
                     _py(
                         "send execution report",
@@ -859,6 +861,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
             JobSpec(
                 id="scan_pm",
                 description="Unified post-close liquid + overflow scan",
+                local_gate="nyse_session",
                 commands=(
                     pull_scan,
                     _py(
@@ -2162,6 +2165,11 @@ class AutomationSupervisor:
     def _local_gate(self, job: JobSpec) -> tuple[bool, str]:
         if job.local_gate is None:
             return True, ""
+        if job.local_gate == "nyse_session":
+            from scripts.check_discretionary_focus_session import session_gate
+
+            allowed, market_date = session_gate(self.now())
+            return allowed, f"NYSE session gate for {market_date.isoformat()}"
         if job.local_gate == "discretionary_delivery_window":
             from scripts.check_discretionary_focus_session import delivery_window_gate
 

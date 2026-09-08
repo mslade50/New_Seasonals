@@ -36,6 +36,11 @@ unattended task, and the earlier operational claim was premature.
   argument arrays, unique logs and markers, per-run receipts, a process lock,
   explicit timeouts and nonzero exits on any launch, collection, agent or
   completion failure. Register the task with an absolute interpreter and S4U.
+- Apply the existing NYSE calendar gate to AM/PM scans and execution reports
+  before local execution or cloud dispatch. The 7 September PM scan expected a
+  holiday close and the execution report failed against a disconnected broker;
+  neither trading-session job should have run on Labor Day. The controller
+  installs pandas for these shared calendar gates (including discretionary).
 - Preserve v8 and its disabled tasks as rollback evidence. No cleanup or deletion.
 - Recover only the scan after its receipt is reconciled and financial staging
   approval is confirmed. Never repeat the already-successful event job.
