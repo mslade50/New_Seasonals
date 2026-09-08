@@ -68,6 +68,13 @@ def test_scheduled_runner_has_collection_agent_and_completion_gates():
     assert "Never send a stand-down" in skill
 
 
+def test_registration_cannot_report_success_after_windows_denies_update():
+    source = (Path(__file__).resolve().parents[1] / "scripts/register_strategy_research_task.ps1").read_text()
+    assert "-Force -ErrorAction Stop" in source
+    assert "$task.Actions.Execute -ne $PythonExe" in source
+    assert "Installed research task does not match" in source
+
+
 def test_failure_alert_dry_run_never_opens_smtp(monkeypatch):
     from scripts import send_strategy_research_failure_email as alert
 

@@ -24,6 +24,8 @@ def run(root: Path = ROOT, *, execute=subprocess.run) -> int:
     receipt_path = artifacts / f"{run_id}.json"
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1",
                CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="0")
+    # Agent-launched Python commands must use the same tested interpreter.
+    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
     claude = str(Path.home() / ".local" / "bin" / "claude.exe")
     ps = str(Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe")
     scripts = root / "scripts"
