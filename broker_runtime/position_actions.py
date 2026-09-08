@@ -479,7 +479,11 @@ def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                 result = stage_add(ns, ib, context, quantity, record, root, market=True)
                 outcome = dict(ok=True, state="executed",
                                detail="Add submitted with its own proportional attached exits; existing exits retained",
-                               fill={"add": result})
+                               # Existing fill reconciliation consumes top-level
+                               # order_ids; include entry parents, never exits.
+                               fill={"add": result, "order_ids": [
+                                   parent["order_id"] for allocation in result
+                                   for parent in allocation["parent"]]})
                 record["phase"], record["result"] = "done", outcome
                 save(root, record)
                 return ns["_out"](**outcome)

@@ -1,8 +1,8 @@
 # Execution: consolidated position actions
 
 Updated 2026-09-08. Follow-up to priority 2 of the trading desk working plan.
-Status: implemented and tested in an isolated candidate; running broker and
-production site have not been changed. Priority 3 remains queued.
+Status: Primary backend installed and reconnected, 2026-09-08 18:56 ET.
+The matching cloud site deployment is in progress. Priority 3 remains queued.
 
 ## User-visible behavior
 
@@ -97,5 +97,25 @@ and [IBKR order fields](https://www.interactivebrokers.com/docs/tws-api/ref/orde
    cloud build. Retain journals and reconcile any in-flight orders in TWS.
    Restoring code does not reverse broker orders or fills.
 
-No daily scan, trade, email, scheduler change, broker installation or production
-deployment occurred while preparing this candidate.
+## Deployment record
+
+User approved activation on 2026-09-08. PR #29 merged as
+`80c299f40ee40ae55e07282d53e11796ec31d42e`. The five installed file hashes
+matched the candidate manifest. ExecAgent restarted from PID 22140 to 41644;
+its verified original files are in the broker checkout's
+`.runtime_backups/position_actions_20260908T185604` directory.
+
+The first TWS snapshot timed out; subsequent read-only checks confirmed the
+agent online with fresh positions/orders for both accounts. Local deployed
+validation/preview checks passed for partial Close, full Close with Re-add and
+Add, with zero commands submitted.
+
+A final integration check found that Add's nested parent receipts were not
+recognized by the existing fill-price reconciler. The corrected receipt also
+exposes only entry parent IDs in the existing top-level order_ids field. A
+regression first reproduced the missing fill price, then passed with both
+entry allocations combined and exit/other-account fills excluded. All 40
+position-action, reviewed-adapter and fill-reconciliation checks passed.
+
+Cloud deployment: https://github.com/mslade50/New_Seasonals/actions/runs/34288428684.
+No daily scan, trade or email was initiated during this rollout.

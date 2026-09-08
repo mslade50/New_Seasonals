@@ -225,13 +225,47 @@ def test_add_uses_one_attached_parent_per_rung_and_normalizes_old_coverage(tmp_p
     calls = []
     def attached(ns, ib, ctx, qty, signal, market=False):
         calls.append((qty, [x["qty"] for x in ctx["legs"]], market))
-        return {"parent": [signal], "children": ["fixture"]}, None
+        return {"parent": [{"order_id": 400 + len(calls)}], "children": [{"order_id": 500 + len(calls)}]}, None
     monkeypatch.setattr(actions.life, "stage_attached", attached)
     p = request()
     p["qty"] = 21
     assert run(tmp_path, broker, p, adding=True)["ok"]
     assert [x.order.totalQuantity for x in broker.orders] == [60, 40]
     assert calls == [(13, [13], True), (8, [8], True)]
+
+
+def test_add_receipt_reconciles_parent_fills_without_exit_fills(tmp_path, monkeypatch):
+    from tests.test_execution_fill_reconcile import HELPERS, _run_node
+    import shutil
+    if not shutil.which("node"):
+        pytest.skip("Node.js is required for the existing broker receipt contract")
+    broker = Broker(exits=[exit_order(1, 30, "a"), exit_order(2, 20, "b")])
+    parents = iter([401, 402])
+    def attached(*args, **kwargs):
+        identity = next(parents)
+        return {"parent": [{"order_id": identity}], "children": [{"order_id": identity+100}]}, None
+    monkeypatch.setattr(actions.life, "stage_attached", attached)
+    p = dict(request(), qty=21)
+    p.pop("action")  # Add's UI payload derives its direction from the position.
+    result = run(tmp_path, broker, p, adding=True)
+    assert result["ok"]
+    script = f"""
+import {{commandFillMatch,reconcileCommandFills}} from {json.dumps(HELPERS.as_uri())};
+const c = {{type:"add_to_position",account:"primary",payload:{{symbol:"TEST",sec_type:"STK",qty:21}},
+ result: {json.dumps(result)}}};
+c.fill_match=commandFillMatch(c);
+const rows = [
+ [401,13,100,"primary"],[402,8,102,"primary"],
+ [501,13,90,"primary"],[401,99,1,"pa"]
+].map(([order_id,qty,price,account_key])=>({{order_id,qty,price,account_key,
+ symbol:"TEST",sec_type:"STK",client_id:123,side:order_id===501?"SLD":"BOT"}}));
+const out=reconcileCommandFills([c],rows,1000);
+const fill=out.commands[0].result.fill;
+if (!out.changed || fill.filled!==21 || Math.abs(fill.avg_fill-(13*100+8*102)/21)>1e-9)
+ throw new Error("Add parents were not reconciled exactly: "+JSON.stringify(fill));
+console.log("OK");
+"""
+    assert "OK" in _run_node(script)
 
 
 def test_readd_only_uses_confirmed_terminal_partial_close(tmp_path, monkeypatch):
