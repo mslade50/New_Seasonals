@@ -867,6 +867,7 @@ def test_resolve_prefers_the_runtime_marker_ref_over_the_main_default(tmp_path, 
         [
             "resolve", "--pipeline", "premarket", "--job", "scan_am", "--date", "2026-09-03",
             "--disposition", "success", "--reason", "verified", "--config-root", str(config_root),
+            "--repo-root", str(tmp_path / "unmarked-runtime"),
         ]
     ) == 0
     out = capsys.readouterr().out
@@ -881,6 +882,7 @@ def test_resolve_prefers_the_runtime_marker_ref_over_the_main_default(tmp_path, 
         [
             "resolve", "--pipeline", "premarket", "--job", "scan_am", "--date", "2026-09-03",
             "--disposition", "success", "--reason", "verified", "--config-root", str(config_root),
+            "--repo-root", str(tmp_path / "unmarked-runtime"),
             "--ref", "automation-runtime-2026-09-04.1",
         ]
     ) == 0
@@ -895,6 +897,7 @@ def test_resolve_prefers_the_runtime_marker_ref_over_the_main_default(tmp_path, 
         [
             "resolve", "--pipeline", "premarket", "--job", "scan_am", "--date", "2026-09-03",
             "--disposition", "success", "--reason", "verified", "--config-root", str(config_root),
+            "--repo-root", str(tmp_path / "unmarked-runtime"),
             "--ref", "main",
         ]
     ) == 0
@@ -932,6 +935,7 @@ def test_resolve_prefers_the_runtime_marker_ref_over_the_main_default(tmp_path, 
         [
             "resolve", "--pipeline", "premarket", "--job", "scan_am", "--date", "2026-09-03",
             "--disposition", "success", "--reason", "verified", "--config-root", str(tmp_path / "bare"),
+            "--repo-root", str(tmp_path / "unmarked-runtime"),
         ]
     ) == 0
     bare = capsys.readouterr().out
