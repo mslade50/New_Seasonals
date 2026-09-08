@@ -41,6 +41,9 @@ unattended task, and the earlier operational claim was premature.
   holiday close and the execution report failed against a disconnected broker;
   neither trading-session job should have run on Labor Day. The controller
   installs pandas for these shared calendar gates (including discretionary).
+- The health battery now requires a current verified research receipt after
+  the overnight deadline, so a missing trigger or stale decision is a FAIL
+  even when Windows reports zero.
 - Preserve v8 and its disabled tasks as rollback evidence. No cleanup or deletion.
 - Recover only the scan after its receipt is reconciled and financial staging
   approval is confirmed. Never repeat the already-successful event job.
