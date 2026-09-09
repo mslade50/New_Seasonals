@@ -22,6 +22,7 @@ class TaggedInventory:
     status: str = "unknown"
     reasons: list[str] = field(default_factory=list)
     asof_utc: str | None = None
+    broker_account: str | None = None
     counts: dict[tuple[str, str], int] = field(default_factory=dict)
     notionals: dict[tuple[str, str], float] = field(default_factory=dict)
     tranches: list[dict] = field(default_factory=list)
@@ -217,6 +218,7 @@ def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
         if any(len(values) != 1 for values in contracts.values()):
             raise ValueError("one symbol maps to multiple contracts; scanner aggregation is ambiguous")
         result.status, result.asof_utc, result.tranches = "known", end.isoformat(), live
+        result.broker_account = account
         result.exit_metadata_known = all(_valid_exit_metadata(row) for row in live)
         result.fallback = "none" if result.exit_metadata_known else "counts/notionals available; inventory-derived exits unavailable until metadata is reviewed"
         for row in live:
