@@ -2167,6 +2167,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         "Ticker": ticker, "Action": action,
                         "Entry Criteria": entry_type, "Price": entry_price,
                         "Exit Price": _t_exit_px,
+                        "Target Price": (_near_tgt if _trn == 'near' else tgt_price) if use_target else np.nan,
                         "Shares": _t_shares, "PnL": pnl, "ATR": atr,
                         "stop_atr": stop_atr, "tgt_atr": tgt_atr,
                         "T+1 Open": t1_open, "Signal Close": row_data['close'],

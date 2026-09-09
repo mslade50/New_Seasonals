@@ -478,6 +478,13 @@ def build_positions(df, md):
                 stop_px = round(entry - sgn * float(s_atr) * float(atr), 4)
             if t_atr is not None and not pd.isna(t_atr):
                 tgt_px = round(entry + sgn * float(t_atr) * float(atr), 4)
+        # Use the exact engine target; reconstructing from a gap-improved fill
+        # changes OLV's submitted-limit anchor. Older OLV ledgers must rebuild.
+        recorded_target = rec.get("Target Price")
+        if recorded_target is not None and pd.notna(recorded_target) and np.isfinite(float(recorded_target)):
+            tgt_px = round(float(recorded_target), 4)
+        elif str(rec["Strategy"]) == "Oversold Low Volume":
+            raise ValueError("OLV target missing from ledger; regenerate with the current engine")
         row = {
             "Strategy": rec["Strategy"], "Tier": rec.get("Tier"),
             "Ticker": rec["Ticker"], "Direction": rec.get("Direction"),

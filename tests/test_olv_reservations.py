@@ -69,3 +69,21 @@ def test_live_floor_and_pnl_from_final_quantity():
     _apply_daily_risk_scale(rows, rows.index, .625)
     assert rows.iloc[0]['Shares'] == 126
     assert rows.iloc[0]['PnL'] == 630
+
+
+def test_open_position_payload_uses_engine_target_after_gap(monkeypatch):
+    from pathlib import Path
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / 'scripts'))
+    from scripts import build_site
+    from scripts.build_trade_ledger import shape_flat_trades
+    dates, df = _frame()
+    df.loc[dates[1], ['Open','Low','Close']] = [97.,96.5,98.]
+    rows = _run(df, strategy())
+    monkeypatch.setattr(build_site, 'open_mask', lambda frame: pd.Series(True,index=frame.index))
+    monkeypatch.setattr(build_site, 'load_sector_map', lambda: {})
+    monkeypatch.setattr(build_site, 'strategy_exec_map', lambda: {})
+    position = build_site.build_positions(shape_flat_trades(rows), {'TEST':df})['positions'][0]
+    assert position['Tgt_Price'] == 104.5
+    assert position['Stop_Price'] == 94.5
+    with pytest.raises(ValueError, match='OLV target missing'):
+        build_site.build_positions(shape_flat_trades(rows).drop(columns='Target Price'), {'TEST':df})
