@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import * as reconciliation from '../../execution-broker/src/fill-reconcile.mjs';
+import * as coverage from '../../execution-broker/src/fill-coverage.mjs';
 const source=fs.readFileSync(new URL('../../execution-broker/src/index.js',import.meta.url),'utf8')
   .replace(/^import[\s\S]*?;\r?$/gm,'').replace('export class ExecBroker','class ExecBroker').replace(/export default[\s\S]*$/,'')+'\nthis.Broker=ExecBroker;';
 class FakeDO {constructor(ctx,env){this.ctx=ctx;this.env=env;}}
@@ -14,7 +15,7 @@ function make(env={STATUS_TOKEN:'fixture',AGENT_TOKEN:'agent-fixture'}) {
     delete:async key=>memory.delete(key),
     list:async(opts={})=>new Map([...memory].filter(([k])=>k.startsWith(opts.prefix||'')&&(!opts.startAfter||k>opts.startAfter)).sort(([a],[b])=>a.localeCompare(b)).slice(0,opts.limit||1000)),
   }};
-  const c={DurableObject:FakeDO,URL,Request,Response,Headers,console,TextEncoder,...reconciliation};
+  const c={DurableObject:FakeDO,URL,Request,Response,Headers,console,TextEncoder,...reconciliation,...coverage};
   vm.createContext(c);vm.runInContext(source,c);
   return {broker:new c.Broker(ctx,env),memory,calls:()=>calls,succeed:()=>{fail=false;},offline:()=>{connected=false;}};
 }
@@ -43,11 +44,11 @@ await test('failed delivery retries original durable intent once',async()=>{
 await test('fill retention does not discard 501st or 1001st execution',async()=>{
   const x=make();const now=Date.now();
   const fills=Array.from({length:1101},(_,i)=>({account:'fixture-primary',exec_id:`execution-${i}.01`,time:new Date(now).toISOString(),shares:1,price:100}));
-  await x.broker._mergeFills({at:now,accounts:[{key:'primary',broker_account:'fixture-primary',fills_complete:true,fills}]});
+  await x.broker._mergeFills({at:now,accounts:[{key:'primary',broker_account:'fixture-primary',fills_query_from:new Date(now-1000).toISOString(),fills_complete:true,fills}]});
   const response=await(await x.broker.fetch(new Request('https://fixture.invalid/fills',{headers:{Authorization:'Bearer fixture'}}))).json();
   assert.equal(response.fills.length,1101);assert.equal(response.completeness.truncated,false);
   assert.equal(response.completeness.accounts.primary.complete,true);
-  await x.broker._mergeFills({at:now,accounts:[{key:'primary',broker_account:'fixture-primary',fills_complete:true,fills:[{...fills[0],exec_id:'execution-0.02',shares:2}]}]});
+  await x.broker._mergeFills({at:now,accounts:[{key:'primary',broker_account:'fixture-primary',fills_query_from:new Date(now-1000).toISOString(),fills_complete:true,fills:[{...fills[0],exec_id:'execution-0.02',shares:2}]}]});
   const corrected=await(await x.broker.fetch(new Request('https://fixture.invalid/fills',{headers:{Authorization:'Bearer fixture'}}))).json();
   assert.equal(corrected.fills.length,1101);assert.equal(corrected.fills.find(f=>f.exec_id==='execution-0.02').shares,2);
 });
@@ -81,5 +82,19 @@ await test('malformed or unattributed executions cannot attest completeness',asy
     assert.equal(result.completeness.accounts.primary.complete,false);
     assert.equal(result.fills.length,0);
   }
+});
+await test('inventory receipt retains matching book and immutable active entry metadata',async()=>{
+  const x=make(),now=Date.now(),ref='SPY|BUY|Oversold Low Volume|2026-09-09';
+  const metadata={atr:2,exit_deadline_utc:'2026-09-23T19:59:00Z',exit_protocol:'TIME',metadata_source_sha256:'fixture-digest',metadata_con_id:42};
+  const account={key:'primary',broker_account:'fixture-primary',fills_complete:true,fills_query_from:new Date(now-1000).toISOString(),fills:[],orders:[{order_ref:ref,remaining:80}],entry_metadata:{[ref]:metadata}};
+  await x.broker._mergeFills({at:now,accounts:[account]});
+  await x.broker._mergeFills({at:now,accounts:[{...account,entry_metadata:{}}]});
+  let receipt=await x.memory.get('fill_receipt');
+  assert.equal(receipt.book.accounts[0].orders[0].remaining,80);
+  assert.equal(receipt.book.accounts[0].entry_metadata[ref].atr,2);
+  await x.broker._mergeFills({at:now,accounts:[{...account,entry_metadata:{[ref]:{...metadata,atr:3}}}]});
+  receipt=await x.memory.get('fill_receipt');
+  assert.equal(receipt.book.accounts[0].entry_metadata[ref].atr,2);
+  assert.equal(receipt.book.accounts[0].entry_metadata_error,'frozen input metadata changed');
 });
 if(failures.length)throw Error(failures.join('\n'));

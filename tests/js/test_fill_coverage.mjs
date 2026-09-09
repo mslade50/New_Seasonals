@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {extendFillCoverage as extend} from '../../execution-broker/src/fill-coverage.mjs';
+const receipt=(start,end)=>({broker_account:'P',complete:true,query_from:start,complete_through:end});
+const a=extend(null,receipt('2026-09-08T00:00:00Z','2026-09-08T20:00:00Z'));
+assert.equal(a.continuous_from,'2026-09-08T00:00:00.000Z');
+const b=extend(a,receipt('2026-09-03T00:00:00Z','2026-09-09T15:00:00Z'));
+assert.equal(b.continuous_from,'2026-09-03T00:00:00.000Z');
+const gap=extend(a,receipt('2026-09-09T00:00:00Z','2026-09-09T15:00:00Z'));
+assert.equal(gap.continuous_from,'2026-09-09T00:00:00.000Z');
+assert.equal(extend(a,{...receipt(null,'2026-09-09T15:00:00Z')}).complete,false);
+assert.equal(extend(a,{...receipt('2026-09-09T00:00:00Z','2026-09-09T15:00:00Z'),broker_account:'PA'}).continuous_from,'2026-09-09T00:00:00.000Z');
+assert.equal(extend(a,{...receipt('2026-09-03T00:00:00Z','2026-09-09T15:00:00Z'),complete:false}).continuous_from,null);
+console.log('PASS explicit overlapping coverage, gaps, account isolation and source failures');

@@ -442,7 +442,7 @@ def test_stage_olv_exits_confirms_loud_holds_quiet(monkeypatch):
 
     exits_ws = _FakeWS([])
     sheet = _FakeSheet({"Portfolio": _FakeWS(_portfolio_rows()),
-                        "OLV_Exits": exits_ws})
+                        "OLV_Exits_Primary": exits_ws})
     monkeypatch.setattr(daily_scan, "get_google_client",
                         lambda: _FakeGC(sheet))
     master = {
@@ -471,7 +471,7 @@ def test_stage_olv_exits_always_rewrites_tab_even_when_empty(monkeypatch):
 
     exits_ws = _FakeWS([["Symbol"], ["STALE"]])
     sheet = _FakeSheet({"Portfolio": _FakeWS(_portfolio_rows()),
-                        "OLV_Exits": exits_ws})
+                        "OLV_Exits_Primary": exits_ws})
     monkeypatch.setattr(daily_scan, "get_google_client",
                         lambda: _FakeGC(sheet))
     master = {
@@ -497,7 +497,7 @@ def test_stage_olv_exits_skips_entry_day_close(monkeypatch):
     last_bar = str(_px_frame(97.0, 2_000_000.0).index[-1].date())
     exits_ws = _FakeWS([])
     sheet = _FakeSheet({"Portfolio": _FakeWS(_portfolio_rows(entry_date=last_bar)),
-                        "OLV_Exits": exits_ws})
+                        "OLV_Exits_Primary": exits_ws})
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
     master = {"AAA": _px_frame(97.0, 2_000_000.0),
               "BBB": _px_frame(97.0, 2_000_000.0)}
@@ -517,7 +517,7 @@ def test_stage_olv_exits_stacked_legs_evaluated_independently(monkeypatch):
         ["Oversold Low Volume", "AAA", "80", "95.0", "2.0", "2026-07-30", "2026-06-23"],    # stop 92.5
     ]
     exits_ws = _FakeWS([])
-    sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits": exits_ws})
+    sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits_Primary": exits_ws})
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
     master = {"AAA": _px_frame(close_last=97.0, vol_last=2_000_000.0)}
     _stage_actual_exits(master)
@@ -560,7 +560,7 @@ def test_stage_olv_exits_stale_ticker_carries_all_legs(monkeypatch):
         ["Oversold Low Volume", "BBB", "30", "100.0", "2.0", "2026-08-03", "2026-06-24"],
     ]
     exits_ws = _PriorWS([])
-    sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits": exits_ws})
+    sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits_Primary": exits_ws})
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
     fresh = _px_frame(100.0, 1_000_000.0)              # AAA: fresh, no breach
     stale = _px_frame(97.0, 2_000_000.0).iloc[:-1]     # BBB: one bar behind
@@ -582,7 +582,7 @@ def test_stage_olv_exits_warns_on_ambiguous_leg_keys(monkeypatch):
         ["Oversold Low Volume", "AAA", "80", "99.0", "2.0", "2026-07-28", "2026-06-20"],
     ]
     exits_ws = _FakeWS([])
-    sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits": exits_ws})
+    sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits_Primary": exits_ws})
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
     warnings = _stage_actual_exits(
         {"AAA": _px_frame(100.0, 1_000_000.0)})
@@ -610,7 +610,7 @@ def test_stage_olv_exits_stale_ticker_carries_prior_row(monkeypatch):
 
     exits_ws = _PriorWS([])
     sheet = _FakeSheet({"Portfolio": _FakeWS(_portfolio_rows()),
-                        "OLV_Exits": exits_ws})
+                        "OLV_Exits_Primary": exits_ws})
     monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
     fresh = _px_frame(100.0, 1_000_000.0)              # AAA: fresh, no breach
     stale = _px_frame(97.0, 2_000_000.0).iloc[:-1]     # BBB: one bar behind
@@ -632,7 +632,7 @@ def test_olv_overdue_obligation_survives_price_recovery(monkeypatch):
     class Prior(_FakeWS):
         def get_all_records(self): return [prior]
     ws=Prior([])
-    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits":ws})
+    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits_Primary":ws})
     monkeypatch.setattr(daily_scan,"get_google_client",lambda:_FakeGC(sheet))
     _stage_actual_exits({"AAA":_px_frame(100,1_000_000),"BBB":_px_frame(100,1_000_000)})
     header,*rows=ws.written
@@ -646,7 +646,7 @@ def test_olv_legacy_exit_cannot_be_relabelled_to_actual_tranche(monkeypatch):
         def get_all_records(self):
             return [{"Symbol":"BBB","Action":"SELL","Quantity":50,"Execute_On":"2026-07-01"}]
     ws=Prior([])
-    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits":ws})
+    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits_Primary":ws})
     monkeypatch.setattr(daily_scan,"get_google_client",lambda:_FakeGC(sheet))
     warnings=_stage_actual_exits({"AAA":_px_frame(97,2_000_000),"BBB":_px_frame(97,2_000_000)})
     assert not ws.replaced and any("attribution" in w for w in warnings)
@@ -655,7 +655,7 @@ def test_olv_legacy_exit_cannot_be_relabelled_to_actual_tranche(monkeypatch):
 def test_olv_all_stale_prices_cannot_create_exit(monkeypatch):
     import daily_scan
     ws=_FakeWS([])
-    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits":ws})
+    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits_Primary":ws})
     monkeypatch.setattr(daily_scan,"get_google_client",lambda:_FakeGC(sheet))
     warnings=_stage_actual_exits({"AAA":_px_frame(97,2_000_000),"BBB":_px_frame(97,2_000_000)},asof="2026-07-16T21:00:00Z")
     assert len(ws.written)==1 and sum("stale" in w for w in warnings)==2
@@ -664,7 +664,7 @@ def test_olv_all_stale_prices_cannot_create_exit(monkeypatch):
 def test_olv_nonfinite_raw_close_cannot_create_exit(monkeypatch):
     import daily_scan
     ws=_FakeWS([])
-    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits":ws})
+    sheet=_FakeSheet({"Portfolio":_FakeWS(_portfolio_rows()),"OLV_Exits_Primary":ws})
     monkeypatch.setattr(daily_scan,"get_google_client",lambda:_FakeGC(sheet))
     bad=_px_frame(float("nan"),2_000_000)
     warnings=_stage_actual_exits({"AAA":bad,"BBB":bad.copy()})

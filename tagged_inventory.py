@@ -27,6 +27,7 @@ class TaggedInventory:
     notionals: dict[tuple[str, str], float] = field(default_factory=dict)
     tranches: list[dict] = field(default_factory=list)
     exit_metadata_known: bool = False
+    observed_book: dict | None = field(default=None, repr=False)
     fallback: str = "base sizing; optional inventory overlays unavailable; inventory-derived exits unavailable"
 
 
@@ -240,6 +241,8 @@ def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
                 if key in tranches:
                     raise ValueError("new execution conflicts with an existing tranche identity")
                 known_metadata = dict(metadata.get(str(row.get("order_ref"))) or {})
+                if known_metadata.get('metadata_con_id',con_id)!=con_id:
+                    raise ValueError('entry metadata and execution contracts disagree')
                 tranche = {**known_metadata, "tranche_id": key, "account_key": "primary", "account": account,
                            "con_id": con_id, "symbol": symbol, "sec_type": "STK", "currency": "USD",
                            "strategy": strategy, "ref_date": ref_date, "entry_date": stamp.astimezone(ZoneInfo("America/New_York")).date().isoformat(),

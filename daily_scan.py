@@ -2412,7 +2412,7 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
     # subsequent price recovery. Retain it until actual inventory resolves it.
     prior_rows = {}
     try:
-        _prev = sh.worksheet("OLV_Exits").get_all_records()
+        _prev = sh.worksheet("OLV_Exits_Primary").get_all_records()
         for _r in _prev:
             _eo = pd.to_datetime(_r.get("Execute_On"), errors="coerce")
             symbol = str(_r.get("Symbol", "")).strip().upper()
@@ -2476,8 +2476,8 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
         raise ValueError("exit valuation time must include timezone")
     local = valuation.tz_convert("America/New_York")
     day = local.tz_localize(None).normalize()
-    is_session = bool(len(pd.date_range(day, day, freq=TRADING_DAY)))
-    expected_session = day if is_session and local.hour >= 16 else day - TRADING_DAY
+    from equity_sessions import last_settled_session
+    expected_session = last_settled_session(valuation)
 
     exit_rows = []
     for pos in positions:
@@ -2556,9 +2556,9 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
 
     def _write_exits():
         try:
-            ws = sh.worksheet("OLV_Exits")
+            ws = sh.worksheet("OLV_Exits_Primary")
         except gspread.WorksheetNotFound:
-            ws = sh.add_worksheet(title="OLV_Exits", rows=50, cols=len(cols))
+            ws = sh.add_worksheet(title="OLV_Exits_Primary", rows=50, cols=len(cols))
         data = [cols] + [[str(r.get(c, "")) for c in cols] for r in exit_rows]
         replace_worksheet_values(ws, data)
 
@@ -2570,7 +2570,7 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
             _per[_p["ticker"]] = _per.get(_p["ticker"], 0) + 1
         _breakdown = ", ".join(f"{t}x{n}" if n > 1 else t
                                for t, n in sorted(_per.items())) or "none"
-        print(f"[OLV-EXIT] OLV_Exits tab written: {len(exit_rows)} exit(s), "
+        print(f"[OLV-EXIT] OLV_Exits_Primary tab written: {len(exit_rows)} exit(s), "
               f"{len(positions)} open OLV leg(s) evaluated ({_breakdown})")
     except Exception as e:
         _warn(f"failed to write OLV_Exits tab ({e}) — confirmed exits NOT "
