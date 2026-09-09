@@ -2987,6 +2987,15 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         error_tickers.append(("INVENTORY", "; ".join(_actual_inventory.reasons)
                               + "; " + _actual_inventory.fallback))
     open_notionals = load_open_position_notionals(_cap_strats, _actual_inventory)
+    _pending_notionals = {}
+    _pending_capacity_known = False
+    if any(s['execution'].get('ticker_notional_cap', {}).get('include_pending') for s in effective_book):
+        from actual_inventory_io import load_pending_entry_notionals
+        try:
+            _pending_notionals = load_pending_entry_notionals(_actual_inventory)
+            _pending_capacity_known = True
+        except Exception as exc:
+            error_tickers.append(('OLV CAP', f'filled-plus-pending capacity unavailable ({type(exc).__name__}); optional overlay bypassed'))
 
     # 4c. Ladder position counts — counts currently-held filled primary signals
     # per (ticker, strategy) so repeat signals size up on each successive day.
@@ -3369,27 +3378,36 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # strat_backtester — change together. Guard:
                     # tests/test_olv_stop_and_cap.py.
                     _tnc = strat['execution'].get('ticker_notional_cap')
-                    if _tnc and shares > 0 and _actual_inventory.status == "known":
+                    _include_pending = bool((_tnc or {}).get('include_pending'))
+                    if (_tnc and shares > 0 and _actual_inventory.status == "known"
+                            and (not _include_pending or _pending_capacity_known)):
                         _tnc_exempt = set(_tnc.get('exempt') or ())
                         if t_clean.upper() not in _tnc_exempt:
                             _tnc_cap = float(_tnc['pct_nav']) * ACCOUNT_VALUE
                             _tnc_open = open_notionals.get((t_clean, strat['name']), 0.0)
-                            _tnc_new = shares * entry
+                            _cap_price = entry
+                            if _include_pending:
+                                _tnc_open += _pending_notionals.get((t_clean, strat['name']), 0.0)
+                                _cap_price = round(entry - (float(_entry_offset_atr) if _entry_offset_atr is not None else .25) * atr, 2)
+                            _tnc_new = shares * _cap_price
                             if _tnc_open + _tnc_new > _tnc_cap:
                                 _tnc_room = max(0.0, _tnc_cap - _tnc_open)
                                 _orig_sh = shares
-                                shares = int(_tnc_room / entry) if entry > 0 else 0
+                                shares = int(_tnc_room / _cap_price) if _cap_price > 0 else 0
                                 risk = shares * dist
                                 sizing_note = (
                                     f"{sizing_note} | Notional cap "
                                     f"{_tnc['pct_nav']:.0%} NAV "
-                                    f"(${_tnc_open:,.0f} open): {_orig_sh} -> {shares} sh")
+                                    f"(${_tnc_open:,.0f} held/reserved): {_orig_sh} -> {shares} sh")
                                 print(f"   [CAP] {t_clean}: notional cap "
                                       f"{_tnc['pct_nav']:.0%} NAV - {_orig_sh} -> {shares} shares "
                                       f"(${_tnc_open:,.0f} already open)")
                                 if shares <= 0:
                                     print(f"   [BLOCKED] {t_clean}: notional cap full - signal skipped")
                                     continue
+                            if _include_pending:
+                                _pending_key = (t_clean, strat['name'])
+                                _pending_notionals[_pending_key] = _pending_notionals.get(_pending_key, 0.0) + shares * _cap_price
 
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                     hold_days = strat['execution']['hold_days']

@@ -563,7 +563,7 @@ _STRATEGY_BOOK_RAW = [
         "exit_summary": {
             "primary_exit": "10-day time stop OR 2.5 ATR target OR volume-confirmed stop (whichever first)",
             "stop_logic": "Vol-confirmed (2026-07-20): no resting stop. If a session CLOSES at/below entry - 1.25 ATR AND that day's volume >= 1.5x the trailing 20d median, exit MOO at the next open. Quiet closes below the level are held (low-volume weakness is the thesis, not its failure). stop_atr 1.25 still defines the risk unit for sizing.",
-            "target_logic": "2.5 ATR above entry",
+            "target_logic": "2.5 ATR above the submitted entry limit; gap-improved fills retain that target",
             "notes": "Persistent limit defaults to close - 0.25 ATR and uses the causal 40/40 closing-pivot entry policy in execution['pivot_entry_policy']; pivot sources expire after 252 ticker sessions and the GTC entry expires after T+3. No cooldown — consecutive signals on same ticker allowed. No ladder (removed 2026-07-20, all legs 1.0x) and no sector loss gate (removed 2026-07-20 with the vol-confirmed stop + notional cap package). Per-ticker concurrent notional capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing. First-entry half-size ladder [0.5,1,1] since 2026-07-29 (footprint trim on the weakest leg; adds stay full size). No fragility band and no book-level cap (a 0.5x dial>=65 band and an EOD 100%-NAV trim ran for one session, 2026-08-24, then were retired 2026-08-25 in favour of a manual one-off hedge; olv_book_cap.py stays in OneDrive, task disabled)."
         },
         "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: persistent close-anchored limit, normally -0.25 ATR; causal 40/40 nearest-high retests use only pivot sources <=252 ticker sessions old, entering -0.50 ATR at 2-3 ATR above, -0.75 ATR at 4-5 ATR, and skipping above 5 ATR. 10d hold, 2.5 ATR target, 1.25 ATR stop. Liquid 35 bps / overflow 25 bps; first entry in a ticker 0.5x (ladder [0.5,1,1], 2026-07-29), adds full size; pre-earnings window sizes at 10 bps flat.",
@@ -650,6 +650,7 @@ _STRATEGY_BOOK_RAW = [
                       # loop, daily_scan Fill_Window_Days stamp, order_staging
                       # GTC cancel-after-N. Evidence: scratch/olv_fill_window.py.
                       "fill_window_days": 3,
+                      "target_anchor": "submitted_limit",
                       # Causal closing-pivot entry policy (2026-08-31). For each
                       # signal, compare the latest eligible 40/40 close pivot high
                       # with the latest eligible low and select the nearer PRICE
@@ -721,6 +722,7 @@ _STRATEGY_BOOK_RAW = [
                       # the survivorship-blind single-name overnight tail at
                       # half of NAV. Evidence: scratch/olv_notional_cap_*.py.
                       "ticker_notional_cap": {"pct_nav": 0.50,
+                                              "include_pending": True,
                                               "exempt": OLV_CAP_EXEMPT_ETFS},
                       # Earnings size override: when signal_date sits in the
                       # offset range [min_td, max_td] (trading days relative to
