@@ -108,7 +108,9 @@ def load_pending_entry_notionals(inventory, *, asof=None, book_loader=None):
     primary = [a for a in book['accounts'] if a.get('key') == 'primary']
     if len(primary) != 1:
         raise ValueError('ambiguous Primary order snapshot')
-    source = pd.Timestamp(primary[0]['orders_source_at'], unit='s', tz='UTC')
+    # Both broker observations and the relay's ISO timestamps have millisecond
+    # resolution. Avoid float-seconds conversion inventing later nanoseconds.
+    source = pd.Timestamp(round(float(primary[0]['orders_source_at']) * 1000), unit='ms', tz='UTC')
     if source > pd.Timestamp(inventory.asof_utc):
         raise ValueError('fill inventory has not caught up with pending-order snapshot')
     return pending_entry_notionals(book, inventory.broker_account,

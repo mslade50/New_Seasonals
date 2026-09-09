@@ -18,7 +18,7 @@ def patch_book(source):
         '"qty": _num(o.totalQuantity), "order_type": o.orderType,\n'
         '                "remaining": _num(t.orderStatus.remaining), "filled": _num(t.orderStatus.filled),')
     source = replace_once(source, "        # Today's executions.",
-        '        out["orders_source_at"] = time.time()\n\n        # Today\'s executions.')
+        '        out["orders_source_at"] = int(time.time() * 1000) / 1000\n\n        # Today\'s executions.')
     ast.parse(source)
     return source
 
