@@ -109,6 +109,6 @@ financially consequential activation approval immediately before installation.
 The approved source deployment preserves the current unknown-inventory fallback;
 it does not activate or certify the inventory-dependent cap or stop handoff.
 The local producer and cloud fallback must use the same immutable
-`automation-runtime-2026-09-09.5` release to preserve the model change on later
+`automation-runtime-2026-09-09.6` release to preserve the model change on later
 scheduled builds. Do not run a daily scan,
 place a test trade, or mark the volume-stop pipeline live as a verification shortcut.
