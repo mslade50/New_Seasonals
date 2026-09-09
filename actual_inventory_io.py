@@ -92,6 +92,29 @@ def load_raw_exit_bars(ticker, *, now=None, download=None):
     return raw
 
 
+def load_pending_entry_notionals(inventory, *, asof=None, book_loader=None):
+    """Read existing book endpoint only. Raise on unknown capacity inputs."""
+    from daily_execution_report import fetch_book, DEFAULT_BROKER_URL
+    from olv_sizing import pending_entry_notionals
+    if inventory.status != 'known' or not inventory.broker_account:
+        raise ValueError('actual Primary inventory is unverified')
+    token = os.environ.get('STATUS_TOKEN', '').strip()
+    if not token and book_loader is None:
+        raise ValueError('broker read access is unavailable')
+    book = (book_loader or fetch_book)(os.environ.get('EXEC_BROKER_URL',DEFAULT_BROKER_URL), token)
+    # Require the fill generation to include everything already reflected in
+    # this book. Otherwise a partial fill can disappear from remaining orders
+    # before it appears in held inventory, understating combined exposure.
+    primary = [a for a in book['accounts'] if a.get('key') == 'primary']
+    if len(primary) != 1:
+        raise ValueError('ambiguous Primary order snapshot')
+    source = pd.Timestamp(primary[0]['orders_source_at'], unit='s', tz='UTC')
+    if source > pd.Timestamp(inventory.asof_utc):
+        raise ValueError('fill inventory has not caught up with pending-order snapshot')
+    return pending_entry_notionals(book, inventory.broker_account,
+        asof=asof or pd.Timestamp.now(tz='UTC').isoformat())
+
+
 def olv_positions_from_inventory(inventory):
     """Adapt exact raw tranches for the existing volume-confirmed exit calculation."""
     if inventory.status!="known":

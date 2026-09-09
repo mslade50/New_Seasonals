@@ -843,17 +843,25 @@ def _stop_fill_price(direction, stop_price, day_open,
 
 
 def _apply_daily_risk_scale(trades, indices, scale):
-    """Keep legacy sizing for other strategies; cap OVS whole positions before split.
+    """Floor OLV shares and cap OVS whole positions before splitting.
 
     Risk dollars retain the staged budget convention. Realized PnL uses the
     final executable shares, including a one-share far-only bracket.
     Zero rows stay until all cap groups finish so their indices remain valid.
     """
     ovs = trades.loc[indices, 'Strategy'].eq('Overbot Vol Spike')
-    other_indices = ovs.index[~ovs]
+    olv = trades.loc[indices, 'Strategy'].eq('Oversold Low Volume')
+    other_indices = ovs.index[~ovs & ~olv]
     trades.loc[other_indices, 'Shares'] = (trades.loc[other_indices, 'Shares'] * scale).round().astype(int)
     trades.loc[other_indices, 'PnL'] = (trades.loc[other_indices, 'PnL'] * scale).round()
     trades.loc[other_indices, 'Risk $'] *= scale
+    for idx in olv.index[olv]:
+        qty = int(np.floor(trades.at[idx, 'Shares'] * scale))
+        trades.at[idx, 'Shares'] = qty
+        row = trades.loc[idx]
+        change = row['Exit Price'] - row['Price']
+        trades.at[idx, 'PnL'] = round(qty * change * (1 if row['Action'] == 'BUY' else -1))
+        trades.at[idx, 'Risk $'] *= scale
     ovs_rows = trades.loc[ovs.index[ovs]]
     for _, group in ovs_rows.loc[ovs_rows['Shares'].gt(0)].groupby('_Sizing ID', sort=False):
         total = int(np.floor(group['Shares'].sum() * scale))
@@ -1180,6 +1188,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     # pooled long/short caps. Live can only budget what it stages — unfilled
     # limits effectively waste their share of the budget.
     placed_risk_by_dir_date = {}
+    from olv_sizing import ModelReservations, clip_quantity
+    _olv_reservations = ModelReservations()
 
     # Progress updates — Streamlit Cloud kills silent scripts; also user feedback.
     _total_cands = len(candidates)
@@ -1696,6 +1706,41 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             else:
                 valid_entry = False
         
+        # Reserve the submitted order even if it never fills. Clip using its
+        # limit, never a future gap-improved execution price. Prior orders
+        # release capacity only after their expiry or modeled exit occurred.
+        _olv_reserved = None
+        _tnc = execution.get('ticker_notional_cap') or {}
+        _olv_pending_cap = strat_name == 'Oversold Low Volume' and _tnc.get('include_pending')
+        if _olv_pending_cap and t_clean.upper() not in set(_tnc.get('exempt') or ()):
+            def _prior_quantity_scale(order):
+                limit_bps = 250 if cap_bps is None else cap_bps
+                total = placed_risk_by_strat_date.get((order['signal_date'], strat_name), 0)
+                if not limit_bps or total <= 0:
+                    return 1.0
+                return min(1.0, order['equity'] * limit_bps / 10000 * _strat_mult / total)
+            _used_frac = _olv_reservations.used_fraction(
+                (strat_name, t_clean), signal_date, _prior_quantity_scale)
+            _risk_distance = atr * execution['stop_atr']
+            _requested_qty = int(base_risk / _risk_distance)
+            _qty = clip_quantity(_requested_qty, limit_price,
+                                 _tnc['pct_nav'] * equity_for_sizing,
+                                 _used_frac * equity_for_sizing)
+            # Live daily caps use staged Risk_Amt, including its fractional
+            # share remainder. Scanner recomputes it only when this cap binds.
+            _new_risk = _qty * _risk_distance if _qty < _requested_qty else base_risk
+            _refund = base_risk - _new_risk
+            placed_risk_by_strat_date[(signal_date, strat_name)] -= _refund
+            placed_risk_by_dir_date[(signal_date, _dir_pre)] -= _refund
+            base_risk = _new_risk
+            _olv_reserved = _olv_reservations.reserve(
+                key=(strat_name, t_clean), signal_date=signal_date,
+                expiry=df.index[min(signal_idx + fill_window, len(df)-1)],
+                quantity=_qty, limit=limit_price, equity=equity_for_sizing,
+                fill_date=entry_date if valid_entry else None, fill_price=entry_price)
+            if not _qty:
+                continue
+
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
 
@@ -1718,6 +1763,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         else:
             stop_price = entry_price + (atr * stop_atr)
             tgt_price = entry_price - (atr * tgt_atr)
+        if execution.get('target_anchor') == 'submitted_limit':
+            if not (is_persistent or is_limit_close_anchored):
+                raise ValueError('submitted-limit target requires a close-anchored limit')
+            tgt_price = limit_price + (atr * tgt_atr if direction == 'Long' else -atr * tgt_atr)
         
         # Determine entry_idx
         if entry_date == signal_date:
@@ -1934,6 +1983,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if not _vol_spike_skip_primary:
             try:
                 shares = int(base_risk / dist)
+                if _olv_reserved is not None:
+                    shares = _olv_reserved['quantity']
                 if strat_name == "Overbot Vol Spike" and _ovs_size_mult != 1.0:
                     # Live: floor scanner shares, round path multiplier, then
                     # floor the P2 aggregate cap. Do not floor combined risk.
@@ -1981,7 +2032,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             # Refund semantics mirror the net-exposure cap above. Guard:
             # tests/test_olv_stop_and_cap.py.
             _tnc = execution.get('ticker_notional_cap')
-            if shares > 0 and _tnc and entry_price and entry_price > 0:
+            if shares > 0 and _tnc and not _olv_pending_cap and entry_price and entry_price > 0:
                 _tnc_exempt = set(_tnc.get('exempt') or ())
                 if t_clean.upper() not in _tnc_exempt and str(ticker).upper() not in _tnc_exempt:
                     # The cap binds in FRACTION-OF-SIZING-EQUITY terms: each
@@ -2012,6 +2063,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                             placed_risk_by_strat_date[(signal_date, strat_name)] -= base_risk
                             placed_risk_by_dir_date[(signal_date, direction)] -= base_risk
 
+            if _olv_reserved is not None:
+                _olv_reserved['quantity'] = shares
+                _olv_reserved['exit_date'] = exit_date
             if shares > 0:
                 target_ts_idx = entry_idx + hold_days
                 if target_ts_idx < len(df):
