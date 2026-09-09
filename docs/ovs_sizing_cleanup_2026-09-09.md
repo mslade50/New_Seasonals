@@ -1,6 +1,6 @@
 # OVS sizing cleanup — September 9, 2026
 
-Status: implemented and verified in an isolated source branch; broker candidate prepared. Not installed in the OneDrive broker runtime, promoted to the pinned producer runtime, or published in Portfolio data.
+Status at 07:43 ET: broker correction installed with owner approval for both Primary and PA-derived orders; pinned producer runtime promoted and validated, including preservation of the approved Execution UI. Cloud Portfolio build is in progress; publication is not yet claimed.
 
 ## Result
 
@@ -15,7 +15,7 @@ No other strategy's daily-cap rounding was changed. The engine still applies its
 - Same-day targets remain active live and excluded from the daily-bar Portfolio model to avoid favorable assumptions about intraday price ordering.
 - Friday's timed live loss stop remains unchanged; the daily model retains its closing-price approximation.
 - Entry gates, configured risk rates, cycle tilt, brackets, scheduling, and manual execution controls are unchanged.
-- No daily scan, trade, email, or production-data regeneration was run.
+- No daily scan, trade, or email was run. The approved production-data build runs only through GitHub Actions from R2 inputs.
 
 ## Proof
 
@@ -25,7 +25,7 @@ The targeted model, OLV, fragility, earnings-sizing, ledger-provenance, and brok
 
 Broker tests execute extracted pure candidate functions, not imported installed scripts. Actual-source AST comparison confirms only two fallback constants, the path multiplier function, and the daily-cap lookup in `pull_and_stage_orders` change, with one new pure cap helper. All other top-level executable content is preserved. Source drift fails preparation before any candidate files are written.
 
-## Candidate and activation boundary
+## Candidate and activation record
 
 Generate with:
 
@@ -37,15 +37,19 @@ The output directory must be new. It contains local runtime configuration and mu
 
 - Reviewed installed `order_staging.py` SHA-256: `cb6ae86474d17f5fe11404094facbcc6fe861c190cfafe8af9bb1c0bee52e779`.
 - Prepared candidate SHA-256: `1305d5c55075ec4c28b3db74227b70e9f8de62a0553a9b4793e523721e1d1978`.
-- Installation would replace only `OneDrive/trading_ibkr/order_staging.py` after rechecking its hash and confirming no staging run is active. Preserve a byte-verified backup first; restoring that file rolls back future staging, not orders already submitted.
+- Installed at 07:36 ET after idle checks and source/candidate hash verification. Only `OneDrive/trading_ibkr/order_staging.py` was replaced. Byte-verified backup: `OneDrive/trading_ibkr/.runtime_backups/ovs_fallback_20260909T073624/order_staging.py`. Restoring it rolls back future staging, not orders already submitted. The chain was not started or restarted.
 - Normal valid stamped orders retain their current sizing. On the fallback path, 200 original shares yield 40 P2 shares instead of 30. The fallback P2 budget becomes $8,437.50 instead of $7,500 at the configured $750,000 sizing capital; the existing per-strategy cap remains. These are sizing budgets, not maximum-loss guarantees.
-- This is a shared stager: its existing PA export is derived from the common staged frame. A fallback correction can therefore affect PA-derived quantities too. No PA activation or configuration change is proposed, but this indirect effect must be accepted before installing the shared-file candidate; otherwise, leave it prepared pending a Primary-only design.
+- This is a shared stager: its existing PA export is derived from the common staged frame. The owner explicitly approved applying the correction to both accounts before installation. No PA task or account configuration was changed.
 
-No broker activation is claimed. The model change likewise requires normal source review, pinned-runtime promotion as applicable, and a cloud-only R2-backed site build before it changes published Portfolio results. No local ledger was used as a production source.
+PR #31 merged as `7633af144bddcf9ffeafb8971f6425e98b91f3bd`. The OVS-only commit was separately applied to the existing pinned runtime baseline as `7d7aafe8e97114abafbe9cfef0470953c98c8d92`, published under immutable tag `automation-runtime-2026-09-09.1`. Runtime v9 fast-forwarded to that commit at 07:39 ET; only the five reviewed OVS files changed. Its previous marker is preserved in `.local/runtime_promotions/ovs_20260909T073912/automation-runtime.json`. The existing runner's `-ValidateOnly` passed, and 64 model/related tests passed using that runtime's actual Python environment. Scheduler actions and cadence are unchanged. Source rollback can use a forward revert of the OVS commit and a matching new marker/tag rather than discarding runtime state.
+
+The initial OVS-only tag was superseded before the next scheduled pipeline because site jobs also deploy from that pinned snapshot. Leaving its old site assets in place would regress the previously approved Execution controls. Commit `90c30dd698244ef46ff9dc43a74d6bfb0ff5b7e3`, tag `automation-runtime-2026-09-09.2`, adds only those already-deployed site assets, their matching tests, and the deployed workflow's explicit source-hash flag. At 07:43 ET runtime v9 fast-forwarded and passed `-ValidateOnly` again. The previous marker is retained in `.local/runtime_promotions/ovs_20260909T074347/automation-runtime.json`. Site assets, model, ledger/site generators and deployment workflow were compared against production source `7633af14` with no differences; 25 JavaScript suites and nine site/Execution contract tests passed using the promotion checkout.
+
+The main-branch fallback controller pin is being aligned to final tag `automation-runtime-2026-09-09.2`. [Cloud build 34346385829](https://github.com/mslade50/New_Seasonals/actions/runs/34346385829) builds the merged model source from canonical R2 inputs. No local ledger is used as a production source. Publication and authenticated live checks remain pending at this checkpoint.
 
 ## Brief status
 
 1. Answer-quality review: previously completed in its bounded scope; earlier rollout limitations still apply.
 2. Execution simplification: deployed, including unified Close/Add/Re-add controls.
-3. Modeled-versus-live reconciliation: OVS exit differences accepted; sizing corrections implemented/tested, rollout pending. OLV is the next bounded review after this step is accepted.
+3. Modeled-versus-live reconciliation: OVS exit differences accepted; broker and pinned-runtime sizing corrections installed, cloud publication pending. OLV is the next bounded review after this step is accepted.
 4. Strategy-discovery improvements: queued; not started by this change.
