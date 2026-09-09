@@ -1,14 +1,7 @@
 "use strict";
 
-/* The execution tab offers three ways to reduce a position and they differ
-   ONLY in what happens to the working orders. This pins the ticket side of
-   that: which type is offered, what payload each builds, and the guard that
-   stops close_resize from being asked for a full close (an exit cannot be
-   resized to zero -- that is flatten's job).
-
-   Written after 2026-09-03, when a 139-share UNH position could not be closed
-   from the tab at all: flatten was lifecycle-blocked and close_only was
-   whitelisted to SPY/QQQ/IWM/DIA. */
+/* Primary Close adjusts exits for partial and full closes. Legacy close types
+   remain available, and PA retains its partial-only resize behavior. */
 
 const assert = require("assert");
 const fs = require("fs");
@@ -66,7 +59,7 @@ const position = { symbol: "UNH", sec_type: "STK", expiry: "", con_id: 42,
   assert.deepStrictEqual(payload, {
     symbol: "UNH", order_type: "MKT", tif: "DAY", outside_rth: false,
     sec_type: "STK", expiry: null, expected_position: 139, con_id: 42,
-    qty: 70, action: "SELL",
+    qty: 70, action: "SELL", readd: false,
   });
 }
 
@@ -97,7 +90,7 @@ const position = { symbol: "UNH", sec_type: "STK", expiry: "", con_id: 42,
   assert.strictEqual(ambiguous.con_id, undefined, "an ambiguous symbol must not be resolved");
 }
 
-/* ---- 4. close_resize refuses a FULL close in the ticket gate ---- */
+/* ---- 4. Primary Close accepts 100%; PA retains its legacy guard ---- */
 {
   const ctx = freshContext();
   const fields = { f_symbol: "UNH", fl_qty: "", fl_pct: "100", fl_type: "MKT", fl_tif: "DAY" };
@@ -109,8 +102,10 @@ const position = { symbol: "UNH", sec_type: "STK", expiry: "", con_id: 42,
     val = (id) => (${JSON.stringify(fields)})[id];
   `, ctx);
   const full = vm.runInContext("flattenWarnings()", ctx);
-  assert.ok(full.some((w) => /PARTIAL close/.test(w)),
-    `100% close_resize must be blocked, got ${JSON.stringify(full)}`);
+  assert.strictEqual(JSON.stringify(full), "[]");
+  vm.runInContext('state.account = "pa"; state.book.accounts[0].key = "pa";', ctx);
+  assert.ok(vm.runInContext("flattenWarnings()", ctx).some((w) => /PARTIAL close/.test(w)));
+  vm.runInContext('state.account = "primary"; state.book.accounts[0].key = "primary";', ctx);
 
   // 50% of the same position is fine. (Arrays cross the vm realm boundary, so
   // compare through JSON rather than deepStrictEqual.)
