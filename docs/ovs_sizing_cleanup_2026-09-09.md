@@ -1,6 +1,6 @@
 # OVS sizing cleanup — September 9, 2026
 
-Status at 07:39 ET: broker correction installed with owner approval for both Primary and PA-derived orders; pinned producer runtime promoted and validated. Cloud Portfolio build is in progress; publication is not yet claimed.
+Status at 07:43 ET: broker correction installed with owner approval for both Primary and PA-derived orders; pinned producer runtime promoted and validated, including preservation of the approved Execution UI. Cloud Portfolio build is in progress; publication is not yet claimed.
 
 ## Result
 
@@ -43,7 +43,9 @@ The output directory must be new. It contains local runtime configuration and mu
 
 PR #31 merged as `7633af144bddcf9ffeafb8971f6425e98b91f3bd`. The OVS-only commit was separately applied to the existing pinned runtime baseline as `7d7aafe8e97114abafbe9cfef0470953c98c8d92`, published under immutable tag `automation-runtime-2026-09-09.1`. Runtime v9 fast-forwarded to that commit at 07:39 ET; only the five reviewed OVS files changed. Its previous marker is preserved in `.local/runtime_promotions/ovs_20260909T073912/automation-runtime.json`. The existing runner's `-ValidateOnly` passed, and 64 model/related tests passed using that runtime's actual Python environment. Scheduler actions and cadence are unchanged. Source rollback can use a forward revert of the OVS commit and a matching new marker/tag rather than discarding runtime state.
 
-The fallback controller pin is being aligned to the same immutable tag. [Cloud build 34346385829](https://github.com/mslade50/New_Seasonals/actions/runs/34346385829) builds the merged model source from canonical R2 inputs. No local ledger is used as a production source. Publication and authenticated live checks remain pending at this checkpoint.
+The initial OVS-only tag was superseded before the next scheduled pipeline because site jobs also deploy from that pinned snapshot. Leaving its old site assets in place would regress the previously approved Execution controls. Commit `90c30dd698244ef46ff9dc43a74d6bfb0ff5b7e3`, tag `automation-runtime-2026-09-09.2`, adds only those already-deployed site assets, their matching tests, and the deployed workflow's explicit source-hash flag. At 07:43 ET runtime v9 fast-forwarded and passed `-ValidateOnly` again. The previous marker is retained in `.local/runtime_promotions/ovs_20260909T074347/automation-runtime.json`. Site assets, model, ledger/site generators and deployment workflow were compared against production source `7633af14` with no differences; 25 JavaScript suites and nine site/Execution contract tests passed using the promotion checkout.
+
+The main-branch fallback controller pin is being aligned to final tag `automation-runtime-2026-09-09.2`. [Cloud build 34346385829](https://github.com/mslade50/New_Seasonals/actions/runs/34346385829) builds the merged model source from canonical R2 inputs. No local ledger is used as a production source. Publication and authenticated live checks remain pending at this checkpoint.
 
 ## Brief status
 
