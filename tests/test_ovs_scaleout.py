@@ -41,6 +41,7 @@ class _NoOp:
 sys.modules['streamlit'] = _NoOp()
 
 import pandas as pd
+import pytest
 
 from strat_backtester import process_signals_fast
 from strategy_config import STRATEGY_BOOK, GLOBAL_RISK_MULTIPLIER
@@ -222,3 +223,83 @@ def test_config_scaleout_fields_not_grm_scaled():
     # sanity: GRM really is active and scaled the bps keys, not these
     if GLOBAL_RISK_MULTIPLIER != 1.0:
         assert exe['path1_bps'] == 40 * GLOBAL_RISK_MULTIPLIER
+
+
+@pytest.mark.parametrize('quantity,cap,expected', [
+    (203, 25, {'near': 50, 'far': 76}),
+    (3, 25, {'': 1}),
+    (1, 10, {}),
+])
+def test_ovs_cap_floors_position_before_splitting(quantity, cap, expected):
+    candidates, signal_data, processed = _build_inputs()
+    result = process_signals_fast(candidates, signal_data, processed, [_ovs_strategy()],
+                                 starting_equity=quantity * 500, flat_sizing=True, cap_bps=cap)
+    assert dict(zip(result['Tranche'], result['Shares'])) == expected
+    if expected == {'': 1}:
+        assert result.iloc[0]['Exit Type'] == 'Time'  # full far target, not near
+    for _, row in result.iterrows():
+        assert row['PnL'] == round((row['Price'] - row['Exit Price']) * row['Shares'])
+
+
+def test_ovs_path2_rounds_scanner_quantity_before_caps():
+    candidates, signal_data, processed = _build_inputs()
+    processed['TEST'].iloc[1, processed['TEST'].columns.get_loc('Open')] = 100.25
+    result = process_signals_fast(candidates, signal_data, processed, [_ovs_strategy()],
+                                 starting_equity=203 * 500, flat_sizing=True)
+    assert result['Shares'].sum() == 41  # round(203 * 8/40), not floor(40.6)
+
+
+def test_ovs_cap_keeps_unfilled_orders_in_budget():
+    candidates, signal_data, processed = _build_inputs()
+    processed['MISS'] = processed['TEST'].copy()
+    processed['MISS'].iloc[1, processed['MISS'].columns.get_loc('High')] = 101.5
+    signal_data[('MISS', 0)] = dict(signal_data[('TEST', 0)])
+    candidates.append((candidates[0][0], 'MISS', 'MISS', 0, 0))
+    result = process_signals_fast(candidates, signal_data, processed, [_ovs_strategy()],
+                                 starting_equity=203 * 500, flat_sizing=True, cap_bps=50)
+    assert set(result['Ticker']) == {'TEST'}
+    assert dict(zip(result['Tranche'], result['Shares'])) == {'near': 50, 'far': 76}
+
+
+def test_ovs_second_cap_can_follow_far_only_collapse():
+    candidates, signal_data, processed = _build_inputs()
+    result = process_signals_fast(candidates, signal_data, processed, [_ovs_strategy()],
+                                 starting_equity=1500, flat_sizing=True, cap_bps=25,
+                                 max_short_risk_bps=20)
+    assert result.empty  # floor(3 * 25/40)=1, then floor(1 * 20/25)=0
+
+
+def test_ovs_entry_day_targets_remain_uncredited():
+    candidates, signal_data, processed = _build_inputs()
+    processed['TEST'].iloc[1, processed['TEST'].columns.get_loc('Close')] = 100.0
+    result = process_signals_fast(candidates, signal_data, processed, [_ovs_strategy()],
+                                 starting_equity=101500, flat_sizing=True, cap_bps=25)
+    assert (result['Exit Date'] > result['Entry Date']).all()
+    assert not any(c.startswith('_') for c in result.columns)
+
+
+def test_ovs_path2_and_strategy_caps_round_in_sequence():
+    candidates, signal_data, processed = _build_inputs()
+    processed['TEST'].iloc[1, processed['TEST'].columns.get_loc('Open')] = 100.25
+    strat = _ovs_strategy()
+    strat['execution']['path2_daily_cap_pct'] = .03
+    result = process_signals_fast(candidates, signal_data, processed, [strat],
+                                 starting_equity=101500, flat_sizing=True, cap_bps=2)
+    # round(203*.2)=41; floor(41*.375)=15; floor(15*2/3)=10; split 4/6.
+    assert dict(zip(result['Tranche'], result['Shares'])) == {'near': 4, 'far': 6}
+    for _, row in result.iterrows():
+        assert row['PnL'] == round((row['Price'] - row['Exit Price']) * row['Shares'])
+
+
+def test_ovs_cap_does_not_change_friday_exit_rule():
+    candidates, signal_data, processed = _build_inputs()
+    strat = _ovs_strategy()
+    strat['execution'].update(eod_dd_atr=.25, eod_dd_weekdays=[4])
+    processed['TEST'].index = pd.date_range('2024-01-04', periods=5, freq='B')
+    processed['TEST'].iloc[1, processed['TEST'].columns.get_loc('Close')] = 103.5
+    candidates = [(int(processed['TEST'].index[0].value), 'TEST', 'TEST', 0, 0)]
+    result = process_signals_fast(candidates, signal_data, processed, [strat],
+                                 starting_equity=101500, flat_sizing=True, cap_bps=25)
+    assert len(result) == 1
+    row = result.iloc[0]
+    assert (row['Shares'], row['Exit Type'], row['Exit Price'], row['PnL']) == (126, 'EOD-DD', 103.5, -126)
