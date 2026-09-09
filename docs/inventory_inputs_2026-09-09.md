@@ -1,5 +1,11 @@
 # Inventory inputs: repair and remaining decisions
 
+**Later September 9 update:** the owner kept the D sale discretionary, the
+dividend audit explains the target discrepancy, and the older D tranche has
+since exited. The following observations remain historical. Use the
+[current cutover record](olv_inventory_cutover_2026-09-09.md) for the five-tranche
+candidate, completed repairs, validation, and remaining activation prerequisites.
+
 ## Completed
 
 - Owner policy: manual TWS trades are discretionary unless explicitly assigned.

@@ -1,5 +1,8 @@
 # Current operations entry point
 
+Latest priority-3 inventory work: [Primary OLV cutover](olv_inventory_cutover_2026-09-09.md).
+Its prepared source and reconciled opening candidate are not yet active.
+
 Start with the [6 September audit repair release](audit_fix_release_2026-09-06.md) for current behavior, verification, unresolved migrations and rollout boundaries. Its branch is prepared source, not a declaration that production uses it.
 
 Operational truth comes from exact runtime/source identities, dated producer receipts, strategy allocations and broker execution evidence. A scheduler flag, model target or website refresh is not a fill confirmation.
