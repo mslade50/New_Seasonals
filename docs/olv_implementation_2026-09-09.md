@@ -1,8 +1,11 @@
 # OLV approved target and capacity changes
 
 September 9, 2026. Prepared in branch `codex/olv-parity-review-20260909`.
-Implementation is local and verified with synthetic inputs. It is not installed,
-merged, or deployed, and no production portfolio regeneration is claimed.
+Implementation was verified locally before rollout. The owner authorized
+deployment on September 9. This release promotes the model/scanner source
+and regenerates Portfolio through the cloud; the inventory-dependent live cap
+remains explicitly unavailable until its inputs are reconciled. Broker exit
+candidates remain uninstalled. See the dated deployment record for final status.
 
 ## Owner decisions and resulting behavior
 
@@ -103,6 +106,9 @@ and validate known, empty, stale, ambiguous and partial-fill states through
 the actual producer/consumer contracts. Then prepare a Primary cutover that
 preserves PA, with source hashes, backups and rollback. Obtain the required
 financially consequential activation approval immediately before installation.
-Promote the pinned producer and regenerate production data through its existing
-cloud workflow only after the input contracts pass. Do not run a daily scan,
+The approved source deployment preserves the current unknown-inventory fallback;
+it does not activate or certify the inventory-dependent cap or stop handoff.
+The local producer and cloud fallback must use the same immutable
+`automation-runtime-2026-09-09.3` release to preserve the model change on later
+scheduled builds. Do not run a daily scan,
 place a test trade, or mark the volume-stop pipeline live as a verification shortcut.
