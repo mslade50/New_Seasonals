@@ -85,5 +85,9 @@ def test_open_position_payload_uses_engine_target_after_gap(monkeypatch):
     position = build_site.build_positions(shape_flat_trades(rows), {'TEST':df})['positions'][0]
     assert position['Tgt_Price'] == 104.5
     assert position['Stop_Price'] == 94.5
+    from scripts.signal_chart_common import trade_geometry, chart_relpath
+    assert trade_geometry(shape_flat_trades(rows).iloc[0], df)['tgt_px'] == 104.5
+    assert chart_relpath('Oversold Low Volume','TEST',dates[0]) == 'signals/Oversold_Low_Volume_submitted_target_v1/TEST_20240102.png'
+    assert chart_relpath('Other','TEST',dates[0]) == 'signals/Other/TEST_20240102.png'
     with pytest.raises(ValueError, match='OLV target missing'):
         build_site.build_positions(shape_flat_trades(rows).drop(columns='Target Price'), {'TEST':df})
