@@ -101,6 +101,7 @@ def _write_morning_run(tmp_path: Path) -> Path:
         ),
         "report.md": "# Research only\n\nBroker route NONE\n",
         "decisions.json": "[{}]",
+        "news_qualified.json": "[]",
         "research_sizing_preview.json": "[{}]",
         "research_sizing_preview.csv": "symbol,preview_only\nTEST,true\n",
     }
@@ -120,6 +121,7 @@ def _write_morning_run(tmp_path: Path) -> Path:
             "candidates": 1,
             "decisions": 1,
             "research_sizing_previews": 1,
+            "news_qualified": 0,
         },
         "safety": {
             "research_only": True,
@@ -242,7 +244,7 @@ def test_night_payload_rejects_forged_dynamic_growth(tmp_path: Path) -> None:
         night_payload(source)
 
 
-def test_morning_payload_revalidates_manifest_and_attaches_audit_files(
+def test_morning_payload_revalidates_manifest_and_attaches_only_focused_reports(
     tmp_path: Path,
 ) -> None:
     run_dir = _write_morning_run(tmp_path)
@@ -254,9 +256,9 @@ def test_morning_payload_revalidates_manifest_and_attaches_audit_files(
     assert [path.name for path in payload.attachments] == [
         "report.html",
         "report.md",
-        "research_sizing_preview.csv",
         "manifest.json",
     ]
+    assert "0 news-qualified" in payload.subject
 
     (run_dir / "report.md").write_text("tampered", encoding="utf-8")
     with pytest.raises(EmailDeliveryError, match="digest mismatch"):

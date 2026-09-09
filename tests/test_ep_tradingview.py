@@ -419,7 +419,7 @@ def test_tradingview_candidate_can_research_but_never_size(tmp_path):
     } <= blockers
 
 
-def test_html_report_escapes_tradingview_company_name(tmp_path):
+def test_html_report_omits_unqualified_tradingview_company_name(tmp_path):
     path = _csv(
         tmp_path,
         PREMARKET_HEADER
@@ -439,7 +439,8 @@ def test_html_report_escapes_tradingview_company_name(tmp_path):
     )
     report = (output / "report.html").read_text(encoding="utf-8")
     assert "<script>alert(1)</script>" not in report
-    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in report
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" not in report
+    assert "No news-qualified EP candidates" in report
     assert "broker route NONE" in report
 
 

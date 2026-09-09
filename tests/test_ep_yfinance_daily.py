@@ -275,9 +275,12 @@ def test_yfinance_research_run_renders_normal_focused_morning_email(tmp_path: Pa
     assert manifest["counts"]["execution_data_verified"] == 0
     html = (run_dir / "report.html").read_text(encoding="utf-8")
     assert "Execution data unavailable or unverified" in html
-    assert "5.00%" in html
+    # The fixture has an invalid source hash and post-decision retrieval.
+    # ATR qualification must not cause that mover to appear in the email.
+    assert "5.00%" not in html
+    assert "No news-qualified EP candidates" in html
     payload = morning_payload(run_dir)
-    assert "1 researched, 1 ATR-qualified" in payload.subject
+    assert "0 news-qualified" in payload.subject
     assert payload.metadata["research_sizing_previews"] == 0
 
 

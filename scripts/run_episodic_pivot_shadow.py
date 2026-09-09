@@ -16,6 +16,7 @@ from episodic_pivot.config import DEFAULT_POLICY
 from episodic_pivot.daily_prices import YFINANCE_DAILY_PRICE_BASIS
 from episodic_pivot.manifest import sha256_file, write_run_artifacts
 from episodic_pivot.news import (
+    DirectArticleSearchProvider,
     GoogleCustomSearchProvider,
     GoogleNewsRssProvider,
 )
@@ -450,6 +451,13 @@ def main(argv: list[str] | None = None) -> int:
         provider = GoogleNewsRssProvider()
     elif args.news_mode == "google-cse":
         provider = GoogleCustomSearchProvider()
+    if provider is not None:
+        provider = DirectArticleSearchProvider(
+            provider,
+            metadata_cache=str(
+                ROOT / "artifacts" / "episodic_pivot" / "yfinance-news-metadata"
+            ),
+        )
 
     result = run_shadow_pipeline(
         snapshots,

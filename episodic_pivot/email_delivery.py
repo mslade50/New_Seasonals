@@ -323,6 +323,7 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
         "research_sizing_preview.csv",
         "report.html",
         "report.md",
+        "news_qualified.json",
     }
     if not required.issubset(artifacts):
         raise EmailDeliveryError("EP manifest is missing email deliverables")
@@ -343,11 +344,37 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
         "candidates": "candidates.json",
         "decisions": "decisions.json",
         "research_sizing_previews": "research_sizing_preview.json",
+        "news_qualified": "news_qualified.json",
     }
     for count_name, artifact_name in count_sources.items():
         actual = len(_json_list(run_dir / artifact_name))
         if counts.get(count_name) != actual:
             raise EmailDeliveryError(f"EP manifest count mismatch: {count_name}")
+    decisions_by_id = {
+        item.get("candidate_id"): item
+        for item in _json_list(run_dir / "decisions.json")
+        if isinstance(item, dict)
+    }
+    seen_ids = set()
+    for item in _json_list(run_dir / "news_qualified.json"):
+        if not isinstance(item, dict):
+            raise EmailDeliveryError("EP news-qualified record is invalid")
+        candidate_id = item.get("candidate_id")
+        catalyst = item.get("catalyst") or {}
+        if (
+            not candidate_id
+            or candidate_id in seen_ids
+            or decisions_by_id.get(candidate_id) != item
+            or catalyst.get("research_news_qualified") is not True
+            or catalyst.get("publication_time_verified") is not True
+            or catalyst.get("trajectory_change_verified") is not True
+            or not catalyst.get("research_news_excerpt")
+            or not catalyst.get("evidence_urls")
+            or catalyst.get("adverse_flags")
+            or item.get("decision") == "REJECT"
+        ):
+            raise EmailDeliveryError("EP news-qualified record failed evidence gate")
+        seen_ids.add(candidate_id)
     return manifest
 
 
@@ -381,6 +408,8 @@ def morning_payload(run_dir: Path) -> EmailPayload:
     atr_qualified = int(counts.get("atr_qualified", candidates))
     news_researched = int(counts.get("news_research_selected", candidates))
     execution_verified = int(counts.get("execution_data_verified", 0))
+    news_qualified = int(counts["news_qualified"])
+    unresolved = int(counts.get("news_coverage_unresolved", 0))
     report_path = run_dir / "report.html"
     report_html = report_path.read_text(encoding="utf-8")
     if "Research only" not in report_html or "broker route NONE" not in report_html:
@@ -390,7 +419,6 @@ def morning_payload(run_dir: Path) -> EmailPayload:
     attachments = (
         report_path,
         run_dir / "report.md",
-        run_dir / "research_sizing_preview.csv",
         run_dir / "manifest.json",
     )
     source_hash = sha256_file(run_dir / "manifest.json")
@@ -398,15 +426,17 @@ def morning_payload(run_dir: Path) -> EmailPayload:
         kind="morning",
         subject=(
             f"[EP Shadow] Morning Candidates | {target_date} | "
-            f"{news_researched} researched, {atr_qualified} ATR-qualified"
+            f"{news_qualified} news-qualified"
+            + (" | news coverage incomplete" if unresolved else "")
         ),
         html_body=report_html,
         plain_body=(
-            f"EP morning shadow report for {target_date}: {candidates} broad movers, "
+            f"EP morning shadow report for {target_date}: {news_qualified} news-qualified candidates. "
+            f"News coverage unresolved for {unresolved} researched movers. {candidates} broad movers, "
             f"{atr_qualified} ATR-qualified, {news_researched} news-researched, "
             f"{execution_verified} with fresh execution verification, and "
             f"{previews} non-executable previews across {decisions} decisions. "
-            "The complete HTML report and audit files are attached."
+            "Only the news-qualified report is attached; all other movers remain in local audit files."
         ),
         attachments=attachments,
         receipt_path=run_dir / "email_delivery.json",
@@ -420,6 +450,7 @@ def morning_payload(run_dir: Path) -> EmailPayload:
             "atr_qualified": atr_qualified,
             "news_research_selected": news_researched,
             "execution_data_verified": execution_verified,
+            "news_qualified": news_qualified,
         },
     )
 

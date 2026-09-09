@@ -4,6 +4,41 @@ Status: implemented as a local, research-only shadow workflow. The active Codex 
 
 ## Outcome and safety boundary
 
+### Morning delivery contract (2026-09-08, news-first)
+
+Movement, liquidity and verified prior ATR above 4% are prerequisites for research,
+not reasons to appear in the email. There is no minimum number of daily candidates.
+The report HTML, Markdown and subject count use the same `news_qualified.json` set.
+All other movers, including rejected and unresolved watches, stay in local audit
+JSON only; there are no sample watchlist names or broad sizing CSV attachments.
+
+Inclusion requires a fetched, hash-verified article with page-level publication
+metadata since the prior NYSE close, an issuer-bound event in the **body** (not
+just the headline), and the existing structured trajectory-change checks. A bare
+guidance raise additionally needs an expectations surprise or quantified growth
+context. Generic price-move stories, analyst actions, ordinary results, peer news,
+stale releases, adverse financing/corporate actions and failed fetches are excluded.
+A regulator disclosure or issuer-wire report can support human research; otherwise
+two independent reputable publishers must corroborate the same material event.
+Wire authorship and unknown first-trigger timing remain explicitly unresolved for
+execution. Research inclusion never relaxes automatic primary-source or sizing gates.
+These deterministic text checks are conservative research triage, not a complete
+semantic assessment of surprise, economic magnitude or investment merit.
+
+Google remains first for discovery. When it returns fewer direct article URLs than
+the document budget, the runner supplements it with `yfinance.Ticker.get_news`
+URL discovery. Yahoo titles, summaries, publisher labels and discovery timestamps
+are never promoted to source evidence. The normal public-HTTPS, body-hash,
+publication, issuer and source-authority checks still apply. No new dependency or
+paid news subscription is required. Both discovery modes remain bounded to 25
+ATR-qualified names and eight returned article targets per name.
+
+Zero verified candidates is a normal morning email. Missing actual timely source
+evidence is labeled **news coverage incomplete**, not “no news exists.” The report
+does not claim exhaustive market-wide coverage: names beyond the research cap
+remain unresearched. The sender rejects legacy artifacts lacking the news-qualified
+artifact and cross-checks its records against the hashed decisions.
+
 The process can:
 
 1. import a full, timestamped TradingView premarket or after-hours CSV export;
@@ -381,7 +416,7 @@ python scripts/run_episodic_pivot_shadow.py `
 
 The source manifest must come from a network research run, its run directory must match its `run_id`, and its recorded SHA-256 must match `evidence_by_symbol.json`. Arbitrary offline JSON is stamped `UNVERIFIED_REPLAY` and cannot become preview-eligible. This provides a tamper-evident local provenance chain; it is not a signature against a malicious local operator.
 
-Each run writes `manifest.json`, `candidates.json`, candidate-ID and symbol-keyed evidence files, `decisions.json`, `research_sizing_preview.json`, `research_sizing_preview.csv`, `report.md`, and a standalone `report.html`. The manifest hashes every artifact and records that publishing, staging, and broker contact did not occur. Rerunning identical offline inputs uses the same run ID. CSV cells are formula-escaped and HTML is escaped while JSON retains raw source text for audit.
+Each run writes `manifest.json`, `candidates.json`, candidate-ID and symbol-keyed evidence files, `decisions.json`, `news_qualified.json`, `research_sizing_preview.json`, `research_sizing_preview.csv`, `report.md`, and a standalone `report.html`. The manifest hashes every artifact and records that publishing, staging, and broker contact did not occur. Rerunning identical offline inputs uses the same run ID. CSV cells are formula-escaped and HTML is escaped while JSON retains raw source text for audit. Only the news-qualified report HTML/Markdown and manifest are delivered; the full decisions and sizing CSV remain local.
 
 ### Targeted IBKR carryover verification and execution enrichment
 
@@ -420,7 +455,7 @@ Capture is restricted to 04:00–09:25 ET. For each target it qualifies one USD 
 - **7:20 PM ET, Monday–Friday — night phase of `EP Night and Morning Shadow Process`:** use the signed-in Codex in-app browser to refresh the saved after-hours screen, verify its identity, required filter/column state, and displayed count, export the complete CSV, and import it with an exact timezone-aware capture time. The run stores a validated queue locally for the next NYSE session. It does not contact IBKR or news providers, and it never emails the raw night queue. A night failure leaves no usable queue and is disclosed as degraded coverage in the next morning report instead of generating a separate night email.
 - **8:20 AM ET, Monday–Friday — morning phase of `EP Night and Morning Shadow Process`:** skip non-session days; try to refresh and validate the saved premarket screen in the in-app browser; capture result counts immediately before and after the download; and import only an export matching one of those observations. On a live-count race, quarantine the first file and retry once. Independently target the validated prior-night queue through read-only IBKR with `--port auto`. Merge only successful fresh IBKR premarket rows with valid morning TradingView rows; never pass an unrefreshed after-hours row. Either source can satisfy the per-candidate current-move gate. If one source path is unavailable, continue through the other with an explicit degraded-discovery warning. Use `capture_ep_daily_yfinance.py --capture` on that verified union without consulting the local price cache.
 - **After the yfinance capture:** block ATR-unresolved, unverified adjusted-basis, and prior ATR% <=4 names before the main network news pass. Research at most the configured 25 names, using Google Programmable Search when its local credentials exist and credential-free Google News otherwise.
-- **Before the final morning report:** optionally consume the network run's hashed `refresh_targets.json` through read-only IBKR and replay verified news against both the yfinance discovery snapshot and any successful fresher IBKR rows. If this final recapture is unavailable or partial, keep the already premarket-verified yfinance/news run, label execution data unverified, and suppress entry/sizing output. The complete focused HTML report is sent as the email body; `report.html`, `report.md`, `research_sizing_preview.csv`, and `manifest.json` are attached. These are review artifacts, not order files.
+- **Before the final morning report:** optionally consume the network run's hashed `refresh_targets.json` through read-only IBKR and replay verified news against both the yfinance discovery snapshot and any successful fresher IBKR rows. If this final recapture is unavailable or partial, keep the already premarket-verified yfinance/news run, label execution data unverified, and suppress entry/sizing output. The news-qualified HTML report is sent as the email body; only `report.html`, `report.md`, and `manifest.json` are attached. These are review artifacts, not order files. Unverified movers are never a substitute for qualifying news.
 
 The news-request budget is applied only after the ATR/basis gate. Low-ATR,
 ATR-unresolved, and basis-unverified movers remain visible in the audit decisions with

@@ -153,7 +153,31 @@ def _research_counts(result: RunResult, policy: EPPolicy) -> dict[str, int]:
         "atr_qualified": int(atr_qualified),
         "news_research_selected": int(selected),
         "execution_data_verified": int(execution_verified),
+        "news_qualified": len(_news_qualified(result, policy)),
+        "news_coverage_unresolved": sum(
+            not (_RESEARCH_SKIP_BLOCKERS & set(item.blockers))
+            and "NO_ACTUAL_SOURCE_EVIDENCE" in item.catalyst.reason_codes
+            for item in result.decisions
+        ),
     }
+
+
+def _news_qualified(result: RunResult, policy: EPPolicy):
+    """The single inclusion rule for every delivered surface; no list padding."""
+    snapshots = {item.candidate_id: item.snapshot for item in result.candidates}
+    return [
+        decision
+        for decision in result.decisions
+        if decision.candidate_id in snapshots
+        and decision.catalyst.research_news_qualified
+        and decision.catalyst.publication_time_verified
+        and decision.catalyst.trajectory_change_verified
+        and not decision.catalyst.adverse_flags
+        and decision.decision != "REJECT"
+        and not (_RESEARCH_SKIP_BLOCKERS & set(decision.blockers))
+        and prior_atr_blocker(snapshots[decision.candidate_id], policy=policy) is None
+        and snapshots[decision.candidate_id].discovery_gap_pct > 0
+    ]
 
 
 def _report(result: RunResult, policy: EPPolicy) -> str:
@@ -173,6 +197,8 @@ def _report(result: RunResult, policy: EPPolicy) -> str:
         f"- Broad mover nominations: {len(result.candidates)}",
         f"- Verified prior ATR(14)% above 4%: {research_counts['atr_qualified']}",
         f"- Selected for news research: {research_counts['news_research_selected']}",
+        f"- News-qualified EP candidates: {research_counts['news_qualified']}",
+        f"- News coverage unresolved: {research_counts['news_coverage_unresolved']}",
         f"- Fresh IBKR execution-data verification: {research_counts['execution_data_verified']}",
         f"- Research sizing previews: {len(result.previews)}",
     ]
@@ -181,10 +207,17 @@ def _report(result: RunResult, policy: EPPolicy) -> str:
     if result.warnings:
         lines.extend(["", "## Coverage warnings", ""])
         lines.extend(f"- {warning}" for warning in result.warnings)
-    lines.extend(["", "## Candidate decisions", ""])
-    if not result.decisions:
-        lines.append("No nominations passed the broad premarket discovery screen.")
-    for decision in result.decisions:
+    lines.extend(["", "## News-qualified EP candidates", ""])
+    focused = _news_qualified(result, policy)
+    if not focused:
+        lines.append(
+            "No news-qualified EP candidates verified in the researched set today. This is not a claim that none exist market-wide."
+        )
+    if research_counts["news_coverage_unresolved"]:
+        lines.append(
+            "News coverage is incomplete: actual timely source evidence could not be verified for some researched movers. They are not candidates."
+        )
+    for decision in focused:
         blockers = ", ".join(decision.blockers) or "none"
         warnings = ", ".join(decision.warnings) or "none"
         lines.append(
@@ -192,6 +225,14 @@ def _report(result: RunResult, policy: EPPolicy) -> str:
             f"catalyst={decision.catalyst.catalyst_type}; "
             f"materiality={decision.catalyst.materiality_score}/5; "
             f"blockers={blockers}; warnings={warnings}."
+        )
+        lines.extend(
+            [
+                f"  News: {decision.catalyst.summary}",
+                f"  Evidence basis: {decision.catalyst.research_news_basis}",
+                f"  Business-change evidence: {decision.catalyst.research_news_excerpt}",
+                f"  Sources: {', '.join(decision.catalyst.evidence_urls)}",
+            ]
         )
     lines.extend(
         [
@@ -236,20 +277,16 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
         ),
     )
     research_counts = _research_counts(result, policy)
+    qualified_ids = {item.candidate_id for item in _news_qualified(result, policy)}
     focused = [
-        candidate
-        for candidate in ordered
-        if candidate.candidate_id in decisions
-        and not (
-            _RESEARCH_SKIP_BLOCKERS & set(decisions[candidate.candidate_id].blockers)
-        )
+        candidate for candidate in ordered if candidate.candidate_id in qualified_ids
     ]
 
     cards = [
         ("Broad movers", len(result.candidates)),
         ("ATR > 4%", research_counts["atr_qualified"]),
         ("News researched", research_counts["news_research_selected"]),
-        ("IBKR verified", research_counts["execution_data_verified"]),
+        ("News-qualified EPs", research_counts["news_qualified"]),
     ]
     card_html = "".join(
         f'<div class="metric"><span>{html.escape(label)}</span><strong>{value}</strong></div>'
@@ -340,6 +377,8 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
                 <span><b>{html.escape(snap.session)}</b> capture</span>
               </div>
               <div class="grid">
+                <section><h3>What changed in the business</h3><p>{html.escape(decision.catalyst.research_news_excerpt)}</p></section>
+                <section><h3>News verification</h3><p>{html.escape(decision.catalyst.research_news_basis)}</p></section>
                 <section><h3>Actionability</h3><p>{html.escape(actionability)}</p></section>
                 <section><h3>Why now</h3><p>{html.escape(decision.catalyst.summary or "Price/volume nomination; catalyst not yet verified.")}</p></section>
                 <section><h3>First rejection</h3><p>{html.escape(first_rejection)}</p></section>
@@ -361,20 +400,11 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
     empty = (
         ""
         if candidate_html
-        else '<div class="empty">No mover had verified prior ATR above 4% and a place in today\'s bounded news-research queue.</div>'
+        else '<div class="empty">No news-qualified EP candidates verified in the researched set today. This is not a claim that none exist market-wide.</div>'
     )
     audit_count = len(result.candidates) - len(focused)
-    focused_ids = {candidate.candidate_id for candidate in focused}
-    audit_examples = [
-        candidate for candidate in ordered if candidate.candidate_id not in focused_ids
-    ][:10]
-    audit_examples_html = "".join(
-        f"<li><b>{html.escape(candidate.snapshot.symbol)}</b> — "
-        f"{html.escape(candidate.snapshot.company_name or 'Company name unavailable')}</li>"
-        for candidate in audit_examples
-    )
     audit_html = (
-        f'<div class="audit"><b>{audit_count}</b> additional broad mover(s) were retained in the hashed audit files but omitted from this focused email because ATR was low/unresolved or the 25-name research cap was reached.<ul>{audit_examples_html}</ul></div>'
+        f'<div class="audit"><b>{audit_count}</b> other movers remain in local audit files only. Movement, liquidity, ATR qualification, or a place in the research queue is not qualifying news. No unverified watchlist is attached.</div>'
         if audit_count
         else ""
     )
@@ -390,6 +420,12 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
         if result.warnings
         else ""
     )
+    if research_counts["news_coverage_unresolved"]:
+        run_warning_banner += (
+            '<div class="coverage"><b>News coverage incomplete.</b> Timely actual-source evidence '
+            f"could not be verified for {research_counts['news_coverage_unresolved']} researched mover(s). "
+            "These are unresolved research, not EP candidates. A zero shortlist does not establish that no qualifying events occurred.</div>"
+        )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EP research triage · {html.escape(result.run_id)}</title>
@@ -490,6 +526,10 @@ def write_run_artifacts(
         },
     )
     _json_dump(root / "decisions.json", [item.to_dict() for item in result.decisions])
+    _json_dump(
+        root / "news_qualified.json",
+        [item.to_dict() for item in _news_qualified(result, policy)],
+    )
     refresh_targets = _refresh_targets(result)
     _json_dump(root / "refresh_targets.json", refresh_targets)
     preview_rows = [item.to_dict() for item in result.previews]
@@ -520,6 +560,7 @@ def write_run_artifacts(
         "evidence.json",
         "evidence_by_symbol.json",
         "decisions.json",
+        "news_qualified.json",
         "refresh_targets.json",
         "research_sizing_preview.json",
         "research_sizing_preview.csv",

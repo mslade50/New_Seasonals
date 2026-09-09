@@ -241,6 +241,10 @@ class CatalystAssessment:
     primary_source_confirmed: bool = False
     publication_time_verified: bool = False
     trajectory_change_verified: bool = False
+    # Reader-facing research gate, deliberately separate from execution approval.
+    research_news_qualified: bool = False
+    research_news_basis: str = ""
+    research_news_excerpt: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
