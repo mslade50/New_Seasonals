@@ -96,7 +96,16 @@ and following-morning consumption remain to be observed after activation.
   rather than the R2 input directory. The path now follows the same input-constant
   pattern as other source artifacts. Regression fixtures separate R2 input and
   site output folders; 40 focused tests and JavaScript freshness checks passed.
-  Deployment of this final card correction is pending.
+  PR #43 passed both GitHub checks and merged as
+  `c5568577f2843fe2591c62111975be1e6e848195`.
+- Final cloud run `34508728737` passed all generation, R2 provenance, freshness,
+  and deployment stages. Cloudflare production deployment
+  `ecc0cfe5-0647-401b-b439-34a52be62567` serves that exact main commit.
+  Authenticated Status QA shows CBOE FRESH through September 9, with equity
+  0.67, total 0.88 and index 0.95. These agree with the authoritative R2 cache.
+  Portfolio, Seasonal and Execution were reloaded and visually checked on the
+  final deployment; Execution is online. This checks rendering/connectivity,
+  not order submission or fill behavior.
 - No daily scan, trading runner, existing-order modification or email was
   started during activation. The real 16:05 capture and next-morning use are
   future scheduled events, not yet observed successes.
