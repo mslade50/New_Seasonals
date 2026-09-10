@@ -404,7 +404,10 @@ def validate_source_completeness(payload: dict, *, now=None, required_account="p
     received = pd.Timestamp(account.get("received_at"))
     if pd.isna(received) or received.tzinfo is None:
         raise RuntimeError("Primary fill receipt timestamp is invalid")
-    if any(not 0 <= (now - value).total_seconds() <= 300 for value in (stamp, received)):
+    # Source timestamps come from this broker machine; relay receipts come
+    # from Cloudflare. Permit bounded relay clock skew, never older data.
+    if (not 0 <= (now - stamp).total_seconds() <= 300
+            or not -5 <= (now - received).total_seconds() <= 300):
         raise RuntimeError("broker fill source is stale or future-dated")
 
 
