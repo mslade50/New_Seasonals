@@ -13,6 +13,8 @@ HASHES={
 
 
 def patch_collector(source):
+    source=replace_once(source,'        "expiry_full": str(expiry_full),',
+        '        "expiry_full": str(expiry_full),\n        "contract_exchange": getattr(c, "exchange", "") or "",')
     source=replace_once(source,'            executions = ib.reqExecutions()', '''            if acc['key'] == 'primary':
                 try:
                     from inventory_snapshot_inputs import query_start
@@ -26,6 +28,12 @@ def patch_collector(source):
             out['entry_metadata'] = entry_metadata(os.path.join(os.path.dirname(__file__), 'staged_orders.csv'), out)
         except Exception as exc:
             out['entry_metadata_error'] = type(exc).__name__
+    if acc['key'] == 'primary' and out.get('fills_complete') is True:
+        try:
+            from inventory_snapshot_inputs import gateway_olv_coverage
+            out['fills_olv_coverage'] = gateway_olv_coverage(out, os.path.join(os.path.dirname(__file__), 'inventory_history_policy.json'))
+        except Exception as exc:
+            out['fills_olv_coverage_error'] = type(exc).__name__
     return out
 
 

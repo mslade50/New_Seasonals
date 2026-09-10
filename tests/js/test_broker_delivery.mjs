@@ -97,4 +97,25 @@ await test('inventory receipt retains matching book and immutable active entry m
   assert.equal(receipt.book.accounts[0].entry_metadata[ref].atr,2);
   assert.equal(receipt.book.accounts[0].entry_metadata_error,'frozen input metadata changed');
 });
+await test('read-only observation refreshes fills without activating command agent or UI book',async()=>{
+  const x=make();x.offline();const now=Date.now();
+  const oldBook={at:now-10000,accounts:[]};x.memory.set('book',oldBook);
+  const account={key:'primary',broker_account:'fixture-primary',fills_complete:true,
+    fills_source_at:now,fills_query_from:new Date(now-10000).toISOString(),fills:[],orders:[],positions:[]};
+  const request=(body,token='agent-fixture')=>new Request('https://fixture.invalid/inventory-observation',
+    {method:'POST',headers:{Authorization:'Bearer '+token},body:JSON.stringify(body)});
+  assert.equal((await x.broker.fetch(request({accounts:[account]},'wrong'))).status,401);
+  for(const body of [{accounts:{}},{accounts:[{...account,fills_source_at:now+60000}]},
+    {accounts:[{...account,fills_source_at:now-100000}]},{accounts:[{...account,orders:null}]}])
+    assert.equal((await x.broker.fetch(request(body))).status,400);
+  const result=await(await x.broker.fetch(request({at:now,accounts:[account]}))).json();
+  assert.equal(result.ok,true);assert.equal(x.calls(),0);
+  assert.deepEqual(x.memory.get('book'),oldBook);
+  assert.equal(x.memory.get('fill_receipt').accounts.primary.complete,true);
+  const before=x.memory.get('fill_receipt').accounts.primary.source_at;
+  await x.broker._mergeFills({at:now-5000,accounts:[{...account,fills_source_at:now-5000,orders:[{old:true}]}]});
+  assert.equal(x.memory.get('fill_receipt').accounts.primary.source_at,before);
+  assert.equal(x.memory.get('fill_receipt').book.accounts[0].orders.length,0);
+  assert.equal((await(await x.broker.fetch(request({at:now-5000,accounts:[{...account,fills_source_at:now-5000}]}))).json()).superseded,true);
+});
 if(failures.length)throw Error(failures.join('\n'));

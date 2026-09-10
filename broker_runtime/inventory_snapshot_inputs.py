@@ -12,9 +12,8 @@ from zoneinfo import ZoneInfo
 def query_start(stamp, policy_path, account):
     """No requested lookback is treated as proof of a configured TWS setting.
 
-    The reviewed policy pins the exact TWS settings file, timezone and broker
-    account. With no seven-day proof, coverage is current-day only. An absent
-    policy cannot attest even the account's midnight/timezone boundary.
+    Gateway policies attest current-day coverage only. Optional TWS policies
+    must pin the actual settings file. Both require reviewed account/timezone.
     """
     import xml.etree.ElementTree as ET
     if stamp.tzinfo is None:raise ValueError('execution observation must include timezone')
@@ -23,6 +22,9 @@ def query_start(stamp, policy_path, account):
         raise ValueError('execution-history account/timezone policy is unreviewed')
     zone=ZoneInfo(policy['timezone'])
     days=1
+    if policy.get('source') == 'gateway':
+        if policy.get('settings_path') or int(policy.get('lookback_days', 1)) != 1:
+            raise ValueError('Gateway coverage cannot use TWS settings or attest historical queries')
     if policy.get('settings_path'):
         tree=ET.parse(policy['settings_path'])
         settings=[int(e.attrib['tradeLogShowLastNDays']) for e in tree.iter() if 'tradeLogShowLastNDays' in e.attrib]
@@ -33,6 +35,44 @@ def query_start(stamp, policy_path, account):
     local=stamp.astimezone(zone)
     start=local.replace(hour=0,minute=0,second=0,microsecond=0)-dt.timedelta(days=days-1)
     return start.astimezone(dt.timezone.utc).isoformat()
+
+
+def gateway_olv_coverage(snapshot, policy_path):
+    """Scope closed-session bridging to the reviewed non-overnight OLV route.
+
+    This is not whole-account/futures/overnight execution coverage. Require a
+    completed query after 20:00 ET on each intervening NYSE trading date.
+    """
+    policy=json.loads(Path(policy_path).read_text(encoding='utf-8-sig'))
+    if (policy.get('source')!='gateway' or policy.get('broker_account')!=snapshot.get('broker_account')
+            or policy.get('review',{}).get('status')!='approved'
+            or policy.get('strategy_scope')!=['Oversold Low Volume']
+            or policy.get('timezone')!='America/New_York'):
+        raise ValueError('Gateway OLV session policy is unreviewed')
+    zone=ZoneInfo('America/New_York')
+    if snapshot.get('fills_complete') is not True or snapshot.get('error'):
+        raise ValueError('Gateway execution query did not complete')
+    at=dt.datetime.fromtimestamp(snapshot['fills_source_at']/1000,dt.timezone.utc).astimezone(zone)
+    def olv(row):return str(row.get('order_ref') or '').split('|')[2:3]==['Oversold Low Volume']
+    for row in snapshot['orders']:
+        if olv(row) and (row.get('sec_type')!='STK' or row.get('currency')!='USD'
+                or row.get('contract_exchange')!='SMART' or row.get('tif') not in {'DAY','GTC','GTD','OPG','IOC'}):
+            raise ValueError('OLV working order is outside the reviewed non-overnight route')
+    for row in snapshot['fills']:
+        if not olv(row):continue
+        stamp=dt.datetime.fromisoformat(row['time'].replace('Z','+00:00'))
+        if stamp.tzinfo is None:
+            raise ValueError('OLV execution timezone is unavailable')
+        stamp=stamp.astimezone(zone)
+        if (row.get('sec_type')!='STK' or row.get('currency')!='USD'
+                or row.get('account')!=snapshot['broker_account']
+                or not dt.time(4)<=stamp.time()<dt.time(20)
+                or str(row.get('exchange') or '').upper() in {'OVERNIGHT','IBEOS','BLUEOCEAN'}):
+            raise ValueError('OLV execution is outside the reviewed session scope')
+    from equity_sessions import calendar
+    prior=calendar().date_to_session(str(at.date()-dt.timedelta(days=1)),direction='previous')
+    close=dt.datetime.combine(prior.date(),dt.time(20),zone)
+    return {'scope':'OLV_US_STK_NON_OVERNIGHT','prior_session_close':close.astimezone(dt.timezone.utc).isoformat()}
 
 
 def entry_metadata(path, account_snapshot):

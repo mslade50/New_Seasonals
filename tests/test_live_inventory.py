@@ -66,3 +66,15 @@ def test_untagged_discretionary_sale_is_not_assigned_to_algo(tmp_path):
     assert result.status=='known' and result.tranches[0]['signed_qty']==100
     payload['book']['accounts'][0]['positions'][0]['position']=80
     assert read(path,payload,now).status=='unknown'
+
+
+def test_gateway_scope_never_attests_other_algorithms(tmp_path):
+    _,path,payload,now=fixture(tmp_path)
+    primary=payload['completeness']['accounts']['primary']
+    primary.update(olv_continuous_from=primary['continuous_from'],
+                   olv_coverage={'scope':'OLV_US_STK_NON_OVERNIGHT'},
+                   continuous_from=(now-pd.Timedelta(minutes=1)).isoformat())
+    assert read(path,payload,now).status=='known'
+    result=load_actual_inventory(seed_path=path,fills_loader=lambda *a:payload,asof=now,
+        algo_strategies={STRATEGY,'another algorithm'},canonical_loader=lambda:(_ for _ in ()).throw(ValueError('gap')))
+    assert result.status=='unknown'

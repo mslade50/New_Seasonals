@@ -1064,6 +1064,11 @@ def hydrate_environment(
     env = dict(base_env if base_env is not None else os.environ)
     env.update(_parse_env_file(config_root.resolve() / ".env"))
     env.update(_parse_env_file(exec_env_path.resolve()))
+    # Uses the existing broker interpreter and read-only collector on demand;
+    # no command-agent restart or trading runner is involved.
+    snapshot_path=exec_env_path.resolve().parent / 'book_snapshot.py'
+    if snapshot_path.is_file():
+        env.setdefault('INVENTORY_SNAPSHOT_PATH',str(snapshot_path))
 
     if not gcp_json_path.is_file():
         raise AutomationError(f"required GCP JSON file is missing: {gcp_json_path}")

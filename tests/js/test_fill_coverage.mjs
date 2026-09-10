@@ -11,3 +11,20 @@ assert.equal(extend(a,{...receipt(null,'2026-09-09T15:00:00Z')}).complete,false)
 assert.equal(extend(a,{...receipt('2026-09-09T00:00:00Z','2026-09-09T15:00:00Z'),broker_account:'PA'}).continuous_from,'2026-09-09T00:00:00.000Z');
 assert.equal(extend(a,{...receipt('2026-09-03T00:00:00Z','2026-09-09T15:00:00Z'),complete:false}).continuous_from,null);
 console.log('PASS explicit overlapping coverage, gaps, account isolation and source failures');
+const scoped=(day,end,prior)=>({...receipt(day+'T04:00:00Z',end),
+  olv_coverage:{scope:'OLV_US_STK_NON_OVERNIGHT',prior_session_close:prior}});
+// Friday through Labor Day to Tuesday: only the OLV stock scope bridges.
+const fri=extend(null,scoped('2026-09-04','2026-09-05T00:10:00Z','2026-09-04T00:00:00Z'));
+const tueInput=scoped('2026-09-08','2026-09-08T10:00:00Z','2026-09-05T00:00:00Z');
+const tue=extend(fri,tueInput);
+assert.equal(tue.olv_continuous_from,fri.olv_continuous_from);
+assert.equal(tue.continuous_from,'2026-09-08T04:00:00.000Z');
+assert.equal(extend({...fri,complete_through:'2026-09-04T23:59:00Z'},tueInput).olv_continuous_from,tueInput.query_from.replace('Z','.000Z'));
+const wed=extend(fri,scoped('2026-09-09','2026-09-09T10:00:00Z','2026-09-09T00:00:00Z'));
+assert.equal(wed.olv_continuous_from,'2026-09-09T04:00:00.000Z','missed Tuesday cannot be bridged');
+assert.equal(extend(fri,{...tueInput,broker_account:'PA'}).olv_continuous_from,'2026-09-08T04:00:00.000Z');
+const failed=extend(fri,{...tueInput,complete:false});
+assert.equal(extend(failed,tueInput).olv_continuous_from,fri.olv_continuous_from);
+assert.equal(extend(extend(fri,{...tueInput,query_from:null}),tueInput).olv_continuous_from,fri.olv_continuous_from);
+assert.equal(extend(fri,{...tueInput,olv_coverage:null}).olv_continuous_from,undefined);
+console.log('PASS Gateway scoped continuity, holiday, missing session and recovery');
