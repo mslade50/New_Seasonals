@@ -64,10 +64,16 @@ and following-morning consumption remain to be observed after activation.
 - PR #40 merged at `f0793c0ed075f3010325c3b1c43c2ff966dba9a5` after both
   GitHub checks passed. Local verification passed 269 Python tests and the
   JavaScript status/freshness checks.
-- The installed v9 runtime advanced only this fix from its prior version to
+- The initial v9 promotion advanced only this fix from its prior version to
   `c06a37ab86d0352abb6fa1b9d5e3da0d11094d1f`, tagged
   `automation-runtime-2026-09-10.1`. The separate scoped candidate passed
   188 targeted tests. Unrelated changes from main were not promoted.
+- The final bookend correction is installed at
+  `6d214733041fff1c7f942f5e595927c86b855d4b`, tagged
+  `automation-runtime-2026-09-10.2`. It makes evening and morning scans use
+  the same completed-session capture. All 58 follow-up tests passed on both
+  the review and runtime candidates. Premarket, postclose and capture runtime
+  validation passed without executing their jobs.
 - Runtime-only validation passed for both `premarket` and `inventory-close`.
   `New Seasonals Local v9 - inventory-close` is enabled, with its first run
   scheduled for September 10 at 16:05 ET. The existing eight tasks remain enabled.
