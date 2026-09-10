@@ -4,6 +4,34 @@ Status: implemented as a local, research-only shadow workflow. The active Codex 
 
 ## Outcome and safety boundary
 
+### Morning discovery recovery (2026-09-09)
+
+A premarket browser count race must not be confused with bad per-stock market
+data. The normal exact-count path stays unchanged. If a premarket export fails
+only count reconciliation, retry its import with
+`--allow-count-mismatch-for-ibkr`. This accepts only non-short exports with both
+positive observed counts and all normal CSV, identity and capture checks intact.
+It records `COUNT_MISMATCH_IBKR_SEED_ONLY`, `result_count_verified=false` and no
+verified premarket move. It does **not** assert complete discovery coverage.
+
+Send that seed file to `capture_ep_premarket_ibkr.py --symbols-from <seed-file>
+--max-captured 150 --port auto --capture`. The adapter replays the retained CSV
+and compares the entire import before accepting ticker targets. The broad rule
+only prioritizes this bounded refresh; only fresh independently verified IBKR
+premarket rows can pass to yfinance/ATR/news. Never pass the seed file itself to
+daily enrichment or report generation. Its discovery warning follows the IBKR
+snapshot into the normal morning report. Unverified or failed IBKR rows stay out.
+
+Use this recovery immediately on the first count-only failure to avoid spending
+the capture window repeatedly downloading a moving universe. A malformed,
+short, unauthenticated, wrongly identified or out-of-window export cannot use
+this recovery. Night imports retain exact-count requirements. If combining a
+seed with the night queue would exceed 150 broad targets, prioritize the morning
+seed as a standalone bounded capture and disclose omitted carryover coverage;
+never truncate an oversized seed or exceed the aggregate 150-name IBKR budget.
+If the morning seed itself exceeds capacity, use a valid independently bounded
+night path or fail closed. No nightly or retrospective report is sent by this fix.
+
 ### Morning delivery contract (2026-09-08, news-first)
 
 Movement, liquidity and verified prior ATR above 4% are prerequisites for research,
@@ -345,7 +373,7 @@ python scripts/import_tradingview_ep.py `
   --write-artifact
 ```
 
-After-hours captures map to the next actual NYSE session; Friday and pre–Good Friday exports therefore map through the weekend correctly. A header-only export with a displayed count of zero is a valid completed scan. Read the live result count immediately before and immediately after each download attempt and pass both to the importer. The CSV must match at least one observation, and the two observations may differ by no more than one row. If the first attempt races the live screen and does not match, quarantine that file and perform one bounded second attempt with a fresh before/after count pair and exactly one new file for that attempt. If the retry also fails, stop. An export containing fewer rows than an observed count is incomplete; a larger observation swing or a CSV matching neither endpoint is ambiguous. Duplicate symbols, malformed numbers, missing session-specific fields, timezone-less captures, non-trading dates, and out-of-window captures also fail the whole import. TradingView rows are stamped `BROWSER_EXPORT`, `tradeable=false`, unknown halt state, and no bid/ask/VWAP/contract or ATR data. They can nominate research targets but can never create a sizing preview. The required daily order is TradingView discovery -> fresh yfinance daily enrichment -> prior ATR% gate -> news research -> optional read-only IBKR execution enrichment.
+After-hours captures map to the next actual NYSE session; Friday and pre–Good Friday exports therefore map through the weekend correctly. A header-only export with a displayed count of zero is a valid completed scan. Read the live result count immediately before and immediately after each download attempt and pass both to the importer. The CSV must match at least one observation, and the two observations may differ by no more than one row. If the first attempt races the live screen and does not match, quarantine that file and perform one bounded second attempt with a fresh before/after count pair and exactly one new file for that attempt. If the retry also fails, stop the exact-count import path. For premarket-only non-short count mismatches, use the explicitly unverified IBKR-seed recovery above; it is not a count-verified import. An export containing fewer rows than an observed count is incomplete; a larger observation swing or a CSV matching neither endpoint is ambiguous. Duplicate symbols, malformed numbers, missing session-specific fields, timezone-less captures, non-trading dates, and out-of-window captures also fail the whole import. TradingView rows are stamped `BROWSER_EXPORT`, `tradeable=false`, unknown halt state, and no bid/ask/VWAP/contract or ATR data. They can nominate research targets but can never create a sizing preview. The required daily order is TradingView discovery -> fresh yfinance daily enrichment -> prior ATR% gate -> news research -> optional read-only IBKR execution enrichment.
 
 ### Fresh yfinance prior-ATR enrichment
 
@@ -453,7 +481,7 @@ Capture is restricted to 04:00–09:25 ET. For each target it qualifies one USD 
 ### 4. Automation-ready shadow cadence
 
 - **7:20 PM ET, Monday–Friday — night phase of `EP Night and Morning Shadow Process`:** use the signed-in Codex in-app browser to refresh the saved after-hours screen, verify its identity, required filter/column state, and displayed count, export the complete CSV, and import it with an exact timezone-aware capture time. The run stores a validated queue locally for the next NYSE session. It does not contact IBKR or news providers, and it never emails the raw night queue. A night failure leaves no usable queue and is disclosed as degraded coverage in the next morning report instead of generating a separate night email.
-- **8:20 AM ET, Monday–Friday — morning phase of `EP Night and Morning Shadow Process`:** skip non-session days; try to refresh and validate the saved premarket screen in the in-app browser; capture result counts immediately before and after the download; and import only an export matching one of those observations. On a live-count race, quarantine the first file and retry once. Independently target the validated prior-night queue through read-only IBKR with `--port auto`. Merge only successful fresh IBKR premarket rows with valid morning TradingView rows; never pass an unrefreshed after-hours row. Either source can satisfy the per-candidate current-move gate. If one source path is unavailable, continue through the other with an explicit degraded-discovery warning. Use `capture_ep_daily_yfinance.py --capture` on that verified union without consulting the local price cache.
+- **8:20 AM ET, Monday–Friday — morning phase of `EP Night and Morning Shadow Process`:** skip non-session days; try to refresh and validate the saved premarket screen in the in-app browser; capture result counts immediately before and after the download; and import only an export matching one of those observations. On a live-count race, first try the IBKR-seed recovery above using the same retained file. Retry the browser once only if that recovery is ineligible; never promote seed prices into verified TradingView rows. Independently target the validated prior-night queue through read-only IBKR with `--port auto`. Merge only successful fresh IBKR premarket rows with valid morning TradingView rows; never pass an unrefreshed after-hours row. Either source can satisfy the per-candidate current-move gate. If one source path is unavailable, continue through the other with an explicit degraded-discovery warning. Use `capture_ep_daily_yfinance.py --capture` on that verified union without consulting the local price cache.
 - **After the yfinance capture:** block ATR-unresolved, unverified adjusted-basis, and prior ATR% <=4 names before the main network news pass. Research at most the configured 25 names, using Google Programmable Search when its local credentials exist and credential-free Google News otherwise.
 - **Before the final morning report:** optionally consume the network run's hashed `refresh_targets.json` through read-only IBKR and replay verified news against both the yfinance discovery snapshot and any successful fresher IBKR rows. If this final recapture is unavailable or partial, keep the already premarket-verified yfinance/news run, label execution data unverified, and suppress entry/sizing output. The news-qualified HTML report is sent as the email body; only `report.html`, `report.md`, and `manifest.json` are attached. These are review artifacts, not order files. Unverified movers are never a substitute for qualifying news.
 

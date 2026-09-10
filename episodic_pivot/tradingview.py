@@ -34,6 +34,7 @@ _SUFFIXES = {
 
 RESULT_COUNT_EXACT = "EXACT_MATCH"
 RESULT_COUNT_UNVERIFIED = "NOT_INDEPENDENTLY_OBSERVED"
+RESULT_COUNT_IBKR_SEED = "COUNT_MISMATCH_IBKR_SEED_ONLY"
 _EXPECTED_SCREEN_IDS = {
     "premarket": "yftOvM3e",
     "after_hours": "Hqgnyp7Y",
@@ -444,6 +445,7 @@ def import_tradingview_csv(
     saved_screen_id: str,
     reported_result_count: int | None = None,
     post_download_result_count: int | None = None,
+    allow_count_mismatch_for_ibkr: bool = False,
 ) -> TradingViewImport:
     source = Path(path).resolve()
     if not source.is_file():
@@ -480,11 +482,26 @@ def import_tradingview_csv(
         ]
 
     extracted = len(rows)
-    count_status = result_count_verification(
-        reported_result_count,
-        extracted,
-        post_download_result_count=post_download_result_count,
-    )
+    try:
+        count_status = result_count_verification(
+            reported_result_count,
+            extracted,
+            post_download_result_count=post_download_result_count,
+        )
+    except TradingViewImportError:
+        # A live count disagreement need not destroy ticker discovery. It does
+        # NOT establish completeness or verify any price: these rows can only
+        # seed an independent bounded IBKR capture. Short exports still fail.
+        if not (
+            allow_count_mismatch_for_ibkr
+            and session == "premarket"
+            and reported_result_count is not None
+            and post_download_result_count is not None
+            and min(reported_result_count, post_download_result_count) > 0
+            and extracted >= max(reported_result_count, post_download_result_count)
+        ):
+            raise
+        count_status = RESULT_COUNT_IBKR_SEED
     reported = int(reported_result_count) if reported_result_count is not None else None
     freeze_premarket_move = session == "premarket" and result_counts_are_verified(
         reported_result_count=reported_result_count,
@@ -537,9 +554,7 @@ def import_tradingview_csv(
             else None
         ),
         extracted_row_count=extracted,
-        result_count_verified=(
-            reported_result_count is not None or post_download_result_count is not None
-        ),
+        result_count_verified=(count_status == RESULT_COUNT_EXACT),
         result_count_verification=count_status,
         snapshots=snapshots,
     )

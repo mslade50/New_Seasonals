@@ -558,7 +558,10 @@ def test_yfinance_capture_rejects_unrefreshed_after_hours_rows(tmp_path: Path):
         yfinance_main(["--snapshot", str(source)])
 
 
-def test_yfinance_capture_marks_ibkr_only_discovery_as_degraded(tmp_path: Path):
+@pytest.mark.parametrize("count_recovery", [False, True])
+def test_yfinance_capture_marks_ibkr_only_discovery_as_degraded(
+    tmp_path: Path, count_recovery
+):
     source = tmp_path / "ibkr-only.json"
     snapshot = _snapshot(
         "IBKR",
@@ -578,6 +581,15 @@ def test_yfinance_capture_marks_ibkr_only_discovery_as_degraded(tmp_path: Path):
                 "captured_at": "2026-08-25T12:21:00Z",
                 "target_session_date": TARGET_DATE.isoformat(),
                 "connection": {"readonly": True},
+                "inputs": (
+                    [
+                        {
+                            "discovery_warning": "TRADINGVIEW_COUNT_MISMATCH_IBKR_REVERIFIED_ONLY"
+                        }
+                    ]
+                    if count_recovery
+                    else []
+                ),
                 "coverage": {
                     "mode": "TARGETED_TRADINGVIEW_CANDIDATES",
                     "input_candidate_complete": True,
@@ -591,4 +603,11 @@ def test_yfinance_capture_marks_ibkr_only_discovery_as_degraded(tmp_path: Path):
     snapshots, _, _, _, warnings = _load_discovery_inputs([source])
 
     assert [item.symbol for item in snapshots] == ["IBKR"]
-    assert warnings == ("TRADINGVIEW_PREMARKET_NOT_INCLUDED",)
+    assert warnings == (
+        (
+            "TRADINGVIEW_COUNT_MISMATCH_IBKR_REVERIFIED_ONLY",
+            "TRADINGVIEW_PREMARKET_NOT_INCLUDED",
+        )
+        if count_recovery
+        else ("TRADINGVIEW_PREMARKET_NOT_INCLUDED",)
+    )

@@ -123,6 +123,13 @@ def _load_discovery_inputs(
                 raise ValueError("IBKR input is not a targeted read-only refresh")
             if coverage.get("input_candidate_complete") is not True:
                 warnings.add("IBKR_PARTIAL_CARRYOVER_COVERAGE")
+            if any(
+                isinstance(item, dict)
+                and item.get("discovery_warning")
+                == "TRADINGVIEW_COUNT_MISMATCH_IBKR_REVERIFIED_ONLY"
+                for item in raw.get("inputs", [])
+            ):
+                warnings.add("TRADINGVIEW_COUNT_MISMATCH_IBKR_REVERIFIED_ONLY")
         wrapper_date = str(raw.get("target_session_date", "")).strip()
         if not wrapper_date and is_ibkr:
             row_dates = {

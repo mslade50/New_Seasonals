@@ -28,7 +28,11 @@ from episodic_pivot.daily_prices import calculate_prior_daily_metrics
 from episodic_pivot.manifest import sha256_file
 from episodic_pivot.premarket import nominate_candidates, premarket_move_is_verified
 from episodic_pivot.schema import PremarketSnapshot, parse_timestamp
-from episodic_pivot.tradingview import result_counts_are_verified
+from episodic_pivot.tradingview import (
+    RESULT_COUNT_IBKR_SEED,
+    import_tradingview_csv,
+    result_counts_are_verified,
+)
 
 _NY = ZoneInfo("America/New_York")
 _MARKET_DATA_STATUS = {
@@ -353,15 +357,37 @@ def _validated_target_wrapper(
         wrapper_session = str(raw.get("session", "")).strip().lower()
         wrapper_screen = str(raw.get("saved_screen_id", "")).strip()
         extracted = raw.get("extracted_row_count")
-        if (
-            _TRADINGVIEW_SCREEN_BY_SESSION.get(wrapper_session) != wrapper_screen
-            or raw.get("result_count_verified") is not True
-            or not result_counts_are_verified(
+        seed_only = raw.get("result_count_verification") == RESULT_COUNT_IBKR_SEED
+        if seed_only:
+            # Replay the retained CSV, not just a flag supplied in JSON. This
+            # verifies the digest, identities, timestamps and unverified rows.
+            replay = import_tradingview_csv(
+                raw.get("source_file", ""),
+                session=wrapper_session,
+                captured_at=raw.get("captured_at", ""),
+                saved_screen_id=wrapper_screen,
                 reported_result_count=raw.get("reported_result_count"),
                 post_download_result_count=raw.get("post_download_result_count"),
-                extracted_row_count=extracted,
-                verification_status=raw.get("result_count_verification"),
-                require_both_observations=True,
+                allow_count_mismatch_for_ibkr=True,
+            )
+            if replay.to_dict() != raw:
+                raise ValueError("IBKR seed provenance differs from retained CSV")
+        if (
+            _TRADINGVIEW_SCREEN_BY_SESSION.get(wrapper_session) != wrapper_screen
+            or (
+                not seed_only
+                and (
+                    raw.get("result_count_verified") is not True
+                    or not result_counts_are_verified(
+                        reported_result_count=raw.get("reported_result_count"),
+                        post_download_result_count=raw.get(
+                            "post_download_result_count"
+                        ),
+                        extracted_row_count=extracted,
+                        verification_status=raw.get("result_count_verification"),
+                        require_both_observations=True,
+                    )
+                )
             )
             or extracted != len(rows)
         ):
@@ -415,6 +441,10 @@ def _validated_target_wrapper(
         "sha256": sha256_file(path),
         "record_type": input_type,
     }
+    if provider == "TRADINGVIEW" and seed_only:
+        input_record["discovery_warning"] = (
+            "TRADINGVIEW_COUNT_MISMATCH_IBKR_REVERIFIED_ONLY"
+        )
     return rows, wrapper_date, input_record
 
 

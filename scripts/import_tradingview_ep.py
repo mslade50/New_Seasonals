@@ -42,6 +42,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument(
+        "--allow-count-mismatch-for-ibkr",
+        action="store_true",
+        help="retain a non-short premarket count mismatch only as IBKR ticker seeds; never verified market data",
+    )
+    parser.add_argument(
         "--write-artifact",
         action="store_true",
         help="write the normalized local JSON; never performs research, broker, or production actions",
@@ -59,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
             saved_screen_id=args.screen_id,
             reported_result_count=args.reported_count,
             post_download_result_count=args.post_download_count,
+            allow_count_mismatch_for_ibkr=args.allow_count_mismatch_for_ibkr,
         )
     except (OSError, TradingViewImportError) as exc:
         raise SystemExit(f"TradingView import rejected: {exc}") from exc
@@ -72,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
         f"Validated {result.extracted_row_count} row(s) for "
         f"{result.target_session_date}; displayed count {verification}."
     )
+    if result.result_count_verification == "COUNT_MISMATCH_IBKR_SEED_ONLY":
+        print(
+            "Discovery coverage unverified. IBKR ticker seeds only; fresh IBKR premarket verification is mandatory before ATR/news."
+        )
     if not args.write_artifact:
         print(
             "Dry run only: no file was written. Add --write-artifact to create a local snapshot JSON."
