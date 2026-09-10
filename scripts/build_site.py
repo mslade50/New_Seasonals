@@ -116,6 +116,7 @@ FUNDAMENTAL_MAPS = os.path.join(
 SECTOR_MAP = os.path.join(_ROOT, "data", "sector_map.parquet")
 MASTER_PRICES = os.path.join(_ROOT, "data", "master_prices.parquet")
 EARNINGS = os.path.join(_ROOT, "data", "earnings_calendar.parquet")
+CBOE_PUTCALL = os.path.join(_ROOT, "data", "cboe_putcall.parquet")
 EXPOSURE_STATE = os.path.join(_ROOT, "data", "exposure_state.json")
 SITE_SRC = os.path.join(_ROOT, "site")
 
@@ -1630,7 +1631,7 @@ def build_health(sig, data_dir, ideas=None, *, build_id, built_at):
     # CBOE scraping is judged by complete source-session observations, never
     # the download time (a fresh R2 copy can still contain old/partial data).
     try:
-        pc = pd.read_parquet(os.path.join(data_dir, "cboe_putcall.parquet"))
+        pc = pd.read_parquet(CBOE_PUTCALL)
         pc.index = pd.to_datetime(pc.index, errors="coerce").tz_localize(None).normalize()
         fields = ["equity", "total", "index"]
         ratios = pc[fields].apply(pd.to_numeric, errors="coerce")
