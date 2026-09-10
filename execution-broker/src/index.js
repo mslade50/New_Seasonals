@@ -200,6 +200,33 @@ export class ExecBroker extends DurableObject {
       return Response.json({ commands, server_now: Date.now() });
     }
 
+    // A read-only collector can refresh inventory while the command agent is
+    // offline. This does not connect an agent or change the site's trading book.
+    if (url.pathname === '/inventory-observation' && request.method === 'POST') {
+      if (!this._authed(request,this.env.AGENT_TOKEN)) return new Response('unauthorized',{status:401});
+      let book;
+      try {
+        const body=await request.text();
+        if(body.length>2000000)return new Response('observation too large',{status:413});
+        book=JSON.parse(body);
+      } catch {return new Response('invalid JSON',{status:400});}
+      const primary=Array.isArray(book?.accounts)?book.accounts.filter(a=>a?.key==='primary'):null;
+      if(primary?.length!==1 || !primary[0].broker_account || primary[0].fills_complete!==true)
+        return new Response('complete Primary observation required',{status:400});
+      const account=primary[0], source=Number(account.fills_source_at), now=Date.now();
+      if(account.error || account.fills_error || !Number.isFinite(source) || now-source>90000 || source>now+5000
+          || !Number.isFinite(Date.parse(account.fills_query_from || ''))
+          || !['fills','orders','positions'].every(k=>Array.isArray(account[k])))
+        return new Response('fresh coherent Primary observation required',{status:400});
+      book={at:book.at,accounts:[account]};
+      const previous=await this.ctx.storage.get('fill_receipt');
+      if(Number(primary[0].fills_source_at)<Date.parse(previous?.accounts?.primary?.source_at || ''))
+        return Response.json({ok:true,superseded:true});
+      await this._mergeFills(book);
+      const receipt=await this.ctx.storage.get('fill_receipt');
+      return Response.json({ok:receipt?.accounts?.primary?.complete===true});
+    }
+
     // --- Live book (positions / orders / NLV) the site polls ---
     if (url.pathname === "/book") {
       if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
@@ -226,6 +253,8 @@ export class ExecBroker extends DurableObject {
         if (value.continuous_from && Date.parse(value.continuous_from)<Date.parse(cutoff)) {
           value.continuous_from=new Date(cutoff).toISOString();
         }
+        if(value.olv_continuous_from && Date.parse(value.olv_continuous_from)<Date.parse(cutoff))
+          value.olv_continuous_from=new Date(cutoff).toISOString();
       }
       const incompleteDays=[...legacy.keys()].map(k=>k.slice("fill_incomplete:".length)).filter(d=>d>=cutoff);
       const mergeError=await this.ctx.storage.get("fill_merge_error");
@@ -545,23 +574,29 @@ export class ExecBroker extends DurableObject {
     }
     await this._reconcileCommandFills(await this._retainedFills(), now);
     const previousReceipt=(await this.ctx.storage.get("fill_receipt")) || {accounts:{}};
-    const accounts={};
+    const accounts={...previousReceipt.accounts}, superseded=new Set();
     for(const acc of book.accounts || []) {
       const inputTime=acc.fills_source_at || book.at || 0;
       const raw=Number.isFinite(Number(inputTime))?Number(inputTime):Date.parse(inputTime);
       const sourceMs=raw>0 && raw<1e12?raw*1000:raw;
+      if(Number.isFinite(sourceMs) && sourceMs<Date.parse(previousReceipt.accounts?.[acc.key]?.source_at || '')) {
+        superseded.add(acc.key);
+        continue;
+      }
       const sourceFresh=Number.isFinite(sourceMs)&&sourceMs>0&&now-sourceMs<=90000&&sourceMs<=now+5000;
       const complete=acc.fills_complete===true && !acc.error && !acc.fills_error && !sourceErrors[acc.key] && sourceFresh;
       accounts[acc.key]=extendFillCoverage(previousReceipt.accounts?.[acc.key],{complete,received_at:new Date(now).toISOString(),received_at_ms:now,
         broker_account:acc.broker_account || null,
         query_from:acc.fills_query_from || null,
+        olv_coverage:acc.fills_olv_coverage || null,
         source_at:sourceFresh?new Date(sourceMs).toISOString():null,
         complete_through:complete?new Date(sourceMs).toISOString():null,
         error:sourceErrors[acc.key] || acc.fills_error || acc.error || (!sourceFresh?"source timestamp unavailable/stale":!complete?"source completeness unverified":null)});
     }
     const verifiedTimes=Object.values(accounts).filter(a=>a.complete).map(a=>Date.parse(a.source_at));
-    const observedAccounts=[];
+    const observedAccounts=(previousReceipt.book?.accounts || []).filter(a=>!(book.accounts || []).some(b=>b.key===a.key) || superseded.has(a.key));
     for (const {fills,...rest} of book.accounts || []) {
+      if(superseded.has(rest.key))continue;
       const metadata={};
       const prefix=`inventory_entry:${encodeURIComponent(rest.broker_account || '')}:`;
       const refs=new Set((rest.orders || []).map(o=>o.order_ref).filter(Boolean));

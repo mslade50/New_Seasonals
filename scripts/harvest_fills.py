@@ -464,6 +464,14 @@ def extend_canonical_coverage(current: dict, original: pd.DataFrame) -> dict:
                 continue
             if start <= new_start <= end <= new_end:
                 value['continuous_from'] = old['continuous_from']
+            if ((value.get('olv_coverage') or {}).get('scope')=='OLV_US_STK_NON_OVERNIGHT'
+                    and (old.get('olv_coverage') or {}).get('scope')=='OLV_US_STK_NON_OVERNIGHT'):
+                old_start=pd.Timestamp(old.get('olv_continuous_from'))
+                current_start=pd.Timestamp(value.get('olv_continuous_from'))
+                if (not pd.isna(old_start) and not pd.isna(current_start)
+                        and old_start.tzinfo is not None and current_start.tzinfo is not None
+                        and old_start<=current_start<=end<=new_end):
+                    value['olv_continuous_from']=old['olv_continuous_from']
         except (KeyError, ValueError, TypeError):
             continue
     return coverage
