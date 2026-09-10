@@ -3,6 +3,69 @@
 Status: implementation and deployment candidate prepared; **not activated**.
 This continues priority 3. Priority 4 remains queued.
 
+**Gateway correction (supersedes the TWS prerequisite below):** the owner
+confirmed that the application in use is IB Gateway. The saved TWS XML did
+not prove TWS was running. Gateway has no TWS Trade Log setting to change;
+the inspected legacy API connection returned current-day executions only.
+Do not assume seven-day coverage or treat the unavailable setting as a
+user-side blocker. The replacement Gateway design is described below.
+Preserve the collected site history and the owner's existing activation approval.
+The `.7` candidate remains uninstalled. No broker switch or upgrade is needed
+solely to comply with the previous incorrect instructions.
+
+Activation was explicitly approved on September 9. PR #35 merged as
+`cf5ec7f2420aa71dab16a7eb24af44a744fd0797`; post-merge Linux and Windows CI passed.
+The owner questioned whether there were missed days: a read-only check at
+20:56 ET confirmed an active collector, a six-second-old successful query,
+and retained executions for every trading day from August 31 through September 9.
+No missing trading day has been established. The archive, separately, still
+has a September 2 observation. An explicit API request starting September 3
+returned only September 9's nine executions (TWS server version 176).
+No seven-day setting is required. A real missing session needs broker-report
+recovery; automatic Flex recovery is not configured or claimed.
+
+## Gateway continuity and read-only refresh
+
+Whole-account execution coverage still extends only overlapping query ranges.
+A separate OLV-only scope can bridge closed sessions when the preceding NYSE
+trading date has a completed observation at or after 20:00 ET. The reviewed
+scope is SMART-routed USD stocks without overnight TIF/routing; orders and
+executions outside this scope invalidate its attestation. Extended hours are
+included, and half-days conservatively retain the 20:00 cutoff. A missed
+trading session or receipt before that cutoff cannot bridge midnight.
+
+Only callers requesting exactly OLV may use this scoped continuity. Other
+algorithms retain strict whole-source history requirements. The canonical
+archive preserves the scoped proof only across verified overlapping archives.
+The local scanner requests the strategies actually needing inventory overlays.
+
+When the live feed is stale, the local inventory reader can invoke the installed
+read-only snapshot subprocess and publish it to the agent-authenticated
+`/inventory-observation` endpoint. This updates fill evidence and its matching
+inventory book, without starting the command agent or changing its online status
+or the site's `/book`. It also covers AM reads before the normal collector starts.
+Cloud fallback cannot query the local Gateway and retains explicit unknown
+inventory during an unavailable feed. No scan is used for deployment validation.
+
+The prepared replacement is `priority3-candidate-v4`; its read-only Gateway
+probe confirmed nine current-day fills and SMART routing for current OLV orders.
+The earlier immutable `.7` tag is preserved; replacement runtime `.8` is
+pending exact-build verification and cutover. Owner approval is already recorded.
+
+Rollback files are verified under the broker directory's
+`.runtime_backups/primary_olv_cutover_20260910T010027Z/`. Four existing files
+were preserved; no broker source or journal was replaced. The R2 seed is
+absent, and the existing shared OLV exit table is empty; the new Primary table
+is absent. No seed or exit-table mutation has occurred.
+
+Prepared runtime: `24d32662` on `codex/olv-inventory-runtime-20260909`, immutable
+tag `automation-runtime-2026-09-09.7`. It carries only the two inventory commits
+on top of installed runtime `b17cd79d`, plus the fallback pin and the existing
+historical OVS fixture correction. The latter passed against its byte-verified
+backup. The first full run had 2,012 passes and that single fixture failure;
+the subsequent focused run passed all 34 tests. All 26 JavaScript files passed.
+The installed runtime and active main fallback remain `.6` until cutover.
+
 ## Owner decisions and reconciled inputs
 
 The September 8 D sale remains discretionary. No execution allocation was
@@ -40,9 +103,9 @@ on actual entry and raw bars.
 - Fresh executions and pending orders come from the same completed broker
   observation. Old seeds require digest-verified, overlapping canonical fill
   coverage. The harvester retains proven coverage as the live ring expires.
-- The collector attests only the execution interval supported by its reviewed
-  TWS settings. The relay extends overlapping intervals; it cannot turn a
-  current-session query or a list of old trades into proof of continuity.
+- The collector attests current-day Gateway queries with reviewed account and
+  Eastern timezone. OLV session continuity follows the separate scope above;
+  old trades alone do not establish coverage.
 - New OLV entries retain their original ATR, contract and actual time deadline,
   matched to staged inputs and broker exits, for later volume-stop decisions.
 - Primary exit proposals use `OLV_Exits_Primary` and the strict exact-tranche
@@ -80,14 +143,11 @@ Repository CI results are recorded separately in the release handoff.
 
 ## Remaining prerequisites and activation sequence
 
-1. Set the active TWS Trade Log's history to seven days and verify the saved
-   setting plus a successful API query. The inspected setting is one day;
-   today's direct query returned nine executions. The site's accumulated log
-   preserves earlier collected trades but does not recover an uncollected day.
-   Do not attest seven-day coverage before this step succeeds.
+1. Verify the Gateway current-day query, reviewed OLV routing, and scoped
+   continuity regressions. No TWS setting change is required.
 2. Refresh and approve the opening snapshot immediately before activation;
    reconcile any intervening fills. Keep the D sale discretionary.
-3. Obtain explicit approval for the coordinated financial activation. The
+3. Apply the owner's existing explicit coordinated activation approval. The
    candidate enables inventory-dependent entry sizing and future automatic
    OLV exits in Primary (about $535,000 of current entry notional), while
    preserving PA. No test order or daily scan is part of the cutover.

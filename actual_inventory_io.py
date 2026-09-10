@@ -1,7 +1,8 @@
 """Read a reviewed Primary seed and its matching canonical fill generation.
 
 The absence of a reviewed start/continuous history remains unknown; it never
-reads the modeled Portfolio sheet. No writes, orders, or source repair occurs.
+reads the modeled Portfolio sheet. A stale live feed may trigger a read-only
+broker observation, published separately from the site's command-agent book.
 """
 from __future__ import annotations
 import hashlib
@@ -14,6 +15,16 @@ import pandas as pd
 from tagged_inventory import TaggedInventory, build_tagged_inventory
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _coverage_start(primary, algorithms):
+    # Gateway's closed-session proof is specific to the existing OLV stock
+    # route. It must never attest other algorithms or whole-account history.
+    if (set(algorithms)=={'Oversold Low Volume'}
+            and (primary.get('olv_coverage') or {}).get('scope')=='OLV_US_STK_NON_OVERNIGHT'
+            and primary.get('olv_continuous_from')):
+        return primary['olv_continuous_from']
+    return primary.get('continuous_from')
 
 def load_reviewed_seed(seed_path=None):
     """Read an explicit local review or the shared R2 review, never modeled data.
@@ -60,8 +71,11 @@ def _load_canonical_inventory(*, asof=None, algo_strategies=None, seed_path=None
         if algo_strategies is None:
             from strategy_config import STRATEGY_BOOK
             algo_strategies={s["name"] for s in STRATEGY_BOOK}
+        coverage=json.loads(json.dumps(status.get("completeness") or {}))
+        primary=coverage['accounts']['primary']
+        primary['continuous_from']=_coverage_start(primary,algo_strategies)
         return build_tagged_inventory(seed,pd.read_parquet(io.BytesIO(body)).to_dict("records"),
-                                      status.get("completeness") or {},
+                                      coverage,
                                       asof=observed.isoformat(),
                                       algo_strategies=algo_strategies,
                                       entry_metadata=seed.get("entry_metadata"))
@@ -76,7 +90,8 @@ def load_actual_inventory(*, asof=None, algo_strategies=None, seed_path=None,
                           max_age_seconds=300, fills_loader=None, canonical_loader=None):
     """Read a coherent live observation, extending canonical history if needed.
 
-    Nothing is uploaded. A newly reviewed seed inside the live coverage window
+    A stale feed can publish one read-only local Gateway observation.
+    A newly reviewed seed inside the live coverage window
     does not depend on pre-seed history. Older seeds require overlapping,
     digest-verified canonical coverage. Source failure never means flat.
     """
@@ -90,11 +105,23 @@ def load_actual_inventory(*, asof=None, algo_strategies=None, seed_path=None,
             reviewed_seed=seed,max_age_seconds=max_age_seconds)
     try:
         from scripts.harvest_fills import fetch_fills,normalize,merge_fills,validate_source_completeness,DEFAULT_BROKER_URL
-        payload=(fills_loader or fetch_fills)(os.environ.get('EXEC_BROKER_URL',DEFAULT_BROKER_URL),token)
+        url=os.environ.get('EXEC_BROKER_URL',DEFAULT_BROKER_URL)
+        payload=(fills_loader or fetch_fills)(url,token)
+        if fills_loader is None:
+            try:
+                validate_source_completeness(payload)
+            except Exception:
+                from scripts.refresh_inventory_observation import refresh_local_inventory
+                refresh_local_inventory(url)
+                payload=fetch_fills(url,token)
         validate_source_completeness(payload)
+        if algo_strategies is None:
+            from strategy_config import STRATEGY_BOOK
+            algo_strategies={s['name'] for s in STRATEGY_BOOK}
         coverage=json.loads(json.dumps(payload['completeness']))
         primary=coverage['accounts']['primary']
         start=pd.Timestamp(seed['asof_utc'])
+        primary['continuous_from']=_coverage_start(primary,algo_strategies)
         live_start=pd.Timestamp(primary['continuous_from'])
         through=pd.Timestamp(primary['complete_through'])
         requested=pd.Timestamp(asof or pd.Timestamp.now(tz='UTC'))
@@ -115,6 +142,7 @@ def load_actual_inventory(*, asof=None, algo_strategies=None, seed_path=None,
             if status.get('canonical_sha256')!=hashlib.sha256(body).hexdigest():
                 raise ValueError('canonical fill generation mismatch')
             old=(status.get('completeness') or {}).get('accounts',{}).get('primary',{})
+            old=dict(old,continuous_from=_coverage_start(old,algo_strategies))
             prior_coverage=status.get('completeness') or {}
             if (status.get('complete') is not True or old.get('complete') is not True
                     or status.get('gap',{}).get('gap') or prior_coverage.get('truncated')

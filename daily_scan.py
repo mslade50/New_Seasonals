@@ -2328,7 +2328,7 @@ def load_open_position_counts(ladder_strategy_names, inventory=None):
         return {}
     if inventory is None:
         from actual_inventory_io import load_actual_inventory
-        inventory = load_actual_inventory()
+        inventory = load_actual_inventory(algo_strategies=ladder_strategy_names)
     if inventory.status != "known":
         print("[INVENTORY] Unknown actual inventory; ladder overlay unavailable")
         return {}
@@ -2342,7 +2342,7 @@ def load_open_position_notionals(cap_strategy_names, inventory=None):
         return {}
     if inventory is None:
         from actual_inventory_io import load_actual_inventory
-        inventory = load_actual_inventory()
+        inventory = load_actual_inventory(algo_strategies=cap_strategy_names)
     if inventory.status != "known":
         print("[INVENTORY] Unknown actual inventory; optional notional overlay unavailable")
         return {}
@@ -2382,7 +2382,7 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
     from actual_inventory_io import load_actual_inventory, olv_positions_from_inventory, load_raw_exit_bars
     try:
         sh = gc.open("Trade_Signals_Log")
-        inventory = inventory if inventory is not None else load_actual_inventory()
+        inventory = inventory if inventory is not None else load_actual_inventory(algo_strategies={'Oversold Low Volume'})
         positions = olv_positions_from_inventory(inventory)
     except Exception as e:
         _warn(f"actual OLV inventory/exit metadata unverified ({type(e).__name__}); prior staging preserved")
@@ -2982,7 +2982,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     from actual_inventory_io import load_actual_inventory
     _actual_inventory = load_actual_inventory(
         asof=now_eastern.astimezone(datetime.timezone.utc).isoformat(),
-        algo_strategies={s['name'] for s in effective_book})
+        algo_strategies=_cap_strats | {s['name'] for s in effective_book if s['execution'].get('ladder_multipliers')} | {'Oversold Low Volume'})
     if _actual_inventory.status != "known":
         error_tickers.append(("INVENTORY", "; ".join(_actual_inventory.reasons)
                               + "; " + _actual_inventory.fallback))
