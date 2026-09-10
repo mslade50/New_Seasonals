@@ -2981,7 +2981,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                    if s['execution'].get('ticker_notional_cap')}
     from actual_inventory_io import load_actual_inventory
     from closing_inventory import load_closing_inventory
-    _inventory_loader = load_closing_inventory if is_morning_run else load_actual_inventory
+    # Both settled-session bookends stage for the next cash session. The same
+    # 16:05 capture serves the evening run and the following morning; only a
+    # manual intraday scan needs a current broker observation.
+    _inventory_loader = load_actual_inventory if is_intraday_partial else load_closing_inventory
     _actual_inventory = _inventory_loader(
         asof=now_eastern.astimezone(datetime.timezone.utc).isoformat(),
         algo_strategies=_cap_strats | {s['name'] for s in effective_book if s['execution'].get('ladder_multipliers')} | {'Oversold Low Volume'})
