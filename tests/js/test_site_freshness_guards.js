@@ -15,6 +15,16 @@ function load(name) {
 }
 
 const portfolio = load("portfolio.js");
+const pipeline = load("pipeline.js");
+const putcallCard = pipeline.artifactCard("cboe_putcall", "CBOE put/call scraping", "Daily ratios", {
+  status: "fresh", last_date: "2026-09-09", equity: 0.62, total: 0.91, index: 1.1, age_td: 0,
+});
+assert.match(putcallCard, /FRESH/);
+assert.match(putcallCard, /Equity put\/call/);
+assert.match(putcallCard, /0\.62/);
+assert.match(putcallCard, /2026-09-09/);
+assert.match(pipeline.artifactCard("cboe_putcall", "CBOE", "", null), /MISSING/);
+assert.ok(!pipeline.artifactCard("cboe_putcall", "CBOE", "", {note: "<script>"}).includes("<script>"));
 const portfolioMeta = { build_id: "build-1", built_at: "2026-08-06 12:00 UTC", payloads: {
   strategy_daily: true, positions: true, exposure: true, trade_mtm: true, health: true,
 } };

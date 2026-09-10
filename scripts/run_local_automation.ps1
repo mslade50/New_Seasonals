@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('premarket', 'premarket-retry', 'discretionary', 'execution', 'postclose', 'indicator', 'weekly-rundown', 'health')]
+    [ValidateSet('premarket', 'premarket-retry', 'discretionary', 'inventory-close', 'execution', 'postclose', 'indicator', 'weekly-rundown', 'health')]
     [string]$Pipeline,
 
     [Parameter(Mandatory = $true)]

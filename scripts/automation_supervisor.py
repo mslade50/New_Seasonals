@@ -610,6 +610,25 @@ def build_catalog() -> dict[str, PipelineSpec]:
         ),
     )
 
+    inventory_close = PipelineSpec(
+        id="inventory-close",
+        description="Verified closing Primary inventory for next-session OLV sizing",
+        cadence="weekdays",
+        run_at_et=dt.time(16, 5),
+        fallback_at_et=dt.time(16, 35),
+        fallback_until_et=dt.time(17, 0),
+        jobs=(JobSpec(
+            id="inventory_close",
+            description="Capture tagged holdings, pending OLV entries and broker NAV",
+            local_gate="nyse_session",
+            commands=(_py("capture closing Primary inventory", "scripts/capture_closing_inventory.py",
+                          "--publish", timeout=180, side_effecting=True),),
+            required_env=R2_ENV + ("STATUS_TOKEN", "EXEC_AGENT_TOKEN", "INVENTORY_SNAPSHOT_PATH"),
+            rerun_safe=True,
+            outputs=(_out("data/olv_closing_inventory.json", "ops/olv_closing_inventory/latest.json", minimum=100),),
+        ),),
+    )
+
     execution = PipelineSpec(
         id="execution",
         description="Live-account execution status email",
@@ -990,6 +1009,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
         for p in (
             premarket,
             discretionary,
+            inventory_close,
             execution,
             postclose,
             weekly_indicator,
