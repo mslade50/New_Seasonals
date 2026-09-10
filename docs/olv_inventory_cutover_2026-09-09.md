@@ -1,7 +1,21 @@
 # Primary OLV inventory cutover
 
-Status: implementation and deployment candidate prepared; **not activated**.
-This continues priority 3. Priority 4 remains queued.
+Status at 22:03 ET: the Worker, broker files, Primary exit table and reviewed
+seed are deployed. Runtime .8 is installed; a bounded relay-clock correction
+and .9 pin are undergoing final promotion. Priority 4 remains queued.
+
+This status supersedes the historical preparation sections below. PR #36
+merged as `a5a27be8`; production validation found and repaired a missing public
+Worker route in PR #37 (`95786eec`, deployment run `34427623216`). The public
+route regression reproduced the 404 and passed after repair.
+
+The live after-hours check then measured Cloudflare's receipt clock 0.8 seconds
+ahead of the broker host. Receipt freshness allows up to five seconds of relay
+clock skew; broker source timestamps remain strict and the five-minute stale
+limit is unchanged. Using this correction against the deployed relay verified
+five known OLV tranches, zero pending OLV symbols and zero raw-bar stop proposals.
+The site's book and command-agent online state were unchanged. Final installed
+runtime readback and canonical archive refresh remain the completion checks.
 
 **Gateway correction (supersedes the TWS prerequisite below):** the owner
 confirmed that the application in use is IB Gateway. The saved TWS XML did
