@@ -676,11 +676,14 @@ function fwdTable(h, r) {
       <td class="${st.pct_neg > 0.5 ? "neg" : ""}">${fmt.pct(st.pct_neg, 0)}</td>
       <td class="${mCls}">${fmt.signed(mz, 2)}</td></tr>`;
   }
-  if (!rows) return "";
+  if (!rows && r.status !== "insufficient_sample") return "";
+  const body = rows
+    ? `<div class="tblwrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`
+    : `<p>Insufficient sample: at least ${esc(r.min_samples)} completed observations per window are required. Return statistics are withheld.</p>`;
   return `<div class="card" style="margin-bottom:12px">
     <div class="cap" style="margin-top:0">${h.toUpperCase()} fragility = ${Math.round(r.current_score)} ·
       ${r.n_episodes} episodes · band ${Math.round(r.band_low)}-${Math.round(r.band_high)}</div>
-    <div class="tblwrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>
+    ${body}
   </div>`;
 }
 
