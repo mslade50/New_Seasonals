@@ -654,7 +654,7 @@ export class ExecBroker extends DurableObject {
   }
 }
 
-const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/fills", "/option", "/workbench", "/futures_size", "/futures_front"]);
+const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/fills", "/inventory-observation", "/option", "/workbench", "/futures_size", "/futures_front"]);
 
 export default {
   async fetch(request, env) {

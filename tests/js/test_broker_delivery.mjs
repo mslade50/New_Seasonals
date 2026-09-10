@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import * as reconciliation from '../../execution-broker/src/fill-reconcile.mjs';
 import * as coverage from '../../execution-broker/src/fill-coverage.mjs';
 const source=fs.readFileSync(new URL('../../execution-broker/src/index.js',import.meta.url),'utf8')
-  .replace(/^import[\s\S]*?;\r?$/gm,'').replace('export class ExecBroker','class ExecBroker').replace(/export default[\s\S]*$/,'')+'\nthis.Broker=ExecBroker;';
+  .replace(/^import[\s\S]*?;\r?$/gm,'').replace('export class ExecBroker','class ExecBroker').replace('export default {','this.worker = {')+'\nthis.Broker=ExecBroker;';
 class FakeDO {constructor(ctx,env){this.ctx=ctx;this.env=env;}}
 function make(env={STATUS_TOKEN:'fixture',AGENT_TOKEN:'agent-fixture'}) {
   const memory=new Map();let calls=0, fail=true, connected=true;
@@ -17,7 +17,7 @@ function make(env={STATUS_TOKEN:'fixture',AGENT_TOKEN:'agent-fixture'}) {
   }};
   const c={DurableObject:FakeDO,URL,Request,Response,Headers,console,TextEncoder,...reconciliation,...coverage};
   vm.createContext(c);vm.runInContext(source,c);
-  return {broker:new c.Broker(ctx,env),memory,calls:()=>calls,succeed:()=>{fail=false;},offline:()=>{connected=false;}};
+  return {broker:new c.Broker(ctx,env),worker:c.worker,memory,calls:()=>calls,succeed:()=>{fail=false;},offline:()=>{connected=false;}};
 }
 const failures=[];
 async function test(name, fn){try{await fn();console.log('PASS',name);}catch(e){failures.push(name+': '+e.message);}}
@@ -108,7 +108,10 @@ await test('read-only observation refreshes fills without activating command age
   for(const body of [{accounts:{}},{accounts:[{...account,fills_source_at:now+60000}]},
     {accounts:[{...account,fills_source_at:now-100000}]},{accounts:[{...account,orders:null}]}])
     assert.equal((await x.broker.fetch(request(body))).status,400);
-  const result=await(await x.broker.fetch(request({at:now,accounts:[account]}))).json();
+  const routed=await x.worker.fetch(request({at:now,accounts:[account]}),
+    {EXEC_BROKER:{idFromName:name=>name,get:()=>x.broker}});
+  assert.equal(routed.status,200,'public Worker must route the inventory observation to its authenticated handler');
+  const result=await routed.json();
   assert.equal(result.ok,true);assert.equal(x.calls(),0);
   assert.deepEqual(x.memory.get('book'),oldBook);
   assert.equal(x.memory.get('fill_receipt').accounts.primary.complete,true);
