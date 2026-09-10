@@ -1,8 +1,37 @@
 # Primary OLV inventory cutover
 
-Status at 22:03 ET: the Worker, broker files, Primary exit table and reviewed
-seed are deployed. Runtime .8 is installed; a bounded relay-clock correction
-and .9 pin are undergoing final promotion. Priority 4 remains queued.
+Status: **priority 3's bounded OLV inventory/cap/stop/half-day cutover is deployed
+and verified**, September 9 evening. Priority 4 remains queued for owner review.
+
+Final runtime: `b5fa0093fbc4dda08adcd644c3724038302c6982`, immutable
+`automation-runtime-2026-09-09.9`. The installed marker, main fallback pin and
+tag agree; ValidateOnly passed without running a pipeline. Final exact-runtime
+[Linux and Windows CI](https://github.com/mslade50/New_Seasonals/actions/runs/34427970035)
+passed. The corresponding main change is PR #38, merge `b5855eab`.
+
+The [final Worker deployment](https://github.com/mslade50/New_Seasonals/actions/runs/34427623216)
+serves source `95786eec`, version `24af5982-1255-437a-8a26-1e3308c5f6a4`.
+Later changes affect the local receipt reader and fallback pin, not Worker code.
+
+The installed-runtime live check at 02:07 UTC September 10 (22:07 ET September 9)
+started with a stale feed and an offline command agent. The ordinary inventory
+reader refreshed the deployed collector/relay, returned five known OLV tranches
+and zero pending OLV symbols, and retained the UI book and agent's offline state.
+Raw-bar stop evaluation used an inert sheet and produced zero proposals.
+The actual Primary exit table contains headers only; no exit order was staged.
+
+The installed harvester's dry run passed. Publication added 71 executions,
+preserving the existing 182, for 253 archived executions through September 9.
+Immutable generations preserve prior bytes; canonical R2 data and status hashes
+were read back and matched. No gap between retained and archived windows was
+found. The Primary September 8 D sale remains 753 unassigned/discretionary shares.
+
+No daily scan, trading runner, test trade, email or scheduler cadence change was
+used for deployment validation. Existing broker orders were not changed.
+Future scheduled execution is enabled by the installed code; no new live-order
+test or next-day run is claimed. The independent expected-exit monitor's schedule
+and UI warning remain outside this cutover. Genuine missed sessions still require
+broker-report recovery; automatic Flex recovery is not configured.
 
 This status supersedes the historical preparation sections below. PR #36
 merged as `a5a27be8`; production validation found and repaired a missing public
@@ -14,8 +43,8 @@ ahead of the broker host. Receipt freshness allows up to five seconds of relay
 clock skew; broker source timestamps remain strict and the five-minute stale
 limit is unchanged. Using this correction against the deployed relay verified
 five known OLV tranches, zero pending OLV symbols and zero raw-bar stop proposals.
-The site's book and command-agent online state were unchanged. Final installed
-runtime readback and canonical archive refresh remain the completion checks.
+The site's book and command-agent online state were unchanged. Installed-runtime
+readback and canonical archive refresh subsequently passed as recorded above.
 
 **Gateway correction (supersedes the TWS prerequisite below):** the owner
 confirmed that the application in use is IB Gateway. The saved TWS XML did
