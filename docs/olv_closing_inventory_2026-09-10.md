@@ -79,8 +79,24 @@ and following-morning consumption remain to be observed after activation.
   scheduled for September 10 at 16:05 ET. The existing eight tasks remain enabled.
 - The prior marker is preserved under the runtime's
   `.local/runtime_promotions/closing_inventory_20260910T162049Z/` directory.
-- Cloud-only private-site run: `34501659994`, building the PR #40 merge SHA.
-  Deployment completion is still pending at this update.
+- Cloud-only private-site run `34501659994` completed generation but correctly
+  stopped before deployment at the risk-study gate. Four historical matches
+  were below the five-completed-observation minimum, so all return statistics
+  were withheld. The gate incorrectly classified that completed study as absent.
+- PR #42 preserves that minimum and emits explicit insufficient-sample status
+  and counts. The gate requires coherent counts and complete window coverage;
+  missing, malformed, or stale results still fail. The same four-episode fixture
+  fails the previous gate and passes the corrected gate without invented stats.
+  All 46 focused tests and both GitHub CI jobs passed.
+- Replacement cloud-only run `34505682036` builds merged commit
+  `b2cb741533c8d7a1b5f7d6bd8226c191f267fd21`. All stages passed and Cloudflare
+  production deployment `492c0902-2b18-44b5-a514-8b1694c7c304` serves that commit.
+  Authenticated Risk QA confirmed the four-episode insufficient-sample message.
+- Authenticated Status QA caught the put/call card reading the output directory
+  rather than the R2 input directory. The path now follows the same input-constant
+  pattern as other source artifacts. Regression fixtures separate R2 input and
+  site output folders; 40 focused tests and JavaScript freshness checks passed.
+  Deployment of this final card correction is pending.
 - No daily scan, trading runner, existing-order modification or email was
   started during activation. The real 16:05 capture and next-morning use are
   future scheduled events, not yet observed successes.

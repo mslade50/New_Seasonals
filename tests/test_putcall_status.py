@@ -13,10 +13,15 @@ def status(tmp_path, monkeypatch):
     monkeypatch.setattr(build_site, "_ledger_provenance", lambda: {"build_utc": None})
     for name in ['MASTER_PRICES', 'EARNINGS', 'FRAGILITY', 'EXPOSURE_STATE']:
         monkeypatch.setattr(build_site, name, str(tmp_path / 'absent'))
+    source = tmp_path / 'r2-inputs' / 'cboe_putcall.parquet'
+    source.parent.mkdir()
+    output = tmp_path / 'dist' / 'data'
+    output.mkdir(parents=True)
+    monkeypatch.setattr(build_site, 'CBOE_PUTCALL', str(source))
     def read(frame=None):
         if frame is not None:
-            frame.to_parquet(tmp_path / 'cboe_putcall.parquet')
-        return build_site.build_health(None, str(tmp_path), build_id='test', built_at='2026-09-10T10:00:00Z')['artifacts']['cboe_putcall']
+            frame.to_parquet(source)
+        return build_site.build_health(None, str(output), build_id='test', built_at='2026-09-10T10:00:00Z')['artifacts']['cboe_putcall']
     return read
 
 
