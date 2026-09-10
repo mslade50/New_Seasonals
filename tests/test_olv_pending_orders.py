@@ -122,7 +122,7 @@ def test_actual_scanner_block_combines_held_and_pending(known,expected):
         _actual_inventory=SimpleNamespace(status='known'),_pending_capacity_known=known,
         _pending_notionals={('TEST','Oversold Low Volume'):5000.},
         open_notionals={('TEST','Oversold Low Volume'):10000.},t_clean='TEST',
-        ACCOUNT_VALUE=100000,dist=2.5,risk=250.,sizing_note='',_entry_offset_atr=.25)
+        ACCOUNT_VALUE=750000,_primary_nav=100000,dist=2.5,risk=250.,sizing_note='',_entry_offset_atr=.25)
     exec(compile(ast.parse(wrapper),'<scanner-cap>','exec'),ns)
     assert ns['shares']==expected
     if known:

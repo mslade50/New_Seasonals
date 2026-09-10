@@ -165,6 +165,7 @@ def test_catalog_has_all_et_pipelines_and_cloud_only_site_jobs():
     assert set(sup.CATALOG) == {
         "premarket",
         "discretionary",
+        "inventory-close",
         "execution",
         "postclose",
         "indicator",

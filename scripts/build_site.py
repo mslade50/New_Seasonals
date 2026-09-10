@@ -1627,6 +1627,31 @@ def build_health(sig, data_dir, ideas=None, *, build_id, built_at):
         arts["fragility"] = {"last_date": None, "last_63d": None, "age_td": None,
                              "status": "missing", "note": str(e)}
 
+    # CBOE scraping is judged by complete source-session observations, never
+    # the download time (a fresh R2 copy can still contain old/partial data).
+    try:
+        pc = pd.read_parquet(os.path.join(data_dir, "cboe_putcall.parquet"))
+        pc.index = pd.to_datetime(pc.index, errors="coerce").tz_localize(None).normalize()
+        fields = ["equity", "total", "index"]
+        ratios = pc[fields].apply(pd.to_numeric, errors="coerce")
+        valid = (np.isfinite(ratios).all(axis=1) & (ratios >= 0).all(axis=1)
+                 & pc.index.notna() & (pc.index <= expected))
+        complete = ratios.loc[valid].sort_index()
+        if complete.empty or pc.index.duplicated().any():
+            raise ValueError("No unambiguous complete CBOE observation")
+        last = complete.index[-1]
+        latest = pc.index.max()
+        incomplete = latest > last
+        arts["cboe_putcall"] = {
+            "last_date": _clean(last), "age_td": age_td(last),
+            "status": "stale" if incomplete else status_for(last),
+            **{name: round(float(complete.iloc[-1][name]), 3) for name in fields},
+            "note": "Latest source row is incomplete or future-dated" if incomplete else None,
+        }
+    except Exception:
+        arts["cboe_putcall"] = {"last_date": None, "age_td": None,
+                                "status": "missing", "note": "Complete CBOE ratios unavailable"}
+
     # exposure_state.json is published by the AM scan to canonical R2 before
     # the cloud-only deploy hydrates its isolated build workspace. Its asof can
     # still trail the current date because it consumes settled session state;

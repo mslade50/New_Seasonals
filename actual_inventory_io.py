@@ -103,17 +103,24 @@ def load_actual_inventory(*, asof=None, algo_strategies=None, seed_path=None,
     if not token and fills_loader is None:
         return _load_canonical_inventory(asof=asof,algo_strategies=algo_strategies,
             reviewed_seed=seed,max_age_seconds=max_age_seconds)
+    stage = 'loading inventory dependencies'
     try:
         from scripts.harvest_fills import fetch_fills,normalize,merge_fills,validate_source_completeness,DEFAULT_BROKER_URL
         url=os.environ.get('EXEC_BROKER_URL',DEFAULT_BROKER_URL)
-        payload=(fills_loader or fetch_fills)(url,token)
-        if fills_loader is None:
-            try:
+        stage = 'reading live execution coverage'
+        try:
+            payload=(fills_loader or fetch_fills)(url,token)
+            if fills_loader is None:
                 validate_source_completeness(payload)
-            except Exception:
+        except Exception:
+            if fills_loader is None:
                 from scripts.refresh_inventory_observation import refresh_local_inventory
+                stage = 'refreshing the local Primary observation'
                 refresh_local_inventory(url)
                 payload=fetch_fills(url,token)
+            else:
+                raise
+        stage = 'validating live execution coverage'
         validate_source_completeness(payload)
         if algo_strategies is None:
             from strategy_config import STRATEGY_BOOK
@@ -131,6 +138,7 @@ def load_actual_inventory(*, asof=None, algo_strategies=None, seed_path=None,
             raise ValueError('live inventory is stale')
         frame=normalize(payload['fills'])
         if live_start>start:
+            stage = 'bridging reviewed inventory to current executions'
             if canonical_loader is None:
                 from cache_io import _client,_r2_creds
                 client,creds=_client(),_r2_creds()
@@ -153,6 +161,7 @@ def load_actual_inventory(*, asof=None, algo_strategies=None, seed_path=None,
                 raise ValueError('verified fill history does not bridge seed to current executions')
             frame,_=merge_fills(pd.read_parquet(io.BytesIO(body)),frame)
             primary['continuous_from']=old['continuous_from']
+        stage = 'matching Primary orders and frozen entry metadata'
         book=payload.get('book')
         accounts=[a for a in (book or {}).get('accounts',[]) if a.get('key')=='primary']
         if len(accounts)!=1 or accounts[0].get('error') or accounts[0].get('broker_account')!=seed['broker_account']:
@@ -167,6 +176,7 @@ def load_actual_inventory(*, asof=None, algo_strategies=None, seed_path=None,
         if algo_strategies is None:
             from strategy_config import STRATEGY_BOOK
             algo_strategies={s['name'] for s in STRATEGY_BOOK}
+        stage = 'reconciling algorithm inventory with Primary positions'
         result=build_tagged_inventory(seed,frame.to_dict('records'),coverage,
             asof=min(requested,through).isoformat(),algo_strategies=algo_strategies,entry_metadata=metadata)
         if result.status=='known':
@@ -188,9 +198,13 @@ def load_actual_inventory(*, asof=None, algo_strategies=None, seed_path=None,
                 if qty*net<=0 or abs(qty)>abs(net):
                     raise ValueError('algorithm holdings exceed the reconciled broker position; allocation review required')
             result.observed_book=book
+            result.source_evidence = dict(seed=seed, fills=json.loads(frame.to_json(orient='records', date_format='iso')),
+                                          coverage=coverage, book=book, entry_metadata=metadata)
         return result
     except Exception as exc:
-        return TaggedInventory(reasons=[f'live inventory could not be verified ({type(exc).__name__})'])
+        from scripts.refresh_inventory_observation import InventoryRefreshError
+        reason = str(exc) if isinstance(exc, InventoryRefreshError) else f'{stage} failed ({type(exc).__name__})'
+        return TaggedInventory(reasons=[f'live inventory could not be verified: {reason}'])
 
 
 def load_raw_exit_bars(ticker, *, now=None, download=None):
@@ -253,6 +267,31 @@ def load_pending_entry_notionals(inventory, *, asof=None, book_loader=None):
         raise ValueError('fill inventory has not caught up with pending-order snapshot')
     return pending_entry_notionals(book, inventory.broker_account,
         asof=asof or pd.Timestamp.now(tz='UTC').isoformat())
+
+
+def load_primary_nav(inventory, *, asof=None, max_age_seconds=90):
+    """Primary NetLiquidation from the same verified observation as capacity.
+
+    Strategy risk sizing keeps its configured account value. Live concentration
+    limits use actual Primary NAV, never PA or a stale/static substitute.
+    """
+    if inventory.status != 'known' or not inventory.broker_account:
+        raise ValueError('actual Primary inventory is unverified')
+    accounts = [a for a in (inventory.observed_book or {}).get('accounts', [])
+                if a.get('key') == 'primary']
+    if (len(accounts) != 1 or accounts[0].get('error')
+            or accounts[0].get('broker_account') != inventory.broker_account):
+        raise ValueError('matching Primary NAV observation unavailable')
+    primary = accounts[0]
+    now = pd.Timestamp(asof or pd.Timestamp.now(tz='UTC'))
+    source = pd.Timestamp(round(float(primary['orders_source_at']) * 1000), unit='ms', tz='UTC')
+    if (now.tzinfo is None or not pd.Timedelta(0) <= now-source <= pd.Timedelta(seconds=max_age_seconds)
+            or source > pd.Timestamp(inventory.asof_utc)):
+        raise ValueError('Primary NAV observation is stale or incoherent')
+    nav = float(primary['nlv'])
+    if not math.isfinite(nav) or nav <= 0:
+        raise ValueError('Primary NetLiquidation is invalid')
+    return nav
 
 
 def olv_positions_from_inventory(inventory):

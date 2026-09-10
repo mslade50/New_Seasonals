@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", init);
 const ART_ORDER = [
   ["master_prices",     "Master prices",     "R2 OHLCV cache — feeds scans, ledger, site"],
   ["earnings_calendar", "Earnings calendar", "FMP backfill — OVS blackout filter"],
+  ["cboe_putcall",      "CBOE put/call scraping", "Latest complete source session — feeds sentiment and sizing"],
   ["fragility",         "rd2 fragility",     "Append-only dial series — SIZES LIVE ORDERS"],
   ["exposure_state",    "Exposure state",    "AM scan snapshot — canonical on R2"],
   ["signals",           "Staged signals",    "Order_Staging + Overflow Sheets fetch"],
@@ -21,6 +22,8 @@ const ART_ORDER = [
 const BUILD_WARN_H = 26, BUILD_STALE_H = 75;
 
 const SCHEDULE = [
+  ["CBOE put/call scraping", "Weekdays: premarket at 4:10 AM ET; again within the 5:10 PM ET postclose pipeline",
+   "Scrapes CBOE daily ratios and publishes the cache to R2. The card above shows data freshness; it does not certify the latest task completed."],
   ["premarket pipeline", "Weekdays 4:10 AM ET — local Task Scheduler primary",
    "Serial CBOE, settled prices, risk correction, Event sleeve and full scan; then hands both sites to their required cloud-only deploy workflows. Publishes canonical state to R2."],
   ["Daily Pitch (agent)", "Weekdays 5:10 AM ET — existing local Task Scheduler task",
@@ -31,6 +34,8 @@ const SCHEDULE = [
    "Research-only 0-2 name attention list; no capital allocation, staging or broker actions."],
   ["execution pipeline", "Weekdays 4:30 PM ET — local Task Scheduler primary",
    "Sends the live-account execution status report once."],
+  ["Closing Primary inventory", "Trading days at 4:05 PM ET — local Task Scheduler primary",
+   "Captures verified tagged inventory, pending OLV entries and broker NAV for next-session morning sizing. Gateway must be logged in at capture time."],
   ["postclose pipeline", "Weekdays 5:10 PM ET — local Task Scheduler primary",
    "Serial close prices, risk/fills/earnings/portfolio/CBOE/sleeves/intraday/scan/macro jobs; then hands both sites to cloud-only deploy workflows."],
   ["indicator pipeline", "Mondays 3:00 AM ET — local Task Scheduler primary",
@@ -120,6 +125,12 @@ function artifactCard(key, name, desc, a) {
     add("Last updated", a.last_updated);
     add("Max fwd date", a.max_date);
     add("Rows", a.rows == null ? null : Number(a.rows).toLocaleString());
+    add("Age (td)", a.age_td);
+  } else if (key === "cboe_putcall") {
+    add("Data through", a.last_date);
+    add("Equity put/call", a.equity);
+    add("Total put/call", a.total);
+    add("Index put/call", a.index);
     add("Age (td)", a.age_td);
   } else if (key === "fragility") {
     add("Last date", a.last_date);
