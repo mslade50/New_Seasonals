@@ -21,6 +21,7 @@
  * Deploy standalone (NOT part of the Pages site). See README.md.
  */
 import { DurableObject } from "cloudflare:workers";
+import { extendFillCoverage } from "./fill-coverage.mjs";
 import {
   commandFillMatch,
   executionFamilyId,
@@ -221,13 +222,18 @@ export class ExecBroker extends DurableObject {
       }
       const legacy = await this._listAll("fill_incomplete:");
       const cutoff=new Date(now-FILLS_RETENTION_DAYS*86400000).toISOString().slice(0,10);
+      for (const value of Object.values(accounts)) {
+        if (value.continuous_from && Date.parse(value.continuous_from)<Date.parse(cutoff)) {
+          value.continuous_from=new Date(cutoff).toISOString();
+        }
+      }
       const incompleteDays=[...legacy.keys()].map(k=>k.slice("fill_incomplete:".length)).filter(d=>d>=cutoff);
       const mergeError=await this.ctx.storage.get("fill_merge_error");
       const complete=Object.keys(accounts).length>0 && Object.values(accounts).every(a=>a.complete) && !incompleteDays.length && !mergeError;
       const reasons=[...(!Object.keys(accounts).length?["no verified fill receipt"]:[]),
         ...Object.entries(accounts).filter(([,a])=>!a.complete).map(([k,a])=>`${k}: ${a.error || "unverified source"}`),
         ...(incompleteDays.length?["legacy fill history may be truncated"]:[]),...(mergeError?[String(mergeError)]:[])];
-      return Response.json({fills,retention_days:FILLS_RETENTION_DAYS,server_now:now,
+      return Response.json({fills,book:receipt.book || null,retention_days:FILLS_RETENTION_DAYS,server_now:now,
         completeness:{complete,complete_through:complete?receipt.complete_through:null,
           reasons,merge_error:mergeError || null,truncated:incompleteDays.length>0,incomplete_days:incompleteDays,accounts}});
 
@@ -538,6 +544,7 @@ export class ExecBroker extends DurableObject {
       }
     }
     await this._reconcileCommandFills(await this._retainedFills(), now);
+    const previousReceipt=(await this.ctx.storage.get("fill_receipt")) || {accounts:{}};
     const accounts={};
     for(const acc of book.accounts || []) {
       const inputTime=acc.fills_source_at || book.at || 0;
@@ -545,14 +552,40 @@ export class ExecBroker extends DurableObject {
       const sourceMs=raw>0 && raw<1e12?raw*1000:raw;
       const sourceFresh=Number.isFinite(sourceMs)&&sourceMs>0&&now-sourceMs<=90000&&sourceMs<=now+5000;
       const complete=acc.fills_complete===true && !acc.error && !acc.fills_error && !sourceErrors[acc.key] && sourceFresh;
-      accounts[acc.key]={complete,received_at:new Date(now).toISOString(),received_at_ms:now,
+      accounts[acc.key]=extendFillCoverage(previousReceipt.accounts?.[acc.key],{complete,received_at:new Date(now).toISOString(),received_at_ms:now,
         broker_account:acc.broker_account || null,
+        query_from:acc.fills_query_from || null,
         source_at:sourceFresh?new Date(sourceMs).toISOString():null,
         complete_through:complete?new Date(sourceMs).toISOString():null,
-        error:sourceErrors[acc.key] || acc.fills_error || acc.error || (!sourceFresh?"source timestamp unavailable/stale":!complete?"source completeness unverified":null)};
+        error:sourceErrors[acc.key] || acc.fills_error || acc.error || (!sourceFresh?"source timestamp unavailable/stale":!complete?"source completeness unverified":null)});
     }
     const verifiedTimes=Object.values(accounts).filter(a=>a.complete).map(a=>Date.parse(a.source_at));
-    await this.ctx.storage.put("fill_receipt",{accounts,complete_through:verifiedTimes.length?new Date(Math.min(...verifiedTimes)).toISOString():null});
+    const observedAccounts=[];
+    for (const {fills,...rest} of book.accounts || []) {
+      const metadata={};
+      const prefix=`inventory_entry:${encodeURIComponent(rest.broker_account || '')}:`;
+      const refs=new Set((rest.orders || []).map(o=>o.order_ref).filter(Boolean));
+      for (const f of fills || []) if(f.order_ref)refs.add(f.order_ref);
+      for (const [ref,value] of Object.entries(rest.entry_metadata || {})) {
+        const valid=ref.split('|')[2]==='Oversold Low Volume' && Number.isFinite(value?.atr)
+          && value.atr>0 && Number.isFinite(Date.parse(value.exit_deadline_utc || ''))
+          && value.exit_protocol==='TIME' && value.metadata_source_sha256
+          && Number.isInteger(value.metadata_con_id) && value.metadata_con_id>0;
+        if (!valid) {rest.entry_metadata_error='invalid source metadata';continue;}
+        const key=prefix+encodeURIComponent(ref), prior=await this.ctx.storage.get(key);
+        if (prior && ['atr','exit_deadline_utc','exit_protocol','metadata_con_id'].some(k=>prior[k]!==value[k])) {
+          rest.entry_metadata_error='frozen input metadata changed';continue;
+        }
+        if(!prior)await this.ctx.storage.put(key,value);
+      }
+      for(const ref of refs) {
+        const value=await this.ctx.storage.get(prefix+encodeURIComponent(ref));
+        if(value)metadata[ref]=value;
+      }
+      observedAccounts.push({...rest,entry_metadata:metadata});
+    }
+    const observedBook={...book,accounts:observedAccounts};
+    await this.ctx.storage.put("fill_receipt",{accounts,book:observedBook,complete_through:verifiedTimes.length?new Date(Math.min(...verifiedTimes)).toISOString():null});
     await this.ctx.storage.put("fill_merge_error",null);
   }
 

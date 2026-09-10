@@ -13,3 +13,30 @@ Fills use the canonical harvest schema: exec_id, time_utc (or time), account/acc
 An order reference identifies SYMBOL|ACTION|STRATEGY|REF_DATE and optionally an explicit tranche id in the fifth field. Multiple matching tranches require an allocation mapping; the adapter does not guess FIFO. New entries can establish known quantity/notional from fills. Their ATR/deadline require trusted entry_metadata keyed by full order_ref before automated exit evaluation. One symbol mapped to multiple conIds is unknown, rather than conflating contracts.
 
 Coverage must explicitly contain accounts.primary with complete=true, matching broker_account, continuous_from at/before the seed cutoff, and complete_through at/after the requested asof. Global truncation, unresolved legacy capped days, or merge errors make it unknown. A PA-only outage does not affect Primary. A fresh latest receipt or first observed fill is insufficient to establish continuous historical coverage. Current broker harvest receipts do not yet supply that entire continuity interval; operational bootstrap remains required. No production seed was created.
+
+## Manual trades and reviewed assignments (2026-09-09)
+
+Owner decision: untagged TWS trades remain discretionary unless explicitly
+assigned. Sharing a symbol with an algorithm does not assign the fill to it.
+The optional seed `execution_allocations` maps an exact execution id to a
+`review` object (same approval/provenance fields as the seed) and an
+`allocations` list of `{tranche_id, qty}`. Positive whole-share allocations
+must sum to that execution's actual quantity. The fill supplies direction,
+price, account and contract; the assignment cannot override them. Reductions
+retain the entry/ATR/deadline; additions weight entry cost. Assignments cannot
+reverse a tranche, reopen one already closed, or target another contract.
+A corrected execution revision requires review of the replacement assignment.
+These changes are source-tested; they are not yet promoted to runtime v9.
+
+`scripts/reconcile_inventory_inputs.py` creates a review-only report from
+captured `/book`, `/fills` and optional canonical parquet. It counts OCA exit
+siblings once, excludes children of working entry parents, shows each exact
+contract's net holding and residual, and distinguishes observed remaining
+quantity from legacy total quantity. Exit claims and matching net quantities
+are evidence for review, not an automatically approved seed. No network access,
+inventory activation, order submission or canonical upload occurs.
+
+The read-only snapshot producer now supplies remaining/filled quantities,
+per-account order observation times, and completed current-session execution
+query timestamps. That production change does not establish historical
+continuity in the relay or canonical store. See `inventory_inputs_2026-09-09.md`.

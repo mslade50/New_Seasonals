@@ -27,6 +27,7 @@ class TaggedInventory:
     notionals: dict[tuple[str, str], float] = field(default_factory=dict)
     tranches: list[dict] = field(default_factory=list)
     exit_metadata_known: bool = False
+    observed_book: dict | None = field(default=None, repr=False)
     fallback: str = "base sizing; optional inventory overlays unavailable; inventory-derived exits unavailable"
 
 
@@ -70,6 +71,16 @@ def _valid_exit_metadata(tranche):
         return tranche.get("exit_protocol") in {"MOO", "MOC", "TIME", "MANUAL_REVIEW"}
     except (ValueError, TypeError, KeyError):
         return False
+
+
+def _apply_quantity(tranche, quantity, price):
+    held = tranche["signed_qty"]
+    new_qty = held + quantity
+    if held and held * quantity < 0 and held * new_qty < 0:
+        raise ValueError("exit execution exceeds its owned tranche inventory")
+    if not held or held * quantity > 0:
+        tranche["entry_price"] = (abs(held) * tranche["entry_price"] + abs(quantity) * price) / (abs(held) + abs(quantity))
+    tranche["signed_qty"] = new_qty
 
 
 def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
@@ -135,6 +146,8 @@ def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
             if not key or "|" in key or key in tranches or not row["symbol"]:
                 raise ValueError("seed tranche identity is missing or duplicated")
             tranches[key] = row
+        assignments = seed.get("execution_allocations") or {}
+        assigned_families = {_family(key)[0] for key in assignments}
         effective = {}
         for original in fills:
             row = dict(original)
@@ -144,7 +157,9 @@ def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
             if not strategy:
                 pieces = str(row.get("order_ref") or "").split("|")
                 strategy = pieces[2] if len(pieces) >= 4 else ""
-            if strategy not in algorithms:
+            if strategy not in algorithms and _family(row.get("exec_id"))[0] not in assigned_families:
+                # User policy: discretionary unless explicitly assigned. Sharing
+                # a symbol with an algorithm is not an allocation instruction.
                 continue
             if str(row.get("account") or "") != account:
                 raise ValueError("Primary tagged execution has a different broker account")
@@ -165,6 +180,38 @@ def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
             if stamp <= start:
                 if _family(row["exec_id"])[1] > 1 and row["exec_id"] not in included:
                     raise ValueError("a corrected pre-seed execution requires reviewed seed reconciliation")
+                continue
+            assignment = assignments.get(row["exec_id"])
+            if _family(row["exec_id"])[0] in assigned_families:
+                if not assignment:
+                    raise ValueError("corrected assigned execution requires allocation review")
+                review = assignment.get("review") or {}
+                if review.get("status") != "approved" or not review.get("reviewed_by") or not review.get("provenance"):
+                    raise ValueError("execution allocation lacks explicit review")
+                _stamp(review.get("reviewed_at"))
+                allocations = assignment.get("allocations") or []
+                quantity = _number(row.get("qty"), positive=True)
+                sign = {"BOT": 1, "BUY": 1, "SLD": -1, "SELL": -1}.get(str(row.get("side") or "").upper())
+                price = _number(row.get("price"), positive=True)
+                if sign is None or quantity != int(quantity):
+                    raise ValueError("assigned execution side/quantity is invalid")
+                sizes = [_number(a.get("qty"), positive=True) for a in allocations]
+                if sum(sizes) != quantity or any(n != int(n) for n in sizes):
+                    raise ValueError("allocation quantities must equal the actual whole-share fill")
+                seen = set()
+                for allocation, size in zip(allocations, sizes):
+                    key = allocation.get("tranche_id")
+                    if key in seen or key not in tranches:
+                        raise ValueError("allocation has duplicated or unknown tranche identity")
+                    seen.add(key)
+                    tranche = tranches[key]
+                    if (int(row.get("con_id") or 0) != tranche["con_id"]
+                            or row.get("symbol") != tranche["symbol"]
+                            or row.get("sec_type") != "STK" or row.get("currency") != "USD"):
+                        raise ValueError("assigned execution and tranche contracts disagree")
+                    if not tranche["signed_qty"]:
+                        raise ValueError("allocation cannot reopen a closed tranche")
+                    _apply_quantity(tranche, sign * size, price)
                 continue
             symbol, action, strategy, ref_date, explicit_tranche = _reference(row)
             if strategy not in algorithms or str(row.get("symbol") or "").upper() != symbol:
@@ -194,6 +241,8 @@ def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
                 if key in tranches:
                     raise ValueError("new execution conflicts with an existing tranche identity")
                 known_metadata = dict(metadata.get(str(row.get("order_ref"))) or {})
+                if known_metadata.get('metadata_con_id',con_id)!=con_id:
+                    raise ValueError('entry metadata and execution contracts disagree')
                 tranche = {**known_metadata, "tranche_id": key, "account_key": "primary", "account": account,
                            "con_id": con_id, "symbol": symbol, "sec_type": "STK", "currency": "USD",
                            "strategy": strategy, "ref_date": ref_date, "entry_date": stamp.astimezone(ZoneInfo("America/New_York")).date().isoformat(),
@@ -205,12 +254,7 @@ def build_tagged_inventory(seed: Mapping | None, fills: Iterable[Mapping],
             held = tranche["signed_qty"]
             if held == 0 and {"BUY": 1, "SELL_SHORT": -1}.get(action) != sign:
                 raise ValueError("exit execution has no remaining owned tranche inventory")
-            new_qty = held + quantity
-            if held and held * quantity < 0 and held * new_qty < 0:
-                raise ValueError("exit execution exceeds its owned tranche inventory")
-            if not held or held * quantity > 0:
-                tranche["entry_price"] = (abs(held) * tranche["entry_price"] + abs(quantity) * price) / (abs(held) + abs(quantity))
-            tranche["signed_qty"] = new_qty
+            _apply_quantity(tranche, quantity, price)
         live = [value for value in tranches.values() if value["signed_qty"]]
         contracts = {}
         for tranche in live:

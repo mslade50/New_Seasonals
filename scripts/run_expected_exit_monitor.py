@@ -94,7 +94,7 @@ def observe(seed, catalog, *, inventory_loader=None, book_loader=None, fills_loa
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-root", type=Path, required=True)
-    parser.add_argument("--seed", type=Path, required=True)
+    parser.add_argument("--seed", type=Path, help="Explicit reviewed local seed; otherwise use the shared R2 review")
     parser.add_argument("--algorithm-catalog", type=Path, required=True)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, default=ROOT / "artifacts/expected-exits")

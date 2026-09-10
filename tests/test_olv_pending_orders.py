@@ -76,6 +76,16 @@ def test_adapter_rejects_book_newer_than_fill_inventory():
     assert load_pending_entry_notionals(inventory,asof=NOW.isoformat(),book_loader=lambda *a:book()) == read(book())
 
 
+def test_millisecond_observation_matches_iso_receipt_without_float_nanoseconds():
+    observed=NOW-dt.timedelta(seconds=10,milliseconds=1)
+    inventory=TaggedInventory(status='known',broker_account='PRIMARY',asof_utc=observed.isoformat())
+    value=book();value['accounts'][0]['orders_source_at']=observed.timestamp()
+    assert load_pending_entry_notionals(inventory,asof=NOW.isoformat(),book_loader=lambda *a:value)==read(value)
+    value['accounts'][0]['orders_source_at']+=.001
+    with pytest.raises(ValueError,match='caught up'):
+        load_pending_entry_notionals(inventory,asof=NOW.isoformat(),book_loader=lambda *a:value)
+
+
 def test_past_expiry_still_reserves_until_broker_confirms_cancel():
     assert read(book([order(good_till='20260908 15:59:00 US/Eastern')])) == read(book())
 
