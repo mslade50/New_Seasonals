@@ -3,6 +3,17 @@
 Status: implementation and deployment candidate prepared; **not activated**.
 This continues priority 3. Priority 4 remains queued.
 
+**Gateway correction (supersedes the TWS prerequisite below):** the owner
+confirmed that the application in use is IB Gateway. The saved TWS XML did
+not prove TWS was running. Gateway has no TWS Trade Log setting to change;
+the inspected legacy API connection returned current-day executions only.
+Do not activate this candidate by assuming seven-day coverage or by treating
+the unavailable setting as a user-side blocker. A Gateway-compatible history
+and recovery design must replace that prerequisite before cutover. Preserve
+the collected site history and the owner's existing activation approval.
+The `.7` candidate remains uninstalled. No broker switch or upgrade is needed
+solely to comply with the previous incorrect instructions.
+
 Activation was explicitly approved on September 9. PR #35 merged as
 `cf5ec7f2420aa71dab16a7eb24af44a744fd0797`; post-merge Linux and Windows CI passed.
 The owner questioned whether there were missed days: a read-only check at
