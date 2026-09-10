@@ -26,10 +26,11 @@ def closing(session='2026-09-09'):
     return result,at,opening
 
 
-def test_sna_uses_actual_broker_nav_and_prior_close_without_gateway():
+@pytest.mark.parametrize('when',['2026-09-09T21:10:00Z','2026-09-10T08:15:00Z'])
+def test_sna_uses_actual_broker_nav_and_prior_close_without_gateway(when):
     inventory,at,opening=closing()
     saved=make_snapshot(inventory,now=at)
-    next_morning=read_snapshot(saved,now='2026-09-10T08:15:00Z',reviewed_seed=opening)
+    next_morning=read_snapshot(saved,now=when,reviewed_seed=opening)
     assert next_morning.source_kind=='prior_close'
     nav=load_primary_nav(next_morning,asof=next_morning.asof_utc)
     pending=load_pending_entry_notionals(next_morning,asof=next_morning.asof_utc)
@@ -121,3 +122,15 @@ def test_actual_scanner_cap_block_uses_broker_nav_and_retains_etf_exemption(nav,
         dist=5.629281*1.25,risk=0,sizing_note='',ACCOUNT_VALUE=750000,print=lambda *args:None)
     exec(compile(ast.fix_missing_locations(wrapper),'scanner-cap-only','exec'),context)
     assert context['shares']==expected
+
+
+@pytest.mark.parametrize('partial,expected',[(False,'closing'),(True,'live')])
+def test_scanner_uses_closing_capture_for_both_settled_bookends(partial,expected):
+    import ast
+    from pathlib import Path
+    tree=ast.parse((Path(__file__).resolve().parents[1]/'daily_scan.py').read_text(encoding='utf-8'))
+    assignment=next(n for n in ast.walk(tree) if isinstance(n,ast.Assign)
+        and any(isinstance(t,ast.Name) and t.id=='_inventory_loader' for t in n.targets))
+    ns=dict(is_intraday_partial=partial,load_actual_inventory='live',load_closing_inventory='closing')
+    exec(compile(ast.Module(body=[assignment],type_ignores=[]),'inventory-source-only','exec'),ns)
+    assert ns['_inventory_loader']==expected
