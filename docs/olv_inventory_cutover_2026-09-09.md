@@ -3,6 +3,31 @@
 Status: implementation and deployment candidate prepared; **not activated**.
 This continues priority 3. Priority 4 remains queued.
 
+Activation was explicitly approved on September 9. PR #35 merged as
+`cf5ec7f2420aa71dab16a7eb24af44a744fd0797`; post-merge Linux and Windows CI passed.
+The owner questioned whether there were missed days: a read-only check at
+20:56 ET confirmed an active collector, a six-second-old successful query,
+and retained executions for every trading day from August 31 through September 9.
+No missing trading day has been established. The archive, separately, still
+has a September 2 observation. An explicit API request starting September 3
+returned only September 9's nine executions (TWS server version 176).
+Seven-day history remains a recovery/continuity prerequisite, not a claim
+that the collector was turned off or a trading day was lost.
+
+Rollback files are verified under the broker directory's
+`.runtime_backups/primary_olv_cutover_20260910T010027Z/`. Four existing files
+were preserved; no broker source or journal was replaced. The R2 seed is
+absent, and the existing shared OLV exit table is empty; the new Primary table
+is absent. No seed or exit-table mutation has occurred.
+
+Prepared runtime: `24d32662` on `codex/olv-inventory-runtime-20260909`, immutable
+tag `automation-runtime-2026-09-09.7`. It carries only the two inventory commits
+on top of installed runtime `b17cd79d`, plus the fallback pin and the existing
+historical OVS fixture correction. The latter passed against its byte-verified
+backup. The first full run had 2,012 passes and that single fixture failure;
+the subsequent focused run passed all 34 tests. All 26 JavaScript files passed.
+The installed runtime and active main fallback remain `.6` until cutover.
+
 ## Owner decisions and reconciled inputs
 
 The September 8 D sale remains discretionary. No execution allocation was
