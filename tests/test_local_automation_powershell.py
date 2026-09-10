@@ -99,6 +99,7 @@ def test_installer_defines_the_required_local_clock_schedule():
         ("premarket-retry", "05:45:00", "62"),
         ("discretionary", "08:35:00", "62"),
         ("execution", "16:30:00", "62"),
+        ("inventory-close", "16:05:00", "62"),
         ("postclose", "17:10:00", "62"),
         ("indicator", "03:00:00", "2"),
         ("weekly-rundown", "08:00:00", "1"),

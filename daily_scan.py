@@ -2980,19 +2980,34 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     _cap_strats = {s['name'] for s in effective_book
                    if s['execution'].get('ticker_notional_cap')}
     from actual_inventory_io import load_actual_inventory
-    _actual_inventory = load_actual_inventory(
+    from closing_inventory import load_closing_inventory
+    _inventory_loader = load_closing_inventory if is_morning_run else load_actual_inventory
+    _actual_inventory = _inventory_loader(
         asof=now_eastern.astimezone(datetime.timezone.utc).isoformat(),
         algo_strategies=_cap_strats | {s['name'] for s in effective_book if s['execution'].get('ladder_multipliers')} | {'Oversold Low Volume'})
+    # Prior-close capacity is deliberately valued at its verified observation,
+    # not subjected to a live-feed age limit the following morning.
+    _capacity_asof = _actual_inventory.asof_utc if _actual_inventory.source_kind == 'prior_close' else None
+    if _capacity_asof:
+        print(f"[INVENTORY] Verified prior-close Primary observation: {_capacity_asof}")
     if _actual_inventory.status != "known":
         error_tickers.append(("INVENTORY", "; ".join(_actual_inventory.reasons)
                               + "; " + _actual_inventory.fallback))
     open_notionals = load_open_position_notionals(_cap_strats, _actual_inventory)
     _pending_notionals = {}
     _pending_capacity_known = False
+    _primary_nav = None
+    if _cap_strats:
+        from actual_inventory_io import load_primary_nav
+        try:
+            _primary_nav = load_primary_nav(_actual_inventory, asof=_capacity_asof)
+            print(f"[CAP] Primary broker NAV ${_primary_nav:,.2f} ({_actual_inventory.source_kind})")
+        except Exception as exc:
+            error_tickers.append(('OLV CAP', f'live Primary NAV unavailable ({type(exc).__name__}); optional overlay bypassed'))
     if any(s['execution'].get('ticker_notional_cap', {}).get('include_pending') for s in effective_book):
         from actual_inventory_io import load_pending_entry_notionals
         try:
-            _pending_notionals = load_pending_entry_notionals(_actual_inventory)
+            _pending_notionals = load_pending_entry_notionals(_actual_inventory, asof=_capacity_asof)
             _pending_capacity_known = True
         except Exception as exc:
             error_tickers.append(('OLV CAP', f'filled-plus-pending capacity unavailable ({type(exc).__name__}); optional overlay bypassed'))
@@ -3379,11 +3394,11 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # tests/test_olv_stop_and_cap.py.
                     _tnc = strat['execution'].get('ticker_notional_cap')
                     _include_pending = bool((_tnc or {}).get('include_pending'))
-                    if (_tnc and shares > 0 and _actual_inventory.status == "known"
+                    if (_tnc and shares > 0 and _actual_inventory.status == "known" and _primary_nav is not None
                             and (not _include_pending or _pending_capacity_known)):
                         _tnc_exempt = set(_tnc.get('exempt') or ())
                         if t_clean.upper() not in _tnc_exempt:
-                            _tnc_cap = float(_tnc['pct_nav']) * ACCOUNT_VALUE
+                            _tnc_cap = float(_tnc['pct_nav']) * _primary_nav
                             _tnc_open = open_notionals.get((t_clean, strat['name']), 0.0)
                             _cap_price = entry
                             if _include_pending:
@@ -3397,7 +3412,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                                 risk = shares * dist
                                 sizing_note = (
                                     f"{sizing_note} | Notional cap "
-                                    f"{_tnc['pct_nav']:.0%} NAV "
+                                    f"{_tnc['pct_nav']:.0%} Primary NAV (${_primary_nav:,.0f}) "
                                     f"(${_tnc_open:,.0f} held/reserved): {_orig_sh} -> {shares} sh")
                                 print(f"   [CAP] {t_clean}: notional cap "
                                       f"{_tnc['pct_nav']:.0%} NAV - {_orig_sh} -> {shares} shares "

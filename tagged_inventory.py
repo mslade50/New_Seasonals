@@ -28,6 +28,8 @@ class TaggedInventory:
     tranches: list[dict] = field(default_factory=list)
     exit_metadata_known: bool = False
     observed_book: dict | None = field(default=None, repr=False)
+    source_evidence: dict | None = field(default=None, repr=False)
+    source_kind: str = 'live'
     fallback: str = "base sizing; optional inventory overlays unavailable; inventory-derived exits unavailable"
 
 
