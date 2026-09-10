@@ -11,6 +11,26 @@ RISK_JS = ROOT / "site" / "assets" / "risk.js"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_insufficient_sample_is_visible_without_fabricated_return_table():
+    script = r'''
+const fs = require("fs"), vm = require("vm");
+const sandbox = {document: {addEventListener() {}}};
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(__RISK_JS__, "utf8"), sandbox);
+const html = sandbox.fwdTable("63d", {
+  status: "insufficient_sample", min_samples: 5, n_episodes: 4,
+  current_score: 87, band_low: 82, band_high: 92,
+  returns: {5: null, 10: null, 21: null, 42: null, 63: null},
+});
+if (!html.includes("Insufficient sample") || !html.includes("4 episodes") ||
+    !html.includes("5 completed observations") || html.includes("<table")) {
+  throw new Error("small-sample card is missing or invents return statistics");
+}
+'''.replace("__RISK_JS__", json.dumps(str(RISK_JS)))
+    subprocess.run([shutil.which("node"), "-e", script], check=True, capture_output=True, text=True)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_risk_chart_keeps_ma_line_and_adds_gapless_daily_bar_panel():
     script = r"""
 const fs = require("fs");

@@ -79,6 +79,32 @@ def _same_build(left: Any, right: Any) -> bool:
         return False
 
 
+def _explicit_small_sample(study: dict[str, Any]) -> bool:
+    """A completed study may withhold statistics; an absent study may not pass."""
+    windows = ("5", "10", "21", "42", "63")
+    counts = study.get("sample_counts")
+    returns = study.get("returns")
+    dates = study.get("episode_dates")
+    n = study.get("n_episodes")
+    if (
+        study.get("status") != "insufficient_sample"
+        or study.get("min_samples") != 5
+        or type(n) is not int or n < 1
+        or not isinstance(dates, list) or len(dates) != n
+        or not all(isinstance(date, str) for date in dates)
+        or len(set(dates)) != n
+        or not isinstance(counts, dict) or set(counts) != set(windows)
+        or not isinstance(returns, dict) or set(returns) != set(windows)
+        or any(value is not None for value in returns.values())
+    ):
+        return False
+    values = [counts[w] for w in windows]
+    return (
+        all(type(value) is int and 0 <= value <= n and value < 5 for value in values)
+        and values == sorted(values, reverse=True)
+    )
+
+
 def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[str]:
     data_dir = os.path.join(out_dir, "data")
     meta = _read_json(os.path.join(data_dir, "meta.json"))
@@ -242,7 +268,10 @@ def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[
             or not isinstance(long_study.get("episode_dates"), list)
             or not long_study["episode_dates"]
             or not isinstance(long_returns, dict)
-            or not any(isinstance(stats, dict) for stats in long_returns.values())
+            or not (
+                any(isinstance(stats, dict) for stats in long_returns.values())
+                or _explicit_small_sample(long_study)
+            )
         ):
             problems.append(
                 "Risk 63d similar-fragility forward returns are unavailable")

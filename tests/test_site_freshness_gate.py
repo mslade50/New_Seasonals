@@ -1,4 +1,5 @@
 import json
+import pytest
 from pathlib import Path
 
 from scripts.validate_site_freshness import validate_site
@@ -127,6 +128,39 @@ def _site(tmp_path: Path):
 def test_fresh_complete_site_passes(tmp_path):
     _site(tmp_path)
     assert validate_site(str(tmp_path)) == []
+
+
+def _small_sample():
+    return {
+        "status": "insufficient_sample", "min_samples": 5, "n_episodes": 4,
+        "episode_dates": ["2025-01-02", "2025-02-03", "2025-03-03", "2025-04-01"],
+        "sample_counts": {"5": 4, "10": 4, "21": 3, "42": 2, "63": 2},
+        "returns": {str(w): None for w in (5, 10, 21, 42, 63)},
+    }
+
+
+@pytest.mark.parametrize("mutation", [
+    None, "unmarked", "missing_counts", "too_many", "negative", "fractional",
+    "increasing", "wrong_minimum", "missing_window", "duplicate_dates", "stale",
+])
+def test_completed_small_sample_is_distinct_from_broken_or_stale_study(tmp_path, mutation):
+    data = _site(tmp_path)
+    risk = json.loads((data / "risk.json").read_text())
+    study = _small_sample()
+    if mutation == "unmarked": study.pop("status")
+    if mutation == "missing_counts": study.pop("sample_counts")
+    if mutation == "too_many": study["sample_counts"]["5"] = 5
+    if mutation == "negative": study["sample_counts"]["63"] = -1
+    if mutation == "fractional": study["sample_counts"]["63"] = 1.5
+    if mutation == "increasing": study["sample_counts"]["63"] = 3
+    if mutation == "wrong_minimum": study["min_samples"] = 10
+    if mutation == "missing_window": study["returns"].pop("5")
+    if mutation == "duplicate_dates": study["episode_dates"][1] = study["episode_dates"][0]
+    if mutation == "stale": risk["asof"] = "2026-08-01"
+    risk["forward_returns"]["63d"] = study
+    _write(data / "risk.json", risk)
+    problems = validate_site(str(tmp_path))
+    assert bool(problems) == (mutation is not None)
 
 
 def test_embedded_freshness_must_exactly_match_standalone_health(tmp_path):

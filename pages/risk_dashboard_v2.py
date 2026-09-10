@@ -2000,11 +2000,14 @@ def compute_similar_reading_returns(
         return None
 
     returns = {}
+    min_samples = 5
+    sample_counts = {}
     for w in forward_windows:
         fwd = (price.shift(-w) / price - 1).dropna()
         sig_fwd = fwd.reindex(episode_dates).dropna()
         uncond_mean = fwd.mean()
-        if len(sig_fwd) >= 5:
+        sample_counts[w] = len(sig_fwd)
+        if len(sig_fwd) >= min_samples:
             uncond_std = fwd.std()
             uncond_median = fwd.median()
             # Bootstrap median SE (1000 resamples) for median z-score
@@ -2042,6 +2045,9 @@ def compute_similar_reading_returns(
 
     return {
         'n_episodes': len(episode_dates),
+        'status': 'ok' if any(v is not None for v in returns.values()) else 'insufficient_sample',
+        'min_samples': min_samples,
+        'sample_counts': sample_counts,
         # Downstream risk views use these exact declustered anchors so their
         # path statistics describe the same sample as this table rather than
         # unrelated market drawdown episodes.
