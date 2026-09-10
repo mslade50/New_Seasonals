@@ -1,6 +1,6 @@
 # OLV closing inventory and put/call status — September 10, 2026
 
-Status: implemented and locally verified; production activation pending.
+Status: runtime activated September 10; private-site deployment in progress.
 
 ## Incident and owner decisions
 
@@ -29,13 +29,13 @@ The owner declined a policy that holds new entries whenever inventory is unknown
   NAV, reviewed attribution, and execution-coverage evidence.
 - Evidence is stored in R2 under a dated session key, with content-addressed
   generations preserved. A failed query cannot publish a successful capture.
-- Morning scans read the immediately preceding completed session's capture
+- Both scheduled bookend scans read the latest completed session's capture
   without requiring a live Gateway connection. The NYSE calendar handles
   weekends, holidays and half-days. A snapshot cannot be used after the next
   cash-session open or following a change to reviewed attribution.
 - The live cap uses recorded Primary broker NAV. The theoretical engine uses
   its own simulated equity; the fixed strategy risk-sizing reference is unchanged.
-  The post-close scan continues to use a current verified broker observation.
+  A manual intraday scan continues to use a current verified broker observation.
 - Missing or invalid capture remains an explicit exception, preserving the
   owner's existing fail-open decision. The cap cannot be guaranteed when its
   required capture is absent. Gateway must be logged in for the 16:05 capture.
@@ -53,8 +53,34 @@ A separate Primary-only read-only query completed successfully with positions,
 executions and NAV. No scan, trading runner, order change or email was invoked.
 
 Activation must coordinate the pinned local runtime, the 16:05 scheduled task,
-and the guarded fallback reference `automation-runtime-2026-09-10.1`.
+and the guarded fallback reference `automation-runtime-2026-09-10.2`.
 The private site must deploy through its existing cloud-only R2 workflow.
 Rollback preserves the prior runtime commit/marker and disables the new task;
 saved snapshot generations remain available. The first real post-close capture
 and following-morning consumption remain to be observed after activation.
+
+## Activation evidence
+
+- PR #40 merged at `f0793c0ed075f3010325c3b1c43c2ff966dba9a5` after both
+  GitHub checks passed. Local verification passed 269 Python tests and the
+  JavaScript status/freshness checks.
+- The initial v9 promotion advanced only this fix from its prior version to
+  `c06a37ab86d0352abb6fa1b9d5e3da0d11094d1f`, tagged
+  `automation-runtime-2026-09-10.1`. The separate scoped candidate passed
+  188 targeted tests. Unrelated changes from main were not promoted.
+- The final bookend correction is installed at
+  `6d214733041fff1c7f942f5e595927c86b855d4b`, tagged
+  `automation-runtime-2026-09-10.2`. It makes evening and morning scans use
+  the same completed-session capture. All 58 follow-up tests passed on both
+  the review and runtime candidates. Premarket, postclose and capture runtime
+  validation passed without executing their jobs.
+- Runtime-only validation passed for both `premarket` and `inventory-close`.
+  `New Seasonals Local v9 - inventory-close` is enabled, with its first run
+  scheduled for September 10 at 16:05 ET. The existing eight tasks remain enabled.
+- The prior marker is preserved under the runtime's
+  `.local/runtime_promotions/closing_inventory_20260910T162049Z/` directory.
+- Cloud-only private-site run: `34501659994`, building the PR #40 merge SHA.
+  Deployment completion is still pending at this update.
+- No daily scan, trading runner, existing-order modification or email was
+  started during activation. The real 16:05 capture and next-morning use are
+  future scheduled events, not yet observed successes.
