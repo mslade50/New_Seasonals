@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -10,6 +11,16 @@ import uuid
 from zoneinfo import ZoneInfo
 
 MARKER = "SCAN_AUDIT_JSON "
+
+
+def _json_safe(value):
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 def redact(text):
@@ -31,7 +42,7 @@ def archive_scan(coverage, signals, *, scope, bookend, email_ok, root=None):
             "Pivot_Rule_Version", "Pivot_Matched_Rule", "Sizing_Notes",
         )} for row in signals],
     }
-    record = json.loads(json.dumps(record, default=str))
+    record = _json_safe(json.loads(json.dumps(record, default=str)))
     for item in record["coverage"].get("exceptions", []):
         item["reason"] = redact(item.get("reason", ""))
     body = json.dumps(record, ensure_ascii=True, allow_nan=False, default=str)

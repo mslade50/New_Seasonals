@@ -30,7 +30,7 @@ def test_live_exclusion_preserves_historical_book_and_is_date_gated(tmp_path):
 def test_archived_email_retains_sizing_and_redacts_exception_credentials(tmp_path, capsys):
     coverage = dict(unavailable=["BAD"], stale={}, exceptions=[
         dict(ticker="BAD", reason="token=private-value https://example.com/private?key=secret")])
-    target = archive_scan(coverage, [dict(Ticker="ABC", OLV_Signal_Number=5,
+    target = archive_scan(coverage, [dict(Ticker="ABC", Entry_Offset_ATR=float("nan"), OLV_Signal_Number=5,
                           OLV_Recency_Mult=1.0, OLV_Risk_Budget=3937.5)],
                           scope="all", bookend="pm", email_ok=True, root=tmp_path)
     text = target.read_text()
@@ -39,6 +39,7 @@ def test_archived_email_retains_sizing_and_redacts_exception_credentials(tmp_pat
     data = json.loads(text)
     assert data["signals"][0]["OLV_Signal_Number"] == 5
     assert data["signals"][0]["OLV_Risk_Budget"] == 3937.5
+    assert data["signals"][0]["Entry_Offset_ATR"] is None
     assert coverage["exceptions"][0]["reason"].startswith("token=private-value")
     report = collect(tmp_path, data["date_et"], data["date_et"])
     assert list(report["ticker_candidates"]) == ["BAD"]
