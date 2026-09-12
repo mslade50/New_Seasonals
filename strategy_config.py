@@ -548,7 +548,7 @@ _STRATEGY_BOOK_RAW = [
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Position",
-            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90), gated to a market uptrend regime (SPY > 200 SMA) and minimum 5y of trading history. The persistent limit defaults to close - 0.25 ATR, but prior-resistance retests use causal 40/40 closing pivots no more than 252 ticker sessions old: -0.50 ATR when 2-3 ATR above the nearest confirmed pivot high, -0.75 ATR at 4-5 ATR, and no order above 5 ATR. Pre-earnings signals (signal_date in [-10, 0] TD relative to earnings) are still allowed but sized at 10 bps instead of the default 35 bps to dampen binary-event risk. First entry in a ticker sizes at 0.5x (ladder [0.5,1,1], 2026-07-29); stacked adds at full size.",
+            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90), gated to a market uptrend regime (SPY > 200 SMA) and minimum 5y of trading history. The persistent limit defaults to close - 0.25 ATR, but prior-resistance retests use causal 40/40 closing pivots no more than 252 ticker sessions old: -0.50 ATR when 2-4 ATR above the nearest confirmed pivot high, -0.75 ATR at 4-5 ATR, and no order above 5 ATR. Pre-earnings signals (signal_date in [-10, 0] TD relative to earnings) are still allowed but sized at 10 bps instead of the default 35 bps to dampen binary-event risk. Signal-recency sizing counts raw signal days in the prior 21 ticker sessions: first 0.5x, second 0.7x, third and later 1.0x; the earnings base composes with this multiplier.",
             "key_filters": [
                 "21D rank < 15th %ile for 3 consecutive days (persistent oversold)",
                 "5D rank < 33rd %ile (recent weakness)",
@@ -564,9 +564,9 @@ _STRATEGY_BOOK_RAW = [
             "primary_exit": "10-day time stop OR 2.5 ATR target OR volume-confirmed stop (whichever first)",
             "stop_logic": "Vol-confirmed (2026-07-20): no resting stop. If a session CLOSES at/below entry - 1.25 ATR AND that day's volume >= 1.5x the trailing 20d median, exit MOO at the next open. Quiet closes below the level are held (low-volume weakness is the thesis, not its failure). stop_atr 1.25 still defines the risk unit for sizing.",
             "target_logic": "2.5 ATR above the submitted entry limit; gap-improved fills retain that target",
-            "notes": "Persistent limit defaults to close - 0.25 ATR and uses the causal 40/40 closing-pivot entry policy in execution['pivot_entry_policy']; pivot sources expire after 252 ticker sessions and the GTC entry expires after T+3. No cooldown — consecutive signals on same ticker allowed. No ladder (removed 2026-07-20, all legs 1.0x) and no sector loss gate (removed 2026-07-20 with the vol-confirmed stop + notional cap package). Per-ticker concurrent notional capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing. First-entry half-size ladder [0.5,1,1] since 2026-07-29 (footprint trim on the weakest leg; adds stay full size). No fragility band and no book-level cap (a 0.5x dial>=65 band and an EOD 100%-NAV trim ran for one session, 2026-08-24, then were retired 2026-08-25 in favour of a manual one-off hedge; olv_book_cap.py stays in OneDrive, task disabled)."
+            "notes": "Persistent limit defaults to close - 0.25 ATR and uses the causal 40/40 closing-pivot entry policy in execution['pivot_entry_policy']; pivot sources expire after 252 ticker sessions and the GTC entry expires after T+3. No cooldown — consecutive signals on same ticker allowed. No open-position-count ladder and no sector loss gate (removed 2026-07-20 with the vol-confirmed stop + notional cap package). Per-ticker concurrent notional capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing. Signal-recency multipliers [0.5,0.7,1.0] use raw signal days in the preceding 21 ticker sessions, including unfilled signals. No fragility band and no book-level cap (a 0.5x dial>=65 band and an EOD 100%-NAV trim ran for one session, 2026-08-24, then were retired 2026-08-25 in favour of a manual one-off hedge; olv_book_cap.py stays in OneDrive, task disabled)."
         },
-        "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: persistent close-anchored limit, normally -0.25 ATR; causal 40/40 nearest-high retests use only pivot sources <=252 ticker sessions old, entering -0.50 ATR at 2-3 ATR above, -0.75 ATR at 4-5 ATR, and skipping above 5 ATR. 10d hold, 2.5 ATR target, 1.25 ATR stop. Liquid 35 bps / overflow 25 bps; first entry in a ticker 0.5x (ladder [0.5,1,1], 2026-07-29), adds full size; pre-earnings window sizes at 10 bps flat.",
+        "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: persistent close-anchored limit, normally -0.25 ATR; causal 40/40 nearest-high retests use only pivot sources <=252 ticker sessions old, entering -0.50 ATR at 2-4 ATR above, -0.75 ATR at 4-5 ATR, and skipping above 5 ATR. 10d hold, 2.5 ATR target, 1.25 ATR stop. Liquid 35 bps / overflow 25 bps; first/second/third-plus signal in the 21-session recency window sizes at 0.5x/0.7x/1.0x; pre-earnings base 10 bps also receives that multiplier.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
@@ -656,7 +656,7 @@ _STRATEGY_BOOK_RAW = [
                       # with the latest eligible low and select the nearer PRICE
                       # level. A pivot at p is eligible only at p+40, so scanner and
                       # engine see identical point-in-time context. High-nearest
-                      # signals 2<d<=3 ATR above resistance enter 0.50 ATR below the
+                      # signals 2<d<=4 ATR above resistance enter 0.50 ATR below the
                       # signal close; 4<d<=5 enter 0.75 ATR below; d>5 is not staged.
                       # High and low expire independently once their SOURCE bar
                       # is >252 ticker sessions old, then nearest is reselected.
@@ -665,12 +665,12 @@ _STRATEGY_BOOK_RAW = [
                       # 23 classifications / 12 policy assignments changed;
                       # >2/>4/>5 ATR degradation held and policy total improved
                       # +8.68R with unchanged max drawdown (2026-09-01).
-                      # The non-monotonic 3<d<=4 pocket stays at the 0.25 ATR base
-                      # because deeper entries degraded in that band. One-switch
+                      # Owner update (2026-09-12): extend the 0.50 ATR entry
+                      # through 4 ATR above the nearest high. One-switch
                       # rollback: enabled=False restores 0.25 ATR and stages all.
                       "pivot_entry_policy": {
                           "enabled": True,
-                          "version": "olv_close_pivot_40_v2_20260901",
+                          "version": "olv_close_pivot_40_v3_20260912",
                           "left_bars": 40,
                           "right_bars": 40,
                           "max_source_age_bars": 252,
@@ -680,8 +680,8 @@ _STRATEGY_BOOK_RAW = [
                                "action": "skip"},
                               {"name": "above_high_4_5", "min_exclusive": 4.0,
                                "max_inclusive": 5.0, "offset_atr": 0.75},
-                              {"name": "above_high_2_3", "min_exclusive": 2.0,
-                               "max_inclusive": 3.0, "offset_atr": 0.50},
+                              {"name": "above_high_2_4", "min_exclusive": 2.0,
+                               "max_inclusive": 4.0, "offset_atr": 0.50},
                           ],
                       },
                       # Vol-confirmed stop (2026-07-20): replaces the resting

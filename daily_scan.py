@@ -438,6 +438,30 @@ def format_signal_email_entry(signal):
     return f"{entry_type} @ ${entry:.2f}" if entry is not None else entry_type
 
 
+def _olv_email_sizing(signal):
+    """Explain the stamped signal count and actual scan quantity, never infer a rung from size."""
+    number = _email_finite_float(signal.get("OLV_Signal_Number"))
+    window = _email_finite_float(signal.get("OLV_Recency_Window"))
+    mult = _email_finite_float(signal.get("OLV_Recency_Mult"))
+    capital = _email_finite_float(signal.get("OLV_Sizing_Capital"))
+    budget = _email_finite_float(signal.get("OLV_Risk_Budget"))
+    if (number is None or number < 1 or number != int(number)
+            or window is None or window < 1 or mult is None):
+        return "Signal number unavailable; verify the recency allocation."
+    text = (f"Signal #{int(number)} ({int(number) - 1} prior signals in {window:g} sessions), "
+            f"{mult:.2f}x sizing. ")
+    if capital is not None and capital > 0 and budget is not None:
+        text += f"Budget ${budget:,.2f} ({budget / capital * 10000:g} bps). "
+    shares = _email_finite_float(signal.get("Shares"))
+    atr = _email_finite_float(signal.get("ATR"))
+    stop_atr = _email_finite_float(signal.get("OLV_Risk_ATR"))
+    if shares is not None and atr is not None and stop_atr is not None:
+        risk = shares * atr * stop_atr
+        bps = f"; {risk / capital * 10000:.2f} bps" if capital and capital > 0 else ""
+        text += f"Scan allocation: {shares:,.0f} shares, ${risk:,.2f} risk{bps}, before broker daily caps."
+    return text.strip()
+
+
 def build_olv_email_brief(signal):
     """Build concise, live OLV copy from the exact staged-row decision."""
     if signal.get("Strategy_Name") != "Oversold Low Volume":
@@ -588,6 +612,7 @@ def build_olv_email_brief(signal):
             "established uptrend."
         ),
         "why": why,
+        "sizing": _olv_email_sizing(signal),
         "pivot": pivot,
         "action": action,
         "purpose": (
@@ -604,6 +629,7 @@ def render_signal_email_explanation(signal, filters_html):
         labels = (
             ("SIGNAL", "signal"),
             ("WHY", "why"),
+            ("SIZING", "sizing"),
             ("PIVOT", "pivot"),
             ("ACTION", "action"),
             ("PURPOSE", "purpose"),
@@ -1664,6 +1690,10 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             "Pivot_Max_Source_Age_Bars": row.get('Pivot_Max_Source_Age_Bars', ''),
             "Pivot_Distance_ATR": row.get('Pivot_Distance_ATR', ''),
             "Pivot_Matched_Rule": row.get('Pivot_Matched_Rule', ''),
+            "OLV_Signal_Number": row.get('OLV_Signal_Number', ''),
+            "OLV_Recency_Window": row.get('OLV_Recency_Window', ''),
+            "OLV_Recency_Mult": row.get('OLV_Recency_Mult', ''),
+            "OLV_Risk_Budget": row.get('OLV_Risk_Budget', ''),
             # 252D rank stamped for OVS gap-tier sizing in order_staging.py
             "Rank_252D": row.get('Rank_252D', ''),
             # Per-trade risk $ (post all scanner multipliers). order_staging.py
@@ -2618,6 +2648,11 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     # CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES and per-strategy bps overrides
     # applied. scope=all is liquid + overflow concatenated.
     effective_book = build_effective_strategy_book(scope, moc_only=moc_only)
+    from live_scan_universe import exclude_retired_symbols
+    effective_book, retired_symbols = exclude_retired_symbols(
+        effective_book, asof=datetime.datetime.now(pytz.timezone('America/New_York')).date())
+    if retired_symbols:
+        print(f"[UNIVERSE] Confirmed delisted symbols excluded from this forward scan: {', '.join(retired_symbols)}; historical data retained")
     if not effective_book:
         print(f"[WARN] scope={scope} (moc_only={moc_only}) produced an empty strategy book - nothing to scan.")
         return
@@ -3272,6 +3307,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # it instead of clobbering it. Mirrored in
                     # strat_backtester's candidate-recency pre-pass.
                     _recency_mult = 1.0
+                    _prior = None
                     _srl = strat['execution'].get('signal_recency_ladder')
                     if _srl:
                         _srl_mask = live_signal_mask(calc_df, _eff_settings,
@@ -3334,6 +3370,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                                            + (f" x {_fbm:.2f} frag band ({frag_score:.0f})" if _fbm != 1.0 else "")
                                            + f" (offset {int(_off):+d} TD; default was {_prior_note})")
 
+                    # Preserve the post-recency/earnings budget before caps and rounding.
+                    _olv_risk_budget = risk if _srl else None
                     # 3. Calculate Prices & Shares
                     entry = last_row['Close']
                     direction = strat['settings'].get('trade_direction', 'Long')
@@ -3498,6 +3536,12 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                         "Action": action,
                         "Shares": shares,
                         "Risk_Amt": risk,
+                        "OLV_Signal_Number": _prior + 1 if _prior is not None else '',
+                        "OLV_Recency_Window": _srl.get('window_td', 21) if _srl else '',
+                        "OLV_Recency_Mult": _recency_mult if _srl else '',
+                        "OLV_Risk_Budget": _olv_risk_budget if _srl else '',
+                        "OLV_Sizing_Capital": ACCOUNT_VALUE if _srl else '',
+                        "OLV_Risk_ATR": stop_atr if _srl else '',
                         "Sizing_Notes": sizing_with_risk,
                         "Rank_252D": _r252_val if _r252_val is not None else '',
                         "Stats": stats_str,
@@ -3810,6 +3854,12 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
 
     email_ok = send_email_summary(all_signals, error_tickers=unique_errors,
                                   scope_label=_scope_label, pc_state=pc_state)
+    try:
+        from scan_audit import archive_scan
+        archive_scan(coverage, all_signals, scope=scope, bookend=bookend, email_ok=email_ok)
+    except Exception as exc:
+        # A review archive failure must not retry already-staged orders/email.
+        print(f"[SCAN-AUDIT] Archive failed ({type(exc).__name__}); inspect the run log")
     if (os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1'
             and not email_ok):
         raise RuntimeError("Scan summary email was not accepted by SMTP")
