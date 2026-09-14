@@ -23,12 +23,15 @@ trade, and immutable position objects. No order was sent to a broker.
 | Result delivery / recovery | Actual `_out` prints a single JSON document and returns 0; broken output pipes; unknown sends; repeated command IDs. | Matrix parses the entire stdout buffer. CLI subprocess tests exercise main/result boundaries. Completed and acknowledged pending position-action receipts survive output loss and reconcile without repeating sends. |
 | Read helpers | Option, workbench, futures-front and book subprocess timeouts. | Kills and reaps the timed-out child; does not leave abandoned quote subprocesses. |
 
-The dedicated matrix deliberately does not claim coverage of every possible
-quantity increase or derivative edit. Review found scheduled-MKT increases lacked
-a reference price and OPT/BAG increases needed derivative-specific cap/topology
-handling. Those fixes and focused tests are owned by the separate edit review and
-must be included in final integration verification. Frontend intent/account/draft
-tests and authenticated browser checks are also separate from this runtime audit.
+The integrated edit review adds 69 derivative and scheduled-MKT cases. Scheduled
+MKT increases require a fresh exact-contract reference quote. Futures retain
+their existing account-specific caps; USD currency pairs use the correct USD
+notional basis. OPT/BAG edits derive risk and direction from qualified contracts
+and supported topology, preserve signed credit prices, enforce option-specific
+caps, and check covered-exit capacity. Unknown or unsupported structures reject
+before sending. No additional user-entered edit qualifiers are required.
+Frontend intent/account/draft tests and authenticated browser checks supplement
+this runtime audit.
 
 ## Concrete runtime corrections
 

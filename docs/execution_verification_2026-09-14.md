@@ -74,9 +74,17 @@ history coverage or a separately reviewed opening allocation is available.
 
 ## Release evidence
 
-Final local/CI counts, tested commit, runtime hashes, cloud build/freshness result
-and authenticated post-deployment observations are recorded in the release
-handoff. Passing simulations do not prove that IBKR will accept every future
+The combined local release run passed **2,584 Python tests** with **36 skips**
+and no failures. All **28 JavaScript test files** passed. Skips cover separately
+reviewed external Databento, legacy broker/inventory/OLV source tests and one
+Git-checkout-dependent provenance test; portable dashboard execution tests ran.
+The run includes 193 native order-path cases and 69 derivative/edit cases.
+The rendered credit-spread check also confirmed that a quantity save preserves
+the existing negative limit price.
+
+CI, runtime hashes, cloud build/freshness result and authenticated post-deployment
+observations are recorded in the release handoff. Passing simulations do not
+prove that IBKR will accept every future
 order under every market, account, liquidity or connectivity condition. Unknown
 transmission outcomes remain explicitly unverified and are not automatically
 retried.
