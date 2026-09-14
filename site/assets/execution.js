@@ -24,7 +24,7 @@ let pollTimer = null;
 let FUT_SPECS = {};   // symbol/alias -> {exchange,multiplier,min_tick,...}; drives the FUT readout
 let HEDGE_BETAS = null;   // nightly SPY-beta table; null is a supported degraded build
 let HEDGE_BETA_STATUS = "absent";   // loaded | absent-in-build | load-failed
-const frontState = { id: null, timer: null, manual: false };   // FUT live-contract discovery + front month
+const frontState = { id: null, timer: null, manual: false, request: 0 };   // FUT live-contract discovery + front month
 
 const HEDGE_DEFAULT_PRIMARY_NAV = 750000;
 const HEDGE_DEFAULT_STRATEGY = "Oversold Low Volume";
@@ -297,12 +297,21 @@ function shell() {
 }
 
 function setAccount(acct) {
+  if (state.account !== acct) {
+    // A row editor belongs to the account that opened it. Do not leave the old
+    // account's order table visible below the newly selected account tab.
+    orderEdit.key = null; orderEdit.orig = null;
+    sizeState.request++; sizeState.id = null;
+    clearTimeout(sizeState.timer);
+    set("fs_result", ""); set("fs_msg", "");
+  }
   state.account = acct;
   document.querySelectorAll("[data-acct]").forEach((b) =>
     b.className = "btn" + (b.dataset.acct === acct ? "" : " ghost"));
   const ta = document.getElementById("ticketAcct");
   if (ta) ta.textContent = acct;
   renderPanels();
+  if (document.getElementById("cmdType")) updateReadout();
 }
 
 function acctBook() {
@@ -671,7 +680,8 @@ function attributeBook(account, betas, futSpecs, opts = {}) {
     const fallbackMultiplier = counted ? hedgeNum(HEDGE_INDEX_MULTIPLIER[root]) : null;
     const multiplier = configuredMultiplier != null ? configuredMultiplier : fallbackMultiplier;
     const livePrice = hedgeNum(position.market_price);
-    const price = livePrice == null ? hedgeNum(position.avg_cost) : livePrice;
+    const averageCost = hedgeNum(position.avg_cost);
+    const price = livePrice == null ? (averageCost != null && multiplier > 0 ? averageCost / multiplier : null) : livePrice;
     let beta = 1;
     let betaAssumed = false;
     if (counted) {
@@ -1034,6 +1044,12 @@ function pnlPct(p) {
   const cost = p.avg_cost != null && p.position ? Math.abs(p.avg_cost * p.position) : null;
   return cost && p.unrealized_pnl != null ? p.unrealized_pnl / cost : null;
 }
+function quotedAverageCost(p) {
+  if (p.avg_cost == null) return null;
+  if (p.sec_type !== "FUT" && p.sec_type !== "OPT") return p.avg_cost;
+  const multiplier = Number(p.multiplier || (p.sec_type === "FUT" && (futSpec(p.symbol) || {}).multiplier));
+  return multiplier > 0 ? p.avg_cost / multiplier : null;
+}
 const readdRows = new Map();   // account + contract -> persistent row toggle across 4s book polls
 function positionKey(p) {
   return `${state.account}:${p.con_id || `${p.symbol}:${p.sec_type || ""}:${p.expiry || ""}`}`;
@@ -1135,7 +1151,7 @@ function renderPositions() {
     return `<tr>
       <td class="l" style="font-weight:600">${sym}</td>
       <td class="${long ? "pos" : "neg"}" style="font-weight:600">${fmt.num(p.position, 0)}</td>
-      <td>${fmt.num(p.avg_cost, priceDigits)}</td>
+      <td>${quotedAverageCost(p) != null ? fmt.num(quotedAverageCost(p), priceDigits) : "&mdash;"}</td>
       <td>${p.market_price != null ? fmt.num(p.market_price, priceDigits) : "&mdash;"}</td>
       <td>${p.market_value != null ? fmt.money(p.market_value) : "&mdash;"}</td>
       <td class="${clsSign(p.unrealized_pnl)}" style="font-weight:600">${p.unrealized_pnl != null ? fmt.money(p.unrealized_pnl) : "&mdash;"}</td>
@@ -1165,6 +1181,7 @@ function fmtOrderTime(s) {
 function orderKey(o) { return `${o.perm_id || 0}:${o.order_id || 0}`; }
 function contractDisplay(x) {
   const sym = String((x && x.symbol) || "").toUpperCase();
+  if (x && x.sec_type === "FUT" && x.expiry) return `${sym} ${x.expiry}`;
   return x && x.sec_type === "CASH" ? `${sym}/${String(x.currency || "USD").toUpperCase()}` : sym;
 }
 function orderGroupKey(x) { return contractDisplay(x); }
@@ -1667,6 +1684,7 @@ function execModifySave(permId, orderId, symbol) {
   const qty = read("me_qty"), lmt = read("me_lmt"), stp = read("me_stp");
   const bad = [qty, lmt, stp].some((v) => v !== undefined && v !== null && (!isFinite(v) || v <= 0));
   if (bad) { alert("qty / prices must be positive numbers"); return; }
+  if (qty != null && !Number.isSafeInteger(qty)) { alert("qty must be a positive whole number"); return; }
   const payload = { symbol, con_id: orig.con_id || null, client_id: orig.client_id == null ? null : orig.client_id };
   if (permId) payload.perm_id = permId;
   if (orderId) payload.order_id = orderId;
@@ -1690,11 +1708,19 @@ window.execModifySave = execModifySave;
 // bracketWarnings blocks empty qty/entry/stop). ticketDraft carries the last user entry
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
-const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry_type", "f_entry", "f_entry_cap", "f_stop", "f_target", "f_expiry", "f_timestop", "f_strategy", "f_so_frac", "f_so_target",
+const TICKET_FIELDS = ["f_note", "f_symbol", "f_sectype", "f_action", "f_qty", "f_entry_type", "f_entry", "f_entry_cap", "f_stop", "f_target", "f_expiry", "f_timestop", "f_strategy", "f_so_frac", "f_so_target",
                        "f_currency", "f_futexch", "fl_qty", "fl_pct", "fl_limit", "so_symbol", "so_right",
-                       "so_delta", "so_budget", "so_date", "so_time", "so_expiry_mode", "so_min_dte", "so_expiry"];
+                       "fl_type", "fl_tif", "so_delta", "so_budget", "so_date", "so_time", "so_expiry_mode", "so_min_dte", "so_expiry"];
 function snapshotTicket() {
   TICKET_FIELDS.forEach((id) => { const e = document.getElementById(id); if (e) ticketDraft[id] = e.value; });
+  ["fl_rth", "ea_rth"].forEach((id) => { const e = document.getElementById(id); if (e) ticketDraft[id] = e.checked; });
+  if (val("f_sectype") === "FUT" && val("f_futexp")) {
+    ticketDraft.f_contract = { symbol: String(val("f_symbol") || "").toUpperCase().trim(),
+      exchange: selectedFutExchange(), expiry: val("f_futexp"), manual: frontState.manual };
+  }
+}
+function restoreTicketSelects(ids) {
+  ids.forEach(id => { const e = document.getElementById(id); if (e && ticketDraft[id] != null) e.value = ticketDraft[id]; });
 }
 function inp(id, ph, w) {
   const v = ticketDraft[id] != null ? esc(String(ticketDraft[id])) : "";
@@ -1744,9 +1770,11 @@ function syncFields() {
       <label class="cap">Limit</label>${inp("fl_limit", "", 80)}
       <label class="cap"><input type="checkbox" id="fl_rth" style="vertical-align:-2px"> Outside RTH</label>
       <label class="cap">TIF</label><select id="fl_tif"><option value="DAY">DAY</option><option value="GTC">GTC</option></select>`;
+    restoreTicketSelects(["fl_type", "fl_tif"]);
     const pct = document.getElementById("fl_pct");
     if (pct && ticketDraft.fl_pct == null) pct.value = "100";
     const rth = document.getElementById("fl_rth");
+    if (rth) rth.checked = ticketDraft.fl_rth === true;
     if (rth) rth.addEventListener("change", () => {
       // outside-RTH is LMT-only at IBKR — flip the type so the ticket can't lie
       if (rth.checked) document.getElementById("fl_type").value = "LMT";
@@ -1766,6 +1794,7 @@ function syncFields() {
       <label class="cap">Time stop</label><input type="date" id="f_timestop" value="${ticketDraft.f_timestop ? esc(ticketDraft.f_timestop) : ""}" style="width:140px">
       <label class="cap"><input type="checkbox" id="ea_rth" style="vertical-align:-2px"> Outside RTH</label>`;
     const rth = document.getElementById("ea_rth");
+    if (rth) rth.checked = ticketDraft.ea_rth === true;
     if (rth) rth.addEventListener("change", updateReadout);
   } else {
     const entryType = String(ticketDraft.f_entry_type || "LMT").toUpperCase();
@@ -1790,6 +1819,7 @@ function syncFields() {
       <label class="cap">Strategy</label>${inp("f_strategy", "blank = Discretionary", 150)}
       <label class="cap">Scale-out</label>${inp("f_so_frac", "frac e.g. .3333", 110)}
       ${inp("f_so_target", "near target", 90)}`;
+    restoreTicketSelects(["f_sectype", "f_action"]);
     const st = document.getElementById("f_sectype");
     if (st) st.addEventListener("change", () => {
       if (val("f_sectype") === "FUT" && !futSpec(val("f_symbol"))) {
@@ -1903,12 +1933,20 @@ function renderFutRow() {
     clearFutExp(); scheduleFrontResolve(); updateReadout();
   });
   const exp = document.getElementById("f_futexp");
+  const saved = ticketDraft.f_contract;
+  if (exp && saved && saved.symbol === String(val("f_symbol") || "").toUpperCase().trim()
+      && saved.exchange === selectedFutExchange()) {
+    exp.value = saved.expiry; frontState.manual = saved.manual;
+  }
   if (exp) exp.addEventListener("input", () => { frontState.manual = true; setFutNote(""); });   // stop auto-fill once typed
 }
 function setFutNote(txt) { const n = document.getElementById("f_futnote"); if (n) n.textContent = txt || ""; }
 // Blank the auto-filled month BEFORE a new resolve: if the resolve fails the field stays
 // empty and the "enter the contract month" gate blocks submission (no stale month).
 function clearFutExp() {
+  frontState.request++; frontState.id = null;
+  clearTimeout(frontState.timer);
+  delete ticketDraft.f_contract;
   const exp = document.getElementById("f_futexp");
   if (exp) { exp.value = ""; exp.placeholder = "resolving…"; }
   setFutNote("");
@@ -2010,12 +2048,8 @@ function flattenWarnings() {
   const sym = String(val("f_symbol") || "").toUpperCase().trim();
   const warns = [];
   if (!sym) warns.push("symbol required");
-  const ab = acctBook();
-  const identity = ticketDraft.fl_position;
-  const pos = ((ab && ab.positions) || []).find((p) => p.position
-    && String(p.symbol).toUpperCase() === sym
-    && (!identity || identity.account !== state.account || !identity.con_id
-      || Number(p.con_id) === Number(identity.con_id)));
+  const pos = actionPosition();
+  if (sym && !pos) warns.push("Select one exact position using its Close button");
   const held = pos ? Math.abs(pos.position) : null;
   const qn = numOrNull("fl_qty");
   if (qn != null) {
@@ -2042,10 +2076,11 @@ function attachPosition() {
   if (!sym) return null;
   const ab = acctBook();
   const identity = ticketDraft.ea_position;
-  return ((ab && ab.positions) || []).find((p) => p.position
+  const hits = ((ab && ab.positions) || []).filter((p) => p.position
     && String(p.symbol).toUpperCase() === sym
-    && (!identity || identity.account !== state.account || !identity.con_id
-      || Number(p.con_id) === Number(identity.con_id))) || null;
+    && (!identity || identity.account !== state.account || String(identity.symbol).toUpperCase() !== sym || !identity.con_id
+      || Number(p.con_id) === Number(identity.con_id)));
+  return hits.length === 1 ? hits[0] : null;
 }
 // Hard gate for the attach-exits ticket (mirrors the agent's checks; [] = sendable).
 function attachWarnings() {
@@ -2069,7 +2104,7 @@ function attachWarnings() {
       if (!long && !(target < stop)) warns.push("short needs target < stop");
     }
     const mark = Number(pos.market_price) > 0 ? Number(pos.market_price)
-      : Number(pos.avg_cost) > 0 ? Number(pos.avg_cost) : 0;
+      : Number(quotedAverageCost(pos)) > 0 ? Number(quotedAverageCost(pos)) : 0;
     if (mark > 0) {
       if (stop > 0 && (long ? stop >= mark : stop <= mark))
         warns.push(`stop ${stop} is on the wrong side of the market (~${mark})`);
@@ -2099,10 +2134,14 @@ function scheduledOptionWarnings() {
   if (!(delta >= 0.01 && delta <= 0.50)) warns.push("absolute delta must be between 0.01 and 0.50");
   if (!(budget > 0)) warns.push("premium budget must be > 0");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) warns.push("execution date required");
-  if (!/^\d{2}:\d{2}$/.test(time || "")) warns.push("execution time required");
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time || "")) warns.push("valid execution time required");
   if (date && time) {
-    const when = new Date(`${date}T${time}:00`);
-    if (!Number.isFinite(when.getTime()) || when.getTime() <= Date.now()) warns.push("execution time must be in the future");
+    // The form labels ET even when the browser is in another timezone.
+    const today = etToday().replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+    const parsed = new Date(`${date}T00:00:00Z`);
+    if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date)
+      warns.push("valid execution date required");
+    else if (`${date}T${time}` <= `${today}T${etNowHM()}`) warns.push("execution time must be in the future");
   }
   if (mode === "min_dte") {
     const dte = numOrNull("so_min_dte");
@@ -2240,7 +2279,9 @@ function val(id) { const e = document.getElementById(id); return e ? e.value : u
 // Empty/whitespace inputs are null, NEVER 0 (Number("") === 0 turned a cleared stop into a $0.00 stop).
 function numOrNull(id) {
   const v = val(id);
-  return v == null || String(v).trim() === "" ? null : Number(v);
+  if (v == null || String(v).trim() === "") return null;
+  const number = Number(v);
+  return Number.isFinite(number) ? number : NaN;
 }
 function ticketPayload(t) {
   if (t === "add_to_position") {
@@ -2490,40 +2531,47 @@ function checkRiskAck() {
 }
 
 /* ---------- futures sizing (read-only: risk -> contracts + notional) ---------- */
-const sizeState = { id: null, timer: null };
+const sizeState = { id: null, timer: null, request: 0 };
 async function sizeFutures() {
   const msg = document.getElementById("fs_msg");
   const symbol = String(val("fs_symbol") || "").toUpperCase().trim();
   if (!symbol) { msg.textContent = "symbol required"; return; }
-  const entry = Number(val("fs_entry")), stop = Number(val("fs_stop"));
-  if (!entry || !stop) { msg.textContent = "entry and stop required"; return; }
-  const target = val("fs_target") ? Number(val("fs_target")) : null;
-  const risk = val("fs_risk") ? Number(val("fs_risk")) : null;
-  const risk_pct = val("fs_riskpct") ? Number(val("fs_riskpct")) : null;
-  if (risk == null && risk_pct == null) { msg.textContent = "enter risk $ or %"; return; }
+  const entry = numOrNull("fs_entry"), stop = numOrNull("fs_stop");
+  if (!(entry > 0) || !(stop > 0) || entry === stop) { msg.textContent = "entry and stop must be positive, different prices"; return; }
+  const target = numOrNull("fs_target"), risk = numOrNull("fs_risk"), risk_pct = numOrNull("fs_riskpct");
+  if (target != null && !(target > 0)) { msg.textContent = "target must be a positive price or blank"; return; }
+  if ((risk == null) === (risk_pct == null) || (risk != null && !(risk > 0)) || (risk_pct != null && !(risk_pct > 0))) {
+    msg.textContent = "enter one positive risk budget: $ or %"; return;
+  }
+  const request = ++sizeState.request, account = state.account;
+  sizeState.id = null;
+  set("fs_result", "");
   msg.textContent = "sizing…";
   clearTimeout(sizeState.timer);
   try {
     const r = await fetch("/exec-futures-size", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol, entry, stop, target, risk, risk_pct, account_key: state.account }),
+      body: JSON.stringify({ symbol, entry, stop, target, risk, risk_pct, account_key: account }),
     });
     const d = await r.json();
+    if (request !== sizeState.request || account !== state.account) return;
     if (!d.ok) { msg.textContent = "error: " + (d.error || ("HTTP " + r.status)); return; }
     sizeState.id = d.id;
-    pollSize(0);
-  } catch (e) { msg.textContent = "error: " + e; }
+    pollSize(0, request);
+  } catch (e) { if (request === sizeState.request) msg.textContent = "error: " + e; }
 }
-async function pollSize(n) {
+async function pollSize(n, request = sizeState.request) {
+  if (request !== sizeState.request) return;
   if (n > 30) { document.getElementById("fs_msg").textContent = "timed out — is the agent online?"; return; }
   const d = (await fetchJSONOrNull("/exec-futures-size")) || {};
+  if (request !== sizeState.request) return;
   const q = d.query;
   if (q && q.id === sizeState.id && q.result) {
     document.getElementById("fs_msg").textContent = "";
     renderSize(q.result);
     return;
   }
-  sizeState.timer = setTimeout(() => pollSize(n + 1), 1500);
+  sizeState.timer = setTimeout(() => pollSize(n + 1, request), 1500);
 }
 function renderSize(data) {
   const el = document.getElementById("fs_result");
@@ -2552,6 +2600,7 @@ function scheduleFrontResolve() {
   frontState.timer = setTimeout(resolveFront, 500);   // debounce while the symbol is typed
 }
 async function resolveFront() {
+  const request = ++frontState.request;
   const symbol = String(val("f_symbol") || "").toUpperCase().trim();
   const exchange = selectedFutExchange();
   const exp = document.getElementById("f_futexp");
@@ -2565,21 +2614,24 @@ async function resolveFront() {
       body: JSON.stringify({ symbol, exchange }),
     });
     const d = await r.json();
+    if (request !== frontState.request) return;
     if (!d.ok) { frontResolveFailed(); return; }
     frontState.id = d.id;
     if (exp && !frontState.manual && !exp.value) exp.placeholder = "resolving…";
-    pollFront(0);
-  } catch (e) { frontResolveFailed(); }               // field stays BLANK; the submit gate blocks
+    pollFront(0, request);
+  } catch (e) { if (request === frontState.request) frontResolveFailed(); } // no stale response may overwrite a newer resolution
 }
 function frontResolveFailed() {
   const exp = document.getElementById("f_futexp");
   if (exp) exp.placeholder = "202609";
   setFutNote("front-month resolve failed — enter the contract month");
 }
-async function pollFront(n) {
+async function pollFront(n, request = frontState.request) {
+  if (request !== frontState.request) return;
   const exp = document.getElementById("f_futexp");
   if (n > 20) { frontResolveFailed(); return; }
   const d = (await fetchJSONOrNull("/exec-futures-front")) || {};
+  if (request !== frontState.request) return;
   const q = d.query;
   if (q && q.id === frontState.id && q.result) {
     const res = q.result;
@@ -2592,7 +2644,7 @@ async function pollFront(n) {
     } else if (!frontState.manual) { frontResolveFailed(); }
     return;
   }
-  setTimeout(() => pollFront(n + 1), 1200);
+  frontState.timer = setTimeout(() => pollFront(n + 1, request), 1200);
 }
 
 /* ---------- activity ---------- */
@@ -2620,15 +2672,15 @@ function resultCell(c) {
     html += `<div class="exec-legs" style="color:#ffc14d">filled ${esc(String(f.filled ?? "?"))} @ ${esc(String(f.avg_fill ?? "—"))} · #${esc(String(f.order_id ?? ""))} (${esc(String(f.status ?? ""))})</div>`;
   }
   if (c.type === "scheduled_option" && c.state === "scheduled") {
-    html += `<div style="margin-top:6px"><button class="btn ghost" data-mutation onclick="cancelScheduledOption('${esc(c.id)}')">Cancel schedule</button></div>`;
+    html += `<div style="margin-top:6px"><button class="btn ghost" data-mutation onclick="cancelScheduledOption('${esc(c.id)}','${esc(c.account || state.account)}')">Cancel schedule</button></div>`;
   }
   return html;
 }
 
-function cancelScheduledOption(scheduleId) {
+function cancelScheduledOption(scheduleId, account = state.account) {
   if (!scheduleId || rejectUnknownMutation("cmdMsg")) return;
-  if (!confirm(`${actionLead("cancel")} scheduled option instruction ${scheduleId.slice(0, 8)} on ${state.account}?`)) return;
-  sendCommand("scheduled_option_cancel", { schedule_id: scheduleId }, "cmdMsg");
+  if (!confirm(`${actionLead("cancel")} scheduled option instruction ${scheduleId.slice(0, 8)} on ${account}?`)) return;
+  sendCommand("scheduled_option_cancel", { schedule_id: scheduleId }, "cmdMsg", {account, dryRun: execMode() === "dry-run"});
 }
 window.cancelScheduledOption = cancelScheduledOption;
 function clockTime(ms) {

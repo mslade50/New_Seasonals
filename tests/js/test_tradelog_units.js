@@ -1,0 +1,23 @@
+"use strict";
+const assert=require("assert"),fs=require("fs"),path=require("path"),vm=require("vm");
+const c={console,document:{addEventListener(){}},clsSign:()=>"",fmt:{money:String,num:String}};
+vm.createContext(c);vm.runInContext(fs.readFileSync(path.join(__dirname,"../../site/assets/tradelog.js"),"utf8"),c);
+vm.runInContext("TL_FUT_SPECS={MCL:{multiplier:100},MES:{multiplier:5}}",c);
+const fill={exec_id:"a",account_key:"primary",time:"2026-09-14T14:00:00Z",symbol:"MCL",sec_type:"FUT",currency:"USD",side:"BOT",con_id:42,perm_id:1,qty:4,price:101.86};
+assert.equal(c.fillNotionalUSD(fill),40744);
+assert.equal(c.fillNotionalUSD({...fill,multiplier:1000}),407440);
+assert.equal(c.fillNotionalUSD({...fill,sec_type:"OPT",multiplier:100,price:3.05}),1220);
+assert.equal(c.fillNotionalUSD({...fill,sec_type:"OPT"}),null);
+assert.equal(c.fillNotionalUSD({...fill,symbol:"UNKNOWN"}),null);
+assert.equal(c.fillNotionalUSD({...fill,currency:"EUR"}),null);
+assert.equal(c.fillNotionalUSD({...fill,sec_type:"CASH",symbol:"USD",currency:"JPY",qty:10000,price:150}),10000);
+assert.equal(c.fillNotionalUSD({...fill,sec_type:"CASH",symbol:"EUR",qty:10000,price:1.1}),11000);
+const [row]=c.aggregateOrders([fill,{...fill,exec_id:"b",qty:2,price:102}]);
+assert.equal(row.qty,6);assert.ok(Math.abs(row.avg_price-(4*101.86+2*102)/6)<1e-10);assert.equal(row.notional,61144);
+assert.equal(c.rawRows([fill])[0].notional,40744);
+assert.equal(c.aggregateOrders([fill,{...fill,exec_id:"other-leg",con_id:99}]).length,2);
+assert.equal(c.aggregateOrders([fill,{...fill,exec_id:"other-acct",account_key:"pa"}]).length,2);
+assert.match(c.kpiHtml([{side:"BUY",qty:2,notional:null,n_fills:1}]),/notional unavailable/);
+assert.doesNotMatch(c.kpiHtml([{side:"BUY",qty:2,notional:100,n_fills:1}]),/ sh \//);
+console.log("PASS Trade Log contract multipliers, price VWAP, USD FX units, unknown units and contract/account separation");
+

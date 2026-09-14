@@ -13,6 +13,21 @@ document.addEventListener("DOMContentLoaded", initTradeLog);
 const TL_REFRESH_MS = 30_000;
 const tlState = { days: 7, account: "all", fills: [], raw: false, error: null, lastSuccessfulAt: null };
 let tlTable = null;
+let TL_FUT_SPECS = {};
+
+function fillNotionalUSD(fill) {
+  const qty = Number(fill.qty), price = Number(fill.price);
+  if (!Number.isFinite(qty) || !Number.isFinite(price)) return null;
+  const currency = String(fill.currency || "USD").toUpperCase();
+  const symbol = String(fill.symbol || "").toUpperCase();
+  if (fill.sec_type === "CASH") return symbol === "USD" ? qty : currency === "USD" ? qty * price : null;
+  if (currency !== "USD") return null;
+  if (fill.sec_type === "FUT" || fill.sec_type === "OPT") {
+    const multiplier = Number(fill.multiplier || (fill.sec_type === "FUT" && (TL_FUT_SPECS[symbol] || {}).multiplier));
+    return multiplier > 0 && Number.isFinite(multiplier) ? qty * price * multiplier : null;
+  }
+  return !fill.sec_type || fill.sec_type === "STK" ? qty * price : null;
+}
 
 function stratFromRef(ref) {
   // orderRef 'SYMBOL|ACTION|Strategy_Ref|Staged_Date[|tranche]' -> strategy
@@ -37,7 +52,8 @@ function aggregateOrders(fills) {
   const groups = new Map();
   for (const f of fills || []) {
     const pid = f.perm_id ? String(f.perm_id) : "x" + f.exec_id;
-    const key = `${f.account_key || f.account || ""}|${pid}|${f.side || ""}`;
+    const contract = f.con_id || `${f.sec_type || ""}:${f.symbol || ""}:${f.expiry_full || f.expiry || ""}`;
+    const key = `${f.account_key || f.account || ""}|${pid}|${f.side || ""}|${contract}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(f);
   }
@@ -46,7 +62,9 @@ function aggregateOrders(fills) {
     g.sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
     const first = g[0];
     const qty = g.reduce((s, f) => s + (f.qty || 0), 0);
-    const notional = g.reduce((s, f) => s + (f.qty || 0) * (f.price || 0), 0);
+    const priceWeightedQty = g.reduce((s, f) => s + (f.qty || 0) * (f.price || 0), 0);
+    const amounts = g.map(fillNotionalUSD);
+    const notional = amounts.every(v => v != null) ? amounts.reduce((sum, v) => sum + v, 0) : null;
     const comm = g.reduce((s, f) => s + (f.commission || 0), 0);
     const pnl = g.filter((f) => f.realized_pnl != null);
     rows.push({
@@ -57,7 +75,7 @@ function aggregateOrders(fills) {
       sec_type: first.sec_type || "",
       side: first.side === "BOT" ? "BUY" : first.side === "SLD" ? "SELL" : (first.side || ""),
       qty,
-      avg_price: qty ? notional / qty : null,
+      avg_price: qty ? priceWeightedQty / qty : null,
       notional,
       strategy: stratFromRef(first.order_ref),
       order_ref: first.order_ref || null,
@@ -80,7 +98,7 @@ function rawRows(fills) {
     side: f.side === "BOT" ? "BUY" : f.side === "SLD" ? "SELL" : (f.side || ""),
     qty: f.qty,
     avg_price: f.price,
-    notional: (f.qty || 0) * (f.price || 0),
+    notional: fillNotionalUSD(f),
     strategy: stratFromRef(f.order_ref),
     order_ref: f.order_ref || null,
     n_fills: 1,
@@ -112,12 +130,18 @@ function kpiHtml(rows) {
   const sum = (a, k) => a.reduce((s, r) => s + (r[k] || 0), 0);
   const pnlRows = rows.filter((r) => r.realized_pnl != null);
   const pnl = sum(pnlRows, "realized_pnl");
+  const exposure = side => {
+    const unknown = side.filter(row => row.notional == null).length;
+    return {value: fmt.money(sum(side, "notional")) + (unknown ? " + unknown" : ""),
+      subtitle: `${side.length} orders${unknown ? ` · ${unknown} notional unavailable` : ""}`};
+  };
+  const bought = exposure(buys), sold = exposure(sells);
   const kpi = (l, v, s) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>` +
     (s ? `<div class="s">${s}</div>` : "") + `</div>`;
   return `<div class="kpis">` +
     kpi("Orders", String(rows.length), `${sum(rows, "n_fills")} executions`) +
-    kpi("Bought", fmt.money(sum(buys, "notional")), `${fmt.num(sum(buys, "qty"), 0)} sh / ${buys.length} orders`) +
-    kpi("Sold", fmt.money(sum(sells, "notional")), `${fmt.num(sum(sells, "qty"), 0)} sh / ${sells.length} orders`) +
+    kpi("Bought", bought.value, bought.subtitle) +
+    kpi("Sold", sold.value, sold.subtitle) +
     kpi("Commissions", fmt.money(sum(rows, "commission"), 2)) +
     (pnlRows.length
       ? kpi("Realized PnL", `<span class="${clsSign(pnl)}">${fmt.money(pnl, 0)}</span>`, "closing executions only")
@@ -130,10 +154,11 @@ const TL_COLUMNS = [
   { key: "timeET", label: "Time (ET)", align: "l" },
   { key: "account", label: "Account", align: "l" },
   { key: "symbol", label: "Symbol", align: "l" },
+  { key: "sec_type", label: "Type", align: "l" },
   { key: "side", label: "Side", align: "l", cls: (v) => (v === "BUY" ? "pos" : v === "SELL" ? "neg" : "") },
   { key: "qty", label: "Qty", fmt: (v) => fmt.num(v, 0) },
   { key: "avg_price", label: "Avg Px", fmt: (v) => fmt.num(v, 2) },
-  { key: "notional", label: "Notional", fmt: (v) => fmt.money(v) },
+  { key: "notional", label: "Notional USD", fmt: (v) => v == null ? "Unavailable" : fmt.money(v) },
   { key: "strategy", label: "Strategy", align: "l" },
   { key: "n_fills", label: "Fills" },
   { key: "commission", label: "Comm", fmt: (v) => (v == null ? "" : fmt.money(v, 2)) },
@@ -214,6 +239,7 @@ async function tlLoad() {
 async function initTradeLog() {
   renderNav("tradelog.html");
   renderShell();
+  TL_FUT_SPECS = await fetchJSONOrNull("assets/futures_specs.json") || {};
   await tlLoad();
   setInterval(tlLoad, TL_REFRESH_MS);
 }
