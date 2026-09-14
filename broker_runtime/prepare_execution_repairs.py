@@ -80,7 +80,7 @@ def patch_options(source):
         # contract. Never accept or reinterpret a saved MKT intent.
         start = text.index('    sym = str(p.get("symbol")')
         text = 'def _do_dynamic_option_limit(ib, p, acct):\n' + text[start:]
-        text = replace_once(text, '    sym = str(p.get("symbol")', '''    from option_limit_pricing import capped_size, validate_intent
+        text = replace_once(text, '    sym = str(p.get("symbol")', '''    from option_limit_pricing import capped_market_size, market_increments, fresh_live_ask, validate_intent
     try:
         validate_intent(p)
     except (ValueError, KeyError, TypeError) as exc:
@@ -93,17 +93,17 @@ def patch_options(source):
         end = text.index('        contract = Option(', start)
         text = text[:start] + text[end:]
         anchor = '        trusted, topology_error = _trusted_option_topology('
-        text = replace_once(text, anchor, '''        quotes = ib.reqTickers(contract)
-        details = ib.reqContractDetails(contract)
-        if len(quotes) != 1 or len(details) != 1 or int(details[0].contract.conId) != cid:
-            raise ValueError("exact option quote and contract details required")
+        text = replace_once(text, anchor, '''        details = ib.reqContractDetails(contract)
+        if len(details) != 1 or int(details[0].contract.conId) != cid:
+            raise ValueError("exact option contract details required")
+        bands = market_increments(ib, contract, details[0])
+        quote_requested_at = datetime.datetime.now(datetime.timezone.utc)
+        quotes = ib.reqTickers(contract)
+        if len(quotes) != 1:
+            raise ValueError("exact option quote required")
         quote = quotes[0]
-        if int(getattr(quote, "marketDataType", 0) or 0) != 1:
-            raise ValueError("scheduled option requires a fresh live quote")
-        if int(getattr(quote.contract, "conId", 0) or 0) != cid:
-            raise ValueError("option quote identity changed")
-        ask = float(quote.ask)
-        qty, limit = capped_size(budget, ask, details[0].minTick, contract.multiplier)
+        ask = fresh_live_ask(quote, cid, quote_requested_at)
+        qty, limit = capped_market_size(budget, ask, bands, contract.multiplier)
         if not _uncapped_options(acct) and qty > LIVE_MAX_OPT_CONTRACTS:
             raise ValueError("option quantity exceeds the existing account cap")
         validate_intent(p)  # slow chain lookup must not cross the deadline
@@ -114,7 +114,8 @@ def patch_options(source):
         text = text.replace('estimated_premium = ask * 100.0 * qty', 'estimated_premium = limit * 100.0 * qty')
         text = text.replace('        trade = guarded_place_order(', '        attempted = True\n        trade = guarded_place_order(')
         text = text.replace('        attempted = True\n        trade = guarded_place_order(',
-                            '        validate_intent(p)\n        attempted = True\n        trade = guarded_place_order(')
+                            '        validate_intent(p)\n        fresh_live_ask(quote, cid, quote_requested_at)\n'
+                            '        attempted = True\n        trade = guarded_place_order(')
         text = text.replace('Dynamic MKT sizing requires genuinely live marks.', 'Scheduled limit sizing requires live marks.')
         text = text.replace('ask-based option risk', 'limit-based option risk')
         text = text.replace('dynamic option MKT rejected by IBKR', 'option limit broker response requires reconciliation')

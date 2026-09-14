@@ -30,6 +30,50 @@ def test_invalid_price_or_unaffordable_contract_is_rejected(budget,ask,tick):
         pricing.capped_size(budget,ask,tick)
 
 
+@pytest.mark.parametrize("ask,expected",[(2.999,3.0),(3.0,3.0),(3.001,3.05),(3.05,3.05),(3.051,3.1)])
+def test_market_rule_band_boundaries_and_premium_cap(ask,expected):
+    rules=[N(lowEdge=0,increment=.01),N(lowEdge=3,increment=.05)]
+    bands=pricing.market_increments(N(reqMarketRule=lambda _:rules),N(exchange="SMART"),
+                                   N(validExchanges="SMART",marketRuleIds="26"))
+    qty,limit=pricing.capped_market_size(1000,ask,bands)
+    assert limit==expected and limit>=ask
+    assert Decimal(str(limit))*qty*100 <= 1000
+    assert Decimal(str(limit))*(qty+1)*100 > 1000
+
+
+def test_rounding_that_crosses_band_uses_new_band_grid():
+    # 1.02 rounds past the boundary on the 0.05 grid; 1.03 is the next band start.
+    bands=pricing.market_increments(
+        N(reqMarketRule=lambda _:[N(lowEdge=0,increment=.05),N(lowEdge=1.03,increment=.1)]),
+        N(exchange="SMART"),N(validExchanges="SMART",marketRuleIds="26"))
+    assert pricing.capped_market_size(1000,1.02,bands)==(9,1.03)
+    with pytest.raises(ValueError,match="budget"):
+        pricing.capped_market_size(102.99,1.02,bands)
+
+
+@pytest.mark.parametrize("exchanges,ids",[("CBOE","7"),("SMART,CBOE","26"),
+                                        ("SMART,SMART","26,27"),("SMART",""),
+                                        ("SMART","0"),("SMART","bad")])
+def test_unresolved_exchange_rule_is_rejected_without_fallback(exchanges,ids):
+    def should_not_request(_):
+        raise AssertionError("ambiguous market rule must not be requested")
+    with pytest.raises(ValueError,match="exchange market rule"):
+        pricing.market_increments(N(reqMarketRule=should_not_request),N(exchange="SMART"),
+                                  N(validExchanges=exchanges,marketRuleIds=ids,minTick=.01))
+
+
+@pytest.mark.parametrize("rows",[
+    [N(lowEdge=0,increment=float("nan"))],
+    [N(lowEdge=1,increment=.01)],
+    [N(lowEdge=0,increment=.01),N(lowEdge=0,increment=.05)],
+    [N(lowEdge=0,increment=.01),N(lowEdge=3,increment=.05),N(lowEdge=2,increment=.1)],
+])
+def test_malformed_price_bands_fail_closed(rows):
+    with pytest.raises(ValueError,match="market rule"):
+        pricing.market_increments(N(reqMarketRule=lambda _:rows),N(exchange="SMART"),
+                                  N(validExchanges="SMART",marketRuleIds="26"))
+
+
 def test_old_market_intent_and_missed_window_stay_blocked():
     p=dict(pricing_policy=pricing.POLICY,order_type="LMT",tif="DAY",
            execute_date="2026-09-14",execute_time="15:45",grace_minutes=5)
@@ -65,7 +109,7 @@ def dynamic(monkeypatch):
     monkeypatch.setitem(sys.modules,"option_limit_pricing",pricing)
     monkeypatch.setattr(pricing,"validate_intent",lambda p: None)
     calls=[]
-    contract=N(conId=42,multiplier="100",symbol="TEST",secType="OPT")
+    contract=N(conId=42,multiplier="100",symbol="TEST",secType="OPT",exchange="SMART")
     quote=N(ask=2.03,marketDataType=1,contract=contract)
     def place(ib,c,o,**kw):
         calls.append((o,kw))
@@ -80,10 +124,16 @@ def dynamic(monkeypatch):
         _command_signal=lambda *a:"fixture",_ERRORS=[],guarded_place_order=place,
         _out=lambda ok,state,detail,fill=None:dict(ok=ok,state=state,detail=detail,fill=fill))
     exec(compile(ast.Module(body=[node],type_ignores=[]),"dynamic-limit","exec"),env)
+    def snapshot(c):
+        if c.secType != "OPT":
+            return [N(marketPrice=lambda:100,marketDataType=1)]
+        quote.time=datetime.datetime.now(datetime.timezone.utc)
+        return [quote]
     ib=N(qualifyContracts=lambda c:[c],reqMarketDataType=lambda *a:None,
-         reqTickers=lambda c:[quote] if c.secType=="OPT" else [N(marketPrice=lambda:100,marketDataType=1)],
+         reqTickers=snapshot,
          reqSecDefOptParams=lambda *a:[N(tradingClass="TEST",expirations=["20261016"],strikes=[100])],
-         reqContractDetails=lambda c:[N(contract=c,minTick=.05)],sleep=lambda _:None)
+         reqContractDetails=lambda c:[N(contract=c,minTick=.01,validExchanges="CBOE,SMART",marketRuleIds="7,26")],
+         reqMarketRule=lambda rule_id:[N(lowEdge=0,increment=.05)],sleep=lambda _:None)
     payload=dict(symbol="TEST",_broker_account="PRIMARY",right="P",target_delta=.15,
                  delta_tolerance=.03,premium_budget=1000,order_type="LMT",tif="DAY",expiry_mode="specific")
     return env,ib,payload,calls,quote
@@ -105,6 +155,83 @@ def test_delayed_option_quote_places_nothing(dynamic):
     quote.marketDataType=3
     result=env["_do_dynamic_option_limit"](ib,p,"primary")
     assert not result["ok"] and calls==[]
+
+
+def test_executor_uses_smart_premium_band_not_contract_minimum_tick(dynamic):
+    env,ib,p,calls,quote=dynamic
+    quote.ask=3.03
+    requested=[]
+    def market_rule(rule_id):
+        requested.append(rule_id)
+        return [N(lowEdge=0,increment=.01),N(lowEdge=3,increment=.05)]
+    ib.reqMarketRule=market_rule
+    result=env["_do_dynamic_option_limit"](ib,p,"primary")
+    assert result["ok"],result
+    assert requested==[26]
+    order,guard=calls[0]
+    assert (order.totalQuantity,order.lmtPrice)==(3,3.05)
+    assert guard["risk_usd"]==pytest.approx(915)
+
+
+@pytest.mark.parametrize("rules",[None,[],[N(lowEdge=0,increment=0)]])
+def test_missing_or_invalid_market_rule_never_submits(dynamic,rules):
+    env,ib,p,calls,_=dynamic
+    ib.reqMarketRule=lambda _:rules
+    result=env["_do_dynamic_option_limit"](ib,p,"primary")
+    assert result["state"]=="rejected" and calls==[]
+
+
+def test_stale_snapshot_never_submits(dynamic):
+    env,ib,p,calls,quote=dynamic
+    original=ib.reqTickers
+    def stale(c):
+        ticks=original(c)
+        if c.secType=="OPT":
+            quote.time-=datetime.timedelta(minutes=1)
+        return ticks
+    ib.reqTickers=stale
+    result=env["_do_dynamic_option_limit"](ib,p,"primary")
+    assert result["state"]=="rejected" and calls==[]
+
+
+def test_snapshot_expiring_during_preflight_never_submits(dynamic):
+    env,ib,p,calls,quote=dynamic
+    topology=env["_trusted_option_topology"]
+    def slow_preflight(*args):
+        quote.time-=datetime.timedelta(seconds=31)
+        return topology(*args)
+    env["_trusted_option_topology"]=slow_preflight
+    result=env["_do_dynamic_option_limit"](ib,p,"primary")
+    assert result["state"]=="rejected" and calls==[]
+
+
+def test_market_rule_rounded_contract_exceeds_budget_places_nothing(dynamic):
+    env,ib,p,calls,quote=dynamic
+    quote.ask=3.03
+    p["premium_budget"]=304
+    result=env["_do_dynamic_option_limit"](ib,p,"primary")
+    assert result["state"]=="rejected" and calls==[]
+
+
+def test_actual_ib_insync_shapes_use_market_rule_without_connection(dynamic):
+    ib_types=pytest.importorskip("ib_insync")
+    env,ib,p,calls,_=dynamic
+    contract=ib_types.Option("TEST","20261016",100,"P","SMART",conId=42,multiplier="100")
+    quote=ib_types.Ticker(contract=contract,marketDataType=1,ask=3.03)
+    env["Option"]=lambda *args,**kwargs:contract
+    original=ib.reqTickers
+    def snapshot(c):
+        if c.secType!="OPT":
+            return original(c)
+        quote.time=datetime.datetime.now(datetime.timezone.utc)
+        return [quote]
+    ib.reqTickers=snapshot
+    ib.reqContractDetails=lambda c:[ib_types.ContractDetails(
+        contract=c,minTick=.01,validExchanges="CBOE,SMART",marketRuleIds="7,26")]
+    ib.reqMarketRule=lambda rule_id:[ib_types.PriceIncrement(0,.01),ib_types.PriceIncrement(3,.05)]
+    result=env["_do_dynamic_option_limit"](ib,p,"primary")
+    assert result["ok"],result
+    assert calls[0][0].lmtPrice==3.05
 
 
 def test_lost_submit_ack_is_unknown_never_clean_rejection(dynamic):
