@@ -156,7 +156,7 @@ def prepare(source_root, output):
             raise ValueError(f"reviewed source changed: {name}")
         rendered[name] = patch(raw.decode("utf-8-sig").replace("\r\n", "\n"))
     for name in ("position_actions.py", "position_action_agent.py", "execution_lifecycle.py",
-                 "order_mutations.py", "execution_contracts.py", "option_limit_pricing.py"):
+                 "order_mutations.py", "execution_contracts.py", "option_limit_pricing.py", "order_edit_context.py"):
         rendered[name] = (HERE / name).read_text(encoding="utf-8")
     for name, source in rendered.items():
         compile(source, name, "exec")

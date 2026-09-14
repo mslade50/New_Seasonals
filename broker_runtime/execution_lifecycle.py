@@ -257,6 +257,12 @@ def mutate_one(ns, ib, payload, host, port, main_cid, *, modify=False, account_k
                 if (not math.isfinite(multiplier) or multiplier <= 0 or not price
                         or price * multiplier * order.totalQuantity > ns["_max_notional"](account_key)):
                     raise ValueError("increased quantity needs a price within the account notional cap")
+            if not payload.get("mutation_kind"):
+                try:
+                    from .order_edit_context import infer
+                except ImportError:
+                    from order_edit_context import infer
+                payload = dict(payload, **infer(ns, connection, trade, order))
             kind = str(payload.get("mutation_kind") or "").lower()
             if int(getattr(order, "parentId", 0) or 0):
                 kind = "modify"
@@ -301,9 +307,9 @@ def mutate_one(ns, ib, payload, host, port, main_cid, *, modify=False, account_k
             filled_before = float(trade.orderStatus.filled or 0)
             ns["guarded_place_order"](
                 connection, trade.contract, order, mutation_kind=kind, account=wanted[0],
-                portfolio_direction=payload.get("portfolio_direction") if kind == "entry" else None,
-                risk_usd=risk_usd if kind == "entry" else None,
-                risk_bps=risk_bps if kind == "entry" else None,
+                portfolio_direction=payload.get("portfolio_direction"),
+                risk_usd=risk_usd,
+                risk_bps=risk_bps,
                 signal_id=ns["_command_signal"](payload, "modify"))
             current = wait_modified(connection, wanted, changed, filled_before, ns=ns)
             return ns["_out"](True, "executed", "Exact order modification confirmed",

@@ -2,6 +2,8 @@
 
 Status: implemented and tested in an isolated worktree; not installed in the broker runtime or deployed to the private site.
 
+The user approved runtime installation/restart and cloud deployment, and requested direct Save for order edits. The editor now sends only the exact identity and changed quantity/prices, without purpose/direction/risk fields or a confirmation popup. The executor derives metadata from durable order provenance, broker-linked parents and current positions, and computes required risk from attached stops and uncovered quantity. Existing broker ownership/capacity checks remain. Five additional automatic-edit tests and the direct-Save frontend regression pass. The coordinated runtime candidate now contains ten modules, including `order_edit_context.py`.
+
 The live executor had an Add handler but omitted `add_to_position` from its dispatcher allowlist. Cancel and Modify remained disabled in both agent and executor. PA used the legacy position controls and handlers. Exit resizing could report failure while a fresh broker acknowledgement was available because it checked the stale Trade returned by submission.
 
 This candidate aligns PA and Primary stock Close/Add/Re-add controls and routes both through the same position lifecycle. Cancel and Modify use exact account/contract/client/order/permanent identities, durable receipts and complete raw broker order fields. A bounded acknowledgement wait never resends. Missing fresh fill counters, fills during resizing and uncertain delivery require reconciliation. Unresolved edits and position actions block each other for the affected contract. Futures quantity increases include the contract multiplier in the notional check; closing orders cannot increase beyond available holdings.
@@ -40,4 +42,4 @@ Merge the reviewed site changes to `origin/main`, then dispatch `.github/workflo
 
 The earlier SNA close attempt left an attention journal after partially adjusting exits. The user is managing the live quantities. This candidate neither clears that receipt nor retries the close; broker/order reconciliation is still needed before subsequent SNA position actions.
 
-The expected-exit status panel was unavailable during live inspection. Its frontend fixture test passes, but the live producer/R2 status has not been repaired or verified by this change. Stock Add/Re-add scope, option account restrictions and existing risk acknowledgements remain in force.
+The expected-exit status panel was unavailable during live inspection. A direct read of its R2 key returned `NoSuchKey`; prior rollout notes say monitor scheduling was not registered. Its frontend fixture test passes, but the live producer has not been repaired by this change. Stock Add/Re-add scope, option account restrictions and existing risk acknowledgements remain in force.
