@@ -1,6 +1,7 @@
 import ast
 import datetime
 import math
+import os
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -54,7 +55,7 @@ def test_mcl_delivery_month_is_not_last_trade_month():
 
 @pytest.fixture
 def dynamic(monkeypatch):
-    path=Path("C:/Users/McKinley Slade/OneDrive/trading_ibkr/execute_order.py")
+    path=Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))/"execute_order.py"
     if not path.exists():
         pytest.skip("reviewed runtime required")
     source=prepare.patch_executor(path.read_text(encoding="utf-8-sig"))

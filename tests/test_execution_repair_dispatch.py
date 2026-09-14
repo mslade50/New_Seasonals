@@ -2,6 +2,8 @@
 import ast
 import copy
 import json
+import os
+from collections import namedtuple
 from pathlib import Path
 from types import SimpleNamespace as N
 
@@ -12,10 +14,10 @@ from broker_runtime import position_actions as actions
 from broker_runtime import position_action_agent as agent
 from broker_runtime import order_mutations
 from broker_runtime import execution_lifecycle as life
-from broker_runtime.execution_contracts import qualify_held
+from broker_runtime.execution_contracts import qualify_held, qualify_position
 from tests.test_unified_position_actions import Broker, exit_order, namespace, request
 
-SOURCE = Path("C:/Users/McKinley Slade/OneDrive/trading_ibkr")
+SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
 
 
 @pytest.fixture
@@ -140,6 +142,15 @@ def test_contract_qualification_preserves_conid_and_hydrates_exchange():
     ib.qualifyContracts = lambda c: [N(**dict(vars(c),conId=43))]
     with pytest.raises(ValueError, match="changed"):
         qualify_held(ib,c)
+
+
+def test_qualify_immutable_ibkr_position_keeps_quantity_and_account():
+    Position = namedtuple("Position", "account contract position avgCost")
+    original = Position("PRIMARY", N(conId=42,secType="FUT",exchange=""), 2, 500000)
+    ib = N(qualifyContracts=lambda c:[N(**dict(vars(c),exchange="CME"))])
+    result = qualify_position(ib, original)
+    assert result.contract.exchange == "CME" and original.contract.exchange == ""
+    assert result.account == original.account and result.position == 2 and result.avgCost == 500000
 
 
 def test_order_edit_receipt_blocks_duplicate_after_restart(tmp_path, monkeypatch):
