@@ -16,6 +16,15 @@ def qualify_held(ib, contract):
     return matches[0]
 
 
+def qualify_position(ib, position):
+    contract = qualify_held(ib, position.contract)
+    if hasattr(position, "_replace"):
+        return position._replace(contract=contract)
+    candidate = copy.copy(position)
+    candidate.contract = contract
+    return candidate
+
+
 def select_front_details(details, today, buffer_days):
     """Select by last trading day, but return the delivery contract month.
 

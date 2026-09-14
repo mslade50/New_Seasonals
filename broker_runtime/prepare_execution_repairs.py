@@ -33,8 +33,8 @@ def patch_executor(source):
     # Qualify the exact held contract before checking its exchange metadata.
     source = change_function(source, "_do_close_only", lambda text: replace_once(text,
         "        _cluster_symbol(pos.contract)   # validates mapped equity-index futures",
-        "        from execution_contracts import qualify_held\n"
-        "        pos.contract = qualify_held(ib, pos.contract)\n"
+        "        from execution_contracts import qualify_position\n"
+        "        pos = qualify_position(ib, pos)\n"
         "        _cluster_symbol(pos.contract)   # still validates exact exchange and expiry"))
     return source
 
