@@ -159,5 +159,17 @@ await check("IB contract cost displays in quoted price units",()=>{
 await check("echo sends note only and needs no trade confirmation",async()=>{
  const f=fixture();f.fields({cmdType:"echo",f_note:"offline ping"});f.run("sendTicket()");await Promise.resolve();assert.equal(f.confirms.length,0);assert.equal(f.commands[0].type,"echo");assert.deepEqual(f.commands[0].payload,{note:"offline ping"});
 });
+await check("credit combo quantity edits preserve the existing signed limit",()=>{
+ const f=fixture();const order={symbol:"TEST",sec_type:"BAG",con_id:42,action:"BUY",order_type:"LMT",qty:2,lmt:-1.25,order_id:8,perm_id:7,client_id:99};
+ book(f,[],[order]);f.node("orders");f.run("expandedTickers.add('TEST');execModifyStart('7:8')");
+ assert.equal(f.nodes.get("me_lmt").value,"-1.25");f.nodes.get("me_qty").value="1";f.run("execModifySave(7,8,'TEST')");
+ assert.equal(f.commands.length,1);assert.equal(f.commands[0].payload.new_qty,1);assert.equal(f.commands[0].payload.new_limit,undefined);assert.equal(f.commands[0].payload.con_id,42);assert.equal(f.confirms.length,0);
+});
+await check("signed combo limits stay distinct from single-option prices",()=>{
+ for(const [sectype,original,changed,allowed]of [["BAG",-1.25,-1.5,true],["OPT",1.25,1.5,true],["OPT",1.25,-1.5,false],["BAG",-1.25,Infinity,false]]){
+  const f=fixture();f.fields({me_qty:"2",me_lmt:String(changed)});f.run("orderEdit.orig="+JSON.stringify({account:"primary",sec_type:sectype,con_id:42,client_id:99,qty:2,lmt:original})+";execModifySave(7,8,'TEST')");
+  assert.equal(f.commands.length,Number(allowed),sectype+" "+changed);if(allowed){assert.equal(f.commands[0].payload.new_limit,changed);assert.equal(f.commands[0].payload.new_qty,undefined);assert.equal(f.confirms.length,0);}
+ }
+});
 if(failures.length){console.error(failures.join("\n\n"));process.exitCode=1;}else console.log("PASS "+checks+" execution dashboard control matrices, offline only");
 })();

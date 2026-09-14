@@ -1659,7 +1659,8 @@ function execModifyStart(key) {
   const o = findBookOrder(key);
   if (!o) return;
   orderEdit.key = key;
-  orderEdit.orig = { qty: o.qty, lmt: o.lmt, aux: o.aux, account: state.account, con_id: o.con_id, client_id: o.client_id, parent_id: o.parent_id };
+  orderEdit.orig = { qty: o.qty, lmt: o.lmt, aux: o.aux, account: state.account, sec_type: o.sec_type,
+    con_id: o.con_id, client_id: o.client_id, parent_id: o.parent_id };
   set("orders", renderOrders());
   const q = document.getElementById("me_qty");
   if (q) q.focus();
@@ -1682,8 +1683,10 @@ function execModifySave(permId, orderId, symbol) {
     return v === "" ? null : Number(v);
   };
   const qty = read("me_qty"), lmt = read("me_lmt"), stp = read("me_stp");
-  const bad = [qty, lmt, stp].some((v) => v !== undefined && v !== null && (!isFinite(v) || v <= 0));
-  if (bad) { alert("qty / prices must be positive numbers"); return; }
+  const signedCombo = orig.sec_type === "BAG";
+  const bad = [qty, stp].some((v) => v != null && (!Number.isFinite(v) || v <= 0))
+    || (lmt != null && (!Number.isFinite(lmt) || (signedCombo ? lmt === 0 : lmt <= 0)));
+  if (bad) { alert(signedCombo ? "qty / stop must be positive; combo limit must be a finite nonzero signed price" : "qty / prices must be positive numbers"); return; }
   if (qty != null && !Number.isSafeInteger(qty)) { alert("qty must be a positive whole number"); return; }
   const payload = { symbol, con_id: orig.con_id || null, client_id: orig.client_id == null ? null : orig.client_id };
   if (permId) payload.perm_id = permId;
