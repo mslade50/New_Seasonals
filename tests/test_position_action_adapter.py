@@ -10,7 +10,8 @@ import pytest
 
 from broker_runtime import position_actions as actions
 from broker_runtime import position_action_agent as agent
-from broker_runtime import prepare_position_actions as prepare
+from broker_runtime import prepare_execution_repairs as prepare
+from broker_runtime.prepare_position_actions import function_source
 from tests.test_unified_position_actions import Broker, exit_order, namespace, request
 
 
@@ -111,14 +112,14 @@ def test_uncertain_native_release_stops_before_next_allocation(adapter, tmp_path
     assert record["phase"] == "mutating"
 
 
-def test_candidate_keeps_original_pa_functions_and_only_exempts_primary_add(source):
+def test_candidate_routes_primary_and_pa_through_same_position_lifecycle(source):
     candidate = prepare.patch_executor(source)
     for name in ("_do_close_resize", "_do_add_to_position"):
-        original = prepare.function_source(source, name)
-        legacy = prepare.function_source(candidate, "_legacy" + name)
-        assert legacy == original.replace("def " + name + "(", "def _legacy" + name + "(", 1)
-    assert 'acct == "primary" and t == "add_to_position"' in candidate
-    assert prepare.function_source(candidate, "_prepare_fast_position") == prepare.function_source(source, "_prepare_fast_position")
+        handler = function_source(candidate, name)
+        assert "position_actions.run(globals(), ib, p, acct" in handler
+        assert 'acct != "primary"' not in handler
+    assert 'DISABLED_UNSAFE_MUTATIONS - {"add_to_position", "cancel", "modify"}' in candidate
+    assert function_source(candidate, "_prepare_fast_position") == function_source(source, "_prepare_fast_position")
     compile(candidate, "candidate", "exec")
 
 
@@ -135,8 +136,10 @@ def test_agent_patcher_preserves_live_gates(source, monkeypatch):
     exec(compile(ast.Module(body=nodes, type_ignores=[]), "agent-functions", "exec"), env)
     cmd = dict(account="primary", type="add_to_position", payload=request())
     assert env["_validate"](cmd)[0] and env["_live_eligible"](cmd)[0]
-    assert not env["_live_eligible"](dict(cmd, account="pa"))[0]
-    assert not env["_live_eligible"](dict(cmd, type="cancel"))[0]
+    assert env["_live_eligible"](dict(cmd, account="pa"))[0]
+    assert env["_live_eligible"](dict(cmd, type="cancel"))[0]
+    assert not env["_live_eligible"](dict(cmd, account="unarmed"))[0]
+    assert not env["_live_eligible"](dict(cmd, type="trim_readd"))[0]
     env["LIVE_ENABLED"] = False
     assert not env["_live_eligible"](cmd)[0]
     compile(candidate, "agent-candidate", "exec")
