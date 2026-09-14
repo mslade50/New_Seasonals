@@ -13,38 +13,26 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.execution_harness import install_helpers
+
+@pytest.fixture(autouse=True)
+def inert_helpers(monkeypatch):
+    install_helpers(monkeypatch)
+
 
 IBKR_DIR = os.path.join(os.path.expanduser("~"), "OneDrive", "trading_ibkr")
 
-# The scheduled-options executor was switched off by the 2026-09-02 guard
-# patch (commit 43521a51 acknowledges it). The two end-to-end tests below
-# encode the behaviour wanted once it returns; strict so that a restored
-# executor turns the xfail into a failure and the mark gets removed.
-DISABLED_BY_GUARD_PATCH = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "disabled by 43521a51 until the scheduled-options executor has an "
-        "atomic broker lifecycle; re-enable with that work"
-    ),
-)
-
-
 @pytest.fixture(scope="module")
 def modules():
-    if not os.path.isdir(IBKR_DIR):
-        pytest.skip(f"live execution dir not present: {IBKR_DIR}")
-    sys.path.insert(0, IBKR_DIR)
-    try:
-        return importlib.import_module("exec_agent"), importlib.import_module("execute_order")
-    except ImportError as exc:
-        pytest.skip(f"local execution modules unavailable ({exc})")
+    from tests.execution_harness import load_agent, load_executor
+    return load_agent(), load_executor()
 
 
 def _payload(**overrides):
     payload = {
         "symbol": "SPY", "right": "P", "target_delta": 0.15,
         "delta_tolerance": 0.03, "premium_budget": 1000,
-        "order_type": "MKT", "tif": "DAY",
+        "order_type": "LMT", "tif": "DAY", "pricing_policy": "capped_limit_v1",
         "execute_date": "2026-08-21", "execute_time": "15:45",
         "timezone": "America/New_York", "grace_minutes": 5,
         "expiry_mode": "min_dte", "min_dte": 30, "expiry": None,
@@ -121,76 +109,16 @@ def test_schedule_persistence_marks_interrupted_execution_unknown(modules, monke
     assert "never auto-retried" in agent._SCHEDULES["sched-1"]["detail"]
 
 
-@DISABLED_BY_GUARD_PATCH
-def test_dynamic_executor_resolves_and_submits_market_order(
-        modules, monkeypatch, capsys):
-    _agent, executor = modules
-    option_workbench = importlib.import_module("option_workbench")
-    selected_expiry = (dt.date.today() + dt.timedelta(days=35)).strftime("%Y%m%d")
-    later_expiry = (dt.date.today() + dt.timedelta(days=63)).strftime("%Y%m%d")
-    monkeypatch.setattr(executor, "OPTION_ACCOUNTS", {"primary"})
-    monkeypatch.setattr(executor, "UNCAPPED_OPTIONS_ACCOUNTS", set())
-    monkeypatch.setattr(executor, "LIVE_MAX_OPT_CONTRACTS", 10)
-    monkeypatch.setattr(executor, "LIVE_MAX_OPT_RISK", 2500)
-    monkeypatch.setattr(executor, "LIVE_MAX_OPT_RISK_BY_ACCT", {})
-    monkeypatch.setattr(option_workbench, "_quote_chain", lambda *args: ({
-        "expiry": selected_expiry, "dte": 35,
-        "strikes": [{"right": "P", "delta": -0.149, "ask": 1.20,
-                     "bid": 1.18, "strike": 700.0, "con_id": 15,
-                     "market_data_type": 1}],
-    }, None))
-
-    class FakeIB:
-        def __init__(self):
-            self.placed = None
-
-        def qualifyContracts(self, *contracts):
-            for contract in contracts:
-                contract.conId = 15 if contract.secType == "OPT" else 1
-            return list(contracts)
-
-        def reqMarketDataType(self, value):
-            assert value == 1
-
-        def reqTickers(self, _contract):
-            return [SimpleNamespace(marketPrice=lambda: 750.0, marketDataType=1)]
-
-        def reqSecDefOptParams(self, *_args):
-            return [SimpleNamespace(
-                tradingClass="SPY", expirations={selected_expiry, later_expiry},
-                strikes={700.0, 750.0},
-            )]
-
-        def placeOrder(self, contract, order):
-            order.orderId = 91
-            order.permId = 901
-            self.placed = (contract, order)
-            return SimpleNamespace(
-                order=order,
-                orderStatus=SimpleNamespace(
-                    status="Submitted", filled=0, avgFillPrice=0,
-                ),
-            )
-
-        def sleep(self, _seconds):
-            return None
-
-    ib = FakeIB()
-    payload = _payload(execute_date="2099-08-21", min_dte=30)
-    payload["dynamic_selection"] = True
-    assert executor._do_dynamic_option_market(ib, payload, "primary") == 0
-    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert result["ok"] is True
-    assert result["state"] == "executed"
-    assert result["fill"]["quantity"] == 8
-    contract, order = ib.placed
-    assert contract.secType == "OPT"
-    assert contract.strike == 700.0
-    assert order.orderType == "MKT"
-    assert order.totalQuantity == 8
+def test_dynamic_executor_rejects_legacy_market_intent_before_broker_access(modules, capsys):
+    from broker_runtime import option_limit_pricing
+    sys.modules["option_limit_pricing"] = option_limit_pricing
+    _, executor = modules
+    payload = _payload(order_type="MKT", dynamic_selection=True)
+    assert executor._do_dynamic_option_limit(None, payload, "primary") == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["state"] == "rejected" and "legacy" in result["detail"]
 
 
-@DISABLED_BY_GUARD_PATCH
 def test_signed_command_handler_persists_and_cancels_schedule(
         modules, monkeypatch, tmp_path):
     agent, _executor = modules
@@ -213,6 +141,7 @@ def test_signed_command_handler_persists_and_cancels_schedule(
     monkeypatch.setattr(agent, "LIVE_TYPES", {"option_spread"})
     monkeypatch.setattr(agent, "_verify", lambda *_args: True)
     monkeypatch.setattr(agent, "_record_seen", lambda *_args: None)
+    monkeypatch.setattr(agent, "_claim_seen", lambda *_args: True)
     monkeypatch.setitem(agent._BOOK, "book", {
         "accounts": [{"key": "primary", "positions": [], "nlv": 1_000_000}],
     })

@@ -109,6 +109,30 @@ def test_cli_never_sends_without_explicit_flag(tmp_path, monkeypatch):
     assert json.loads((tmp_path / "report.json").read_text())["status"] == "attention"
 
 
+def test_cli_writes_after_summary_time_without_numpy_boolean_crash(tmp_path, monkeypatch):
+    import daily_execution_report
+    monkeypatch.setattr(daily_execution_report, "send_email", lambda *a: (_ for _ in ()).throw(AssertionError("unexpected email")))
+    now = "2026-09-08T20:10:00+00:00"
+    args = ["--asof", now, "--state", str(tmp_path / "state.json"),
+            "--output", str(tmp_path / "report.json")]
+    for name, payload in zip(("inventory", "book", "fills"), inputs(now)):
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(payload))
+        args.extend(["--" + name, str(path)])
+    assert monitor.main(args) == 0
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert report["summary_due"] is True and report["status"] == "attention"
+    assert json.loads((tmp_path / "state.json").read_text())["notifications"]
+
+
+def test_unavailable_inventory_reports_actual_coverage_boundary():
+    inventory, book, fills = inputs()
+    inventory.update(status="unknown", reasons=["verified history does not reach reviewed inventory"])
+    report, _ = monitor.evaluate(inventory, book, fills, now="2026-09-08T20:06:00+00:00")
+    assert report["status"] == "degraded"
+    assert "verified history does not reach reviewed inventory" in report["source_error"]
+
+
 def test_boolean_false_send_result_is_ambiguous_and_not_retried(tmp_path):
     state = {"notifications": {"id": {"status": "pending", "message": "fixture"}}}
     calls = []

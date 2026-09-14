@@ -12,7 +12,8 @@ import pytest
 
 from broker_runtime import auction_lifecycle as auction
 from broker_runtime import execution_lifecycle as life
-from broker_runtime import prepare
+from broker_runtime import prepare_execution_repairs as prepare
+from broker_runtime import prepare as legacy_prepare
 
 SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
 
@@ -41,6 +42,7 @@ class Broker:
     def sleep(self, seconds): pass
     def openTrades(self): return self.trades
     def positions(self): return self.holdings
+    def reqPositions(self): return self.holdings
     def qualifyContracts(self, value): return [value]
     def disconnect(self): self.closed = True
 
@@ -101,55 +103,35 @@ def test_auction_claim_survives_date_change_and_ambiguous_failure(tmp_path):
 
 @pytest.fixture
 def executor(monkeypatch):
-    if not (SOURCE / "execute_order.py").exists():
-        pytest.skip("external-source AST regression requires the reviewed source checkout")
-    monkeypatch.setitem(__import__("sys").modules, "execution_lifecycle", life)
-    source = prepare.patch_execute((SOURCE / "execute_order.py").read_text(encoding="utf-8-sig").replace("\r\n", "\n"))
-    names = {"_exact_position", "_do_close_resize", "_restore_leg_quantities", "_do_flatten"}
-    nodes = [n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name in names]
-    env = {"math": math, "copy": copy, "_ERRORS": [], "TERMINAL": life.TERMINAL,
-           "BrokerMutationBlocked": type("BrokerMutationBlocked", (Exception,), {}), "_out": out,
-           "_cluster_symbol": lambda c: None, "_payload_contract_matches": lambda c, p: c.conId == p["con_id"],
-           "_command_signal": lambda p, key: "fixture:" + key,
-           "MarketOrder": lambda action, qty: NS(action=action, totalQuantity=qty, orderId=999, permId=999, clientId=99, ocaGroup="", account="TEST_PRIMARY"),
-           "LimitOrder": lambda action, qty, px: NS(action=action, totalQuantity=qty, lmtPrice=px, orderId=999, permId=999, clientId=99, ocaGroup="", account="TEST_PRIMARY")}
-    exec(compile(ast.Module(body=nodes, type_ignores=[]), "reviewed-executor-functions", "exec"), env)
+    from tests.execution_harness import load_executor, install_helpers
+    install_helpers(monkeypatch)
+    env = load_executor().__dict__
+    env["_out"] = out
     return env
 
 
 @pytest.mark.parametrize("status,filled,expected,lagging", [("Submitted", 0, 60, False), ("Submitted", 10, 60, False), ("Cancelled", 10, 90, False), ("Cancelled", 10, 90, True)])
-def test_close_recovery_capacity_includes_working_close(executor, monkeypatch, status, filled, expected, lagging):
-    env = executor
-    position = NS(account="TEST_PRIMARY", position=100, contract=contract())
-    stop = trade()
-    broker = Broker([stop], [position])
-    def resize(ns, ib, host, port, cid, plan, signal):
-        done = []
-        for t, qty in plan:
-            done.append((t.order.permId, t.order.totalQuantity, qty))
-            t.order.totalQuantity = qty
-        return done, None
-    monkeypatch.setattr(life, "resize", resize)
-    def place(ib, cont, order, **kwargs):
-        if not lagging:
-            position.position -= filled
-        close = NS(order=order, contract=cont, orderStatus=NS(status=status, filled=filled, avgFillPrice=100))
-        if status not in life.TERMINAL:
-            broker.trades.append(close)
-        return close
-    env.update({"_orders_for_contract": lambda *a: broker.trades,
-                "_split_pending_entry_legs": lambda rows: (rows, []),
-                "_capture_exit_legs": lambda rows, action: ([{"source_key": str(t.order.permId)} for t in rows], None),
-                "_validate_exit_topology": lambda *a, **k: None,
-                "_scaled_exit_legs": lambda legs, qty: ([dict(leg, scaled_qty=qty) for leg in legs], None),
-                "_order_source_key": lambda order: str(order.permId),
-                "_resize_legs_via_owners": lambda *a: resize(env, *a),
-                "_confirm_leg_quantities": lambda *a: [], "guarded_place_order": place})
-    result = env["_do_close_resize"](broker, payload(), "primary", "fixture", 0, 99)
-    assert stop.order.totalQuantity == expected
+def test_close_recovery_capacity_includes_working_close(executor, monkeypatch, tmp_path, status, filled, expected, lagging):
+    from tests.execution_harness import SimBroker, position, StopOrder, bind
+    from tests.test_execution_all_orders import close_payload
+    from ib_insync import Trade, OrderStatus
+    held = position()
+    held.contract.exchange = "SMART"  # full openOrder contract metadata
+    broker = SimBroker([held], status=status, fill=filled)
+    stop = StopOrder("SELL", 100, 90, orderId=7, permId=107, clientId=7, account="PRIMARY", tif="GTC")
+    stop_trade = Trade(held.contract, stop, OrderStatus(status="Submitted", filled=0, remaining=100))
+    broker.trades.append(stop_trade)
+    place = broker.place
+    def submit(*args, **kwargs):
+        result = place(*args, **kwargs)
+        if lagging: broker.holdings = [held]
+        return result
+    executor.update(guarded_place_order=submit, guarded_cancel_order=broker.cancel, POSITION_ACTION_STATE_DIR=tmp_path)
+    result = executor["_do_close_resize"](broker, dict(close_payload(held), qty=40), "primary", "fixture", 0, 7)
+    assert stop_trade.order.totalQuantity == expected
     working = 40 - filled if status not in life.TERMINAL else 0
-    assert stop.order.totalQuantity + working <= 100 - filled
-    assert result["state"] == "unknown"
+    assert stop_trade.order.totalQuantity + working <= 100 - filled
+    assert result["state"] == "executed"
 
 
 def test_flatten_wrong_account_does_not_place(executor):
@@ -174,10 +156,20 @@ def test_flatten_working_close_is_unknown(executor):
 
 
 def test_prepare_checks_all_reviewed_hashes_and_writes_new_candidate(tmp_path):
-    if not SOURCE.exists():
-        pytest.skip("external-source preparation requires the reviewed checkout")
+    if not (SOURCE / "execute_order.py").exists():
+        pytest.skip("exact-source preparation requires the reviewed original checkout")
     target = tmp_path / "candidate"
-    assert len(prepare.prepare(SOURCE, target)) == 8
+    import hashlib
+    import json
+    hashes = json.loads((prepare.HERE / "execution_repair_source_hashes.json").read_text())
+    if any(not (SOURCE / name).exists() or hashlib.sha256((SOURCE / name).read_bytes()).hexdigest() != digest
+           for name, digest in hashes.items()):
+        with pytest.raises(ValueError, match="reviewed source changed"):
+            prepare.prepare(SOURCE, target)
+        assert not target.exists()
+        return
+    manifest = prepare.prepare(SOURCE, target)
+    assert len(manifest["candidate"]) == 10
     for file in target.glob("*.py"):
         compile(file.read_text(encoding="utf-8"), file.name, "exec")
     with pytest.raises(ValueError, match="new"):
@@ -185,10 +177,9 @@ def test_prepare_checks_all_reviewed_hashes_and_writes_new_candidate(tmp_path):
 
 
 def test_quote_timeout_kills_and_reaps_without_importing_agent():
-    if not (SOURCE / "exec_agent.py").exists():
-        pytest.skip("requires reviewed external source")
     import asyncio
-    source = prepare.patch_agent((SOURCE / "exec_agent.py").read_text(encoding="utf-8-sig").replace("\r\n", "\n"))
+    from tests.execution_harness import FIXTURE
+    source = (FIXTURE / "exec_agent_core.py").read_text(encoding="utf-8")
     node = next(n for n in ast.parse(source).body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_fetch_option")
     events = []
     class Process:
@@ -260,7 +251,7 @@ def test_entry_preflight_distinguishes_valid_empty_from_missing(monkeypatch):
     if not (SOURCE / "eq_order_entry.py").exists():
         pytest.skip("requires reviewed external source")
     import pandas as pd
-    source = prepare.patch_entry((SOURCE / "eq_order_entry.py").read_text(encoding="utf-8-sig").replace("\r\n", "\n"))
+    source = legacy_prepare.patch_entry((SOURCE / "eq_order_entry.py").read_text(encoding="utf-8-sig").replace("\r\n", "\n"))
     node = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == "_run_execution")
     env = {"os": NS(path=NS(join=lambda *a: "fixture.csv", exists=lambda path: False, basename=lambda path: path)),
            "STAGING_FOLDER": "fixture", "pd": NS(read_csv=lambda path: pd.DataFrame()),

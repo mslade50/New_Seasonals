@@ -8,6 +8,10 @@ except ImportError:
     import execution_lifecycle as life
 
 
+def _result(ok, state, detail, fill=None):
+    return dict(ok=ok, state=state, detail=detail, fill=fill)
+
+
 def run(ns, ib, payload, host, port, cid, *, modify=False, account_key=None):
     root = actions.journal_root(ns) / "order_edits"
     record = None
@@ -20,7 +24,7 @@ def run(ns, ib, payload, host, port, cid, *, modify=False, account_key=None):
                 if saved["payload"] != payload or saved["modify"] != modify:
                     raise ValueError("command id reused with a different edit")
                 if saved["phase"] == "done":
-                    return saved["result"]
+                    return ns["_out"](**saved["result"])
                 raise ValueError("earlier edit needs broker reconciliation; do not retry")
             for saved in actions.records(root):
                 if saved["phase"] != "done" and saved["identity"] == list(wanted):
@@ -34,12 +38,14 @@ def run(ns, ib, payload, host, port, cid, *, modify=False, account_key=None):
             record = dict(version=1, id=payload["_command_id"], payload=dict(payload),
                           modify=modify, identity=list(wanted), phase="mutating")
             actions.save(root, record)
-            result = life.mutate_one(ns, ib, payload, host, port, cid,
+            # The executable's _out prints JSON and returns exit code 0. Collect
+            # the inner result silently, persist it, then emit exactly once.
+            result = life.mutate_one(dict(ns, _out=_result), ib, payload, host, port, cid,
                                      modify=modify, account_key=account_key)
             record["result"] = result
             record["phase"] = "attention" if result["state"] == "unknown" else "done"
             actions.save(root, record)
-            return result
+            return ns["_out"](**result)
     except Exception as exc:
         return ns["_out"](False, "unknown" if record else "rejected",
                           f"Order edit requires review: {exc}")

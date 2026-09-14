@@ -1,13 +1,22 @@
-import ast,os
+import ast,os,hashlib
 from pathlib import Path
 import pytest
-from broker_runtime.prepare_olv_production import prepare
+from broker_runtime.prepare_olv_production import prepare, HASHES
 
 
-def test_candidate_keeps_pa_logic_and_separates_primary_contract(tmp_path):
+def test_cutover_preserves_reviewed_contract_or_refuses_changed_runtime(tmp_path):
     source=Path(os.environ.get('OLV_PRODUCTION_REVIEW_SOURCE','C:/Users/McKinley Slade/OneDrive/trading_ibkr'))
     if not (source/'book_snapshot.py').exists():pytest.skip('reviewed broker sources unavailable')
-    target=tmp_path/'candidate';prepare(source,target)
+    target=tmp_path/'candidate'
+    # This historical cutover is hash-bound. A newer installed runtime must be
+    # refused; tests must not treat that intended protection as a rollout bug.
+    if any(not (source/name).exists() or hashlib.sha256((source/name).read_bytes()).hexdigest()!=digest
+           for name,digest in HASHES.items()):
+        with pytest.raises((ValueError,FileNotFoundError)):
+            prepare(source,target)
+        assert not target.exists()
+        return
+    prepare(source,target)
     original=ast.parse((source/'olv_exit_moo.py').read_text(encoding='utf-8-sig'))
     pa=ast.parse((target/'olv_exit_pa_legacy.py').read_text(encoding='utf-8'))
     def functions(tree):return {n.name:ast.dump(n) for n in tree.body if isinstance(n,ast.FunctionDef)}
