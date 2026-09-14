@@ -7,12 +7,16 @@ async function check(name, test) { try { await test(); checks++; } catch (error)
 function fixture() {
   const nodes = new Map(), commands = [], confirms = [];
   const attribute = (html, name) => new RegExp("\\b" + name + '="([^"]*)"').exec(html)?.[1];
+  function remove(id) {
+    for (const child of nodes.get(id)?.descendants || []) remove(child);
+    nodes.delete(id);
+  }
   function node(id, value = "") {
     const el = {id,value,checked:false,style:{},textContent:"",tagName:"INPUT",focus(){},scrollIntoView(){},
       addEventListener(event,callback){this[event]=callback;},_html:"",descendants:[],
       get innerHTML(){return this._html;},
       set innerHTML(html){
-        for(const child of this.descendants) nodes.delete(child);
+        for(const child of this.descendants) remove(child);
         this._html=html;this.descendants=[];
         for(const match of html.matchAll(/<([a-z]+)\b([^>]*\bid="([^"]+)"[^>]*)>/gi)){
           const child=node(match[3],attribute(match[2],"value")||"");
@@ -59,10 +63,16 @@ await check("all entry types, sides and account payloads",async()=>{
  }
 });
 await check("ticket rebuild preserves side/instrument and close settings",()=>{
- const f=fixture();f.fields({...entry,f_action:"SELL",f_sectype:"FUT",f_symbol:"MES"});f.node("cmdFields");
- f.run("syncFields()");assert.equal(f.nodes.get("f_action").value,"SELL");assert.equal(f.nodes.get("f_sectype").value,"FUT");assert.equal(f.nodes.get("f_futexp").value,"202612");
+ const f=fixture();f.fields({cmdType:"entry_bracket"});f.node("cmdFields");f.run("syncFields()");
+ f.nodes.get("f_action").value="SELL";f.nodes.get("f_sectype").value="FUT";f.nodes.get("f_sectype").change();
+ f.nodes.get("f_symbol").value="MES";f.nodes.get("f_symbol").input();f.nodes.get("f_futexp").value="202612";f.nodes.get("f_futexp").input();
+ f.nodes.get("cmdType").value="echo";f.run("syncFields()");
+ assert.equal(f.nodes.has("f_action"),false);assert.equal(f.nodes.has("f_futexp"),false,"removed nested controls must not remain in the fixture DOM");
+ f.nodes.get("cmdType").value="entry_bracket";f.run("syncFields()");
+ assert.equal(f.nodes.get("f_action").value,"SELL");assert.equal(f.nodes.get("f_sectype").value,"FUT");assert.equal(f.nodes.get("f_symbol").value,"MES");assert.equal(f.nodes.get("f_futexp").value,"202612");
  f.fields(close);f.node("cmdFields");f.nodes.get("fl_type").value="LMT";f.nodes.get("fl_tif").value="GTC";f.node("fl_rth").checked=true;
- f.run("syncFields()");assert.equal(f.nodes.get("fl_type").value,"LMT");assert.equal(f.nodes.get("fl_tif").value,"GTC");assert.equal(f.nodes.get("fl_rth").checked,true);
+ f.run("syncFields()");f.nodes.get("cmdType").value="echo";f.run("syncFields()");f.nodes.get("cmdType").value="close_resize";f.run("syncFields()");
+ assert.equal(f.nodes.get("fl_type").value,"LMT");assert.equal(f.nodes.get("fl_tif").value,"GTC");assert.equal(f.nodes.get("fl_rth").checked,true);
 });
 await check("ambiguous position never selects first contract",()=>{
  const f=fixture();book(f,[{...position,sec_type:"FUT",con_id:1,expiry:"202609"},{...position,sec_type:"FUT",con_id:2,expiry:"202612"}]);
