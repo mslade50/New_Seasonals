@@ -217,7 +217,27 @@ def test_owner_unavailable_rejects_before_any_mutation(tmp_path):
     ns = namespace(tmp_path, broker)
     ns["IB"] = lambda: N(connect=lambda *a, **k: (_ for _ in ()).throw(ConnectionError()), disconnect=lambda: None)
     result = actions.run(ns, broker, request(), "primary", "", 0, 7)
-    assert not result["ok"] and not broker.mutations
+    assert result["state"] == "rejected" and not broker.mutations
+    receipt = next(actions.records(tmp_path))
+    assert receipt["phase"] == "done" and receipt["result"] == result
+
+
+@pytest.mark.parametrize("status,filled,phase", [("Filled", 40, "done"), ("Submitted", 0, "pending")])
+def test_lost_stdout_does_not_downgrade_a_durable_position_action(tmp_path, status, filled, phase):
+    broker = Broker(status=status, filled=filled)
+    ns = namespace(tmp_path, broker)
+    ns["_out"] = lambda *args, **kwargs: (_ for _ in ()).throw(BrokenPipeError("closed result pipe"))
+    with pytest.raises(BrokenPipeError):
+        actions.run(ns, broker, request(), "primary", "", 0, 7)
+    receipt = next(actions.records(tmp_path))
+    assert receipt["phase"] == phase and receipt["result"]["ok"] is True
+    assert len(broker.mutations) == 1
+    broker.last_close.orderStatus.status = "Filled"
+    broker.last_close.orderStatus.filled = 40
+    broker.position.position = 60
+    result = run(tmp_path, broker, dict(request(), reconcile_only=True))
+    assert result["ok"] and len(broker.mutations) == 1
+    assert next(actions.records(tmp_path))["phase"] == "done"
 
 
 def test_add_uses_one_attached_parent_per_rung_and_normalizes_old_coverage(tmp_path, monkeypatch):
@@ -343,7 +363,7 @@ def test_exit_fill_during_owner_lookup_never_submits_close(tmp_path, monkeypatch
         broker.position.position = 90
         return result
     monkeypatch.setattr(actions.life, "find_exact", racing_lookup)
-    assert run(tmp_path, broker)["state"] == "unknown"
+    assert run(tmp_path, broker)["state"] == "rejected"
     assert not broker.mutations
 
 

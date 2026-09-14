@@ -388,6 +388,14 @@ def reconcile(ns, ib, record, root, host, port, cid, close=None):
 
 
 def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
+    # Deliver only after the operation has saved its outcome. A closed output
+    # pipe cannot change either a completed receipt or an acknowledged pending
+    # close that still needs automatic fill/re-add reconciliation.
+    outcome = _run(ns, ib, payload, account_key, host, port, cid, adding=adding)
+    return ns["_out"](**outcome)
+
+
+def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
     root = journal_root(ns)
     record = None
     try:
@@ -406,8 +414,8 @@ def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                     raise ValueError("command id was reused with a different payload")
                 record = saved
                 if record["phase"] == "done":
-                    return ns["_out"](**record["result"])
-                return ns["_out"](**reconcile(ns, ib, record, root, host, port, cid))
+                    return record["result"]
+                return reconcile(ns, ib, record, root, host, port, cid)
             if payload.get("reconcile_only"):
                 raise ValueError("no original operation to reconcile")
             for previous in records(root):
@@ -498,7 +506,7 @@ def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                                    for parent in allocation["parent"]]})
                 record["phase"], record["result"] = "done", outcome
                 save(root, record)
-                return ns["_out"](**outcome)
+                return outcome
             remaining = held - quantity
             adjust_exits(ns, ib, record, remaining, root, host, port, cid)
             record["exit_total"] = remaining
@@ -524,10 +532,17 @@ def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                 ib.sleep(1)
                 if trade.orderStatus.status in TERMINAL:
                     break
-            return ns["_out"](**reconcile(ns, ib, record, root, host, port, cid, trade))
+            return reconcile(ns, ib, record, root, host, port, cid, trade)
     except Exception as exc:
+        attempted = record is not None and any(record.get(key) for key in ("mutation", "wire", "addition"))
+        outcome = dict(ok=False, state="unknown" if attempted else "rejected",
+                       detail=f"{'Reconcile in TWS; do not repeat this action' if attempted else 'Nothing changed'}: {exc}", fill=None)
         if record is not None:
-            record["phase"], record["error"] = "attention", str(exc)
+            record["phase"], record["error"] = ("attention" if attempted else "done"), str(exc)
+            if not attempted:
+                # The operation can fail while resolving owners, before the
+                # first mutation marker. Preserve that rejection as terminal so
+                # a zero-send failure cannot block later manual corrections.
+                record["result"] = outcome
             save(root, record)
-        return ns["_out"](False, "unknown" if record is not None else "rejected",
-                          f"{'Reconcile in TWS; do not repeat this action' if record is not None else 'Nothing changed'}: {exc}")
+        return outcome

@@ -10,32 +10,26 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.execution_harness import install_helpers
+
+@pytest.fixture(autouse=True)
+def inert_helpers(monkeypatch):
+    install_helpers(monkeypatch)
+
 
 IBKR_DIR = os.path.join(os.path.expanduser("~"), "OneDrive", "trading_ibkr")
 
 
 @pytest.fixture(scope="module")
 def executor():
-    if not os.path.isdir(IBKR_DIR):
-        pytest.skip(f"live execution dir not present: {IBKR_DIR}")
-    sys.path.insert(0, IBKR_DIR)
-    try:
-        import execute_order
-    except ImportError as exc:
-        pytest.skip(f"execute_order not importable here ({exc})")
-    return execute_order
+    from tests.execution_harness import load_executor
+    return load_executor()
 
 
 @pytest.fixture(scope="module")
 def agent():
-    if not os.path.isdir(IBKR_DIR):
-        pytest.skip(f"live execution dir not present: {IBKR_DIR}")
-    sys.path.insert(0, IBKR_DIR)
-    try:
-        import exec_agent
-    except ImportError as exc:
-        pytest.skip(f"exec_agent not importable here ({exc})")
-    return exec_agent
+    from tests.execution_harness import load_agent
+    return load_agent()
 
 
 @pytest.fixture()
