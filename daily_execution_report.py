@@ -288,9 +288,13 @@ def validate_book(book: dict, now: datetime) -> dict:
     if not isinstance(book, dict):
         raise RuntimeError("broker returned no book")
     try:
-        stamp = float(book.get("at")) / 1000.0
+        stamp = float(book.get("at"))
     except (TypeError, ValueError):
         raise RuntimeError("book timestamp unavailable") from None
+    # exec_agent sends time.time() seconds; the broker preserves that value,
+    # but uses Date.now() milliseconds when the agent timestamp is absent.
+    if stamp >= 100_000_000_000:
+        stamp /= 1000.0
     age = now.timestamp() - stamp
     if not math.isfinite(age) or age < -30 or age > MAX_BOOK_AGE_SECONDS:
         raise RuntimeError("Primary book is stale or has an invalid timestamp")
