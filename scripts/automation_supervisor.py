@@ -1998,7 +1998,9 @@ class GithubDispatcher:
             "--repo",
             self.repository,
             "--ref",
-            self.ref,
+            # Site refreshes must retain released frontend repairs. Producer
+            # and strategy workflows continue to use the tested runtime pin.
+            "main" if workflow.workflow == "deploy_site.yml" else self.ref,
             "-f",
             f"automation_token={automation_token}",
         ]
