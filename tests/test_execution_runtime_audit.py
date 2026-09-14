@@ -101,7 +101,7 @@ def test_attached_child_callback_can_arrive_late_without_a_resubmission(missing)
 def test_position_action_subprocess_emits_one_real_terminal_result(tmp_path, adding):
     source = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr")) / "execute_order.py"
     if not source.exists():
-        pytest.skip("reviewed executor source is required for exact _out contract")
+        source = Path(__file__).parent / "fixtures/execution_runtime/execute_order.py"
     text = source.read_text(encoding="utf-8-sig")
     out_node = next(n for n in ast.parse(text).body if isinstance(n, ast.FunctionDef) and n.name == "_out")
     actual_out = ast.get_source_segment(text, out_node)

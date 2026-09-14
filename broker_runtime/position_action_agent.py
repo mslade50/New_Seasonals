@@ -80,8 +80,29 @@ async def loop(ns, ws):
                 if delivered.get(record["id"]) != signature:
                     await ws.send(json.dumps(dict(result, type="result", id=record["id"], at=time.time())))
                     delivered[record["id"]] = signature
+            await report_completed_edits(root / "order_edits", ws, delivered)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             ns["log"](f"position-action reconciliation unavailable: {type(exc).__name__}: {exc}")
         await asyncio.sleep(5)
+
+
+async def report_completed_edits(root, ws, delivered):
+    """Republish durable terminal edit receipts after a lost result/reconnect.
+
+    This is reporting only. Uncertain edits never call an executor or retry.
+    """
+    for record in actions.records(root):
+        if record["phase"] != "done":
+            continue
+        result = record["result"]
+        if (not isinstance(result, dict) or type(result.get("ok")) is not bool
+                or result.get("state") not in {"executed", "rejected"}
+                or (result["state"] == "executed") != result["ok"]
+                or not isinstance(result.get("detail"), str) or not result["detail"]):
+            raise ValueError("invalid terminal order-edit receipt")
+        signature = json.dumps(result, sort_keys=True)
+        if delivered.get(record["id"]) != signature:
+            await ws.send(json.dumps(dict(result, type="result", id=record["id"], at=time.time())))
+            delivered[record["id"]] = signature
