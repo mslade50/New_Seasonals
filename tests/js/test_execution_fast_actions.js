@@ -100,11 +100,12 @@ assert.match(renderedPositions, /execSellTicket\(/);
 assert.match(renderedPositions, /execAddTicket\(/);
 assert.match(renderedPositions, /aria-pressed="false"[^>]*>Re-add<\/button>/);
 assert.doesNotMatch(renderedPositions, />Trim|>Flatten|>Add&frac|>Re-add (on|off)/);
-// The compact layout is Primary-only; PA retains its existing controls.
+// Both accounts share the compact controls.
 vm.runInContext('state.account = "pa"; state.book.accounts[0].key = "pa";', context);
 const paPositions = vm.runInContext("renderPositions()", context);
-assert.match(paPositions, />Trim&frac14;/);
-assert.match(paPositions, />Trim&frac12;/);
+assert.match(paPositions, /Close&hellip;/);
+assert.match(paPositions, /Add&hellip;/);
+assert.doesNotMatch(paPositions, />Trim&frac/);
 vm.runInContext('state.account = "primary"; state.book.accounts[0].key = "primary";', context);
 
 vm.runInContext(`

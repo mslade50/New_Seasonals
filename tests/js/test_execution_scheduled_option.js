@@ -46,7 +46,7 @@ setFields({
 assert.deepStrictEqual(json("scheduledOptionWarnings()"), []);
 assert.deepStrictEqual(json('ticketPayload("scheduled_option")'), {
   symbol: "SPY", right: "P", target_delta: 0.15, delta_tolerance: 0.03,
-  premium_budget: 1000, order_type: "MKT", tif: "DAY",
+  premium_budget: 1000, order_type: "LMT", tif: "DAY", pricing_policy: "capped_limit_v1",
   execute_date: "2099-08-21", execute_time: "15:45", timezone: "America/New_York",
   grace_minutes: 5, expiry_mode: "min_dte", min_dte: 30, expiry: null,
 });
@@ -72,4 +72,4 @@ const scheduledCell = run(`resultCell({id:"abc-123", type:"scheduled_option", st
 assert.ok(scheduledCell.includes("Cancel schedule"));
 assert.ok(scheduledCell.includes("abc-123"));
 
-console.log("PASS scheduled option UI: min-DTE/specific expiry, target-delta MKT payload, guards, and cancel control");
+console.log("PASS scheduled option UI: min-DTE/specific expiry, target-delta capped LMT payload, guards, and cancel control");

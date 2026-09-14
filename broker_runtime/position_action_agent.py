@@ -16,7 +16,7 @@ TYPES = {"close_resize", "add_to_position"}
 
 
 def applies(cmd):
-    return cmd.get("account") == "primary" and cmd.get("type") in TYPES
+    return cmd.get("account") in {"primary", "pa"} and cmd.get("type") in TYPES
 
 
 def validate(cmd):
@@ -50,7 +50,8 @@ def validate(cmd):
 def preview(cmd):
     payload = cmd.get("payload") or {}
     amount = f"{payload['qty']} units" if payload.get("qty") else f"{100 * float(payload.get('fraction', 1)):g}%"
-    return {"summary": f"{'Add' if cmd['type'] == 'add_to_position' else 'Close'} {amount} of {payload.get('symbol')} on Primary",
+    label = "Primary" if cmd["account"] == "primary" else "PA"
+    return {"summary": f"{'Add' if cmd['type'] == 'add_to_position' else 'Close'} {amount} of {payload.get('symbol')} on {label}",
             "legs": ["Broker resolves exact inventory and exit groups; quoted size is a request, not a fill.",
                      "Proportional exits use whole-unit rounding; zero rungs are cancelled.",
                      "DAY re-add at original average cost after confirmed closes." if payload.get("readd") else "No re-add."]}
