@@ -19,8 +19,10 @@ from zoneinfo import ZoneInfo
 
 try:
     from . import execution_lifecycle as life
+    from .execution_contracts import qualify_position
 except ImportError:
     import execution_lifecycle as life
+    from execution_contracts import qualify_position
 
 TERMINAL = {"Filled", "Cancelled", "ApiCancelled", "Inactive"}
 ACKNOWLEDGED = {"Submitted", "PreSubmitted"}
@@ -415,7 +417,9 @@ def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                 if (previous["phase"] != "done" and previous["identity"][:2]
                         == [payload["_broker_account"], int(payload["con_id"])]):
                     raise ValueError("An earlier order edit is unresolved; reconcile it before a position action")
-            position = current_position(ns, ib, payload)
+            # Positions callbacks can omit routing metadata. Resolve the exact
+            # held instrument before changing any exits or staging an addition.
+            position = qualify_position(ib, current_position(ns, ib, payload))
             held = whole(abs(position.position), "position")
             typ = str(payload.get("order_type") or "MKT").upper()
             if typ not in {"MKT", "LMT"}:
@@ -455,6 +459,7 @@ def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                 context, error = ns["_prepare_position_action_add"](ib, dict(payload, qty=quantity), account_key, partial=False)
                 if error:
                     raise ValueError(error)
+                context["ref"] = position.contract
                 context["legs"] = legs
                 reference = float(context["avg_cost"])
                 if adding:
@@ -500,10 +505,9 @@ def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
             live = current_position(ns, ib, payload)
             if live.position != (held if record["long"] else -held):
                 raise ValueError("Position changed while exits were adjusted; no close submitted")
-            contract = live.contract
-            if contract.secType == "STK":
-                contract.exchange = "SMART"
-            ib.qualifyContracts(contract)
+            # The fresh inventory check above resolves the same account/conId;
+            # use the already-qualified copy without mutating IB's position cache.
+            contract = position.contract
             order = ns["LimitOrder"](closing, quantity, float(payload["limit"])) if typ == "LMT" else ns["MarketOrder"](closing, quantity)
             order.account, order.tif = payload["_broker_account"], tif
             order.outsideRth = bool(payload.get("outside_rth"))

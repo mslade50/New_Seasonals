@@ -336,12 +336,22 @@ def stage_attached(ns, ib, context, qty, signal_id, *, market=False):
             ib, context["ref"], context["legs"], context["close_action"], qty,
             context["account"], f"{signal_id}|children", parent_id=parent.orderId, transmit_chain=True)
         placed.extend(children)
+        acknowledged = {"Submitted", "PreSubmitted", "Filled"}
+        for _ in range(24):
+            if all(str(t.orderStatus.status or "") in acknowledged for t in placed):
+                break
+            if any(str(t.orderStatus.status or "") in TERMINAL - {"Filled"} for t in placed):
+                break
+            ib.sleep(0.25)
         problem = ns["_placement_problem"](placed)
         filled = float(parent_trade.orderStatus.filled or 0)
         if 0 < filled < qty:
             problem = "partial entry fill; attached exit activation requires reconciliation; DO NOT RETRY"
         if str(parent_trade.orderStatus.status or "") in {"", "PendingSubmit", "ApiPending"}:
             problem = "entry acknowledgement is pending; reconcile before retry"
+        if len(children) != len(context["legs"]) or any(
+                str(t.orderStatus.status or "") not in acknowledged for t in children):
+            problem = "attached exit acknowledgement is incomplete; reconcile before retry"
         result = {"parent": ns["_placed_ids"]([parent_trade]), "children": ns["_placed_ids"](children)}
         return result, problem
     except Exception as exc:
