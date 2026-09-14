@@ -104,7 +104,7 @@ const position = { symbol: "UNH", sec_type: "STK", expiry: "", con_id: 42,
   const full = vm.runInContext("flattenWarnings()", ctx);
   assert.strictEqual(JSON.stringify(full), "[]");
   vm.runInContext('state.account = "pa"; state.book.accounts[0].key = "pa";', ctx);
-  assert.ok(vm.runInContext("flattenWarnings()", ctx).some((w) => /PARTIAL close/.test(w)));
+  assert.strictEqual(vm.runInContext("JSON.stringify(flattenWarnings())", ctx), "[]");
   vm.runInContext('state.account = "primary"; state.book.accounts[0].key = "primary";', ctx);
 
   // 50% of the same position is fine. (Arrays cross the vm realm boundary, so

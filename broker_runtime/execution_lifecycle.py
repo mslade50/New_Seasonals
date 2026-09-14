@@ -34,6 +34,7 @@ def payload_identity(payload):
 
 
 def find_exact(connection, wanted):
+    wanted = tuple(wanted)
     connection.reqAllOpenOrders()
     connection.sleep(0.25)
     matches = []
@@ -48,6 +49,47 @@ def find_exact(connection, wanted):
     if len(matches) != 1:
         raise ValueError("owning client cannot resolve exactly one matching open order")
     return matches[0]
+
+
+def wait_modified(connection, wanted, changes, filled_before, attempts=24, ns=None):
+    """Read fresh broker snapshots; placeOrder's returned Trade may stay pending.
+
+    Never retransmit while waiting. A fill, rejection or lost identity stops the
+    operation rather than allowing the next leg or close to proceed.
+    """
+    for _ in range(attempts):
+        current = fresh_for_edit(ns, connection, wanted) if ns else find_exact(connection, wanted)
+        status = current.orderStatus.status
+        filled = getattr(current.orderStatus, "filled", None)
+        if filled is None or float(filled) != float(filled_before):
+            raise ValueError("fill quantity changed while waiting for modification")
+        if status in {"Submitted", "PreSubmitted"} and all(
+                getattr(current.order, field) == value for field, value in changes.items()):
+            return current
+        connection.sleep(0.25)
+    raise ValueError("modification lacks broker acknowledgement; reconcile before retry")
+
+
+def fresh_for_edit(ns, connection, wanted):
+    native = find_exact(connection, wanted)
+    reader = ns.get("_orders_for_contract")
+    if reader is None:
+        return native
+    rows = reader(connection, native.contract, wanted[0])
+    exact = [t for t in rows if identity(t) == tuple(wanted)]
+    if len(exact) != 1 or not hasattr(exact[0].orderStatus, "filled"):
+        raise ValueError("fresh complete order and fill counters required before an edit")
+    return exact[0]
+
+
+def wait_cancelled(connection, native, attempts=24):
+    # Raw open-order snapshots are detached objects. Observe the native status
+    # callbacks after cancelling, including a fill racing the cancellation.
+    for _ in range(attempts):
+        if native.orderStatus.status in TERMINAL:
+            break
+        connection.sleep(0.25)
+    return native.orderStatus
 
 
 @contextmanager
@@ -177,20 +219,17 @@ def mutate_one(ns, ib, payload, host, port, main_cid, *, modify=False, account_k
         trade = find_exact(ib, wanted)
         with owners(ns, ib, host, port, main_cid, [trade]) as resolved:
             connection, original = resolved[0]
-            trade = find_exact(connection, identity(original))
+            trade = fresh_for_edit(ns, connection, identity(original))
             if not modify:
                 attempted = True
                 ns["guarded_cancel_order"](connection, trade.order)
-                for _ in range(12):
-                    connection.sleep(0.25)
-                    if trade.orderStatus.status in TERMINAL:
-                        break
-                status = trade.orderStatus.status
+                observed = wait_cancelled(connection, original)
+                status = observed.status
                 if status not in {"Cancelled", "ApiCancelled"}:
                     return ns["_out"](False, "unknown", "Cancel outcome requires reconciliation; DO NOT RETRY",
-                                      fill={"status": status, "filled": trade.orderStatus.filled})
+                                      fill={"status": status, "filled": observed.filled})
                 return ns["_out"](True, "executed", "Cancellation confirmed",
-                                  fill={"status": status, "filled": trade.orderStatus.filled})
+                                  fill={"status": status, "filled": observed.filled})
             order = copy.deepcopy(trade.order)
             changed = {}
             for key, field, allowed in (("new_qty", "totalQuantity", True),
@@ -214,8 +253,16 @@ def mutate_one(ns, ib, payload, host, port, main_cid, *, modify=False, account_k
                 elif ns["LIVE_MAX_QTY"] > 0 and order.totalQuantity > ns["LIVE_MAX_QTY"]:
                     raise ValueError("modified size exceeds account quantity cap")
                 price = ns["_px"](order.lmtPrice) or ns["_px"](order.auxPrice)
-                if not price or price * order.totalQuantity > ns["_max_notional"](account_key):
+                multiplier = float(getattr(trade.contract, "multiplier", "") or 1)
+                if (not math.isfinite(multiplier) or multiplier <= 0 or not price
+                        or price * multiplier * order.totalQuantity > ns["_max_notional"](account_key)):
                     raise ValueError("increased quantity needs a price within the account notional cap")
+            if not payload.get("mutation_kind"):
+                try:
+                    from .order_edit_context import infer
+                except ImportError:
+                    from order_edit_context import infer
+                payload = dict(payload, **infer(ns, connection, trade, order))
             kind = str(payload.get("mutation_kind") or "").lower()
             if int(getattr(order, "parentId", 0) or 0):
                 kind = "modify"
@@ -224,23 +271,52 @@ def mutate_one(ns, ib, payload, host, port, main_cid, *, modify=False, account_k
             risk_usd, risk_bps = payload.get("risk_usd"), payload.get("risk_bps")
             if kind == "entry" and (risk_usd in (None, "")) == (risk_bps in (None, "")):
                 raise ValueError("entry modification requires exactly one complete risk value")
+            if kind == "entry":
+                risk = float(risk_usd if risk_usd not in (None, "") else risk_bps)
+                if not math.isfinite(risk) or risk <= 0:
+                    raise ValueError("entry risk must be positive and finite")
+                direction = "long" if order.action == "BUY" else "short"
+                if payload.get("portfolio_direction") != direction:
+                    raise ValueError("entry direction does not match the actual order")
+            if kind in {"exit", "modify"} and float(order.totalQuantity) > float(trade.order.totalQuantity):
+                connection.reqPositions()
+                holdings = [p for p in connection.positions()
+                            if str(p.account) == wanted[0] and int(p.contract.conId) == wanted[1]]
+                if len(holdings) != 1 or not holdings[0].position:
+                    raise ValueError("exit increase requires an exact held position")
+                if order.action != ("SELL" if holdings[0].position > 0 else "BUY"):
+                    raise ValueError("exit direction would increase the held position")
+                capacity = {}
+                reader = ns.get("_orders_for_contract")
+                orders = reader(connection, trade.contract, wanted[0]) if reader else connection.openTrades()
+                for other in orders:
+                    if (str(other.order.account) != wanted[0] or int(other.contract.conId) != wanted[1]
+                            or other.order.action != order.action or other.orderStatus.status in TERMINAL):
+                        continue
+                    quantity = order.totalQuantity if identity(other) == wanted else other.order.totalQuantity
+                    remaining = float(quantity) - float(other.orderStatus.filled)
+                    if not math.isfinite(remaining) or remaining < 0:
+                        raise ValueError("fresh remaining exit quantities required")
+                    group = (getattr(other.order, "ocaGroup", "")
+                             if getattr(other.order, "ocaType", 0) in {1, 2} else "") or identity(other)
+                    capacity[group] = max(capacity.get(group, 0), remaining)
+                if sum(capacity.values()) > abs(holdings[0].position):
+                    raise ValueError("increased exit quantity exceeds uncommitted held inventory")
             order.transmit = True
             attempted = True
-            result = ns["guarded_place_order"](
+            filled_before = float(trade.orderStatus.filled or 0)
+            ns["guarded_place_order"](
                 connection, trade.contract, order, mutation_kind=kind, account=wanted[0],
-                portfolio_direction=payload.get("portfolio_direction") if kind == "entry" else None,
-                risk_usd=risk_usd if kind == "entry" else None,
-                risk_bps=risk_bps if kind == "entry" else None,
+                portfolio_direction=payload.get("portfolio_direction"),
+                risk_usd=risk_usd,
+                risk_bps=risk_bps,
                 signal_id=ns["_command_signal"](payload, "modify"))
-            connection.sleep(1.0)
-            current = find_exact(connection, wanted)
-            if result.orderStatus.status in TERMINAL or any(getattr(current.order, field) != value for field, value in changed.items()):
-                raise RuntimeError("modification acknowledgement differs from requested fields")
+            current = wait_modified(connection, wanted, changed, filled_before, ns=ns)
             return ns["_out"](True, "executed", "Exact order modification confirmed",
                               fill={"status": current.orderStatus.status, "filled": current.orderStatus.filled})
     except Exception as exc:
         return ns["_out"](False, "unknown" if attempted else "rejected",
-                          f"{'Reconcile; DO NOT RETRY' if attempted else 'Nothing changed'} ({type(exc).__name__})")
+                          f"{'Reconcile; DO NOT RETRY' if attempted else 'Nothing changed'}: {exc}")
 
 
 def stage_attached(ns, ib, context, qty, signal_id, *, market=False):

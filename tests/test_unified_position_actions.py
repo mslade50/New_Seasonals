@@ -357,4 +357,5 @@ def test_agent_shape_validation_does_not_depend_on_a_snapshot():
     cmd = {"account": "primary", "type": "close_resize", "payload": request()}
     assert agent.applies(cmd) and agent.validate(cmd) == (True, [])
     assert not agent.validate(dict(cmd, payload=dict(request(), con_id=0)))[0]
-    assert not agent.applies(dict(cmd, account="pa"))
+    assert agent.applies(dict(cmd, account="pa"))
+    assert not agent.applies(dict(cmd, account="unknown"))

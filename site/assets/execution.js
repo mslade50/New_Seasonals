@@ -248,7 +248,7 @@ function shell() {
     <aside class="card exec-ticket" id="ticket" aria-label="Order ticket">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
       <details class="exec-help"><summary>Order types &amp; how exits are handled</summary>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Primary Close</b> accepts shares or a percentage, adjusts existing closing groups proportionally, and cancels their exits for a full close. A confirmed empty broker lookup needs no adjustment. Rounding preserves the total; zero-sized allocations are removed. Resting and partially filled closes are reconciled against broker fills. <b>Add</b> inherits exit prices and timing in separate attached brackets. <b>Re-add</b> is enabled when green: confirmed closed shares receive a DAY limit at the original average cost with inherited exits. Legacy close-only and flatten ticket types remain available for existing workflows. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART limit order sized so its maximum premium stays within the budget, excluding commissions. The limit can remain unfilled. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close</b> accepts shares or a percentage, adjusts existing closing groups proportionally, and cancels their exits for a full close. A confirmed empty broker lookup needs no adjustment. Rounding preserves the total; zero-sized allocations are removed. Resting and partially filled closes are reconciled against broker fills. <b>Add</b> inherits exit prices and timing in separate attached brackets. <b>Re-add</b> is enabled when green: confirmed closed shares receive a DAY limit at the broker average cost with inherited exits. Legacy close-only and flatten ticket types remain available for existing workflows. Submits per the mode banner above &mdash; live when armed.</p>
       </details>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
@@ -1126,10 +1126,10 @@ function renderPositions() {
           <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.25)'>Trim&frac14;</button>
           <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.5)'>Trim&frac12;</button>
           ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
-    const actions = state.account !== "primary" || p.sec_type === "OPT" ? legacyActions
+    const actions = p.sec_type === "OPT" ? legacyActions
       : `<button class="btn xs" onclick='execSellTicket(${posJson(p)})' title="Close shares or a percentage and adjust existing exits">Close&hellip;</button>
          ${p.sec_type === "STK" ? `<button class="btn xs ghost" onclick='execAddTicket(${posJson(p)})' title="Add shares or a percentage with inherited exits">Add&hellip;</button>
-         <button class="btn xs ghost exec-readd" aria-pressed="${readdOn}" onclick='execToggleReadd(${posJson(p)})' title="When enabled, re-add confirmed closed shares at the original average cost with a DAY limit and attached exits">Re-add</button>` : ""}
+         <button class="btn xs ghost exec-readd" aria-pressed="${readdOn}" onclick='execToggleReadd(${posJson(p)})' title="When enabled, re-add confirmed closed shares at the broker average cost with a DAY limit and attached exits">Re-add</button>` : ""}
          ${protectBtn}`;
     const priceDigits = p.sec_type === "CASH" ? 5 : 2;
     return `<tr>
@@ -1226,11 +1226,6 @@ function orderEditRow(o) {
     (hasStp ? `<span class="cap" style="display:inline">stop</span> <input id="me_stp" value="${o.aux != null ? esc(String(o.aux)) : ""}" style="width:70px"> ` : "") +
     (hasLmt ? `<span class="cap" style="display:inline">lmt</span> <input id="me_lmt" value="${o.lmt != null ? esc(String(o.lmt)) : ""}" style="width:70px">` : "") +
     (!hasStp && !hasLmt ? "&mdash;" : "");
-  const purpose = Number(o.parent_id || 0) > 0 ? "" : `<tr class="modify-purpose"><td colspan="10" class="l">
-    <label>Order purpose <select id="me_kind"><option value="">Choose…</option><option value="exit">Close / reduce existing inventory</option><option value="entry">Open / add inventory</option></select></label>
-    <label>Entry direction <select id="me_direction"><option value="">Choose for entries…</option><option value="long">Long</option><option value="short">Short</option></select></label>
-    <label>Total entry risk after edit ($) <input id="me_risk" type="number" min="0" step="any" placeholder="Required for entries"></label>
-  </td></tr>`;
   return `<tr style="background:rgba(77,163,255,.08)">
     <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
     <td class="l" style="font-weight:600">${esc(o.action)}</td>
@@ -1244,7 +1239,7 @@ function orderEditRow(o) {
     <td class="l" style="white-space:nowrap">
       <button class="btn xs" data-mutation onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
       <button class="btn xs ghost" onclick='execModifyAbort()'>&times;</button></td>
-  </tr>${purpose}`;
+  </tr>`;
 }
 const expandedTickers = new Set();   // Open Orders: which tickers are expanded (persists across 4s polls)
 const orderEdit = { key: null, orig: null };   // inline Modify: row being edited + its pre-edit values
@@ -1481,7 +1476,7 @@ function execFlatten(pos, fraction) {
   sendCommand("flatten", { ...positionIdentity(pos), fraction, order_type: "MKT" });
 }
 function execToggleReadd(pos) {
-  if (state.account !== "primary" && !hasVisibleProtectiveExit(pos)) return;
+
   const key = positionKey(pos);
   readdRows.set(key, readdRows.get(key) !== true);
   set("positions", renderPositions());
@@ -1569,7 +1564,7 @@ window.execCancel = execCancel;
 function execSellTicket(pos) {
   const t = document.getElementById("cmdType");
   if (!t) return;
-  t.value = state.account === "primary" ? "close_resize" : "close_only";
+  t.value = "close_resize";
   syncFields();                      // rebuilds fields (snapshots the old ticket first)
   const s = document.getElementById("f_symbol");
   if (s) s.value = pos.symbol;
@@ -1611,7 +1606,6 @@ function addWarnings() {
   const quantity = numOrNull("fl_qty");
   const percent = numOrNull("fl_pct");
   const warnings = [];
-  if (state.account !== "primary") warnings.push("Add ticket is Primary-only");
   if (!p || p.sec_type !== "STK") warnings.push("Select one exact stock position");
   if (quantity != null ? !Number.isInteger(quantity) || quantity <= 0 :
       !Number.isFinite(percent) || percent <= 0) warnings.push("Enter positive whole shares or a percentage");
@@ -1681,19 +1675,8 @@ function execModifySave(permId, orderId, symbol) {
   if (lmt !== undefined && lmt != null && lmt !== Number(orig.lmt)) { payload.new_limit = lmt; changes.push(`lmt ${orig.lmt} -> ${lmt}`); }
   if (stp !== undefined && stp != null && stp !== Number(orig.aux)) { payload.new_stop = stp; changes.push(`stop ${orig.aux} -> ${stp}`); }
   if (!changes.length) { execModifyAbort(); return; }   // nothing changed: just close the editor
-  payload.mutation_kind = Number(orig.parent_id || 0) > 0 ? "modify" : document.getElementById("me_kind")?.value;
-  if (!["entry", "exit", "modify"].includes(payload.mutation_kind)) {
-    alert("Choose whether this order opens/adds inventory or closes/reduces it."); return;
-  }
-  if (payload.mutation_kind === "entry") {
-    payload.risk_usd = read("me_risk");
-    payload.portfolio_direction = document.getElementById("me_direction")?.value;
-    if (!(payload.risk_usd > 0 && Number.isFinite(payload.risk_usd)) || !["long","short"].includes(payload.portfolio_direction)) {
-      alert("Enter the total entry risk after this edit and select long or short."); return;
-    }
-    changes.push(`Total entry risk $${payload.risk_usd} · ${payload.portfolio_direction}`);
-  }
-  if (!confirm(`${actionLead("modify")} order ${orderId || permId} (${symbol}, ${state.account})?\n${changes.join("\n")}`)) return;
+  // Save is the user's submit action. The broker derives purpose and risk from
+  // the existing order; the browser sends only identity and changed fields.
   sendCommand("modify", payload);
   execModifyAbort();
 }
@@ -2049,15 +2032,7 @@ function flattenWarnings() {
     if (!(lim > 0)) warns.push("LMT close needs a limit price");
   }
   if (rth && typ !== "LMT") warns.push("outside-RTH close must be LMT");
-  // PA retains its legacy partial-only resize. Primary Close also cancels
-  // zero-size exit rungs, so the same ticket supports a full close.
-  const cmdType = document.getElementById("cmdType");
-  if (cmdType && cmdType.value === "close_resize" && held != null && state.account !== "primary") {
-    const n = qn != null ? qn : Math.round(held * Number(numOrNull("fl_pct") || 0) / 100);
-    if (n >= held) {
-      warns.push("close + shrink exits is a PARTIAL close — use flatten to close the whole position");
-    }
-  }
+
   return warns;
 }
 // The exit_attach ticket's position: symbol match, narrowed by the Protect…
@@ -2159,7 +2134,7 @@ function updateReadout() {
     const expiry = val("so_expiry_mode") === "specific"
       ? `expiry <b>${esc(val("so_expiry"))}</b>`
       : `first listed expiry with at least <b>${esc(val("so_min_dte"))} DTE</b>`;
-    el.innerHTML = `<span style="color:#9aa3b2">At <b>${esc(val("so_date"))} ${esc(val("so_time"))} ET</b>, resolve ${esc(String(val("so_symbol")).toUpperCase())} ${right} nearest <b>${esc(val("so_delta"))} absolute delta</b>, ${expiry}, size from the live ask toward approximately <b>${fmt.money(numOrNull("so_budget"))}</b>, then send <b>MKT DAY</b>. <b style="color:#ffc14d">The fill can exceed the premium target.</b> Contract resolution expires after 5 minutes.</span>`;
+    el.innerHTML = `<span style="color:#9aa3b2">At <b>${esc(val("so_date"))} ${esc(val("so_time"))} ET</b>, resolve ${esc(String(val("so_symbol")).toUpperCase())} ${right} nearest <b>${esc(val("so_delta"))} absolute delta</b>, ${expiry}, cap the premium, excluding commissions, at <b>${fmt.money(numOrNull("so_budget"))}</b>, then send a <b>capped LMT DAY</b>. The order can remain unfilled. Contract resolution expires after 5 minutes.</span>`;
   } else if (t === "entry_bracket") {
     const isFut = (val("f_sectype") === "FUT");
     const isFx = (val("f_sectype") === "CASH");
@@ -2250,7 +2225,7 @@ function updateReadout() {
     } else if (t === "close_resize") {
       parts.push(rem > 0 ? `existing exit groups adjust to <b>${rem}</b> with proportional rounding`
         : "<b>full close: associated exits cancelled first</b>");
-      if (state.account === "primary" && readdRows.get(positionKey(pos))) {
+      if (readdRows.get(positionKey(pos))) {
         parts.push("<b class='pos'>Re-add enabled</b> · DAY limit at original average cost, confirmed closed shares only");
       }
     } else if (rem > 0) parts.push(`<b style="color:#ffc14d">exits cancelled first</b>, re-attached at <b>${rem}</b> after`);
@@ -2282,7 +2257,7 @@ function ticketPayload(t) {
       symbol: String(val("so_symbol") || "").toUpperCase().trim(),
       right: String(val("so_right") || "P").toUpperCase(),
       target_delta: numOrNull("so_delta"), delta_tolerance: 0.03,
-      premium_budget: numOrNull("so_budget"), order_type: "MKT", tif: "DAY",
+      premium_budget: numOrNull("so_budget"), order_type: "LMT", tif: "DAY", pricing_policy: "capped_limit_v1",
       execute_date: val("so_date"), execute_time: val("so_time"), timezone: "America/New_York",
       grace_minutes: 5, expiry_mode: mode,
       min_dte: mode === "min_dte" ? numOrNull("so_min_dte") : null,
@@ -2320,7 +2295,7 @@ function ticketPayload(t) {
       if (pos) p.action = Number(pos.position) > 0 ? "SELL" : "BUY";
     }
     if (qn != null) p.qty = qn; else p.fraction = Number(numOrNull("fl_pct")) / 100;
-    if (t === "close_resize" && state.account === "primary") {
+    if (t === "close_resize") {
       const position = actionPosition();
       p.readd = !!(position && readdRows.get(positionKey(position)));
     }
@@ -2394,14 +2369,14 @@ function sendTicket() {
   if (t === "scheduled_option") {
     const expiry = p.expiry_mode === "specific" ? `expiry ${p.expiry}` : `minimum ${p.min_dte} DTE`;
     const right = p.right === "C" ? "call" : "put";
-    if (!confirm(`${actionLead("schedule")} at ${p.execute_date} ${p.execute_time} ET, BUY approximately ${fmt.money(p.premium_budget)} of the ${p.symbol} ${right} nearest ${p.target_delta} absolute delta (${expiry}) via SMART MKT DAY on ${state.account}?\n\nThe quantity will be sized from the live ask at execution, but a market fill can exceed the premium target. The instruction expires after five minutes if it cannot run.`)) return;
+    if (!confirm(`${actionLead("schedule")} at ${p.execute_date} ${p.execute_time} ET, BUY up to ${fmt.money(p.premium_budget)} premium, excluding commissions, of the ${p.symbol} ${right} nearest ${p.target_delta} absolute delta (${expiry}) via SMART LMT DAY on ${state.account}?\n\nThe quantity and limit use a fresh live ask, rounded to the contract tick, and enforce the premium cap. The limit can remain unfilled. The instruction expires after five minutes if it cannot run.`)) return;
     const ab = acctBook();
     const nlv = Number(ab && ab.nlv);
     if (!(nlv > 0)) {
-      if (!confirm(`SECONDARY RISK APPROVAL\n\nCurrent NLV is unavailable. The scheduled option premium target is ${fmt.money(p.premium_budget)} and the eventual market fill can be higher. Really schedule it?`)) return;
+      if (!confirm(`SECONDARY RISK APPROVAL\n\nCurrent NLV is unavailable. The scheduled option premium target is ${fmt.money(p.premium_budget)} excluding commissions. Really schedule it?`)) return;
       p.risk_ack = true;
     } else if (p.premium_budget > nlv * 0.05) {
-      if (!confirm(`SECONDARY RISK APPROVAL\n\nThe scheduled option premium target is ${fmt.money(p.premium_budget)}, or ${(p.premium_budget / nlv * 100).toFixed(1)}% of NLV, and the eventual market fill can be higher. Really schedule it?`)) return;
+      if (!confirm(`SECONDARY RISK APPROVAL\n\nThe scheduled option premium target is ${fmt.money(p.premium_budget)}, or ${(p.premium_budget / nlv * 100).toFixed(1)}% of NLV, excluding commissions. Really schedule it?`)) return;
       p.risk_ack = true;
     }
   } else if (t !== "echo") {

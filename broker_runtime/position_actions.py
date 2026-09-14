@@ -181,6 +181,10 @@ def current_position(ns, ib, payload, *, permit_flat=False):
 
 def exit_snapshot(ns, ib, position, payload):
     rows = ns["_orders_for_contract"](ib, position.contract, payload["_broker_account"])
+    # Keep full raw order echoes and require fresh fill counters. A cached
+    # default zero cannot establish that an exit has not partially filled.
+    if any(not hasattr(t.orderStatus, "filled") for t in rows):
+        raise ValueError("Fresh broker fill quantities are unavailable; refresh before resizing")
     closing = "SELL" if position.position > 0 else "BUY"
     parents = {(int(t.order.clientId), int(t.order.orderId)): t for t in rows}
     exits = []
@@ -216,6 +220,8 @@ def adjust_exits(ns, ib, record, total, root, host, port, cid):
     payload = record["payload"]
     desired = scaled_legs(record["legs"], total)
     rows = ns["_orders_for_contract"](ib, record["_contract"], payload["_broker_account"])
+    if any(not hasattr(t.orderStatus, "filled") for t in rows):
+        raise ValueError("Fresh broker fill quantities are unavailable; refresh before resizing")
     plans, recreate = [], []
     for leg in desired:
         found = [t for t in rows if same_order(t, leg["identity"])]
@@ -239,27 +245,24 @@ def adjust_exits(ns, ib, record, total, root, host, port, cid):
     plans.sort(key=lambda item: (item[1] > float(item[0].order.totalQuantity), item[1]))
     with life.owners(ns, ib, host, port, cid, [t for t, _, _ in plans]) as resolved:
         for (connection, original), (_, target, leg) in zip(resolved, plans):
-            trade = life.find_exact(connection, tuple(leg["identity"]))
+            trade = life.fresh_for_edit(ns, connection, tuple(leg["identity"]))
             if whole(trade.orderStatus.filled or 0, allow_zero=True) != leg["filled_before"]:
                 raise ValueError("exit fill changed during owner lookup")
             mark_mutating(root, record, "cancel exit" if not leg["scaled_qty"] else "resize exit")
             if not leg["scaled_qty"]:
                 ns["guarded_cancel_order"](connection, trade.order)
-                connection.sleep(0.5)
-                if trade.orderStatus.status not in {"Cancelled", "ApiCancelled"}:
+                if life.wait_cancelled(connection, original).status not in {"Cancelled", "ApiCancelled"}:
                     raise ValueError("exit cancellation was not confirmed")
                 record["removed"].append(leg["source_key"])
             else:
                 order = copy.deepcopy(trade.order)
                 order.totalQuantity, order.transmit = target, True
-                placed = ns["guarded_place_order"](
+                ns["guarded_place_order"](
                     connection, trade.contract, order, account=order.account,
                     mutation_kind="modify" if getattr(order, "parentId", 0) else "exit",
                     signal_id=ns["_command_signal"](payload, f"normalize:{order.permId}:{target}"))
-                connection.sleep(0.5)
-                verified = life.find_exact(connection, tuple(leg["identity"]))
-                if placed.orderStatus.status not in ACKNOWLEDGED or whole(verified.order.totalQuantity) != target:
-                    raise ValueError("exit resize lacks broker acknowledgement")
+                life.wait_modified(connection, tuple(leg["identity"]),
+                                   {"totalQuantity": target}, leg["filled_before"], ns=ns)
             record["phase"] = "pending"
             save(root, record)
     if recreate:
@@ -386,8 +389,8 @@ def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
     root = journal_root(ns)
     record = None
     try:
-        if account_key != "primary":
-            raise ValueError("unified position actions are Primary-only")
+        if account_key not in {"primary", "pa"}:
+            raise ValueError("unknown execution account")
         if not isinstance(payload.get("readd", False), bool):
             raise ValueError("readd must be boolean")
         if not payload.get("_broker_account") or not payload.get("con_id"):
@@ -408,6 +411,10 @@ def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
             for previous in records(root):
                 if previous["phase"] != "done" and previous["payload"]["_broker_account"] == payload["_broker_account"] and previous["payload"]["con_id"] == payload["con_id"]:
                     raise ValueError("An earlier position action is unresolved; reconcile it before another")
+            for previous in records(root / "order_edits"):
+                if (previous["phase"] != "done" and previous["identity"][:2]
+                        == [payload["_broker_account"], int(payload["con_id"])]):
+                    raise ValueError("An earlier order edit is unresolved; reconcile it before a position action")
             position = current_position(ns, ib, payload)
             held = whole(abs(position.position), "position")
             typ = str(payload.get("order_type") or "MKT").upper()
