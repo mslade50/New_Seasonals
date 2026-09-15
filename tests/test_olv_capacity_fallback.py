@@ -140,6 +140,14 @@ def test_share_class_holdings_use_scanner_symbol_key(monkeypatch,broker_symbol):
     assert result['_capacity'].known and result['shares']==50
 
 
+def test_same_symbol_option_order_does_not_disable_stock_capacity(monkeypatch):
+    b=book()
+    b['accounts'][0]['orders'].append(dict(symbol='SNA',sec_type='OPT',con_id=5555,
+                                         action='BUY',status='Submitted',order_ref='manual option'))
+    result=run_scanner(monkeypatch,b=b)
+    assert result['_capacity'].known and result['shares']==50
+
+
 def test_live_clock_is_sampled_after_broker_query(monkeypatch):
     # Source completes after the read begins; validation must use completion.
     class Clock:
