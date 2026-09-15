@@ -19,9 +19,10 @@ vm.createContext(navContext);
 vm.runInContext(commonSource, navContext, { filename: "common.js" });
 const trailingPages = JSON.parse(vm.runInContext("JSON.stringify(PAGES.slice(-2))", navContext));
 assert.deepStrictEqual(trailingPages, [
+  { href: "entry.html", label: "Entry Lab" },
   { href: "montecarlo.html", label: "Monte Carlo" },
-  { href: "fundamentals.html", label: "Fundamentals" },
 ]);
+assert.strictEqual(vm.runInContext('PAGES.some(page => page.href === "fundamentals.html")', navContext), false);
 
 const storage = new Map();
 const context = {
