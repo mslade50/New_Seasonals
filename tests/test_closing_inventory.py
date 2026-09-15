@@ -116,6 +116,7 @@ def test_actual_scanner_cap_block_uses_broker_nav_and_retains_etf_exemption(nav,
         iter=ast.List(elts=[ast.Constant(0)],ctx=ast.Load()),body=[block],orelse=[])],type_ignores=[])
     inventory,_,_=closing()
     context=dict(_tnc={'pct_nav':.5,'exempt':['SNA'] if exempt else []},shares=275,
+        _capacity=__import__('olv_capacity').Capacity(known=True),
         _actual_inventory=inventory,_primary_nav=nav,_include_pending=True,_pending_capacity_known=True,
         t_clean='SNA',strat={'name':STRATEGY},open_notionals=inventory.notionals,
         _pending_notionals={},entry=377.42,_entry_offset_atr=.25,atr=5.629281,

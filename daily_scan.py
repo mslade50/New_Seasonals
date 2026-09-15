@@ -2374,40 +2374,10 @@ def load_open_position_notionals(cap_strategy_names, inventory=None):
         from actual_inventory_io import load_actual_inventory
         inventory = load_actual_inventory(algo_strategies=cap_strategy_names)
     if inventory.status != "known":
-        fallback = _notionals_from_order_refs(cap_strategy_names)
-        if fallback:
-            print(f"[INVENTORY] Reconciled inventory unavailable ({'; '.join(inventory.reasons) or 'no reason given'}); "
-                  f"cap using broker order-ref attribution for {len(fallback)} position(s)")
-            return fallback
         print("[INVENTORY] Unknown actual inventory; optional notional overlay unavailable")
         return {}
     return {key: value for key, value in inventory.notionals.items()
             if key[1] in cap_strategy_names}
-
-
-def _notionals_from_order_refs(cap_strategy_names):
-    """Cap input straight from the broker, for when the reconciled bridge refuses.
-
-    Attribution comes from each entry's orderRef, so no reviewed seed and no
-    continuous fill history are needed. Returns {} on any doubt; an empty
-    overlay is the existing degraded behaviour and is safe.
-    """
-    from olv_sizing import STRATEGY, held_notionals_from_order_refs
-    if STRATEGY not in cap_strategy_names:
-        return {}
-    try:
-        from daily_execution_report import fetch_book, DEFAULT_BROKER_URL
-        token = os.environ.get("STATUS_TOKEN", "").strip()
-        if not token:
-            return {}
-        book = fetch_book(os.environ.get("EXEC_BROKER_URL", DEFAULT_BROKER_URL), token)
-        primary = next((a for a in (book or {}).get("accounts", []) if a.get("key") == "primary"), None)
-        if not primary:
-            return {}
-        return held_notionals_from_order_refs(book, primary.get("broker_account"))
-    except Exception as exc:
-        print(f"[INVENTORY] Order-ref attribution unavailable ({type(exc).__name__}: {exc})")
-        return {}
 
 
 def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
@@ -3061,24 +3031,23 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     if _actual_inventory.status != "known":
         error_tickers.append(("INVENTORY", "; ".join(_actual_inventory.reasons)
                               + "; " + _actual_inventory.fallback))
-    open_notionals = load_open_position_notionals(_cap_strats, _actual_inventory)
-    _pending_notionals = {}
-    _pending_capacity_known = False
-    _primary_nav = None
-    if _cap_strats:
-        from actual_inventory_io import load_primary_nav
-        try:
-            _primary_nav = load_primary_nav(_actual_inventory, asof=_capacity_asof)
-            print(f"[CAP] Primary broker NAV ${_primary_nav:,.2f} ({_actual_inventory.source_kind})")
-        except Exception as exc:
-            error_tickers.append(('OLV CAP', f'live Primary NAV unavailable ({type(exc).__name__}); optional overlay bypassed'))
-    if any(s['execution'].get('ticker_notional_cap', {}).get('include_pending') for s in effective_book):
-        from actual_inventory_io import load_pending_entry_notionals
-        try:
-            _pending_notionals = load_pending_entry_notionals(_actual_inventory, asof=_capacity_asof)
-            _pending_capacity_known = True
-        except Exception as exc:
-            error_tickers.append(('OLV CAP', f'filled-plus-pending capacity unavailable ({type(exc).__name__}); optional overlay bypassed'))
+    # Sizing has its own coherent capacity proof; it never changes exit inventory.
+    from olv_capacity import load_capacity, Capacity
+    _capacity = load_capacity(_actual_inventory, now=now_eastern,
+                              bookend=not is_intraday_partial) if _cap_strats else Capacity()
+    open_notionals = _capacity.held
+    _pending_notionals = dict(_capacity.pending)
+    _primary_nav = _capacity.nav
+    _pending_capacity_known = _capacity.known
+    if _capacity.known:
+        print(f"[CAP] Verified sizing capacity: {_capacity.source}, observed {_capacity.observed_at}; "
+              f"Primary NAV ${_primary_nav:,.2f}; exit inventory {_actual_inventory.status}")
+        if 'conservative' in _capacity.source:
+            error_tickers.append(('OLV CAP SOURCE',
+                f'{_capacity.source} at {_capacity.observed_at}; same-symbol stock holdings counted in full; '
+                'sizing only, exit inventory remains unverified'))
+    elif _cap_strats:
+        error_tickers.append(('OLV CAP', f'{_capacity.reason}; optional overlay bypassed'))
 
     # 4c. Ladder position counts — counts currently-held filled primary signals
     # per (ticker, strategy) so repeat signals size up on each successive day.
@@ -3465,7 +3434,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # tests/test_olv_stop_and_cap.py.
                     _tnc = strat['execution'].get('ticker_notional_cap')
                     _include_pending = bool((_tnc or {}).get('include_pending'))
-                    if (_tnc and shares > 0 and _actual_inventory.status == "known" and _primary_nav is not None
+                    if (_tnc and shares > 0 and _capacity.known and _primary_nav is not None
                             and (not _include_pending or _pending_capacity_known)):
                         _tnc_exempt = set(_tnc.get('exempt') or ())
                         if t_clean.upper() not in _tnc_exempt:
