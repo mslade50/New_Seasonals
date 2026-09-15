@@ -205,18 +205,13 @@ def nominate_candidates(
             if rules.long_only
             else (discovery_gap_pct != 0 or discovery_move_dollars != 0)
         )
-        move_ok = (
-            abs(discovery_gap_pct) >= rules.min_abs_gap_pct
-            or abs(discovery_move_dollars) >= rules.min_abs_move_dollars
-        )
+        move_ok = abs(discovery_gap_pct) >= rules.min_abs_gap_pct
         if not (direction_ok and move_ok):
             continue
 
         reasons = ["PREMARKET_VOLUME_THRESHOLD", "PRICE_THRESHOLD"]
         if abs(discovery_gap_pct) >= rules.min_abs_gap_pct:
             reasons.append("SESSION_PERCENT_MOVE_THRESHOLD")
-        if abs(discovery_move_dollars) >= rules.min_abs_move_dollars:
-            reasons.append("SESSION_DOLLAR_MOVE_THRESHOLD")
         if snapshot.premarket_volume >= 8_900_000:
             reasons.append("EP9M_VOLUME_DISCOVERY")
 

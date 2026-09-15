@@ -102,6 +102,7 @@ def _write_morning_run(tmp_path: Path) -> Path:
         "report.md": "# Research only\n\nBroker route NONE\n",
         "decisions.json": "[{}]",
         "news_qualified.json": "[]",
+        "evidence.json": "{}",
         "research_sizing_preview.json": "[{}]",
         "research_sizing_preview.csv": "symbol,preview_only\nTEST,true\n",
     }

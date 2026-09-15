@@ -525,8 +525,8 @@ def _document(**overrides) -> NewsDocument:
     return NewsDocument(**values)
 
 
-def test_discovery_uses_move_or_dollar_branch_but_always_requires_volume_and_price():
-    pct_branch = _snapshot(symbol="PCT", last=10.25, bid=10.23, ask=10.25)
+def test_discovery_requires_five_percent_volume_and_price_without_dollar_bypass():
+    pct_branch = _snapshot(symbol="PCT", last=10.50, bid=10.48, ask=10.50)
     dollar_branch = _snapshot(
         symbol="DOLLAR",
         previous_close=100,
@@ -543,7 +543,24 @@ def test_discovery_uses_move_or_dollar_branch_but_always_requires_volume_and_pri
         as_of=AS_OF,
         policy=DEFAULT_POLICY,
     )
-    assert [item.snapshot.symbol for item in candidates] == ["DOLLAR", "PCT"]
+    assert [item.snapshot.symbol for item in candidates] == ["PCT"]
+
+
+@pytest.mark.parametrize(
+    "gap,volume,expected",
+    [
+        (4.999, 100000, False),
+        (5.0, 100000, True),
+        (5.0, 99999, False),
+        (-5.0, 100000, True),
+    ],
+)
+def test_discovery_five_percent_and_volume_boundaries(gap, volume, expected):
+    snapshot = _snapshot(reported_change_pct=gap, premarket_volume=volume)
+    assert (
+        bool(nominate_candidates([snapshot], as_of=AS_OF, policy=DEFAULT_POLICY))
+        is expected
+    )
 
 
 def test_stale_or_delayed_snapshot_is_visible_but_not_stageable():
@@ -1610,8 +1627,25 @@ def test_ibkr_five_minute_bars_record_first_actual_trigger_timestamp():
             barCount=120,
         ),
     ]
+    assert (
+        _premarket_metrics(bars, date(2026, 8, 24), previous_close=10.0)[
+            "first_trigger_at"
+        ]
+        is None
+    )
+    bars.append(
+        SimpleNamespace(
+            date=pd.Timestamp("2026-08-24T04:10:00", tz="America/New_York"),
+            open=10.20,
+            high=10.55,
+            low=10.20,
+            close=10.50,
+            volume=10000,
+            barCount=30,
+        )
+    )
     metrics = _premarket_metrics(bars, date(2026, 8, 24), previous_close=10.0)
-    assert metrics["first_trigger_at"] == "2026-08-24T08:05:00Z"
+    assert metrics["first_trigger_at"] == "2026-08-24T08:10:00Z"
 
 
 def _normalized_field(value: str) -> str:

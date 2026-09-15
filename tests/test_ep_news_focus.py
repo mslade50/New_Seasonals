@@ -187,6 +187,76 @@ def test_sender_rejects_legacy_report_without_news_gate(tmp_path):
         morning_payload(root)
 
 
+def rewrite_hashed_artifact(root, name, value):
+    path = root / name
+    path.write_text(json.dumps(value), encoding="utf-8")
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"][name] = {
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "size_bytes": path.stat().st_size,
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["missing", "generic", "stale", "future", "peer", "bad_hash", "headline_only"],
+)
+def test_sender_independently_rejects_bad_sources_even_with_qualified_flags_and_updated_manifest(
+    tmp_path, mutation
+):
+    result = run([document()])
+    root = write_run_artifacts(
+        result, policy=DEFAULT_POLICY, output_dir=tmp_path / result.run_id
+    )
+    assert "1 news-qualified" in morning_payload(root).subject
+    evidence = json.loads((root / "evidence.json").read_text())
+    key = next(iter(evidence))
+    doc = evidence[key][0]
+    if mutation == "missing":
+        evidence[key] = []
+    elif mutation in {"generic", "peer", "headline_only"}:
+        doc["text_excerpt"] = {
+            "generic": "Test Systems shares rose 20% without news. " * 12,
+            "peer": "Other Holdings raised guidance after earnings beat estimates. "
+            * 12,
+            "headline_only": "",
+        }[mutation]
+        doc["text_sha256"] = hashlib.sha256(doc["text_excerpt"].encode()).hexdigest()
+    elif mutation in {"stale", "future"}:
+        doc["published_at"] = (
+            "2026-08-21T18:00:00Z" if mutation == "stale" else "2026-08-24T14:00:00Z"
+        )
+    else:
+        doc["text_sha256"] = "bad"
+    rewrite_hashed_artifact(root, "evidence.json", evidence)
+    with pytest.raises(EmailDeliveryError, match="independent pre-email vetting"):
+        morning_payload(root)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"reported_change_pct": 4.999},
+        {"reported_change_pct": -5.0},
+        {"premarket_volume": 99999},
+    ],
+)
+def test_sender_rejects_below_threshold_candidates_even_with_qualified_flags(
+    tmp_path, change
+):
+    result = run([document()])
+    root = write_run_artifacts(
+        result, policy=DEFAULT_POLICY, output_dir=tmp_path / result.run_id
+    )
+    candidates = json.loads((root / "candidates.json").read_text())
+    candidates[0]["snapshot"].update(change)
+    rewrite_hashed_artifact(root, "candidates.json", candidates)
+    with pytest.raises(EmailDeliveryError, match="independent pre-email vetting"):
+        morning_payload(root)
+
+
 def test_url_fallback_is_bounded_and_never_promotes_summaries(monkeypatch):
     class Primary:
         name = "GOOGLE_NEWS_RSS"

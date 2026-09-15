@@ -255,10 +255,9 @@ def _premarket_metrics(bars, session_date, previous_close: float | None = None):
     if previous_close and previous_close > 0:
         cumulative_volume = frame["volume"].cumsum()
         gap_pct = 100.0 * (frame["close"] / previous_close - 1.0)
-        move_dollars = frame["close"] - previous_close
-        triggered = (cumulative_volume >= 100_000) & (
-            (gap_pct.abs() >= 2.0) | (move_dollars.abs() >= 0.90)
-        )
+        triggered = (
+            cumulative_volume >= DEFAULT_POLICY.discovery.min_premarket_volume
+        ) & (gap_pct.abs() >= DEFAULT_POLICY.discovery.min_abs_gap_pct)
         if triggered.any():
             first_trigger_at = (
                 frame.index[triggered][0]

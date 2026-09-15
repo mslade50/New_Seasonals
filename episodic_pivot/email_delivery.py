@@ -23,8 +23,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .config import DEFAULT_POLICY
+from .news import assess_catalyst
 from .premarket import nominate_candidates
-from .schema import PremarketSnapshot, parse_timestamp
+from .qualify import prior_atr_blocker
+from .schema import NewsDocument, PremarketSnapshot, parse_timestamp
 from .tradingview import (
     result_counts_are_verified,
 )
@@ -324,6 +326,7 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
         "report.html",
         "report.md",
         "news_qualified.json",
+        "evidence.json",
     }
     if not required.issubset(artifacts):
         raise EmailDeliveryError("EP manifest is missing email deliverables")
@@ -356,6 +359,12 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
         if isinstance(item, dict)
     }
     seen_ids = set()
+    candidates_by_id = {
+        item.get("candidate_id"): item
+        for item in _json_list(run_dir / "candidates.json")
+        if isinstance(item, dict)
+    }
+    evidence = _json_object(run_dir / "evidence.json")
     for item in _json_list(run_dir / "news_qualified.json"):
         if not isinstance(item, dict):
             raise EmailDeliveryError("EP news-qualified record is invalid")
@@ -375,6 +384,61 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
         ):
             raise EmailDeliveryError("EP news-qualified record failed evidence gate")
         seen_ids.add(candidate_id)
+        # Do not trust a stored 'qualified' boolean. Re-vet the actual hashed
+        # source documents and current tape/ATR policy immediately before mail.
+        try:
+            snapshot = PremarketSnapshot.from_dict(
+                candidates_by_id[candidate_id]["snapshot"]
+            )
+            if (
+                snapshot.symbol != item.get("symbol")
+                or snapshot.last < DEFAULT_POLICY.discovery.min_price
+                or snapshot.discovery_gap_pct < DEFAULT_POLICY.discovery.min_abs_gap_pct
+                or snapshot.premarket_volume
+                < DEFAULT_POLICY.discovery.min_premarket_volume
+                or prior_atr_blocker(snapshot, policy=DEFAULT_POLICY) is not None
+            ):
+                raise ValueError("candidate fails delivery thresholds")
+            if not nominate_candidates(
+                [snapshot],
+                as_of=manifest["generated_at"],
+                policy=DEFAULT_POLICY,
+                apply_candidate_limit=False,
+                require_verified_premarket_move=True,
+            ):
+                raise ValueError("candidate has no verified premarket move")
+            assessment = assess_catalyst(
+                [NewsDocument.from_dict(doc) for doc in evidence[candidate_id]],
+                decision_at=manifest["generated_at"],
+                policy=DEFAULT_POLICY.news,
+                symbol=snapshot.symbol,
+                company_name=snapshot.company_name,
+                first_trigger_at=(
+                    snapshot.first_trigger_at
+                    or (
+                        snapshot.observed_at
+                        if snapshot.source.upper().startswith("IBKR")
+                        else None
+                    )
+                ),
+                target_session_date=snapshot.target_session_date,
+            )
+            if not assessment.research_news_qualified or assessment.adverse_flags:
+                raise ValueError("catalyst failed source re-vetting")
+            for field in (
+                "research_news_excerpt",
+                "research_news_basis",
+                "evidence_urls",
+                "evidence_published_at",
+            ):
+                actual = getattr(assessment, field)
+                expected = catalyst.get(field)
+                if (list(actual) if isinstance(actual, tuple) else actual) != expected:
+                    raise ValueError("delivered catalyst differs from vetted source")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EmailDeliveryError(
+                "EP candidate failed independent pre-email vetting"
+            ) from exc
     return manifest
 
 

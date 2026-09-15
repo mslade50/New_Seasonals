@@ -176,7 +176,10 @@ def _news_qualified(result: RunResult, policy: EPPolicy):
         and decision.decision != "REJECT"
         and not (_RESEARCH_SKIP_BLOCKERS & set(decision.blockers))
         and prior_atr_blocker(snapshots[decision.candidate_id], policy=policy) is None
-        and snapshots[decision.candidate_id].discovery_gap_pct > 0
+        and snapshots[decision.candidate_id].discovery_gap_pct
+        >= policy.discovery.min_abs_gap_pct
+        and snapshots[decision.candidate_id].premarket_volume
+        >= policy.discovery.min_premarket_volume
     ]
 
 

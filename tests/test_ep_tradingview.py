@@ -168,21 +168,21 @@ def test_after_hours_queue_cannot_pass_without_a_premarket_refresh(tmp_path):
     assert result.decisions == []
 
 
-def test_reported_percent_or_dollar_boundary_drives_nomination(tmp_path):
+def test_five_percent_required_without_dollar_move_bypass(tmp_path):
     path = _csv(
         tmp_path,
         PREMARKET_HEADER
-        + "NYSE:PCT,Percent Co,NYSE,10.20,0.20,2.00%,100K\n"
+        + "NYSE:PCT,Percent Co,NYSE,10.50,0.50,5.00%,100K\n"
         + "NYSE:DLR,Dollar Co,NYSE,100.90,0.90,0.90%,100K\n",
     )
     result = _import(path, reported_result_count=2)
     candidates = nominate_candidates(
         list(result.snapshots), as_of=PREMARKET_AT, policy=DEFAULT_POLICY
     )
-    assert {item.snapshot.symbol for item in candidates} == {"PCT", "DLR"}
+    assert {item.snapshot.symbol for item in candidates} == {"PCT"}
     reasons = {item.snapshot.symbol: set(item.discovery_reasons) for item in candidates}
     assert "SESSION_PERCENT_MOVE_THRESHOLD" in reasons["PCT"]
-    assert "SESSION_DOLLAR_MOVE_THRESHOLD" in reasons["DLR"]
+    assert "SESSION_DOLLAR_MOVE_THRESHOLD" not in reasons["PCT"]
 
 
 def test_inconsistent_price_percent_and_dollar_inputs_fail_closed(tmp_path):

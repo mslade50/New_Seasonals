@@ -4,6 +4,30 @@ Status: implemented as a local, research-only shadow workflow. The active Codex 
 
 ## Outcome and safety boundary
 
+### Morning inclusion contract (2026-09-15)
+
+The focused long-candidate email requires a verified premarket gain of **at least
+5%**, **at least 100,000 premarket shares**, price at least $1, verified prior
+ATR(14)% strictly above 4%, and a source-vetted fresh material catalyst. There is
+no dollar-move bypass and no minimum number of names to fill. The volume floor
+is absolute shares, not a claim of above-average time-matched premarket volume.
+Broad discovery may retain negative 5% movers for local audit, never the long
+email list. The saved screens remain broad; versioned code applies the threshold.
+
+Immediately before email construction, the sender independently replays the
+hashed actual source documents and rechecks move, volume, ATR and premarket
+verification. Stored qualified flags alone are insufficient. The source must
+support a fresh, issuer-specific business catalyst, not a search snippet, generic
+price-action story, peer event, stale announcement or conditional speculation.
+The session window includes announcements since the previous NYSE close.
+Unverified names stay in local audit artifacts, not the email's candidate list.
+
+The scheduler must run `python scripts/validate_ep_runtime.py --expected-commit
+<full-pinned-SHA>` before each phase. It checks the commit and tracked content,
+and rejects unexpected untracked files. A regular root `debug.log` is preserved
+and explicitly non-blocking; it is not executable source. Do not demand an empty
+`git status`, delete logs, or weaken source-integrity checks to start a run.
+
 ### Morning discovery recovery (2026-09-09)
 
 A premarket browser count race must not be confused with bad per-stock market
@@ -127,7 +151,7 @@ This follows Bonde's later distinction among classic EPs, stories, liquid/instit
 | Analyst action | Usually a low-quality catalyst | Contextual exceptions when truly thesis-changing | Watch only; never auto-stage |
 | Universe | Neglected, low float, often <25M shares | Also liquid institutional names and cap below roughly $10B | Cap/float/neglect rank the candidate; executable liquidity controls size |
 
-The current discovery floor comes from Bonde's [July 2026 premarket workflow](https://stockbee.blogspot.com/2026/07/how-to-find-and-research-pre-market.html): at least a 2% or $0.90 move, at least 100,000 premarket shares, and price at least $1. The post's literal Boolean formula is ambiguous; the prose clearly makes price and volume mandatory for either move branch, which is how the code is grouped.
+The original discovery floor came from Bonde's [July 2026 premarket workflow](https://stockbee.blogspot.com/2026/07/how-to-find-and-research-pre-market.html): a 2% or $0.90 move, 100,000 premarket shares, and price at least $1. The user superseded the move rule on September 15: the current minimum is 5%, without a dollar-move bypass; price and volume remain mandatory.
 
 ## Frozen v0 policy
 
@@ -136,12 +160,12 @@ The current discovery floor comes from Bonde's [July 2026 premarket workflow](ht
 Discovery is intentionally broad:
 
 - the move and volume must be observed in the target session's premarket by either the validated morning TradingView screen or a fresh targeted read-only IBKR capture; an after-hours row by itself is only a queue seed and cannot pass;
-- absolute extended-hours move of at least 2% **or** $0.90, in either direction;
+- absolute extended-hours move of at least 5%, in either direction;
 - same-session extended-hours volume at least 100,000 shares;
 - price at least $1; and
 - newest snapshot per symbol and target session retained under a deterministic candidate ID, then the top 25 sorted by session share and estimated dollar volume are researched.
 
-The saved TradingView screens intentionally keep only the price, session-volume, primary-listing, and stock-type universe constraints. They must not contain a ±2% move filter: that would silently drop a $0.90 mover whose percentage change is below 2%. The exact Boolean OR is applied in versioned code after the full CSV export is validated.
+The saved TradingView screens intentionally keep only the price, session-volume, primary-listing, and stock-type universe constraints. The mandatory 5% move threshold is applied in versioned code after the full CSV export is validated.
 
 A hypothetical sizing preview additionally requires a separate fresh IBKR observation and:
 
@@ -379,7 +403,7 @@ After-hours captures map to the next actual NYSE session; Friday and pre–Good 
 
 The morning flow pulls adjusted daily OHLCV directly from yfinance for every broad TradingView nomination. It never reads `data/master_prices.parquet` or another stored price database. A writable artifacts-only yfinance cookie/timezone metadata cache is configured because the library requires SQLite metadata; it contains no OHLCV and is never used in place of the fresh download. `repair=True` is explicit because Yahoo sometimes returns isolated missing daily bars; yfinance-reconstructed bars are counted on each snapshot and stamped `VERIFIED_WITH_YFINANCE_REPAIR` rather than silently treated as native observations. The event session is excluded by an exclusive `end` date and again by the metric function. Successful rows require at least 126 completed bars, the latest 15 dates to be consecutive NYSE sessions ending on the prior session, and a clean 15-bar ATR source window. Fourteen true ranges are averaged arithmetically and divided by the prior adjusted close without rounding. Exactly 4% does not pass.
 
-The adapter is dry by default and accepts the validated morning TradingView import plus any targeted read-only IBKR refresh of the prior-night queue. It rejects raw after-hours rows, applies the 2%/$0.90 broad move rule before download, and has no 150-name cap. A successful current-move verification is frozen with its source and verification timestamp so slow ATR/news work cannot erase it; IBKR rows must still have been fresh at their enclosing capture's completion time before they can be frozen:
+The adapter is dry by default and accepts the validated morning TradingView import plus any targeted read-only IBKR refresh of the prior-night queue. It rejects raw after-hours rows, applies the 5% broad move rule before download, and has no 150-name cap. A successful current-move verification is frozen with its source and verification timestamp so slow ATR/news work cannot erase it; IBKR rows must still have been fresh at their enclosing capture's completion time before they can be frozen:
 
 ```powershell
 python scripts/capture_ep_daily_yfinance.py `
@@ -611,7 +635,7 @@ automatic trajectory signal, or any historical trade rule.
 
 The highest-value critiques are:
 
-1. whether 4% is the right immediate-entry floor after the broader 2%/$0.90 nomination;
+1. whether the historical 4% immediate-entry floor remains useful given the current 5% nomination minimum;
 2. whether all >25% gaps should be delayed-entry watches or whether exceptional regulatory/earnings cases deserve an override;
 3. prior-two-day-low versus a fixed 2.5–4% initial stop;
 4. 10/7.5 bps risk and the 2% gap-stress haircut;
