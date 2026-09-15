@@ -21,6 +21,10 @@ support a fresh, issuer-specific business catalyst, not a search snippet, generi
 price-action story, peer event, stale announcement or conditional speculation.
 The session window includes announcements since the previous NYSE close.
 Unverified names stay in local audit artifacts, not the email's candidate list.
+Contrarian-review regressions also reject fresh pages reciting old events,
+related-company actions, rumors, denials, questions, and explicitly future events.
+These conservative automated text checks can omit ambiguous valid news; they
+are not a human underwrite or a guarantee of causal investment merit.
 
 The scheduler must run `python scripts/validate_ep_runtime.py --expected-commit
 <full-pinned-SHA>` before each phase. It checks the commit and tracked content,

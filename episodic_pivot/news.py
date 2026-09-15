@@ -1068,6 +1068,100 @@ def _trajectory_change_verified(
     return False
 
 
+def _ambiguous_research_event(
+    context: str, *, window_start: datetime, target_date: date
+) -> bool:
+    """Conservative exclusions: a fresh page is not necessarily a fresh event.
+
+    Do not infer a new issuer event from retrospective language or a related
+    company's action. Ambiguous mixed contexts need human research, not email
+    promotion. Fiscal period comparisons alone (e.g. fiscal 2025) are not dates
+    of the announcement.
+    """
+    if "?" in context or re.search(
+        r"\b(?:rumou?rs?|unconfirmed|unsubstantiated|denied|denies|denial|"
+        r"speculat(?:ion|ive)|not\s+confirmed|will\s+(?:report|announce|receive))\b",
+        context,
+        re.IGNORECASE,
+    ):
+        return True
+    if re.search(
+        r"\b(?:last\s+(?:week|month|quarter|year)|previously|formerly|historically|"
+        r"(?:days?|weeks?|months?|quarters?|years?)\s+ago|"
+        r"earlier\s+(?:this|that|last)\s+(?:week|month|quarter|year))\b",
+        context,
+        re.IGNORECASE,
+    ):
+        return True
+    # Explicit retrospective dates, on either side of the catalyst verb.
+    for match in re.finditer(
+        r"\b(?:in|during|since|on)\s+(20\d{2})(?:-(\d{2})-(\d{2}))?\b",
+        context,
+        re.IGNORECASE,
+    ):
+        year, month, day = match.groups()
+        if month is None:
+            # A year-only event reference cannot establish session freshness.
+            return True
+        else:
+            try:
+                if (
+                    not window_start.date()
+                    <= date(int(year), int(month), int(day))
+                    <= target_date
+                ):
+                    return True
+            except ValueError:
+                return True
+    months = {
+        name.lower(): number
+        for number, name in enumerate(
+            (
+                "",
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            )
+        )
+        if name
+    }
+    month_pattern = "|".join(months)
+    for match in re.finditer(
+        rf"\b(?:on|in|since|during)\s+({month_pattern})\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(20\d{{2}}))?\b",
+        context,
+        re.IGNORECASE,
+    ):
+        month_name, day, year = match.groups()
+        try:
+            event_date = date(
+                int(year or target_date.year), months[month_name.lower()], int(day)
+            )
+        except ValueError:
+            return True
+        if not window_start.date() <= event_date <= target_date:
+            return True
+    # "Test Systems supplier Other Holdings raised ..." names the candidate
+    # but the subject of the business action is the supplier, not the candidate.
+    return bool(
+        re.search(
+            r"\b(?:supplier|customer|competitor|partner|rival|peer|affiliate|subsidiary)\b"
+            r"[^.!?;]{0,90}\b(?:rais(?:ed|es)|boosts?|announc(?:ed|es)|report(?:ed|s)|"
+            r"receiv(?:ed|es)|won|wins|met|beats?|beat|increas(?:ed|es))\b",
+            context,
+            re.IGNORECASE,
+        )
+    )
+
+
 def _research_news_proof(
     documents: list[NewsDocument],
     *,
@@ -1102,7 +1196,13 @@ def _research_news_proof(
         kinds, adverse, context = _candidate_event_context(
             body, symbol=symbol, company_name=company_name
         )
-        if not kinds or adverse:
+        if (
+            not kinds
+            or adverse
+            or _ambiguous_research_event(
+                context, window_start=start, target_date=target_date
+            )
+        ):
             continue
         if re.search(
             r"\b(?:if|could|might|would|expected\s+to|plans?\s+to|last\s+week|previously)\b"
