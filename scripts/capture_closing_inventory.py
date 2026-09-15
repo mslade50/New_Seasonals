@@ -33,13 +33,19 @@ def main(argv=None, *, now=None):
         client.put_object(Bucket=creds['R2_BUCKET'], Key='ops/olv_capacity/latest.json', Body=capacity_body)
     args.capacity_output.parent.mkdir(parents=True, exist_ok=True)
     args.capacity_output.write_bytes(capacity_body)
-    inventory = load_actual_inventory(algo_strategies={STRATEGY})
-    if inventory.status != 'known':
+    try:
+        inventory = load_actual_inventory(algo_strategies={STRATEGY})
+        if inventory.status != 'known':
+            print(json.dumps(dict(session=capacity_snapshot['session'], capacity='known',
+                                  inventory='unknown', reasons=inventory.reasons, published=args.publish)))
+            return
+        snapshot = make_snapshot(inventory, now=now or pd.Timestamp.now(tz='UTC'))
+        body = (json.dumps(snapshot, sort_keys=True, allow_nan=False) + '\n').encode()
+    except Exception as exc:
         print(json.dumps(dict(session=capacity_snapshot['session'], capacity='known',
-                              inventory='unknown', reasons=inventory.reasons, published=args.publish)))
+                              inventory='unknown', reasons=['exit inventory verification failed: '+type(exc).__name__],
+                              published=args.publish)))
         return
-    snapshot = make_snapshot(inventory, now=now or pd.Timestamp.now(tz='UTC'))
-    body = (json.dumps(snapshot, sort_keys=True, allow_nan=False) + '\n').encode()
     if args.publish:
         from cache_io import _client, _r2_creds
         client, creds = _client(), _r2_creds()

@@ -1483,13 +1483,17 @@ exit inventory retains its own status and is never promoted by this fallback.
 Fallback holdings are conservative: all stock exposure in the candidate's same
 ticker counts, including untagged or other-sleeve shares. This can tighten the
 cap but avoids assuming that missing/old references prove no OLV ownership.
+This is absolute broker net exposure, not verified gross OLV ownership;
+offsetting shorts from other sleeves remain an attribution limitation.
 Other tickers do not consume a candidate's per-ticker cap. Existing ETF
 exemptions and the owner's fail-open policy when capacity is unavailable remain.
 
 The existing 16:05 capture saves independent sizing evidence in
 `ops/olv_capacity/`. It can succeed while reporting exit inventory unknown.
 Bookend scans prefer the dated prior-close evidence until the next cash open;
-a fresh coherent broker book is the fallback. Stale, incomplete, nonfinite or
+a dedicated read-only broker query is the fallback. Its collection timestamps
+and completed current-day executions reserve buys that occur between copied
+holdings and pending orders. Stale, incomplete, nonfinite or
 mismatched inputs are rejected. Capture success certifies sizing only.
 
 Tests execute the real scanner setup and cap branch, independent closing
