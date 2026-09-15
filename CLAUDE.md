@@ -1469,6 +1469,38 @@ Aligned sites — change together:
   guard: `test_olv_exits.py` (OneDrive)
 - Guard: `tests/test_olv_stop_and_cap.py` (engine + scan + config invariants)
 
+### Cap attribution fallback — broker order refs (2026-09-14)
+
+`load_open_position_notionals` no longer returns `{}` when the reconciled
+inventory refuses. It falls back to `olv_sizing.held_notionals_from_order_refs`,
+which attributes a whole broker position to the sleeve whose orderRef staged it
+(`SYMBOL|ACTION|Strategy_Ref|Staged_Date`, the same contract
+`daily_execution_report.parse_ref` reads), marked at the broker's own
+`market_value`, over a 30-day lookback.
+
+Why: the reconciled path bridges a reviewed seed forward through verified
+fills, and it refuses whenever canonical fill coverage stops bracketing that
+seed — which it did from 2026-09-08, taking the OLV cap out of the scan for
+days while nothing announced it. Order refs need no seed and no continuous
+history, so the cap survives a coverage gap.
+
+What it deliberately does NOT do: tranche-level attribution. Entry prices and
+exit metadata cannot be recovered from an orderRef, so inventory-derived exits
+still require the reconciled path. That split is already modeled by
+`TaggedInventory.exit_metadata_known` and its fallback string.
+
+Failure direction: a symbol two sleeves both hold is counted ENTIRELY against
+this strategy, which overstates usage and TIGHTENS the cap. It can only
+understate if a held position's entry orderRef predates the lookback, which
+OLV's 10-day hold makes unreachable, or is untagged (nothing placed before
+2026-07-02 carries a ref — also unreachable at a 10-day hold).
+
+Aligned sites — change together:
+- `olv_sizing.py` `held_notionals_from_order_refs` (the attribution rule)
+- `daily_scan.py` `load_open_position_notionals` + `_notionals_from_order_refs`
+  (fallback wiring; prints which path fed the cap and why)
+- Guard: `tests/test_olv_order_ref_attribution.py`
+
 Ledger SURVIVORSHIP CAVEAT (2026-07-16): the 23-year ledger trades only
 tickers alive in today's universe files — 21 of 22 major 2020s delistings are
 absent — which flatters long dip-buy stats and the ~870-name overflow tier

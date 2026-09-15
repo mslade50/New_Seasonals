@@ -62,6 +62,63 @@ def pending_entry_notionals(book, account, *, asof, max_age_seconds=90):
     return used
 
 
+def held_notionals_from_order_refs(book, account, *, strategy=STRATEGY, lookback_days=30, asof=None):
+    """Open notionals by (symbol, strategy), attributed from broker order refs.
+
+    Every staged entry carries `SYMBOL|ACTION|Strategy_Ref|Staged_Date` in its
+    orderRef, so the broker already knows which sleeve placed each trade. A
+    symbol this strategy traded inside the lookback is attributed whole, at the
+    broker's own market value.
+
+    This needs no reviewed seed and no continuous fill history, so it survives
+    the gaps that make the reconciled path refuse. It trades precision for
+    availability in one direction only: a symbol two sleeves both hold is
+    counted entirely against this strategy, which overstates usage and tightens
+    the cap. Exits still require reconciled tranche metadata, which this cannot
+    supply.
+    """
+    accounts = [a for a in book.get('accounts', []) if a.get('key') == 'primary']
+    if len(accounts) != 1 or accounts[0].get('error'):
+        raise ValueError('OLV attribution needs exactly one healthy Primary account')
+    primary = accounts[0]
+    if account and primary.get('broker_account') != account:
+        raise ValueError('OLV attribution account mismatch')
+
+    now = dt.datetime.now(dt.timezone.utc) if asof is None else dt.datetime.fromisoformat(
+        str(asof).replace('Z', '+00:00'))
+    if now.tzinfo is None:
+        raise ValueError('OLV attribution requires a timezone')
+    floor = (now - dt.timedelta(days=lookback_days)).date()
+
+    symbols = set()
+    for row in list(primary.get('fills') or []) + list(primary.get('orders') or []):
+        parts = str(row.get('order_ref') or row.get('orderRef') or '').split('|')
+        if len(parts) < 4 or parts[2].strip() != strategy:
+            continue
+        staged = parts[3].strip()[:10]
+        try:
+            if dt.date.fromisoformat(staged) < floor:
+                continue
+        except ValueError:
+            # An unparseable staged date is not evidence of age. Keep the symbol
+            # rather than silently dropping a position from the cap.
+            pass
+        symbol = str(row.get('symbol') or parts[0]).strip()
+        if symbol:
+            symbols.add(symbol)
+
+    held = {}
+    for row in primary.get('positions') or []:
+        symbol = str(row.get('symbol') or '').strip()
+        if symbol not in symbols or not float(row.get('position') or 0):
+            continue
+        value = row.get('market_value')
+        if value is None:
+            raise ValueError(f'{symbol} has no broker market value; cap input would be understated')
+        held[(symbol, strategy)] = held.get((symbol, strategy), 0.0) + abs(float(value))
+    return held
+
+
 def clip_quantity(quantity, limit, cap, used):
     values = [float(v) for v in (quantity, limit, cap, used)]
     if not all(math.isfinite(v) for v in values) or min(values) < 0 or limit <= 0:
