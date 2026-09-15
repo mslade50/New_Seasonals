@@ -15,8 +15,12 @@ STRATEGY = cap.STRATEGY
 
 
 def book(at=AT):
-    return {'accounts': [dict(key='primary', broker_account='TEST', error=None,
-        nlv=600000, orders_source_at=pd.Timestamp(at).timestamp(),
+    return {'capacity_query_started_at':(pd.Timestamp(at)-pd.Timedelta(seconds=3)).isoformat(),
+            'capacity_query_completed_at':at,
+            'accounts': [dict(key='primary', broker_account='TEST', error=None,
+        nlv=600000, orders_source_at=pd.Timestamp(at).timestamp()-2,
+        fills_complete=True, fills_source_at=int((pd.Timestamp(at).timestamp()-1)*1000),
+        fills_query_from=pd.Timestamp(at).tz_convert('America/New_York').normalize().isoformat(),
         positions=[dict(symbol='SNA', account='TEST', con_id=42, sec_type='STK',
                         currency='USD', position=700, market_value=280000)],
         orders=[dict(symbol='SNA', account='TEST', con_id=42, sec_type='STK', currency='USD',
@@ -39,7 +43,7 @@ def scanner_blocks():
                    'actual-scanner-cap-path','exec')
 
 
-def run_scanner(monkeypatch, *, b=None, known=True, exempt=False, when=AT, saved=None, inventory=None):
+def run_scanner(monkeypatch, *, b=None, known=True, exempt=False, when=AT, saved=None, inventory=None, clock_at=None, ticker='SNA'):
     real_loader=cap.load_capacity
     def load(inv,**kw):
         def read(key):
@@ -48,12 +52,13 @@ def run_scanner(monkeypatch, *, b=None, known=True, exempt=False, when=AT, saved
         def fetch(*_):
             if not known:raise ConnectionError()
             return b if b is not None else book()
+        kw.setdefault('now',clock_at or when)
         return real_loader(inv,**kw,reader=read,book_loader=fetch)
     monkeypatch.setattr(cap,'load_capacity',load)
     inventory=inventory or TaggedInventory(reasons=['bridge refuses'])
     context=dict(_actual_inventory=inventory,_cap_strats={STRATEGY},now_eastern=pd.Timestamp(when),
         is_intraday_partial=False,error_tickers=[],_tnc={'pct_nav':.5,'exempt':['SNA'] if exempt else []},
-        shares=100,_include_pending=True,t_clean='SNA',strat={'name':STRATEGY},entry=100.25,
+        shares=100,_include_pending=True,t_clean=ticker,strat={'name':STRATEGY},entry=100.25,
         _entry_offset_atr=.25,atr=1.,dist=1.25,risk=125.,sizing_note='',print=lambda *a:None)
     exec(scanner_blocks(),context)
     return context
@@ -122,6 +127,73 @@ def test_unmatched_and_old_tags_do_not_free_same_symbol_capacity():
     assert result.held[('SNA',STRATEGY)]==280000
 
 
+def test_delayed_scanner_uses_capacity_clock_not_its_start_time(monkeypatch):
+    result=run_scanner(monkeypatch,when='2026-09-14T19:40:00Z',clock_at=AT)
+    assert result['_capacity'].known and result['shares']==50
+
+
+@pytest.mark.parametrize('broker_symbol',['BRK B','BRK.B','BRK-B'])
+def test_share_class_holdings_use_scanner_symbol_key(monkeypatch,broker_symbol):
+    b=book();b['accounts'][0]['orders']=[]
+    b['accounts'][0]['positions'][0].update(symbol=broker_symbol,market_value=295000)
+    result=run_scanner(monkeypatch,b=b,ticker='BRK-B')
+    assert result['_capacity'].known and result['shares']==50
+
+
+def test_live_clock_is_sampled_after_broker_query(monkeypatch):
+    # Source completes after the read begins; validation must use completion.
+    class Clock:
+        def __init__(self):self.calls=0
+        def __call__(self):
+            self.calls+=1
+            return pd.Timestamp(AT)-pd.Timedelta(seconds=10) if self.calls==1 else pd.Timestamp(AT)
+    clock=Clock()
+    monkeypatch.setattr(cap,'utc_now',clock)
+    result=cap.load_capacity(TaggedInventory(),book_loader=lambda:book())
+    assert result.known and clock.calls==2
+
+
+def test_collection_fill_cannot_disappear_between_holdings_and_orders(monkeypatch):
+    b=book();a=b['accounts'][0]
+    # The 150 remaining shares fill after positions were copied. The order
+    # disappears, but its $15k must not disappear from used capacity.
+    a['orders']=[]
+    a['fills']=[dict(exec_id='fill.01',account='TEST',con_id=42,symbol='SNA',sec_type='STK',currency='USD',
+                     side='BOT',qty=150,price=100,time=(pd.Timestamp(AT)-pd.Timedelta(seconds=2)).isoformat())]
+    result=run_scanner(monkeypatch,b=b)
+    assert result['_capacity'].held[('SNA',STRATEGY)]==295000
+    assert result['shares']==50
+
+
+@pytest.mark.parametrize('fault',[
+    lambda b:b.pop('capacity_query_started_at'),
+    lambda b:b['accounts'][0].update(fills_complete=False),
+    lambda b:b['accounts'][0].update(fills_source_at=None),
+    lambda b:b['accounts'][0].update(fills_query_from=None),
+    lambda b:b['accounts'][0].update(fills_error='failed'),
+    lambda b:b['accounts'][0].update(fills=None),
+    lambda b:b['accounts'][0]['orders'][0].update(con_id=43),
+])
+def test_missing_collection_proof_or_contract_mismatch_refuses(fault):
+    b=book();fault(b)
+    assert not cap.load_capacity(TaggedInventory(),now=AT,book_loader=lambda:b).known
+
+
+@pytest.mark.parametrize('fault',[
+    lambda f:f.update(account='OTHER'),
+    lambda f:f.update(con_id=43),
+    lambda f:f.update(qty=float('nan')),
+    lambda f:f.update(price=0),
+    lambda f:f.update(side='UNKNOWN'),
+    lambda f:f.update(time=None),
+])
+def test_invalid_collection_fill_never_becomes_zero(fault):
+    b=book();f=dict(exec_id='fill.01',account='TEST',con_id=42,symbol='SNA',sec_type='STK',currency='USD',
+                  side='BOT',qty=150,price=100,time=(pd.Timestamp(AT)-pd.Timedelta(seconds=2)).isoformat())
+    fault(f);b['accounts'][0]['fills']=[f]
+    assert not cap.load_capacity(TaggedInventory(),now=AT,book_loader=lambda:b).known
+
+
 @pytest.mark.parametrize('when',['2026-09-15T13:30:00Z','2026-09-16T08:15:00Z','2026-09-14T20:04:00Z'])
 def test_closing_snapshot_cannot_outlive_next_open_or_travel_backwards(when):
     with pytest.raises(ValueError):cap.read_snapshot(cap.make_snapshot(book(),now=AT),now=when)
@@ -136,7 +208,8 @@ def test_weekend_holiday_and_half_day_capture(at,when):
     assert cap.read_snapshot(saved,now=when).known
 
 
-def test_capture_publishes_capacity_even_when_exit_bridge_refuses(monkeypatch,tmp_path,capsys):
+@pytest.mark.parametrize('exit_failure',['unknown','exception','invalid_known'])
+def test_capture_publishes_capacity_even_when_exit_bridge_refuses(monkeypatch,tmp_path,capsys,exit_failure):
     import scripts.capture_closing_inventory as capture
     import cache_io
     writes={}
@@ -146,7 +219,11 @@ def test_capture_publishes_capacity_even_when_exit_bridge_refuses(monkeypatch,tm
     monkeypatch.setattr(cache_io,'_r2_creds',lambda:{'R2_BUCKET':'test'})
     monkeypatch.setattr(cap,'query_local_book',lambda:book())
     inv=TaggedInventory(reasons=['bridge refuses'])
-    monkeypatch.setattr(capture,'load_actual_inventory',lambda **_:inv)
+    def load(**_):
+        if exit_failure=='exception':raise ValueError('fixture failed')
+        if exit_failure=='invalid_known':return TaggedInventory(status='known')
+        return inv
+    monkeypatch.setattr(capture,'load_actual_inventory',load)
     capture.main(['--publish','--capacity-output',str(tmp_path/'capacity.json'),
                   '--output',str(tmp_path/'inventory.json')],now=AT)
     saved=json.loads(writes['ops/olv_capacity/2026-09-14.json'])

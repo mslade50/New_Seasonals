@@ -3033,8 +3033,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                               + "; " + _actual_inventory.fallback))
     # Sizing has its own coherent capacity proof; it never changes exit inventory.
     from olv_capacity import load_capacity, Capacity
-    _capacity = load_capacity(_actual_inventory, now=now_eastern,
-                              bookend=not is_intraday_partial) if _cap_strats else Capacity()
+    _capacity = load_capacity(_actual_inventory, bookend=not is_intraday_partial) if _cap_strats else Capacity()
     open_notionals = _capacity.held
     _pending_notionals = dict(_capacity.pending)
     _primary_nav = _capacity.nav
