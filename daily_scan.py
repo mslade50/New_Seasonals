@@ -2374,10 +2374,40 @@ def load_open_position_notionals(cap_strategy_names, inventory=None):
         from actual_inventory_io import load_actual_inventory
         inventory = load_actual_inventory(algo_strategies=cap_strategy_names)
     if inventory.status != "known":
+        fallback = _notionals_from_order_refs(cap_strategy_names)
+        if fallback:
+            print(f"[INVENTORY] Reconciled inventory unavailable ({'; '.join(inventory.reasons) or 'no reason given'}); "
+                  f"cap using broker order-ref attribution for {len(fallback)} position(s)")
+            return fallback
         print("[INVENTORY] Unknown actual inventory; optional notional overlay unavailable")
         return {}
     return {key: value for key, value in inventory.notionals.items()
             if key[1] in cap_strategy_names}
+
+
+def _notionals_from_order_refs(cap_strategy_names):
+    """Cap input straight from the broker, for when the reconciled bridge refuses.
+
+    Attribution comes from each entry's orderRef, so no reviewed seed and no
+    continuous fill history are needed. Returns {} on any doubt; an empty
+    overlay is the existing degraded behaviour and is safe.
+    """
+    from olv_sizing import STRATEGY, held_notionals_from_order_refs
+    if STRATEGY not in cap_strategy_names:
+        return {}
+    try:
+        from daily_execution_report import fetch_book, DEFAULT_BROKER_URL
+        token = os.environ.get("STATUS_TOKEN", "").strip()
+        if not token:
+            return {}
+        book = fetch_book(os.environ.get("EXEC_BROKER_URL", DEFAULT_BROKER_URL), token)
+        primary = next((a for a in (book or {}).get("accounts", []) if a.get("key") == "primary"), None)
+        if not primary:
+            return {}
+        return held_notionals_from_order_refs(book, primary.get("broker_account"))
+    except Exception as exc:
+        print(f"[INVENTORY] Order-ref attribution unavailable ({type(exc).__name__}: {exc})")
+        return {}
 
 
 def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
