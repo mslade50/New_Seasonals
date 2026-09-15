@@ -612,20 +612,20 @@ def build_catalog() -> dict[str, PipelineSpec]:
 
     inventory_close = PipelineSpec(
         id="inventory-close",
-        description="Verified closing Primary inventory for next-session OLV sizing",
+        description="Closing Primary sizing capacity and independently reconciled exit inventory",
         cadence="weekdays",
         run_at_et=dt.time(16, 5),
         fallback_at_et=dt.time(16, 35),
         fallback_until_et=dt.time(17, 0),
         jobs=(JobSpec(
             id="inventory_close",
-            description="Capture tagged holdings, pending OLV entries and broker NAV",
+            description="Capture sizing capacity; record exit-inventory verification separately",
             local_gate="nyse_session",
             commands=(_py("capture closing Primary inventory", "scripts/capture_closing_inventory.py",
                           "--publish", timeout=180, side_effecting=True),),
             required_env=R2_ENV + ("STATUS_TOKEN", "EXEC_AGENT_TOKEN", "INVENTORY_SNAPSHOT_PATH"),
             rerun_safe=True,
-            outputs=(_out("data/olv_closing_inventory.json", "ops/olv_closing_inventory/latest.json", minimum=100),),
+            outputs=(_out("data/olv_closing_capacity.json", "ops/olv_capacity/latest.json", minimum=100),),
         ),),
     )
 
