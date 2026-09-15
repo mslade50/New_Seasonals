@@ -5,7 +5,7 @@ import math
 import os
 import pandas as pd
 from equity_sessions import calendar, last_settled_session, session_close
-from olv_sizing import STRATEGY, pending_entry_notionals
+from olv_sizing import STRATEGY, DEAD_STATUSES, pending_entry_notionals
 
 
 @dataclass
@@ -127,7 +127,9 @@ def from_book(book, *, now, source='broker_conservative'):
             key = (symbol, STRATEGY)
             held[key] = held.get(key,0) + qty*price
     for row in primary['orders']:
-        if (row.get('symbol'),STRATEGY) in raw_pending:
+        parts = str(row.get('order_ref') or '').split('|')
+        if (row.get('action') == 'BUY' and row.get('status') not in DEAD_STATUSES
+                and len(parts) >= 3 and parts[2] == STRATEGY):
             symbol = symbol_key(row['symbol'])
             if symbol in symbols and symbols[symbol] != float(row['con_id']):
                 raise ValueError('held and pending stock contracts disagree')
