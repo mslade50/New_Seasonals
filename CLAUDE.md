@@ -1469,37 +1469,37 @@ Aligned sites — change together:
   guard: `test_olv_exits.py` (OneDrive)
 - Guard: `tests/test_olv_stop_and_cap.py` (engine + scan + config invariants)
 
-### Cap attribution fallback — broker order refs (2026-09-14)
+### OLV sizing fallback — complete capacity observation (2026-09-15)
 
-`load_open_position_notionals` no longer returns `{}` when the reconciled
-inventory refuses. It falls back to `olv_sizing.held_notionals_from_order_refs`,
-which attributes a whole broker position to the sleeve whose orderRef staged it
-(`SYMBOL|ACTION|Strategy_Ref|Staged_Date`, the same contract
-`daily_execution_report.parse_ref` reads), marked at the broker's own
-`market_value`, over a 30-day lookback.
+The September 14 order-reference patch supplied held notional but left the
+actual scanner cap, NAV and pending-order checks dependent on reconciled
+inventory. It was not sufficient to restore the cap.
 
-Why: the reconciled path bridges a reviewed seed forward through verified
-fills, and it refuses whenever canonical fill coverage stops bracketing that
-seed — which it did from 2026-09-08, taking the OLV cap out of the scan for
-days while nothing announced it. Order refs need no seed and no continuous
-history, so the cap survives a coverage gap.
+`olv_capacity.py` now supplies a separate sizing-only Capacity: held stock
+market value, remaining OLV BUY-parent limit reservations, and actual Primary
+NAV from one validated broker observation. The scanner gates on Capacity.known;
+exit inventory retains its own status and is never promoted by this fallback.
 
-What it deliberately does NOT do: tranche-level attribution. Entry prices and
-exit metadata cannot be recovered from an orderRef, so inventory-derived exits
-still require the reconciled path. That split is already modeled by
-`TaggedInventory.exit_metadata_known` and its fallback string.
+Fallback holdings are conservative: all stock exposure in the candidate's same
+ticker counts, including untagged or other-sleeve shares. This can tighten the
+cap but avoids assuming that missing/old references prove no OLV ownership.
+This is absolute broker net exposure, not verified gross OLV ownership;
+offsetting shorts from other sleeves remain an attribution limitation.
+Other tickers do not consume a candidate's per-ticker cap. Existing ETF
+exemptions and the owner's fail-open policy when capacity is unavailable remain.
 
-Failure direction: a symbol two sleeves both hold is counted ENTIRELY against
-this strategy, which overstates usage and TIGHTENS the cap. It can only
-understate if a held position's entry orderRef predates the lookback, which
-OLV's 10-day hold makes unreachable, or is untagged (nothing placed before
-2026-07-02 carries a ref — also unreachable at a 10-day hold).
+The existing 16:05 capture saves independent sizing evidence in
+`ops/olv_capacity/`. It can succeed while reporting exit inventory unknown.
+Bookend scans prefer the dated prior-close evidence until the next cash open;
+a dedicated read-only broker query is the fallback. Its collection timestamps
+and completed current-day executions reserve buys that occur between copied
+holdings and pending orders. Stale, incomplete, nonfinite or
+mismatched inputs are rejected. Capture success certifies sizing only.
 
-Aligned sites — change together:
-- `olv_sizing.py` `held_notionals_from_order_refs` (the attribution rule)
-- `daily_scan.py` `load_open_position_notionals` + `_notionals_from_order_refs`
-  (fallback wiring; prints which path fed the cap and why)
-- Guard: `tests/test_olv_order_ref_attribution.py`
+Tests execute the real scanner setup and cap branch, independent closing
+capture/next-morning use, partial pending fills, exemptions, invalid inputs,
+and unchanged unknown exit-inventory state. See
+`docs/olv_capacity_repair_2026-09-15.md` for release evidence.
 
 Ledger SURVIVORSHIP CAVEAT (2026-07-16): the 23-year ledger trades only
 tickers alive in today's universe files — 21 of 22 major 2020s delistings are

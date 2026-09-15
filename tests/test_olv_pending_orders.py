@@ -119,7 +119,7 @@ def test_actual_scanner_block_combines_held_and_pending(known,expected):
     wrapper='for _fixture in [0]:\n'+textwrap.indent(body,'    ')
     ns=dict(strat={'name':'Oversold Low Volume','execution':{'ticker_notional_cap':
         {'pct_nav':.2,'exempt':[],'include_pending':True}}},shares=100,entry=100.,atr=2.,
-        _actual_inventory=SimpleNamespace(status='known'),_pending_capacity_known=known,
+        _actual_inventory=SimpleNamespace(status='known'),_capacity=SimpleNamespace(known=known),_pending_capacity_known=known,
         _pending_notionals={('TEST','Oversold Low Volume'):5000.},
         open_notionals={('TEST','Oversold Low Volume'):10000.},t_clean='TEST',
         ACCOUNT_VALUE=750000,_primary_nav=100000,dist=2.5,risk=250.,sizing_note='',_entry_offset_atr=.25)

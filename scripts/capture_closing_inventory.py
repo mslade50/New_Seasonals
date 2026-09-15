@@ -2,7 +2,6 @@
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import sys
 import pandas as pd
@@ -10,22 +9,43 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from actual_inventory_io import load_actual_inventory
 from closing_inventory import STRATEGY, make_snapshot, snapshot_key
-from scripts.refresh_inventory_observation import refresh_local_inventory
-from scripts.harvest_fills import DEFAULT_BROKER_URL
+import olv_capacity
 
 
-def main():
+def main(argv=None, *, now=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--publish', action='store_true')
     parser.add_argument('--output', type=Path, default=Path('data/olv_closing_inventory.json'))
-    args = parser.parse_args()
-    # Obtain a dedicated read-only observation; never start the command agent.
-    refresh_local_inventory(os.environ.get('EXEC_BROKER_URL', DEFAULT_BROKER_URL))
-    inventory = load_actual_inventory(algo_strategies={STRATEGY})
-    if inventory.status != 'known':
-        raise RuntimeError('; '.join(inventory.reasons))
-    snapshot = make_snapshot(inventory, now=pd.Timestamp.now(tz='UTC'))
-    body = (json.dumps(snapshot, sort_keys=True, allow_nan=False) + '\n').encode()
+    parser.add_argument('--capacity-output', type=Path, default=Path('data/olv_closing_capacity.json'))
+    args = parser.parse_args(argv)
+    # Capacity does not depend on a seed, execution history, or exit metadata.
+    book = olv_capacity.query_local_book()
+    capacity_snapshot = olv_capacity.make_snapshot(book, now=now or pd.Timestamp.now(tz='UTC'))
+    capacity_body = (json.dumps(capacity_snapshot, sort_keys=True, allow_nan=False)+'\n').encode()
+    if args.publish:
+        from cache_io import _client, _r2_creds
+        client, creds = _client(), _r2_creds()
+        if client is None or creds is None:
+            raise RuntimeError('closing capacity storage is unavailable')
+        digest = hashlib.sha256(capacity_body).hexdigest()
+        client.put_object(Bucket=creds['R2_BUCKET'], Key=f'ops/olv_capacity/generations/{digest}.json', Body=capacity_body)
+        client.put_object(Bucket=creds['R2_BUCKET'], Key=olv_capacity.snapshot_key(capacity_snapshot['session']), Body=capacity_body)
+        client.put_object(Bucket=creds['R2_BUCKET'], Key='ops/olv_capacity/latest.json', Body=capacity_body)
+    args.capacity_output.parent.mkdir(parents=True, exist_ok=True)
+    args.capacity_output.write_bytes(capacity_body)
+    try:
+        inventory = load_actual_inventory(algo_strategies={STRATEGY})
+        if inventory.status != 'known':
+            print(json.dumps(dict(session=capacity_snapshot['session'], capacity='known',
+                                  inventory='unknown', reasons=inventory.reasons, published=args.publish)))
+            return
+        snapshot = make_snapshot(inventory, now=now or pd.Timestamp.now(tz='UTC'))
+        body = (json.dumps(snapshot, sort_keys=True, allow_nan=False) + '\n').encode()
+    except Exception as exc:
+        print(json.dumps(dict(session=capacity_snapshot['session'], capacity='known',
+                              inventory='unknown', reasons=['exit inventory verification failed: '+type(exc).__name__],
+                              published=args.publish)))
+        return
     if args.publish:
         from cache_io import _client, _r2_creds
         client, creds = _client(), _r2_creds()
