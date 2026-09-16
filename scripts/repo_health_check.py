@@ -240,7 +240,7 @@ def check_local_data() -> None:
         report(tier, f"data:{name}", f"last row {last}, {behind} bd behind{note}")
 
     strays = [p for p in (ROOT / "data").glob("*.parquet.*")
-              if p.suffix != ".parquet"]
+              if p.is_file() and not p.name.endswith(".parquet.status.json")]
     if strays:
         report("WARN", "data:stray-temp-files",
                "partial-write artifacts: " + ", ".join(p.name for p in strays))

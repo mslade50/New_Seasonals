@@ -510,6 +510,8 @@ def collect_ssrn(
     items: list[dict[str, Any]] = []
     exhausted = True
     pages = 0
+    # Crossref requires unchanged query parameters for a cursor chain.
+    rows_per_page = min(100, item_limit)
     while pages < source["max_pages"] and len(items) < item_limit:
         if budget.remaining <= 0:
             exhausted = False
@@ -522,7 +524,7 @@ def collect_ssrn(
                 f"from-deposit-date:{window_start.date().isoformat()},"
                 f"until-deposit-date:{window_end.date().isoformat()}"
             ),
-            "rows": min(100, item_limit - len(items)),
+            "rows": rows_per_page,
             "cursor": cursor,
             "select": "DOI,title,author,abstract,created,published,deposited,type",
         }
@@ -538,7 +540,8 @@ def collect_ssrn(
         )
         message = payload.get("message") or {}
         works = message.get("items") or []
-        for work in works:
+        cut_page = False
+        for work_index, work in enumerate(works):
             item = _ssrn_item(
                 work,
                 source=source,
@@ -554,10 +557,14 @@ def collect_ssrn(
                     continue
                 items.append(item)
             if len(items) >= item_limit:
+                cut_page = work_index < len(works) - 1
                 break
         pages += 1
+        if cut_page:
+            # Unprocessed records remain even when this was a short last page.
+            break
         next_cursor = message.get("next-cursor")
-        if not works or not next_cursor or next_cursor == cursor:
+        if not works or not next_cursor:
             cursor = ""
             break
         cursor = str(next_cursor)
