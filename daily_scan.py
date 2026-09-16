@@ -3033,7 +3033,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                               + "; " + _actual_inventory.fallback))
     # Sizing has its own coherent capacity proof; it never changes exit inventory.
     from olv_capacity import load_capacity, Capacity
-    _capacity = load_capacity(_actual_inventory, bookend=not is_intraday_partial) if _cap_strats else Capacity()
+    _capacity = load_capacity(bookend=not is_intraday_partial) if _cap_strats else Capacity()
     open_notionals = _capacity.held
     _pending_notionals = dict(_capacity.pending)
     _primary_nav = _capacity.nav
@@ -3044,7 +3044,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         if 'conservative' in _capacity.source:
             error_tickers.append(('OLV CAP SOURCE',
                 f'{_capacity.source} at {_capacity.observed_at}; same-symbol stock holdings counted in full; '
-                'sizing only, exit inventory remains unverified'))
+                'sizing only; exit verification is separate'))
     elif _cap_strats:
         error_tickers.append(('OLV CAP', f'{_capacity.reason}; optional overlay bypassed'))
 
@@ -3426,8 +3426,9 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # stacked legs in ONE single-stock ticker may not exceed
                     # pct_nav x NAV in entry notional; the new leg is scaled
                     # down (or zeroed) to fit. ETFs pass through via the
-                    # exempt list. Open state = filled positions in the
-                    # reviewed Primary tagged inventory. Unknown state bypasses
+                    # exempt list. Open state = all same-ticker stock holdings
+                    # from the Primary broker capacity observation, without
+                    # execution-history attribution. Unknown state bypasses
                     # this optional overlay with an exception. Model cap is in
                     # strat_backtester — change together. Guard:
                     # tests/test_olv_stop_and_cap.py.
