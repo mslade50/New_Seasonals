@@ -1,7 +1,9 @@
 """Manual actions use fake broker wires only; no live executor is imported."""
 import ast
 import copy
+import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -176,8 +178,13 @@ def test_agent_checks_only_address_and_encoding(setup, account):
 
 
 def test_candidate_patches_real_runtime_without_importing_broker(tmp_path):
-    source = Path("C:/Users/McKinley Slade/OneDrive/trading_ibkr")
+    source = Path(os.environ.get("MANUAL_ORDER_TEST_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
     if not source.exists(): pytest.skip("runtime source unavailable")
+    expected = json.loads((prepare.HERE / "manual_order_source_hashes.json").read_text())
+    if not os.environ.get("MANUAL_ORDER_TEST_SOURCE") and any(
+            hashlib.sha256((source / name).read_bytes()).hexdigest() != digest
+            for name, digest in expected.items()):
+        pytest.skip("reviewed pre-release source unavailable; set MANUAL_ORDER_TEST_SOURCE to its backup")
     target = tmp_path / "candidate"
     manifest = prepare.prepare(source, target)
     assert set(manifest["candidate"]) == {"manual_order_actions.py", "reconcile_position_exits.py", "exec_agent.py", "execute_order.py"}
@@ -199,3 +206,26 @@ def test_candidate_patches_real_runtime_without_importing_broker(tmp_path):
         for account in ("primary", "pa"):
             assert ns["_validate"](dict(type="cancel", account=account, payload=payload)) == (True, [])
             assert ns["_validate"](dict(type="reconcile_exits", account=account, payload=dict(con_id=42))) == (True, [])
+
+
+def test_reconcile_preview_describes_the_recognized_command():
+    source = '''def _validate(cmd):
+    t, p, acct = cmd.get("type"), (cmd.get("payload") or {}), cmd.get("account")
+    return False, ["unknown"]
+def _describe(cmd):
+    t, p, acct = cmd.get("type"), (cmd.get("payload") or {}), cmd.get("account")
+    if t == "cancel":
+        return "cancel"
+    return "unknown command"
+def _preview(cmd):
+    t = cmd.get("type")
+    if t == "cancel":
+        return {"summary": "cancel"}
+    return {}
+'''
+    namespace = {}
+    exec(prepare.patch_agent(source), namespace)
+    for account in ("primary", "pa"):
+        command = dict(type="reconcile_exits", account=account, payload=dict(symbol="SNA"))
+        assert namespace["_describe"](command) == f"reconcile existing exits for SNA ({account}) proportionally to live holdings"
+        assert namespace["_preview"](command)["summary"] == "Reconcile existing exits to live position"

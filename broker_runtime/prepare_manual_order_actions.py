@@ -40,6 +40,11 @@ def patch_agent(source):
                             '        import reconcile_position_exits\n'
                             '        return reconcile_position_exits.validate(cmd)')
     source = change_function(source, "_validate", validate)
+    source = change_function(source, "_describe", lambda text: replace_once(text,
+        '    if t == "cancel":',
+        '    if t == "reconcile_exits":\n'
+        '        return f"reconcile existing exits for {p.get(\'symbol\', \'?\')} ({acct}) proportionally to live holdings"\n'
+        '    if t == "cancel":'))
     source = change_function(source, "_preview", lambda text: replace_once(text,
         '    if t == "cancel":',
         '    if t == "reconcile_exits":\n'
