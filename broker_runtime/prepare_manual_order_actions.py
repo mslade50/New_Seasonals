@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -17,7 +18,16 @@ def patch_executor(source):
             f"def {name}(ib, p, host, port, main_cid{tail}):\n"
             f"    import manual_order_actions\n"
             f"    return manual_order_actions.run(globals(), ib, p, host, port, main_cid, modify={modify})\n")
-    return source
+    node = next(n for n in ast.parse(source).body if isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "SUPPORTED" for t in n.targets))
+    anchor = "\n".join(source.splitlines()[node.lineno - 1:node.end_lineno])
+    source = replace_once(source, anchor, anchor + '\nSUPPORTED.add("reconcile_exits")')
+    return change_function(source, "main", lambda text: replace_once(text,
+        '        if t == "cancel":',
+        '        if t == "reconcile_exits":\n'
+        '            import reconcile_position_exits\n'
+        '            return reconcile_position_exits.run(globals(), ib, p, host, port, cid)\n'
+        '        if t == "cancel":'))
 
 
 def patch_agent(source):
@@ -25,8 +35,18 @@ def patch_agent(source):
         anchor = '    t, p, acct = cmd.get("type"), (cmd.get("payload") or {}), cmd.get("account")'
         return replace_once(text, anchor, anchor + '\n    if t in {"cancel", "modify"}:\n'
                             '        import manual_order_actions\n'
-                            '        return manual_order_actions.validate(cmd)')
-    return change_function(source, "_validate", validate)
+                            '        return manual_order_actions.validate(cmd)\n'
+                            '    if t == "reconcile_exits":\n'
+                            '        import reconcile_position_exits\n'
+                            '        return reconcile_position_exits.validate(cmd)')
+    source = change_function(source, "_validate", validate)
+    source = change_function(source, "_preview", lambda text: replace_once(text,
+        '    if t == "cancel":',
+        '    if t == "reconcile_exits":\n'
+        '        return {"summary": "Reconcile existing exits to live position",\n'
+        '                "legs": ["Proportional exit quantities; prices and schedules preserved. No new close or re-add."]}\n'
+        '    if t == "cancel":'))
+    return source
 
 
 def prepare(source, output):
@@ -36,7 +56,8 @@ def prepare(source, output):
             raise ValueError(f"reviewed runtime source changed: {name}")
     if output.exists():
         raise ValueError("candidate directory must be new")
-    rendered = {"manual_order_actions.py": (HERE / "manual_order_actions.py").read_text(encoding="utf-8")}
+    rendered = {name: (HERE / name).read_text(encoding="utf-8")
+                for name in ("manual_order_actions.py", "reconcile_position_exits.py")}
     for name, patch in (("execute_order.py", patch_executor), ("exec_agent.py", patch_agent)):
         rendered[name] = patch((source / name).read_text(encoding="utf-8-sig"))
     for name, text in rendered.items():

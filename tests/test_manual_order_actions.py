@@ -180,20 +180,22 @@ def test_candidate_patches_real_runtime_without_importing_broker(tmp_path):
     if not source.exists(): pytest.skip("runtime source unavailable")
     target = tmp_path / "candidate"
     manifest = prepare.prepare(source, target)
-    assert set(manifest["candidate"]) == {"manual_order_actions.py", "exec_agent.py", "execute_order.py"}
+    assert set(manifest["candidate"]) == {"manual_order_actions.py", "reconcile_position_exits.py", "exec_agent.py", "execute_order.py"}
     before = ast.parse((source / "execute_order.py").read_text(encoding="utf-8-sig"))
     after = ast.parse((target / "execute_order.py").read_text())
     functions = lambda tree: {n.name: ast.dump(n) for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
     b, a = functions(before), functions(after)
-    assert {name for name in b if b[name] != a[name]} == {"_do_cancel", "_do_modify"}
+    assert {name for name in b if b[name] != a[name]} == {"_do_cancel", "_do_modify", "main"}
     agent = ast.parse((target / "exec_agent.py").read_text())
     node = next(n for n in agent.body if isinstance(n, ast.FunctionDef) and n.name == "_validate")
     ns = {"manual_order_actions": manual}
     import sys
+    from broker_runtime import reconcile_position_exits
     from unittest.mock import patch
-    with patch.dict(sys.modules, manual_order_actions=manual):
+    with patch.dict(sys.modules, manual_order_actions=manual, reconcile_position_exits=reconcile_position_exits):
         exec(compile(ast.Module(body=[node], type_ignores=[]), "isolated-agent-validator", "exec"), ns)
         payload = dict(con_id=42, client_id=99, order_id=7, perm_id=701)
         # No agent book, price, strategy, or risk globals exist in this namespace.
         for account in ("primary", "pa"):
             assert ns["_validate"](dict(type="cancel", account=account, payload=payload)) == (True, [])
+            assert ns["_validate"](dict(type="reconcile_exits", account=account, payload=dict(con_id=42))) == (True, [])
