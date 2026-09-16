@@ -9,7 +9,7 @@ Status: implemented as a local, research-only shadow workflow. The active Codex 
 This section and [the search-and-read runbook](ep_google_research.md) supersede
 the September 8/15 automated news classification and delivery instructions below.
 Market ingestion and the +5% / 100,000-share / prior ATR >4% gates are unchanged.
-After daily enrichment, prepare a bounded **positive-mover-only** Google queue,
+After daily enrichment, prepare a complete **positive-mover-only** Google queue,
 then the scheduled Codex agent must actually search Google in the in-app browser,
 open the relevant articles and issuer releases, and judge the issuer-specific
 catalyst. Google snippets and AI overviews are discovery only. No CSE key or paid
@@ -25,9 +25,14 @@ article about an old event does not qualify. Today-only date evidence observed
 premarket is allowed without fabricating a precise timestamp; prior-day date-only
 evidence cannot establish after-close timing.
 
-Every disposition is QUALIFIED, REJECTED (opened evidence supports exclusion),
-or UNRESOLVED (research/source access incomplete). Missing reviews are unresolved,
-never silently rejected. The 25-name cap and omitted coverage are disclosed.
+Every eligible mover must have a completed QUALIFIED, REJECTED (opened evidence
+supports exclusion), or NO_VERIFIED_CATALYST (completed company-news and original
+announcement searches cannot verify a catalyst) disposition before email. There
+is no 25-name cutoff. UNRESOLVED and missing reviews remain local progress only
+and block the entire candidate email, even when other stocks qualify. Never
+relabel unfinished work as a negative conclusion. The runbook specifies required
+negative-search evidence. A real outage/interruption uses an operational failure
+alert, not a partial shortlist or a misleading empty result.
 The agent owns semantic judgment; hashes verify record integrity, not factual
 correctness. The sender revalidates the retained review and tape gates, rebuilds
 the report, and rejects mismatches. Morning delivery must use

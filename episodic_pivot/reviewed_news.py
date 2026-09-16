@@ -25,10 +25,10 @@ from .premarket import nominate_candidates
 from .schema import Candidate, CatalystAssessment, RunResult, iso_utc, parse_timestamp
 
 MODE = "AGENT_GOOGLE_SEARCH_AND_READ"
-PACKET_TYPE = "EP_SEARCH_READ_REVIEW_V1"
-QUEUE_TYPE = "EP_SEARCH_READ_QUEUE_V1"
+PACKET_TYPE = "EP_SEARCH_READ_REVIEW_V2"
+QUEUE_TYPE = "EP_SEARCH_READ_QUEUE_V2"
 _NY = ZoneInfo("America/New_York")
-_STATUSES = {"QUALIFIED", "REJECTED", "UNRESOLVED"}
+_STATUSES = {"QUALIFIED", "REJECTED", "NO_VERIFIED_CATALYST", "UNRESOLVED"}
 _KINDS = {
     "EARNINGS",
     "EARNINGS_GUIDANCE",
@@ -114,7 +114,7 @@ def make_queue(
     target_session_date: str,
     policy: EPPolicy,
 ) -> dict:
-    """Only verified positive movers consume the 25-name research budget."""
+    """Every eligible positive mover is reviewed; no partial top-N cutoff."""
     start, end = _window(target_session_date, prepared_at)
     if any(c.snapshot.target_session_date != target_session_date for c in candidates):
         raise ValueError("queue contains a different target session")
@@ -140,7 +140,7 @@ def make_queue(
         )
     )
     targets = []
-    for candidate in eligible[: policy.discovery.max_candidates]:
+    for candidate in eligible:
         snap = candidate.snapshot
         queries = [
             f'"{snap.company_name}" {snap.symbol} stock news {target_session_date}',
@@ -259,6 +259,8 @@ def validate_packet(
         status = review.get("status")
         if status not in _STATUSES:
             raise ValueError("invalid review disposition")
+        if status != "UNRESOLVED" and review.get("research_complete") is not True:
+            raise ValueError("terminal disposition requires completed research")
         reviewed_at = _within(_text(review, "reviewed_at"), prepared, end)
         searches = review.get("searches")
         if not isinstance(searches, list) or not 1 <= len(searches) <= 4:
@@ -292,10 +294,19 @@ def validate_packet(
         if not isinstance(sources, list) or len(sources) > 4:
             raise ValueError("invalid source list")
         qualified = status == "QUALIFIED"
-        if status != "UNRESOLVED" and (
+        if status in {"QUALIFIED", "REJECTED"} and (
             not sources or not any(s["outcome"] == "RESULTS_READ" for s in searches)
         ):
             raise ValueError("qualification/rejection requires opened source evidence")
+        if status == "NO_VERIFIED_CATALYST":
+            completed = [s for s in searches if s["outcome"] != "BLOCKED"]
+            if len({s["query"].casefold() for s in completed}) < 2 or not {
+                "COMPANY_NEWS",
+                "PRIMARY_ANNOUNCEMENT",
+            }.issubset({s.get("purpose") for s in completed}):
+                raise ValueError(
+                    "negative conclusion requires completed news and primary-announcement searches"
+                )
         for source in sources:
             _validate_source(
                 source,
@@ -352,6 +363,27 @@ def validate_packet(
     return assessments
 
 
+def require_complete_research(packet: dict) -> None:
+    """Email is a final deliverable, never a progress report or partial list.
+
+    Call after validate_packet so identities and each terminal disposition have
+    already been checked. Unresolved audit artifacts remain resumable locally.
+    """
+    targets = {t["candidate_id"] for t in packet["queue"]["targets"]}
+    reviews = packet["reviews"]
+    if (
+        {r["candidate_id"] for r in reviews} != targets
+        or packet["queue"]["unresearched_by_cap"]
+        or any(
+            r["status"] == "UNRESOLVED" or r.get("research_complete") is not True
+            for r in reviews
+        )
+    ):
+        raise ValueError(
+            "candidate email requires completed research for every eligible mover"
+        )
+
+
 def apply_review(
     base: RunResult, packet: dict, *, decision_at: str, policy: EPPolicy
 ) -> RunResult:
@@ -366,7 +398,7 @@ def apply_review(
                 replace(
                     previous,
                     decision="WATCH",
-                    blockers=("NEWS_RESEARCH_NOT_SELECTED_BY_CAP",),
+                    blockers=("NEWS_RESEARCH_OUTSIDE_LONG_ELIGIBILITY",),
                 )
             )
         else:

@@ -376,7 +376,7 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
     reviewed_assessments = None
     if manifest.get("research_mode") == "AGENT_GOOGLE_SEARCH_AND_READ":
         from .manifest import _html_report, _report, _research_counts
-        from .reviewed_news import validate_packet
+        from .reviewed_news import require_complete_research, validate_packet
 
         if "agent_reviews.json" not in artifacts:
             raise EmailDeliveryError("EP agent review artifact is missing")
@@ -397,6 +397,7 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
                 decision_at=manifest["generated_at"],
                 policy=DEFAULT_POLICY,
             )
+            require_complete_research(packet)
             expected_ids = {
                 cid
                 for cid, a in reviewed_assessments.items()

@@ -16,6 +16,7 @@ from .qualify import prior_atr_blocker
 from .schema import ResearchSizingPreview, RunResult
 
 _RESEARCH_SKIP_BLOCKERS = {
+    "NEWS_RESEARCH_OUTSIDE_LONG_ELIGIBILITY",
     "NEWS_RESEARCH_SKIPPED_PRIOR_ATR",
     "NEWS_RESEARCH_NOT_SELECTED_BY_CAP",
 }
@@ -165,7 +166,10 @@ def _research_counts(result: RunResult, policy: EPPolicy) -> dict[str, int]:
     }
     if result.review_packet is not None:
         counts["news_review_rejected"] = sum(
-            "AGENT_REVIEW_REJECTED" in item.catalyst.reason_codes
+            bool(
+                {"AGENT_REVIEW_REJECTED", "AGENT_REVIEW_NO_VERIFIED_CATALYST"}
+                & set(item.catalyst.reason_codes)
+            )
             for item in result.decisions
         )
         counts["news_unresearched_by_cap"] = result.review_packet["queue"][

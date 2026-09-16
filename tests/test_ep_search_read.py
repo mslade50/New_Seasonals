@@ -49,6 +49,7 @@ def packet(result=None):
             {
                 **{k: target[k] for k in ("candidate_id", "symbol", "company_name")},
                 "status": "QUALIFIED",
+                "research_complete": True,
                 "reviewed_at": "2026-08-24T12:35:00Z",
                 "searches": [
                     {
@@ -196,9 +197,8 @@ def test_missing_and_rejected_are_not_conflated(tmp_path):
     p = packet()
     p["reviews"] = []
     result = complete(p)
-    mail = morning_payload(write(tmp_path, result))
-    assert "news coverage incomplete" in mail.subject
-    assert "TEST" not in mail.html_body
+    with pytest.raises(EmailDeliveryError):
+        morning_payload(write(tmp_path, result))
     p = packet()
     p["reviews"][0]["status"] = "REJECTED"
     p["reviews"][0]["reason"] = (
@@ -221,9 +221,8 @@ def test_blocked_google_is_unresolved_not_a_candidate(tmp_path):
         reason="Google blocked the query; source evidence was not available.",
     )
     review["searches"][0]["outcome"] = "BLOCKED"
-    mail = morning_payload(write(tmp_path, complete(p)))
-    assert "0 news-qualified" in mail.subject
-    assert "news coverage incomplete" in mail.subject
+    with pytest.raises(EmailDeliveryError):
+        morning_payload(write(tmp_path, complete(p)))
 
 
 def test_queue_does_not_spend_budget_on_negative_or_low_atr():
@@ -264,7 +263,7 @@ def test_queue_market_fingerprint_cannot_be_swapped():
         complete(p, b)
 
 
-def test_cap_is_disclosed_and_never_exceeded():
+def test_every_eligible_mover_is_selected_without_top_25_cutoff():
     b = base([_snapshot(symbol=f"S{i}") for i in range(28)])
     q = make_queue(
         b.candidates,
@@ -272,7 +271,7 @@ def test_cap_is_disclosed_and_never_exceeded():
         target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
     )
-    assert len(q["targets"]) == 25 and q["unresearched_by_cap"] == 3
+    assert len(q["targets"]) == 28 and q["unresearched_by_cap"] == 0
 
 
 def test_post_open_or_wrong_session_decisions_fail():
