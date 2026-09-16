@@ -32,6 +32,11 @@ At 13:49 UTC, Databento's account-scoped metadata reported GLBX.MDP3 and
 The metadata endpoint returns availability for the caller's entitlements:
 https://databento.com/docs/api-reference-historical
 
+A free current-date contract-reference request also returned HTTP 422
+`dataset_unavailable_range`, explicitly stating that the requested interval
+requires a subscription and/or license. That confirms an access boundary;
+the small historical-download allowance does not itself unlock current data.
+
 The current strategy requires a same-day 08:30–09:25 ET contract probe, and
 the latest probe must be no more than ten minutes old. Updating the cached
 history alone cannot meet these requirements. Do not change the timestamp,
