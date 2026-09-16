@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "exclusions": [
+  {
+    "ticker": "ANSS",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Synopsys completed acquisition July 17, 2025; ANSS retired.",
+    "evidence_url": "https://investor.synopsys.com/news/news-details/2025/Synopsys-Completes-Acquisition-of-Ansys/default.aspx"
+  },
+  {
+    "ticker": "AXIA",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "NYSE ADR trading ceased August 6, 2026; OTC migration is not an automatic replacement.",
+    "evidence_url": "https://www.sec.gov/Archives/edgar/data/1439124/000129281426004079/axia20260805_6k.htm"
+  },
+  {
+    "ticker": "CSGS",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Acquired by NEC; Nasdaq suspension May 14 and delisting May 25, 2026.",
+    "evidence_url": "https://www.sec.gov/Archives/edgar/data/1005757/000119312526224339/d154728d8k.htm"
+  },
+  {
+    "ticker": "CTLP",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Completed acquisition; Nasdaq suspension May 11, 2026.",
+    "evidence_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-303"
+  },
+  {
+    "ticker": "CTRA",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Completed Devon merger May 7, 2026; CTRA shares converted and NYSE listing retired.",
+    "evidence_url": "https://investors.devonenergy.com/investors/press-releases/press-release-details/2026/Devon-Energy-and-Coterra-Energy-Complete-Merger/default.aspx"
+  },
+  {
+    "ticker": "CUK",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "NYSE suspended CUK May 7, 2026 after Carnival simplification.",
+    "evidence_url": "https://www.sec.gov/Archives/edgar/data/876661/000087666126000397/ruleprovisionnotice.htm"
+  },
+  {
+    "ticker": "FFIC",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Completed OceanFirst merger June 1; Nasdaq suspension June 2, 2026.",
+    "evidence_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-362"
+  },
+  {
+    "ticker": "FONR",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Completed acquisition June 3; Nasdaq suspension June 4, 2026.",
+    "evidence_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-372"
+  },
+  {
+    "ticker": "GDEN",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Completed merger April 30, 2026; old common shares retired.",
+    "evidence_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-279"
+  },
+  {
+    "ticker": "LEG",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Completed Somnigroup merger August 26, 2026; NYSE suspension and withdrawal requested.",
+    "evidence_url": "https://www.sec.gov/Archives/edgar/data/58492/000119312526366694/d152590d8k.htm"
+  },
+  {
+    "ticker": "RSX",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Cboe suspended trading and initiated delisting January 2023; fund remains in liquidation.",
+    "evidence_url": "https://www.nasdaq.com/press-release/cboe-bzx-exchange-to-suspend-trading-in-vaneck-russia-etf-rsx-and-vaneck-russia-small"
+  },
+  {
+    "ticker": "SEE",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Acquisition completed April 9, 2026; issuer confirms NYSE trading ceased.",
+    "evidence_url": "https://sealedair.gcs-web.com/news-releases/news-release-details/sealed-air-announces-completion-acquisition-cdr"
+  },
+  {
+    "ticker": "SEM",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Completed acquisition; NYSE trading ceased July 1, 2026.",
+    "evidence_url": "https://www.sec.gov/Archives/edgar/data/918697/000095015726000779/ex99-20.htm"
+  },
+  {
+    "ticker": "TGNA",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Nexstar completed acquisition March 19, 2026; TEGNA common shares converted to cash.",
+    "evidence_url": "https://www.sec.gov/Archives/edgar/data/1142417/000114241726000004/nxst-ex99_1.htm"
+  },
+  {
+    "ticker": "WBS",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-09-12",
+    "verified_on": "2026-09-12",
+    "reason": "Santander completed Webster acquisition August 20, 2026; old common shares retired.",
+    "evidence_url": "https://www.santanderbank.com/about/media-center/santander-completes-webster-acquisition-082026"
+  }
+]
+}

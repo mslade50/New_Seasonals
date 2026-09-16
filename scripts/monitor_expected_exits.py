@@ -56,7 +56,9 @@ def _key(row):
 
 def _sources(inventory, book, fills, now):
     if inventory.get("status") != "known" or not isinstance(inventory.get("tranches"), list):
-        raise ValueError("reviewed tagged inventory is unavailable")
+        reasons = [reason[:240] for reason in inventory.get("reasons", []) if isinstance(reason, str)]
+        detail = ": " + "; ".join(reasons[:2]) if reasons else ""
+        raise ValueError("reviewed tagged inventory is unavailable" + detail)
     _fresh(inventory.get("asof_utc"), now)
     book = book.get("book", book)
     _fresh(book.get("at"), now)
@@ -253,7 +255,7 @@ def evaluate(inventory, book, fills, previous=None, *, now=None):
     local = now.astimezone(ET)
     from trading_calendar import TRADING_DAY
     import pandas as pd
-    summary_due = (bool(counts["missed"] or counts["unable_to_verify"])
+    summary_due = bool((counts["missed"] or counts["unable_to_verify"])
                    and local.time().replace(tzinfo=None) >= dt.time(16, 10)
                    and TRADING_DAY.is_on_offset(pd.Timestamp(local.date())))
     if summary_due:

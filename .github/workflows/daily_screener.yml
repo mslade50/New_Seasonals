@@ -65,7 +65,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas pyarrow numpy yfinance gspread google-auth boto3
+          pip install pandas pyarrow numpy yfinance gspread google-auth boto3 'exchange-calendars>=4,<5'
 
       - name: Pull caches from R2 (fail-closed for load-bearing keys)
         # scripts/pull_scan_caches.py: REQUIRED keys (master_prices,
@@ -103,6 +103,7 @@ jobs:
 
       - name: Run Automation Script
         env:
+          STATUS_TOKEN: ${{ secrets.STATUS_TOKEN }}
           GCP_JSON: ${{ secrets.GCP_JSON }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}

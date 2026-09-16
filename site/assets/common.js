@@ -18,7 +18,6 @@ const PAGES = [
   { href: "futures.html",  label: "Futures Lab" },
   { href: "entry.html",    label: "Entry Lab" },
   { href: "montecarlo.html", label: "Monte Carlo" },
-  { href: "fundamentals.html", label: "Fundamentals" },
 ];
 
 function renderNav(active) {

@@ -73,7 +73,7 @@ def test_production_policy_is_live_and_exact():
     assert policy["enabled"] is True
     assert (policy["left_bars"], policy["right_bars"]) == (40, 40)
     assert policy["max_source_age_bars"] == 252
-    assert policy["version"] == "olv_close_pivot_40_v2_20260901"
+    assert policy["version"] == "olv_close_pivot_40_v3_20260912"
     assert policy["default_offset_atr"] == pytest.approx(0.25)
 
 
@@ -136,10 +136,11 @@ def test_causal_low_age_is_counted_from_source_bar():
     "distance, expected_action, expected_offset, expected_rule",
     [
         (2.0, "stage", 0.25, "default"),
-        (2.000001, "stage", 0.50, "above_high_2_3"),
-        (3.0, "stage", 0.50, "above_high_2_3"),
-        (3.000001, "stage", 0.25, "default"),
-        (4.0, "stage", 0.25, "default"),
+        (2.000001, "stage", 0.50, "above_high_2_4"),
+        (3.0, "stage", 0.50, "above_high_2_4"),
+        (3.000001, "stage", 0.50, "above_high_2_4"),
+        (3.5, "stage", 0.50, "above_high_2_4"),
+        (4.0, "stage", 0.50, "above_high_2_4"),
         (4.000001, "stage", 0.75, "above_high_4_5"),
         (5.0, "stage", 0.75, "above_high_4_5"),
         (5.000001, "skip", 0.25, "above_high_gt5"),
@@ -237,7 +238,7 @@ def test_low_expires_independently_before_nearest_selection():
     assert decision["nearest_type"] == "High"
     assert decision["pivot_low_expired"]
     assert decision["offset_atr"] == pytest.approx(0.50)
-    assert decision["matched_rule"] == "above_high_2_3"
+    assert decision["matched_rule"] == "above_high_2_4"
 
 
 @pytest.mark.parametrize(
@@ -374,7 +375,7 @@ def _engine_case(
 
 @pytest.mark.parametrize(
     "distance, expected_offset, expected_price",
-    [(2.5, 0.50, 99.0), (3.5, 0.25, 99.5), (4.5, 0.75, 98.5)],
+    [(2.5, 0.50, 99.0), (3.5, 0.50, 99.0), (4.5, 0.75, 98.5)],
 )
 def test_backtester_uses_same_dynamic_offset(distance, expected_offset, expected_price):
     result = _engine_case(distance)
@@ -719,9 +720,9 @@ def test_olv_email_brief_states_distance_age_and_entry_effect():
         ),
         (
             3.5,
-            0.25,
-            100.12 - 0.25 * 2.345678,
-            "standard $99.53 buy limit",
+            0.50,
+            100.12 - 0.50 * 2.345678,
+            "close \u22120.5 ATR), $0.58 below the standard",
         ),
     ],
 )
@@ -898,13 +899,17 @@ def test_olv_email_card_is_concise_and_uses_live_pivot_fields(monkeypatch):
         Shares=1_000,
         Notional=100_123.456,
         Risk_Amt=2_930.0,
+        OLV_Signal_Number=2, OLV_Recency_Window=21, OLV_Recency_Mult=0.7,
+        OLV_Risk_Budget=2756.25, OLV_Sizing_Capital=750000, OLV_Risk_ATR=1.25,
     )
     assert daily_scan.send_email_summary([signal]) is True
     message = message_from_string(smtp.message)
     part = message.get_payload()[0]
     body = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
 
-    for label in ("SIGNAL:", "WHY:", "PIVOT:", "ACTION:", "PURPOSE:"):
+    assert "Signal #2 (1 prior signals in 21 sessions)" in body
+    assert "Budget $2,756.25" in body
+    for label in ("SIGNAL:", "WHY:", "SIZING:", "PIVOT:", "ACTION:", "PURPOSE:"):
         assert body.count(label) == 1
     assert "Persistent limit @ $98.36" in body
     assert "LMT $98.36 GTC" in body
@@ -971,3 +976,19 @@ def test_non_olv_email_card_retains_legacy_detail(monkeypatch):
     assert "SIGNAL:" not in body
     assert "PIVOT:" not in body
     assert "PURPOSE:" not in body
+
+@pytest.mark.parametrize("number,mult,budget", [(1, .5, 1968.75), (2, .7, 2756.25), (3, 1., 3937.5), (5, 1., 3937.5)])
+def test_olv_email_signal_number_uses_actual_recency_and_allocation(number, mult, budget):
+    signal = _olv_email_signal(OLV_Signal_Number=number, OLV_Recency_Window=21,
+        OLV_Recency_Mult=mult, OLV_Risk_Budget=budget, OLV_Sizing_Capital=750000,
+        OLV_Risk_ATR=1.25, ATR=2, Shares=100, Risk_Amt=budget)
+    sizing = daily_scan.build_olv_email_brief(signal)["sizing"]
+    assert f"Signal #{number} ({number-1} prior signals in 21 sessions)" in sizing
+    assert f"{mult:.2f}x sizing" in sizing
+    assert f"Budget ${budget:,.2f}" in sizing
+    assert "100 shares, $250.00 risk" in sizing
+    assert "before broker daily caps" in sizing
+
+
+def test_olv_email_missing_number_does_not_guess_from_risk():
+    assert "Signal number unavailable" in daily_scan.build_olv_email_brief(_olv_email_signal())["sizing"]

@@ -372,6 +372,14 @@ def load_existing(pull_r2: bool = True, *, allow_initialize: bool = False) -> pd
                 raise RuntimeError("canonical fill read failed; prior history was preserved") from exc
             frame, body, etag = empty_frame(), b"", None
         frame.attrs.update(canonical_loaded=True, canonical_etag=etag, canonical_bytes=body)
+        # Old or unavailable status may not attest history, but it must not
+        # prevent preserving the existing execution rows in the next merge.
+        try:
+            status = json.loads(client.get_object(Bucket=creds['R2_BUCKET'], Key=STATUS_R2_KEY)['Body'].read())
+            if status.get('canonical_sha256') == hashlib.sha256(body).hexdigest():
+                frame.attrs['canonical_status'] = status
+        except Exception:
+            pass
         return frame
     if not LOCAL_PATH.exists():
         return empty_frame()
@@ -396,7 +404,10 @@ def validate_source_completeness(payload: dict, *, now=None, required_account="p
     received = pd.Timestamp(account.get("received_at"))
     if pd.isna(received) or received.tzinfo is None:
         raise RuntimeError("Primary fill receipt timestamp is invalid")
-    if any(not 0 <= (now - value).total_seconds() <= 300 for value in (stamp, received)):
+    # Source timestamps come from this broker machine; relay receipts come
+    # from Cloudflare. Permit bounded relay clock skew, never older data.
+    if (not 0 <= (now - stamp).total_seconds() <= 300
+            or not -5 <= (now - received).total_seconds() <= 300):
         raise RuntimeError("broker fill source is stale or future-dated")
 
 
@@ -429,6 +440,44 @@ def publish_canonical(frame: pd.DataFrame, original: pd.DataFrame) -> None:
                 raise RuntimeError("immutable fill generation differs from its digest") from exc
     condition = {"IfMatch": original.attrs["canonical_etag"]} if original.attrs.get("canonical_etag") else {"IfNoneMatch": "*"}
     client.put_object(Bucket=creds["R2_BUCKET"], Key=R2_KEY, Body=body, **condition)
+
+
+def extend_canonical_coverage(current: dict, original: pd.DataFrame) -> dict:
+    """Retain proven coverage after the live ring rolls past the seed date.
+
+    A hash-matched prior status and overlapping intervals are both required.
+    A gap starts a new interval; saved rows alone never prove continuity.
+    """
+    coverage = json.loads(json.dumps(current))
+    previous = original.attrs.get('canonical_status') or {}
+    prior = previous.get('completeness') or {}
+    if (previous.get('complete') is not True or previous.get('gap', {}).get('gap')
+            or any(prior.get(k) for k in ('truncated', 'merge_error', 'incomplete_days'))):
+        return coverage
+    for key, value in coverage.get('accounts', {}).items():
+        old = prior.get('accounts', {}).get(key) or {}
+        if (value.get('complete') is not True or old.get('complete') is not True
+                or not value.get('broker_account') or value['broker_account'] != old.get('broker_account')):
+            continue
+        try:
+            start, end, new_start, new_end = [pd.Timestamp(v) for v in (
+                old['continuous_from'], old['complete_through'],
+                value['continuous_from'], value['complete_through'])]
+            if any(pd.isna(t) or t.tzinfo is None for t in (start, end, new_start, new_end)):
+                continue
+            if start <= new_start <= end <= new_end:
+                value['continuous_from'] = old['continuous_from']
+            if ((value.get('olv_coverage') or {}).get('scope')=='OLV_US_STK_NON_OVERNIGHT'
+                    and (old.get('olv_coverage') or {}).get('scope')=='OLV_US_STK_NON_OVERNIGHT'):
+                old_start=pd.Timestamp(old.get('olv_continuous_from'))
+                current_start=pd.Timestamp(value.get('olv_continuous_from'))
+                if (not pd.isna(old_start) and not pd.isna(current_start)
+                        and old_start.tzinfo is not None and current_start.tzinfo is not None
+                        and old_start<=current_start<=end<=new_end):
+                    value['olv_continuous_from']=old['olv_continuous_from']
+        except (KeyError, ValueError, TypeError):
+            continue
+    return coverage
 
 
 def summarize(df: pd.DataFrame) -> dict:
@@ -510,7 +559,7 @@ def main(argv: list[str] | None = None) -> int:
     summary.update(stats)
     summary["gap"] = gap
     summary["retention_days"] = retention
-    summary["completeness"] = payload["completeness"]
+    summary["completeness"] = extend_canonical_coverage(payload["completeness"], existing)
     summary["complete"] = not gap["gap"]
     summary["asof_utc"] = pd.Timestamp.now(tz="UTC").isoformat()
     print(f"  coverage: {summary['first_session']} -> {summary['last_session']} "

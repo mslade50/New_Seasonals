@@ -165,6 +165,7 @@ def test_catalog_has_all_et_pipelines_and_cloud_only_site_jobs():
     assert set(sup.CATALOG) == {
         "premarket",
         "discretionary",
+        "inventory-close",
         "execution",
         "postclose",
         "indicator",
@@ -973,6 +974,69 @@ def test_github_dispatcher_treats_nonzero_submit_as_ambiguous(tmp_path):
 
     dispatches = [call for call in process.capture_calls if call[:3] == ["gh", "workflow", "run"]]
     assert len(dispatches) == 1
+
+
+def _completed_github_run(token, number=77):
+    return json.dumps([{"databaseId": number, "status": "completed", "conclusion": "success",
+                        "displayTitle": f"automation {token}", "url": f"https://example.test/{number}"}])
+
+
+@pytest.mark.parametrize("pipeline,site_id,scan_id", [
+    ("premarket", "private_site_am", "scan_am"),
+    ("postclose", "private_site_pm", "scan_pm"),
+])
+def test_private_site_uses_main_without_moving_the_following_scan_pin(tmp_path, pipeline, site_id, scan_id):
+    pin = "automation-runtime-2026-09-14.1"
+    jobs = {job.id: job for job in sup.CATALOG[pipeline].jobs}
+    process = FakeProcess(captures=["[]", "", _completed_github_run("site-token"),
+                                    "[]", "", _completed_github_run("scan-token", 78)])
+    dispatcher = sup.GithubDispatcher(process, repo_root=tmp_path, env={},
+                                      repository="owner/repo", ref=pin, sleep=lambda _: None)
+    with _logger(tmp_path) as logger:
+        for job_id, token in ((site_id, "site-token"), (scan_id, "scan-token")):
+            dispatcher.dispatch_and_wait(jobs[job_id].workflow, automation_token=token, logger=logger)
+    calls = [call for call in process.capture_calls if call[:3] == ["gh", "workflow", "run"]]
+    assert len(calls) == 2
+    assert calls[0][3] == "deploy_site.yml" and calls[0][calls[0].index("--ref") + 1] == "main"
+    assert calls[1][3] == "daily_screener.yml" and calls[1][calls[1].index("--ref") + 1] == pin
+    assert dispatcher.ref == pin
+    assert "automation_token=site-token" in calls[0] and "automation_token=scan-token" in calls[1]
+    for name, value in jobs[scan_id].workflow.inputs:
+        assert f"{name}={value}" in calls[1]
+
+
+@pytest.mark.parametrize("workflow", sorted({
+    job.workflow.workflow for pipeline in sup.CATALOG.values() for job in pipeline.jobs
+    if job.workflow and job.workflow.workflow != "deploy_site.yml"
+}))
+def test_every_non_private_site_workflow_retains_the_runtime_pin(tmp_path, workflow):
+    pin = "automation-runtime-2026-09-14.1"
+    process = FakeProcess(captures=["[]", "", _completed_github_run("producer-token")])
+    dispatcher = sup.GithubDispatcher(process, repo_root=tmp_path, env={},
+                                      repository="owner/repo", ref=pin, sleep=lambda _: None)
+    with _logger(tmp_path) as logger:
+        dispatcher.dispatch_and_wait(sup.WorkflowSpec(workflow), automation_token="producer-token", logger=logger)
+    calls = [call for call in process.capture_calls if call[:3] == ["gh", "workflow", "run"]]
+    assert len(calls) == 1 and calls[0][calls[0].index("--ref") + 1] == pin
+
+
+@pytest.mark.parametrize("ambiguous_submission", [False, True])
+def test_site_dispatch_adopts_its_token_without_a_second_submission(tmp_path, ambiguous_submission):
+    token = "site-already-accepted"
+    completed = _completed_github_run(token)
+    captures = (["[]", sup.CaptureResult(1, "connection closed"), completed, completed]
+                if ambiguous_submission else [completed, completed])
+    process = FakeProcess(captures=captures)
+    dispatcher = sup.GithubDispatcher(process, repo_root=tmp_path, env={}, repository="owner/repo",
+                                      ref="automation-runtime-2026-09-14.1", sleep=lambda _: None)
+    with _logger(tmp_path) as logger:
+        result = dispatcher.dispatch_and_wait(sup.WorkflowSpec("deploy_site.yml"),
+                                              automation_token=token, logger=logger)
+    assert result.database_id == 77
+    calls = [call for call in process.capture_calls if call[:3] == ["gh", "workflow", "run"]]
+    assert len(calls) == int(ambiguous_submission)
+    if calls:
+        assert calls[0][calls[0].index("--ref") + 1] == "main"
 
 
 class HeadBackend:

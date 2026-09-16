@@ -216,6 +216,8 @@ source = source.replace('import {{ DurableObject }} from "cloudflare:workers";',
   'class DurableObject {{ constructor(ctx, env) {{ this.ctx = ctx; this.env = env; }} }}');
 source = source.replace('from "./fill-reconcile.mjs";',
   'from {json.dumps(HELPERS.as_uri())};');
+source = source.replace('from "./fill-coverage.mjs";',
+  'from {json.dumps(HELPERS.with_name("fill-coverage.mjs").as_uri())};');
 const mod = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
 class Storage {{
   constructor() {{ this.values = new Map(); }}

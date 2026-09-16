@@ -842,6 +842,47 @@ def _stop_fill_price(direction, stop_price, day_open,
     return fill * (1.0 + bps / 1e4), gapped         # short covers higher
 
 
+def _apply_daily_risk_scale(trades, indices, scale):
+    """Floor OLV shares and cap OVS whole positions before splitting.
+
+    Risk dollars retain the staged budget convention. Realized PnL uses the
+    final executable shares, including a one-share far-only bracket.
+    Zero rows stay until all cap groups finish so their indices remain valid.
+    """
+    ovs = trades.loc[indices, 'Strategy'].eq('Overbot Vol Spike')
+    olv = trades.loc[indices, 'Strategy'].eq('Oversold Low Volume')
+    other_indices = ovs.index[~ovs & ~olv]
+    trades.loc[other_indices, 'Shares'] = (trades.loc[other_indices, 'Shares'] * scale).round().astype(int)
+    trades.loc[other_indices, 'PnL'] = (trades.loc[other_indices, 'PnL'] * scale).round()
+    trades.loc[other_indices, 'Risk $'] *= scale
+    for idx in olv.index[olv]:
+        qty = int(np.floor(trades.at[idx, 'Shares'] * scale))
+        trades.at[idx, 'Shares'] = qty
+        row = trades.loc[idx]
+        change = row['Exit Price'] - row['Price']
+        trades.at[idx, 'PnL'] = round(qty * change * (1 if row['Action'] == 'BUY' else -1))
+        trades.at[idx, 'Risk $'] *= scale
+    ovs_rows = trades.loc[ovs.index[ovs]]
+    for _, group in ovs_rows.loc[ovs_rows['Shares'].gt(0)].groupby('_Sizing ID', sort=False):
+        total = int(np.floor(group['Shares'].sum() * scale))
+        risk = float(group['Risk $'].sum()) * scale
+        quantities = {idx: total for idx in group.index}
+        if len(group) == 2:
+            near = group.index[group['Tranche'].eq('near')][0]
+            far = group.index[group['Tranche'].eq('far')][0]
+            near_qty = int(round(total * float(group['_Near Fraction'].iloc[0])))
+            if near_qty < 1 or total - near_qty < 1:
+                near_qty = 0
+                trades.at[far, 'Tranche'] = ''
+            quantities = {near: near_qty, far: total - near_qty}
+        for idx, qty in quantities.items():
+            trades.at[idx, 'Shares'] = qty
+            trades.at[idx, 'Risk $'] = risk * qty / total if total else 0.0
+            row = trades.loc[idx]
+            change = row['Exit Price'] - row['Price']
+            trades.at[idx, 'PnL'] = round(change * qty * (1 if row['Action'] == 'BUY' else -1))
+
+
 def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None, stop_gap_fill=True, stop_slip_bps=STOP_SLIP_BPS, stop_gap_slip_bps=STOP_GAP_SLIP_BPS, pc_fear_enabled=True, portfolio_overlays_enabled=True, portfolio_overlay_names=None):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
@@ -1147,6 +1188,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     # pooled long/short caps. Live can only budget what it stages — unfilled
     # limits effectively waste their share of the budget.
     placed_risk_by_dir_date = {}
+    from olv_sizing import ModelReservations, clip_quantity
+    _olv_reservations = ModelReservations()
 
     # Progress updates — Streamlit Cloud kills silent scripts; also user feedback.
     _total_cands = len(candidates)
@@ -1309,6 +1352,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         # The path-2 daily aggregate cap (1% of starting_equity) was pre-computed
         # in _ovs_p2_scale_by_date during the OVS pre-pass above.
         _ovs_size_mult = 1.0
+        _ovs_path_qty_mult = 1.0
+        _ovs_p2_quantity_scale = 1.0
         if strat_name == "Overbot Vol Spike" and entry_row is not None:
             _sig_close = row_data['close']
             _t1_open = float(entry_row['Open'])
@@ -1332,6 +1377,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     _p2_base_mult * _p2_scale
                     if _portfolio_overlay_on("ovs_path2_sizing") else 1.0
                 )
+                if _portfolio_overlay_on("ovs_path2_sizing"):
+                    _ovs_path_qty_mult = _p2_base_mult
+                    _ovs_p2_quantity_scale = _p2_scale
                 if _ovs_size_mult <= 0:
                     continue  # degenerate P2 scale (zero cap) — nothing to stage
 
@@ -1376,8 +1424,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             )
             rung_idx = min(open_count, len(ladder_mults) - 1)
             base_risk *= ladder_mults[rung_idx]
-        if _ovs_size_mult != 1.0:
-            base_risk *= _ovs_size_mult
 
         # --- 3b2. Cycle-year risk multiplier (e.g. OVS midterm 0.75x) ---
         # execution['cycle_risk_mults'] = {year%4: mult}; 0=Election,
@@ -1470,6 +1516,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         _strat_mult = float(_rm.get(strat_name, 1.0))
         if _strat_mult != 1.0:
             base_risk *= _strat_mult
+
+        # The scanner sizes first; the live stager applies OVS path/cap
+        # multipliers afterward. Keep the pre-path risk directly rather than
+        # recovering it by division (which can move a whole-share boundary).
+        _ovs_scanner_risk = base_risk
+        if _ovs_size_mult != 1.0:
+            base_risk *= _ovs_size_mult
 
         # Per-trade sizing multiplier vs the full-size nominal (pre-cap): 1.0 for a
         # normal full-size trade, < 1 for deliberate downsizes (OLV pre-earnings,
@@ -1653,6 +1706,41 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             else:
                 valid_entry = False
         
+        # Reserve the submitted order even if it never fills. Clip using its
+        # limit, never a future gap-improved execution price. Prior orders
+        # release capacity only after their expiry or modeled exit occurred.
+        _olv_reserved = None
+        _tnc = execution.get('ticker_notional_cap') or {}
+        _olv_pending_cap = strat_name == 'Oversold Low Volume' and _tnc.get('include_pending')
+        if _olv_pending_cap and t_clean.upper() not in set(_tnc.get('exempt') or ()):
+            def _prior_quantity_scale(order):
+                limit_bps = 250 if cap_bps is None else cap_bps
+                total = placed_risk_by_strat_date.get((order['signal_date'], strat_name), 0)
+                if not limit_bps or total <= 0:
+                    return 1.0
+                return min(1.0, order['equity'] * limit_bps / 10000 * _strat_mult / total)
+            _used_frac = _olv_reservations.used_fraction(
+                (strat_name, t_clean), signal_date, _prior_quantity_scale)
+            _risk_distance = atr * execution['stop_atr']
+            _requested_qty = int(base_risk / _risk_distance)
+            _qty = clip_quantity(_requested_qty, limit_price,
+                                 _tnc['pct_nav'] * equity_for_sizing,
+                                 _used_frac * equity_for_sizing)
+            # Live daily caps use staged Risk_Amt, including its fractional
+            # share remainder. Scanner recomputes it only when this cap binds.
+            _new_risk = _qty * _risk_distance if _qty < _requested_qty else base_risk
+            _refund = base_risk - _new_risk
+            placed_risk_by_strat_date[(signal_date, strat_name)] -= _refund
+            placed_risk_by_dir_date[(signal_date, _dir_pre)] -= _refund
+            base_risk = _new_risk
+            _olv_reserved = _olv_reservations.reserve(
+                key=(strat_name, t_clean), signal_date=signal_date,
+                expiry=df.index[min(signal_idx + fill_window, len(df)-1)],
+                quantity=_qty, limit=limit_price, equity=equity_for_sizing,
+                fill_date=entry_date if valid_entry else None, fill_price=entry_price)
+            if not _qty:
+                continue
+
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
 
@@ -1675,6 +1763,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         else:
             stop_price = entry_price + (atr * stop_atr)
             tgt_price = entry_price - (atr * tgt_atr)
+        if execution.get('target_anchor') == 'submitted_limit':
+            if not (is_persistent or is_limit_close_anchored):
+                raise ValueError('submitted-limit target requires a close-anchored limit')
+            tgt_price = limit_price + (atr * tgt_atr if direction == 'Long' else -atr * tgt_atr)
         
         # Determine entry_idx
         if entry_date == signal_date:
@@ -1891,6 +1983,15 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if not _vol_spike_skip_primary:
             try:
                 shares = int(base_risk / dist)
+                if _olv_reserved is not None:
+                    shares = _olv_reserved['quantity']
+                if strat_name == "Overbot Vol Spike" and _ovs_size_mult != 1.0:
+                    # Live: floor scanner shares, round path multiplier, then
+                    # floor the P2 aggregate cap. Do not floor combined risk.
+                    scanner_shares = int(_ovs_scanner_risk / dist)
+                    shares = int(round(scanner_shares * _ovs_path_qty_mult))
+                    if _ovs_p2_quantity_scale < 1.0:
+                        shares = int(np.floor(shares * _ovs_p2_quantity_scale))
             except (ValueError, OverflowError):
                 shares = 0
 
@@ -1931,7 +2032,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             # Refund semantics mirror the net-exposure cap above. Guard:
             # tests/test_olv_stop_and_cap.py.
             _tnc = execution.get('ticker_notional_cap')
-            if shares > 0 and _tnc and entry_price and entry_price > 0:
+            if shares > 0 and _tnc and not _olv_pending_cap and entry_price and entry_price > 0:
                 _tnc_exempt = set(_tnc.get('exempt') or ())
                 if t_clean.upper() not in _tnc_exempt and str(ticker).upper() not in _tnc_exempt:
                     # The cap binds in FRACTION-OF-SIZING-EQUITY terms: each
@@ -1962,6 +2063,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                             placed_risk_by_strat_date[(signal_date, strat_name)] -= base_risk
                             placed_risk_by_dir_date[(signal_date, direction)] -= base_risk
 
+            if _olv_reserved is not None:
+                _olv_reserved['quantity'] = shares
+                _olv_reserved['exit_date'] = exit_date
             if shares > 0:
                 target_ts_idx = entry_idx + hold_days
                 if target_ts_idx < len(df):
@@ -2063,6 +2167,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         "Ticker": ticker, "Action": action,
                         "Entry Criteria": entry_type, "Price": entry_price,
                         "Exit Price": _t_exit_px,
+                        "Target Price": (_near_tgt if _trn == 'near' else tgt_price) if use_target else np.nan,
                         "Shares": _t_shares, "PnL": pnl, "ATR": atr,
                         "stop_atr": stop_atr, "tgt_atr": tgt_atr,
                         "T+1 Open": t1_open, "Signal Close": row_data['close'],
@@ -2071,6 +2176,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         "Risk $": _t_risk, "Risk bps": risk_bps,
                         "Size_Mult": round(_size_mult, 4),
                         "Tranche": _trn,
+                        "_Sizing ID": _cand_i,
+                        "_Near Fraction": _so_frac,
                         "Entry Offset ATR": _result_entry_offset,
                         "Pivot Rule Version": _pivot_entry['rule_version'] if _pivot_entry else '',
                         "Pivot Nearest Type": _pivot_entry['nearest_type'] if _pivot_entry else '',
@@ -2123,9 +2230,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             cap_dollars = day_equity * _effective_cap * _strat_mult_cap / 10000.0
             if placed_total > cap_dollars:
                 scale = cap_dollars / placed_total
-                sig_df.loc[grp_idx, 'Shares'] = (sig_df.loc[grp_idx, 'Shares'] * scale).round().astype(int)
-                sig_df.loc[grp_idx, 'PnL']    = (sig_df.loc[grp_idx, 'PnL']    * scale).round()
-                sig_df.loc[grp_idx, 'Risk $'] = sig_df.loc[grp_idx, 'Risk $']  * scale
+                _apply_daily_risk_scale(sig_df, grp_idx, scale)
                 # Propagate the trim into the pooled denominators (2026-07-16).
                 # Live applies the caps SEQUENTIALLY — the pooled stage sees
                 # post-per-strategy-cap risk — but this pass used to leave
@@ -2166,16 +2271,15 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             _cap_dollars = _day_equity * _cap_bps_dir / 10000.0
             if _placed_total > _cap_dollars:
                 _scale = _cap_dollars / _placed_total
-                sig_df.loc[grp_idx, 'Shares'] = (sig_df.loc[grp_idx, 'Shares'] * _scale).round().astype(int)
-                sig_df.loc[grp_idx, 'PnL']    = (sig_df.loc[grp_idx, 'PnL']    * _scale).round()
-                sig_df.loc[grp_idx, 'Risk $'] = sig_df.loc[grp_idx, 'Risk $']  * _scale
+                _apply_daily_risk_scale(sig_df, grp_idx, _scale)
         sig_df = sig_df.drop(columns='_Dir')
 
     # (Cross-strategy overlap clamp moved to sizing step 3b3c, 2026-08-12:
     # keyed on staged candidates and applied before the per-strategy cap,
     # matching live order_staging.)
 
-    return sig_df.sort_values(by="Exit Date")
+    sig_df = sig_df.loc[~(sig_df['Strategy'].eq('Overbot Vol Spike') & sig_df['Shares'].le(0))]
+    return sig_df.drop(columns=['_Sizing ID', '_Near Fraction']).sort_values(by="Exit Date")
 
 def get_daily_mtm_series(sig_df, master_dict, start_date=None, end_date=None, session_dates=None):
     """

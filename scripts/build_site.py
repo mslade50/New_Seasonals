@@ -116,6 +116,7 @@ FUNDAMENTAL_MAPS = os.path.join(
 SECTOR_MAP = os.path.join(_ROOT, "data", "sector_map.parquet")
 MASTER_PRICES = os.path.join(_ROOT, "data", "master_prices.parquet")
 EARNINGS = os.path.join(_ROOT, "data", "earnings_calendar.parquet")
+CBOE_PUTCALL = os.path.join(_ROOT, "data", "cboe_putcall.parquet")
 EXPOSURE_STATE = os.path.join(_ROOT, "data", "exposure_state.json")
 SITE_SRC = os.path.join(_ROOT, "site")
 
@@ -478,6 +479,13 @@ def build_positions(df, md):
                 stop_px = round(entry - sgn * float(s_atr) * float(atr), 4)
             if t_atr is not None and not pd.isna(t_atr):
                 tgt_px = round(entry + sgn * float(t_atr) * float(atr), 4)
+        # Use the exact engine target; reconstructing from a gap-improved fill
+        # changes OLV's submitted-limit anchor. Older OLV ledgers must rebuild.
+        recorded_target = rec.get("Target Price")
+        if recorded_target is not None and pd.notna(recorded_target) and np.isfinite(float(recorded_target)):
+            tgt_px = round(float(recorded_target), 4)
+        elif str(rec["Strategy"]) == "Oversold Low Volume":
+            raise ValueError("OLV target missing from ledger; regenerate with the current engine")
         row = {
             "Strategy": rec["Strategy"], "Tier": rec.get("Tier"),
             "Ticker": rec["Ticker"], "Direction": rec.get("Direction"),
@@ -1619,6 +1627,31 @@ def build_health(sig, data_dir, ideas=None, *, build_id, built_at):
     except Exception as e:
         arts["fragility"] = {"last_date": None, "last_63d": None, "age_td": None,
                              "status": "missing", "note": str(e)}
+
+    # CBOE scraping is judged by complete source-session observations, never
+    # the download time (a fresh R2 copy can still contain old/partial data).
+    try:
+        pc = pd.read_parquet(CBOE_PUTCALL)
+        pc.index = pd.to_datetime(pc.index, errors="coerce").tz_localize(None).normalize()
+        fields = ["equity", "total", "index"]
+        ratios = pc[fields].apply(pd.to_numeric, errors="coerce")
+        valid = (np.isfinite(ratios).all(axis=1) & (ratios >= 0).all(axis=1)
+                 & pc.index.notna() & (pc.index <= expected))
+        complete = ratios.loc[valid].sort_index()
+        if complete.empty or pc.index.duplicated().any():
+            raise ValueError("No unambiguous complete CBOE observation")
+        last = complete.index[-1]
+        latest = pc.index.max()
+        incomplete = latest > last
+        arts["cboe_putcall"] = {
+            "last_date": _clean(last), "age_td": age_td(last),
+            "status": "stale" if incomplete else status_for(last),
+            **{name: round(float(complete.iloc[-1][name]), 3) for name in fields},
+            "note": "Latest source row is incomplete or future-dated" if incomplete else None,
+        }
+    except Exception:
+        arts["cboe_putcall"] = {"last_date": None, "age_td": None,
+                                "status": "missing", "note": "Complete CBOE ratios unavailable"}
 
     # exposure_state.json is published by the AM scan to canonical R2 before
     # the cloud-only deploy hydrates its isolated build workspace. Its asof can

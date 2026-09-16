@@ -71,40 +71,71 @@ def observe(seed, catalog, *, inventory_loader=None, book_loader=None, fills_loa
     # Include every named algorithm, including reference sleeves: a verified
     # tagged holding must remain monitored if its strategy is later deactivated.
     names = {row["name"] for row in catalog["records"]}
-    inventory = (inventory_loader or load_actual_inventory)(seed_path=seed, algo_strategies=names, max_age_seconds=90)
-    snapshot = {"status": inventory.status, "reasons": inventory.reasons,
-                "asof_utc": inventory.asof_utc, "tranches": inventory.tranches}
     token = os.environ.get("STATUS_TOKEN", "").strip()
     url = os.environ.get("EXEC_BROKER_URL", DEFAULT_BROKER_URL)
-    if not token:
-        return snapshot, {}, {}
-    # Each source failure remains missing. The monitor owns the explicit
-    # unable-to-verify outcome and preserves previously tracked obligations.
+    fills, book = {}, {}
     try:
-        book = (book_loader or fetch_book)(url, token) or {}
+        if token:
+            fills = (fills_loader or fetch_fills)(url, token) or {}
     except Exception:
+        pass
+    if not isinstance(fills, dict):
+        fills = {}
+    # Use the book and executions from one relay observation when available.
+    # In particular, inventory must not independently refetch or invoke its
+    # local Gateway refresh-and-publish fallback from this read-only monitor.
+    book = fills.get("book") or {}
+    try:
+        if token and not book:
+            book = (book_loader or fetch_book)(url, token) or {}
+    except Exception:
+        pass
+    if not isinstance(book, dict):
         book = {}
     try:
-        fills = (fills_loader or fetch_fills)(url, token) or {}
-    except Exception:
-        fills = {}
+        inventory = (inventory_loader or load_actual_inventory)(seed_path=seed,
+            algo_strategies=names, max_age_seconds=90, fills_loader=lambda *_: fills)
+        snapshot = {"status": inventory.status, "reasons": inventory.reasons,
+                    "asof_utc": inventory.asof_utc, "tranches": inventory.tranches}
+    except Exception as exc:
+        snapshot = {"status": "unknown", "reasons": [
+            f"reviewed inventory source failed ({type(exc).__name__})"], "asof_utc": None, "tranches": []}
     return snapshot, book, fills
+
+
+def load_read_environment(config_root, exec_env=None):
+    """Read existing credentials without loading the broker's write tokens."""
+    from dotenv import dotenv_values, load_dotenv
+    from scripts.automation_supervisor import resolve_external_secret_paths
+    load_dotenv(config_root / ".env", override=False)
+    _, execution = resolve_external_secret_paths(config_root=config_root,
+        gcp_json_path=None, exec_env_path=exec_env)
+    if exec_env is not None and not execution.is_file():
+        raise ValueError("explicit broker read configuration is unavailable")
+    values = dotenv_values(execution) if execution.is_file() else {}
+    for key in ("STATUS_TOKEN", "EXEC_BROKER_URL"):
+        if not os.environ.get(key) and values.get(key):
+            os.environ[key] = values[key]
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-root", type=Path, required=True)
-    parser.add_argument("--seed", type=Path, required=True)
-    parser.add_argument("--algorithm-catalog", type=Path, required=True)
+    parser.add_argument("--seed", type=Path, help="Explicit reviewed local seed; otherwise use the shared R2 review")
+    parser.add_argument("--algorithm-catalog", type=Path, help="Reviewed catalog; default builds the complete catalog from pinned source")
+    parser.add_argument("--exec-env", type=Path, help="Existing exec_agent.env; only broker read credentials are loaded")
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, default=ROOT / "artifacts/expected-exits")
     parser.add_argument("--send", action="store_true")
     parser.add_argument("--upload", action="store_true")
     args = parser.parse_args(argv)
     try:
-        from dotenv import load_dotenv
-        load_dotenv(args.config_root / ".env", override=False)
-        catalog = json.loads(args.algorithm_catalog.read_text(encoding="utf-8-sig"))
+        load_read_environment(args.config_root, args.exec_env)
+        if args.algorithm_catalog:
+            catalog = json.loads(args.algorithm_catalog.read_text(encoding="utf-8-sig"))
+        else:
+            from scripts.build_algorithm_family_catalog import catalog_from_source
+            catalog = catalog_from_source(as_of=dt.datetime.now(dt.timezone.utc).isoformat())
         inventory, book, fills = observe(args.seed, catalog)
         run = args.artifacts / uuid.uuid4().hex
         run.mkdir(parents=True)

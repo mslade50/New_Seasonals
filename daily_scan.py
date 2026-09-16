@@ -438,6 +438,30 @@ def format_signal_email_entry(signal):
     return f"{entry_type} @ ${entry:.2f}" if entry is not None else entry_type
 
 
+def _olv_email_sizing(signal):
+    """Explain the stamped signal count and actual scan quantity, never infer a rung from size."""
+    number = _email_finite_float(signal.get("OLV_Signal_Number"))
+    window = _email_finite_float(signal.get("OLV_Recency_Window"))
+    mult = _email_finite_float(signal.get("OLV_Recency_Mult"))
+    capital = _email_finite_float(signal.get("OLV_Sizing_Capital"))
+    budget = _email_finite_float(signal.get("OLV_Risk_Budget"))
+    if (number is None or number < 1 or number != int(number)
+            or window is None or window < 1 or mult is None):
+        return "Signal number unavailable; verify the recency allocation."
+    text = (f"Signal #{int(number)} ({int(number) - 1} prior signals in {window:g} sessions), "
+            f"{mult:.2f}x sizing. ")
+    if capital is not None and capital > 0 and budget is not None:
+        text += f"Budget ${budget:,.2f} ({budget / capital * 10000:g} bps). "
+    shares = _email_finite_float(signal.get("Shares"))
+    atr = _email_finite_float(signal.get("ATR"))
+    stop_atr = _email_finite_float(signal.get("OLV_Risk_ATR"))
+    if shares is not None and atr is not None and stop_atr is not None:
+        risk = shares * atr * stop_atr
+        bps = f"; {risk / capital * 10000:.2f} bps" if capital and capital > 0 else ""
+        text += f"Scan allocation: {shares:,.0f} shares, ${risk:,.2f} risk{bps}, before broker daily caps."
+    return text.strip()
+
+
 def build_olv_email_brief(signal):
     """Build concise, live OLV copy from the exact staged-row decision."""
     if signal.get("Strategy_Name") != "Oversold Low Volume":
@@ -588,6 +612,7 @@ def build_olv_email_brief(signal):
             "established uptrend."
         ),
         "why": why,
+        "sizing": _olv_email_sizing(signal),
         "pivot": pivot,
         "action": action,
         "purpose": (
@@ -604,6 +629,7 @@ def render_signal_email_explanation(signal, filters_html):
         labels = (
             ("SIGNAL", "signal"),
             ("WHY", "why"),
+            ("SIZING", "sizing"),
             ("PIVOT", "pivot"),
             ("ACTION", "action"),
             ("PURPOSE", "purpose"),
@@ -1664,6 +1690,10 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             "Pivot_Max_Source_Age_Bars": row.get('Pivot_Max_Source_Age_Bars', ''),
             "Pivot_Distance_ATR": row.get('Pivot_Distance_ATR', ''),
             "Pivot_Matched_Rule": row.get('Pivot_Matched_Rule', ''),
+            "OLV_Signal_Number": row.get('OLV_Signal_Number', ''),
+            "OLV_Recency_Window": row.get('OLV_Recency_Window', ''),
+            "OLV_Recency_Mult": row.get('OLV_Recency_Mult', ''),
+            "OLV_Risk_Budget": row.get('OLV_Risk_Budget', ''),
             # 252D rank stamped for OVS gap-tier sizing in order_staging.py
             "Rank_252D": row.get('Rank_252D', ''),
             # Per-trade risk $ (post all scanner multipliers). order_staging.py
@@ -2328,7 +2358,7 @@ def load_open_position_counts(ladder_strategy_names, inventory=None):
         return {}
     if inventory is None:
         from actual_inventory_io import load_actual_inventory
-        inventory = load_actual_inventory()
+        inventory = load_actual_inventory(algo_strategies=ladder_strategy_names)
     if inventory.status != "known":
         print("[INVENTORY] Unknown actual inventory; ladder overlay unavailable")
         return {}
@@ -2342,7 +2372,7 @@ def load_open_position_notionals(cap_strategy_names, inventory=None):
         return {}
     if inventory is None:
         from actual_inventory_io import load_actual_inventory
-        inventory = load_actual_inventory()
+        inventory = load_actual_inventory(algo_strategies=cap_strategy_names)
     if inventory.status != "known":
         print("[INVENTORY] Unknown actual inventory; optional notional overlay unavailable")
         return {}
@@ -2382,7 +2412,7 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
     from actual_inventory_io import load_actual_inventory, olv_positions_from_inventory, load_raw_exit_bars
     try:
         sh = gc.open("Trade_Signals_Log")
-        inventory = inventory if inventory is not None else load_actual_inventory()
+        inventory = inventory if inventory is not None else load_actual_inventory(algo_strategies={'Oversold Low Volume'})
         positions = olv_positions_from_inventory(inventory)
     except Exception as e:
         _warn(f"actual OLV inventory/exit metadata unverified ({type(e).__name__}); prior staging preserved")
@@ -2412,7 +2442,7 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
     # subsequent price recovery. Retain it until actual inventory resolves it.
     prior_rows = {}
     try:
-        _prev = sh.worksheet("OLV_Exits").get_all_records()
+        _prev = sh.worksheet("OLV_Exits_Primary").get_all_records()
         for _r in _prev:
             _eo = pd.to_datetime(_r.get("Execute_On"), errors="coerce")
             symbol = str(_r.get("Symbol", "")).strip().upper()
@@ -2476,8 +2506,8 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
         raise ValueError("exit valuation time must include timezone")
     local = valuation.tz_convert("America/New_York")
     day = local.tz_localize(None).normalize()
-    is_session = bool(len(pd.date_range(day, day, freq=TRADING_DAY)))
-    expected_session = day if is_session and local.hour >= 16 else day - TRADING_DAY
+    from equity_sessions import last_settled_session
+    expected_session = last_settled_session(valuation)
 
     exit_rows = []
     for pos in positions:
@@ -2556,9 +2586,9 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
 
     def _write_exits():
         try:
-            ws = sh.worksheet("OLV_Exits")
+            ws = sh.worksheet("OLV_Exits_Primary")
         except gspread.WorksheetNotFound:
-            ws = sh.add_worksheet(title="OLV_Exits", rows=50, cols=len(cols))
+            ws = sh.add_worksheet(title="OLV_Exits_Primary", rows=50, cols=len(cols))
         data = [cols] + [[str(r.get(c, "")) for c in cols] for r in exit_rows]
         replace_worksheet_values(ws, data)
 
@@ -2570,7 +2600,7 @@ def stage_olv_vol_confirm_exits(master_dict=None, inventory=None, asof=None):
             _per[_p["ticker"]] = _per.get(_p["ticker"], 0) + 1
         _breakdown = ", ".join(f"{t}x{n}" if n > 1 else t
                                for t, n in sorted(_per.items())) or "none"
-        print(f"[OLV-EXIT] OLV_Exits tab written: {len(exit_rows)} exit(s), "
+        print(f"[OLV-EXIT] OLV_Exits_Primary tab written: {len(exit_rows)} exit(s), "
               f"{len(positions)} open OLV leg(s) evaluated ({_breakdown})")
     except Exception as e:
         _warn(f"failed to write OLV_Exits tab ({e}) — confirmed exits NOT "
@@ -2618,6 +2648,11 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     # CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES and per-strategy bps overrides
     # applied. scope=all is liquid + overflow concatenated.
     effective_book = build_effective_strategy_book(scope, moc_only=moc_only)
+    from live_scan_universe import exclude_retired_symbols
+    effective_book, retired_symbols = exclude_retired_symbols(
+        effective_book, asof=datetime.datetime.now(pytz.timezone('America/New_York')).date())
+    if retired_symbols:
+        print(f"[UNIVERSE] Confirmed delisted symbols excluded from this forward scan: {', '.join(retired_symbols)}; historical data retained")
     if not effective_book:
         print(f"[WARN] scope={scope} (moc_only={moc_only}) produced an empty strategy book - nothing to scan.")
         return
@@ -2980,13 +3015,38 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
     _cap_strats = {s['name'] for s in effective_book
                    if s['execution'].get('ticker_notional_cap')}
     from actual_inventory_io import load_actual_inventory
-    _actual_inventory = load_actual_inventory(
+    from closing_inventory import load_closing_inventory
+    # Both settled-session bookends stage for the next cash session. The same
+    # 16:05 capture serves the evening run and the following morning; only a
+    # manual intraday scan needs a current broker observation.
+    _inventory_loader = load_actual_inventory if is_intraday_partial else load_closing_inventory
+    _actual_inventory = _inventory_loader(
         asof=now_eastern.astimezone(datetime.timezone.utc).isoformat(),
-        algo_strategies={s['name'] for s in effective_book})
+        algo_strategies=_cap_strats | {s['name'] for s in effective_book if s['execution'].get('ladder_multipliers')} | {'Oversold Low Volume'})
+    # Prior-close capacity is deliberately valued at its verified observation,
+    # not subjected to a live-feed age limit the following morning.
+    _capacity_asof = _actual_inventory.asof_utc if _actual_inventory.source_kind == 'prior_close' else None
+    if _capacity_asof:
+        print(f"[INVENTORY] Verified prior-close Primary observation: {_capacity_asof}")
     if _actual_inventory.status != "known":
         error_tickers.append(("INVENTORY", "; ".join(_actual_inventory.reasons)
                               + "; " + _actual_inventory.fallback))
-    open_notionals = load_open_position_notionals(_cap_strats, _actual_inventory)
+    # Sizing has its own coherent capacity proof; it never changes exit inventory.
+    from olv_capacity import load_capacity, Capacity
+    _capacity = load_capacity(_actual_inventory, bookend=not is_intraday_partial) if _cap_strats else Capacity()
+    open_notionals = _capacity.held
+    _pending_notionals = dict(_capacity.pending)
+    _primary_nav = _capacity.nav
+    _pending_capacity_known = _capacity.known
+    if _capacity.known:
+        print(f"[CAP] Verified sizing capacity: {_capacity.source}, observed {_capacity.observed_at}; "
+              f"Primary NAV ${_primary_nav:,.2f}; exit inventory {_actual_inventory.status}")
+        if 'conservative' in _capacity.source:
+            error_tickers.append(('OLV CAP SOURCE',
+                f'{_capacity.source} at {_capacity.observed_at}; same-symbol stock holdings counted in full; '
+                'sizing only, exit inventory remains unverified'))
+    elif _cap_strats:
+        error_tickers.append(('OLV CAP', f'{_capacity.reason}; optional overlay bypassed'))
 
     # 4c. Ladder position counts — counts currently-held filled primary signals
     # per (ticker, strategy) so repeat signals size up on each successive day.
@@ -3245,6 +3305,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # it instead of clobbering it. Mirrored in
                     # strat_backtester's candidate-recency pre-pass.
                     _recency_mult = 1.0
+                    _prior = None
                     _srl = strat['execution'].get('signal_recency_ladder')
                     if _srl:
                         _srl_mask = live_signal_mask(calc_df, _eff_settings,
@@ -3307,6 +3368,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                                            + (f" x {_fbm:.2f} frag band ({frag_score:.0f})" if _fbm != 1.0 else "")
                                            + f" (offset {int(_off):+d} TD; default was {_prior_note})")
 
+                    # Preserve the post-recency/earnings budget before caps and rounding.
+                    _olv_risk_budget = risk if _srl else None
                     # 3. Calculate Prices & Shares
                     entry = last_row['Close']
                     direction = strat['settings'].get('trade_direction', 'Long')
@@ -3369,27 +3432,36 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # strat_backtester — change together. Guard:
                     # tests/test_olv_stop_and_cap.py.
                     _tnc = strat['execution'].get('ticker_notional_cap')
-                    if _tnc and shares > 0 and _actual_inventory.status == "known":
+                    _include_pending = bool((_tnc or {}).get('include_pending'))
+                    if (_tnc and shares > 0 and _capacity.known and _primary_nav is not None
+                            and (not _include_pending or _pending_capacity_known)):
                         _tnc_exempt = set(_tnc.get('exempt') or ())
                         if t_clean.upper() not in _tnc_exempt:
-                            _tnc_cap = float(_tnc['pct_nav']) * ACCOUNT_VALUE
+                            _tnc_cap = float(_tnc['pct_nav']) * _primary_nav
                             _tnc_open = open_notionals.get((t_clean, strat['name']), 0.0)
-                            _tnc_new = shares * entry
+                            _cap_price = entry
+                            if _include_pending:
+                                _tnc_open += _pending_notionals.get((t_clean, strat['name']), 0.0)
+                                _cap_price = round(entry - (float(_entry_offset_atr) if _entry_offset_atr is not None else .25) * atr, 2)
+                            _tnc_new = shares * _cap_price
                             if _tnc_open + _tnc_new > _tnc_cap:
                                 _tnc_room = max(0.0, _tnc_cap - _tnc_open)
                                 _orig_sh = shares
-                                shares = int(_tnc_room / entry) if entry > 0 else 0
+                                shares = int(_tnc_room / _cap_price) if _cap_price > 0 else 0
                                 risk = shares * dist
                                 sizing_note = (
                                     f"{sizing_note} | Notional cap "
-                                    f"{_tnc['pct_nav']:.0%} NAV "
-                                    f"(${_tnc_open:,.0f} open): {_orig_sh} -> {shares} sh")
+                                    f"{_tnc['pct_nav']:.0%} Primary NAV (${_primary_nav:,.0f}) "
+                                    f"(${_tnc_open:,.0f} held/reserved): {_orig_sh} -> {shares} sh")
                                 print(f"   [CAP] {t_clean}: notional cap "
                                       f"{_tnc['pct_nav']:.0%} NAV - {_orig_sh} -> {shares} shares "
                                       f"(${_tnc_open:,.0f} already open)")
                                 if shares <= 0:
                                     print(f"   [BLOCKED] {t_clean}: notional cap full - signal skipped")
                                     continue
+                            if _include_pending:
+                                _pending_key = (t_clean, strat['name'])
+                                _pending_notionals[_pending_key] = _pending_notionals.get(_pending_key, 0.0) + shares * _cap_price
 
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                     hold_days = strat['execution']['hold_days']
@@ -3462,6 +3534,12 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                         "Action": action,
                         "Shares": shares,
                         "Risk_Amt": risk,
+                        "OLV_Signal_Number": _prior + 1 if _prior is not None else '',
+                        "OLV_Recency_Window": _srl.get('window_td', 21) if _srl else '',
+                        "OLV_Recency_Mult": _recency_mult if _srl else '',
+                        "OLV_Risk_Budget": _olv_risk_budget if _srl else '',
+                        "OLV_Sizing_Capital": ACCOUNT_VALUE if _srl else '',
+                        "OLV_Risk_ATR": stop_atr if _srl else '',
                         "Sizing_Notes": sizing_with_risk,
                         "Rank_252D": _r252_val if _r252_val is not None else '',
                         "Stats": stats_str,
@@ -3774,6 +3852,12 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
 
     email_ok = send_email_summary(all_signals, error_tickers=unique_errors,
                                   scope_label=_scope_label, pc_state=pc_state)
+    try:
+        from scan_audit import archive_scan
+        archive_scan(coverage, all_signals, scope=scope, bookend=bookend, email_ok=email_ok)
+    except Exception as exc:
+        # A review archive failure must not retry already-staged orders/email.
+        print(f"[SCAN-AUDIT] Archive failed ({type(exc).__name__}); inspect the run log")
     if (os.environ.get('LOCAL_AUTOMATION_STRICT', '').strip() == '1'
             and not email_ok):
         raise RuntimeError("Scan summary email was not accepted by SMTP")

@@ -1469,6 +1469,38 @@ Aligned sites — change together:
   guard: `test_olv_exits.py` (OneDrive)
 - Guard: `tests/test_olv_stop_and_cap.py` (engine + scan + config invariants)
 
+### OLV sizing fallback — complete capacity observation (2026-09-15)
+
+The September 14 order-reference patch supplied held notional but left the
+actual scanner cap, NAV and pending-order checks dependent on reconciled
+inventory. It was not sufficient to restore the cap.
+
+`olv_capacity.py` now supplies a separate sizing-only Capacity: held stock
+market value, remaining OLV BUY-parent limit reservations, and actual Primary
+NAV from one validated broker observation. The scanner gates on Capacity.known;
+exit inventory retains its own status and is never promoted by this fallback.
+
+Fallback holdings are conservative: all stock exposure in the candidate's same
+ticker counts, including untagged or other-sleeve shares. This can tighten the
+cap but avoids assuming that missing/old references prove no OLV ownership.
+This is absolute broker net exposure, not verified gross OLV ownership;
+offsetting shorts from other sleeves remain an attribution limitation.
+Other tickers do not consume a candidate's per-ticker cap. Existing ETF
+exemptions and the owner's fail-open policy when capacity is unavailable remain.
+
+The existing 16:05 capture saves independent sizing evidence in
+`ops/olv_capacity/`. It can succeed while reporting exit inventory unknown.
+Bookend scans prefer the dated prior-close evidence until the next cash open;
+a dedicated read-only broker query is the fallback. Its collection timestamps
+and completed current-day executions reserve buys that occur between copied
+holdings and pending orders. Stale, incomplete, nonfinite or
+mismatched inputs are rejected. Capture success certifies sizing only.
+
+Tests execute the real scanner setup and cap branch, independent closing
+capture/next-morning use, partial pending fills, exemptions, invalid inputs,
+and unchanged unknown exit-inventory state. See
+`docs/olv_capacity_repair_2026-09-15.md` for release evidence.
+
 Ledger SURVIVORSHIP CAVEAT (2026-07-16): the 23-year ledger trades only
 tickers alive in today's universe files — 21 of 22 major 2020s delistings are
 absent — which flatters long dip-buy stats and the ~870-name overflow tier

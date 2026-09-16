@@ -120,10 +120,18 @@ def patch_snapshot(source):
     def snapshot(text):
         text = replace_once(text, '"nlv": None, "positions": [], "orders": [], "fills": []}',
                              '"nlv": None, "positions": [], "orders": [], "fills": [],\n           "fills_complete": False, "fills_source_at": None, "fills_source_session": None}')
-        text = replace_once(text, '            ib.reqExecutions()', '            executions = ib.reqExecutions()\n            if executions is None:\n                raise RuntimeError("execution request did not complete")')
+        text = replace_once(text, '            ib.reqExecutions()', '''            from datetime import datetime, timezone
+            from zoneinfo import ZoneInfo
+            # Attest through request START, not the later serialization time.
+            # A fill after the query ends must not fall inside a claimed interval.
+            stamp = datetime.now(timezone.utc)
+            executions = ib.reqExecutions()
+            if executions is None:
+                raise RuntimeError("execution request did not complete")''')
         text = replace_once(text, '        except Exception as e:  # noqa: BLE001\n            out["fills_error"]', '''            from datetime import datetime, timezone
             from zoneinfo import ZoneInfo
-            stamp = datetime.now(timezone.utc)
+            if datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date() != stamp.astimezone(ZoneInfo("America/New_York")).date():
+                raise RuntimeError("execution request crossed the source session boundary")
             out["fills_complete"] = True
             out["fills_source_at"] = int(stamp.timestamp() * 1000)
             out["fills_source_session"] = stamp.astimezone(ZoneInfo("America/New_York")).date().isoformat()

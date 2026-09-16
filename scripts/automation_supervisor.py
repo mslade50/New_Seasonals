@@ -610,6 +610,25 @@ def build_catalog() -> dict[str, PipelineSpec]:
         ),
     )
 
+    inventory_close = PipelineSpec(
+        id="inventory-close",
+        description="Closing Primary sizing capacity and independently reconciled exit inventory",
+        cadence="weekdays",
+        run_at_et=dt.time(16, 5),
+        fallback_at_et=dt.time(16, 35),
+        fallback_until_et=dt.time(17, 0),
+        jobs=(JobSpec(
+            id="inventory_close",
+            description="Capture sizing capacity; record exit-inventory verification separately",
+            local_gate="nyse_session",
+            commands=(_py("capture closing Primary inventory", "scripts/capture_closing_inventory.py",
+                          "--publish", timeout=180, side_effecting=True),),
+            required_env=R2_ENV + ("STATUS_TOKEN", "EXEC_AGENT_TOKEN", "INVENTORY_SNAPSHOT_PATH"),
+            rerun_safe=True,
+            outputs=(_out("data/olv_closing_capacity.json", "ops/olv_capacity/latest.json", minimum=100),),
+        ),),
+    )
+
     execution = PipelineSpec(
         id="execution",
         description="Live-account execution status email",
@@ -990,6 +1009,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
         for p in (
             premarket,
             discretionary,
+            inventory_close,
             execution,
             postclose,
             weekly_indicator,
@@ -1064,6 +1084,11 @@ def hydrate_environment(
     env = dict(base_env if base_env is not None else os.environ)
     env.update(_parse_env_file(config_root.resolve() / ".env"))
     env.update(_parse_env_file(exec_env_path.resolve()))
+    # Uses the existing broker interpreter and read-only collector on demand;
+    # no command-agent restart or trading runner is involved.
+    snapshot_path=exec_env_path.resolve().parent / 'book_snapshot.py'
+    if snapshot_path.is_file():
+        env.setdefault('INVENTORY_SNAPSHOT_PATH',str(snapshot_path))
 
     if not gcp_json_path.is_file():
         raise AutomationError(f"required GCP JSON file is missing: {gcp_json_path}")
@@ -1973,7 +1998,9 @@ class GithubDispatcher:
             "--repo",
             self.repository,
             "--ref",
-            self.ref,
+            # Site refreshes must retain released frontend repairs. Producer
+            # and strategy workflows continue to use the tested runtime pin.
+            "main" if workflow.workflow == "deploy_site.yml" else self.ref,
             "-f",
             f"automation_token={automation_token}",
         ]

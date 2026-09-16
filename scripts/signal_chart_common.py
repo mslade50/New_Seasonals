@@ -7,6 +7,7 @@ MAE/MFE math, so both live here. This module has NO heavy deps (no mplfinance)
 so build_site can import it cheaply.
 """
 import re
+import math
 
 import pandas as pd
 
@@ -31,6 +32,9 @@ def chart_relpath(strategy, ticker, signal_date):
     a (strategy, ticker, signal-date) triple is unique across tiers.
     """
     sd = pd.Timestamp(signal_date)
+    if str(strategy) == "Oversold Low Volume":
+        # Separate corrected targets from immutable cached fill-anchored PNGs.
+        return f"{REL_ROOT}/{slug(strategy)}_submitted_target_v1/{slug(ticker)}_{sd:%Y%m%d}.png"
     return f"{REL_ROOT}/{slug(strategy)}/{slug(ticker)}_{sd:%Y%m%d}.png"
 
 
@@ -76,6 +80,12 @@ def trade_geometry(trade, prices):
         mae_move = entry_px - hold["High"].max()
         stop_px = entry_px + stop_atr * atr
         tgt_px = entry_px - tgt_atr * atr
+
+    recorded_target = trade.get("Target Price")
+    if recorded_target is not None and pd.notna(recorded_target) and math.isfinite(float(recorded_target)):
+        tgt_px = float(recorded_target)
+    elif str(trade.get("Strategy")) == "Oversold Low Volume":
+        raise ValueError("OLV target missing from ledger; regenerate with the current engine")
 
     return {
         "sig_pos": sig_pos, "ent_pos": ent_pos, "exit_pos": exit_pos,

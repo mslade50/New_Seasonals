@@ -288,7 +288,7 @@ assert.strictEqual(incompleteTarget.unavailableReason, "index-futures exposure i
 // display-only in fresh, stale, offline, and missing-beta states.
 const shellHtml = vm.runInContext('shell()', sandbox);
 assert.ok(shellHtml.indexOf('id="positions"') < shellHtml.indexOf('id="hedge"'));
-assert.ok(shellHtml.indexOf('id="hedge"') < shellHtml.indexOf('id="orders"'));
+assert.ok(shellHtml.indexOf('id="orders"') < shellHtml.indexOf('id="hedge"'));
 vm.runInContext(`
   state.account = "primary";
   state.status = {online:true, configured:true};

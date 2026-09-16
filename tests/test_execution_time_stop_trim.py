@@ -9,44 +9,25 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.execution_harness import install_helpers
+
+@pytest.fixture(autouse=True)
+def inert_helpers(monkeypatch):
+    install_helpers(monkeypatch)
+
 
 IBKR_DIR = os.path.join(os.path.expanduser("~"), "OneDrive", "trading_ibkr")
 
-# add_to_position / trim_readd were switched off by the 2026-09-02 guard
-# patch (commit 43521a51 acknowledges it). The tests below encode the
-# behaviour wanted once the feature returns; strict so that a restored
-# feature turns the xfail into a failure and the mark gets removed.
-DISABLED_BY_GUARD_PATCH = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "disabled by 43521a51 until add_to_position / trim_readd have an "
-        "atomic exact-identity broker lifecycle; re-enable with that work"
-    ),
-)
-
-
 @pytest.fixture(scope="module")
 def executor():
-    if not os.path.isdir(IBKR_DIR):
-        pytest.skip(f"live execution dir not present: {IBKR_DIR}")
-    sys.path.insert(0, IBKR_DIR)
-    try:
-        import execute_order
-    except ImportError as exc:
-        pytest.skip(f"execute_order not importable here ({exc})")
-    return execute_order
+    from tests.execution_harness import load_executor
+    return load_executor()
 
 
 @pytest.fixture(scope="module")
 def agent():
-    if not os.path.isdir(IBKR_DIR):
-        pytest.skip(f"live execution dir not present: {IBKR_DIR}")
-    sys.path.insert(0, IBKR_DIR)
-    try:
-        import exec_agent
-    except ImportError as exc:
-        pytest.skip(f"exec_agent not importable here ({exc})")
-    return exec_agent
+    from tests.execution_harness import load_agent
+    return load_agent()
 
 
 def _time_stop(qty=100):
@@ -55,7 +36,7 @@ def _time_stop(qty=100):
         "tif": "GTC",
         "oca_group": "",
         "oca_type": 1,
-        "good_after": "20260731 15:59:00 US/Eastern",
+        "good_after": "20301220 15:59:00 US/Eastern",
         "good_till": "",
         "outside_rth": True,
         "lmt": 0.0,
@@ -89,7 +70,6 @@ def test_exposure_adding_actions_reject_target_only_exit(executor):
     )
 
 
-@DISABLED_BY_GUARD_PATCH
 @pytest.mark.parametrize("fraction", [0.25, 0.5])
 def test_executor_accepts_time_stop_only_for_add_and_readd(
         executor, monkeypatch, fraction):
@@ -112,7 +92,8 @@ def test_executor_accepts_time_stop_only_for_add_and_readd(
     scheduled.permId = 401
     scheduled.clientId = 17
     scheduled.tif = "GTC"
-    scheduled.goodAfterTime = "20260731 15:59:00 US/Eastern"
+    scheduled.account = "DU_TEST"
+    scheduled.goodAfterTime = "20301220 15:59:00 US/Eastern"
     scheduled.outsideRth = True
     scheduled.orderRef = "TIME_EXIT"
     trade = SimpleNamespace(
@@ -122,6 +103,9 @@ def test_executor_accepts_time_stop_only_for_add_and_readd(
     )
 
     class FakeIB:
+        def reqPositions(self):
+            return self.positions()
+
         def positions(self):
             return [position]
 
@@ -142,11 +126,12 @@ def test_executor_accepts_time_stop_only_for_add_and_readd(
         "con_id": 12345,
         "expected_position": 100,
         "fraction": fraction,
+        "_broker_account": "DU_TEST",
     }
 
-    add_ctx, add_error = executor._prepare_fast_position(
+    add_ctx, add_error = executor._prepare_position_action_add(
         FakeIB(), identity, "primary", partial=False)
-    readd_ctx, readd_error = executor._prepare_fast_position(
+    readd_ctx, readd_error = executor._prepare_position_action_add(
         FakeIB(), {**identity, "readd": True}, "primary", partial=True)
 
     assert add_error is None
@@ -155,7 +140,6 @@ def test_executor_accepts_time_stop_only_for_add_and_readd(
     assert readd_ctx["legs"][0]["good_after"] == scheduled.goodAfterTime
 
 
-@DISABLED_BY_GUARD_PATCH
 @pytest.mark.parametrize("fraction", [0.25, 0.5])
 def test_agent_accepts_time_stop_only_for_add_and_readd(
         agent, monkeypatch, fraction):
@@ -175,7 +159,7 @@ def test_agent_accepts_time_stop_only_for_add_and_readd(
         "order_type": "MKT",
         "qty": 100,
         "status": "PreSubmitted",
-        "good_after": "20260731 15:59:00 US/Eastern",
+        "good_after": "20301220 15:59:00 US/Eastern",
         "oca_group": "",
         "perm_id": 401,
     }
@@ -194,6 +178,7 @@ def test_agent_accepts_time_stop_only_for_add_and_readd(
         "con_id": 12345,
         "expected_position": 100,
         "fraction": fraction,
+        "_broker_account": "DU_TEST",
     }
 
     add_ok, add_reasons = agent._validate({
@@ -202,11 +187,12 @@ def test_agent_accepts_time_stop_only_for_add_and_readd(
         "payload": identity,
     })
     readd_ok, readd_reasons = agent._validate({
-        "type": "trim_readd",
+        "type": "close_resize",
         "account": "primary",
         "payload": {
             **identity,
-            "close_order_type": "MKT",
+            "order_type": "MKT",
+            "action": "SELL",
             "readd": True,
             "readd_tif": "DAY",
         },
@@ -233,7 +219,8 @@ def test_partial_close_cancels_and_resizes_time_stop_only(executor, capsys):
     scheduled.permId = 401
     scheduled.clientId = 17
     scheduled.tif = "GTC"
-    scheduled.goodAfterTime = "20260731 15:59:00 US/Eastern"
+    scheduled.account = "DU_TEST"
+    scheduled.goodAfterTime = "20301220 15:59:00 US/Eastern"
     scheduled.outsideRth = True
     scheduled.orderRef = "TIME_EXIT"
     old_trade = SimpleNamespace(
@@ -258,6 +245,9 @@ def test_partial_close_cancels_and_resizes_time_stop_only(executor, capsys):
             self.trades = [old_trade]
             self.placed = []
 
+        def reqPositions(self):
+            return self.positions()
+
         def positions(self):
             return [position] if position.position else []
 
@@ -279,7 +269,7 @@ def test_partial_close_cancels_and_resizes_time_stop_only(executor, capsys):
             old_trade.orderStatus.status = "Cancelled"
 
         def qualifyContracts(self, *_contracts):
-            return None
+            return list(_contracts)
 
         def placeOrder(self, placed_contract, order):
             status = "Submitted" if order.goodAfterTime else "Filled"
@@ -298,6 +288,8 @@ def test_partial_close_cancels_and_resizes_time_stop_only(executor, capsys):
             return trade
 
     ib = FakeIB()
+    executor.guarded_place_order = lambda ib, c, o, **k: ib.placeOrder(c, o)
+    executor.guarded_cancel_order = lambda ib, o: ib.cancelOrder(o)
     result = executor._do_flatten(
         ib,
         {
@@ -348,11 +340,14 @@ def test_close_only_uses_closing_side_and_never_touches_orders(
         def __init__(self):
             self.placed = []
 
+        def reqPositions(self):
+            return self.positions()
+
         def positions(self):
             return [position] if position.position else []
 
         def qualifyContracts(self, *_contracts):
-            return None
+            return list(_contracts)
 
         def managedAccounts(self):
             return ["DU_TEST"]
@@ -388,6 +383,7 @@ def test_close_only_uses_closing_side_and_never_touches_orders(
             )
 
     ib = FakeIB()
+    executor.guarded_place_order = lambda ib, c, o, **k: ib.placeOrder(c, o)
     result = executor._do_close_only(ib, {
         "symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
         "_broker_account": "DU_TEST", "_command_id": "close-only-side",
@@ -417,11 +413,14 @@ def test_close_only_rejects_add_side_and_oversize(executor, capsys):
         def __init__(self):
             self.placed = []
 
+        def reqPositions(self):
+            return self.positions()
+
         def positions(self):
             return [position]
 
         def qualifyContracts(self, *_contracts):
-            return None
+            return list(_contracts)
 
         def managedAccounts(self):
             return ["DU_TEST"]
