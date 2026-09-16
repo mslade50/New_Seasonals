@@ -302,7 +302,7 @@ def check_local_data() -> None:
     check_breadth_alignment()
 
     strays = [p for p in (ROOT / "data").glob("*.parquet.*")
-              if p.suffix != ".parquet"]
+              if p.is_file() and not p.name.endswith(".parquet.status.json")]
     if strays:
         report("WARN", "data:stray-temp-files",
                "partial-write artifacts: " + ", ".join(p.name for p in strays))
