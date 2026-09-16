@@ -378,7 +378,7 @@ function deriveExecMode(book, status, now = Date.now()) {
 function execMode() { return deriveExecMode(state.book, state.status); }
 const MUTATING_COMMANDS = new Set([
   "entry_bracket", "close_only", "close_resize", "flatten", "cancel", "modify", "trim_readd",
-  "add_to_position", "exit_attach", "scheduled_option", "scheduled_option_cancel",
+  "add_to_position", "exit_attach", "scheduled_option", "scheduled_option_cancel", "reconcile_exits",
 ]);
 // Every close ticket shares one set of fields (shares / percent / MKT|LMT /
 // outside RTH / TIF); only what happens to the WORKING orders differs.
@@ -1098,6 +1098,34 @@ function hasAnyClosingOrder(p) {
   return ((ab && ab.orders) || []).some((o) =>
     samePositionContract(p, o) && String(o.action || "").toUpperCase() === close);
 }
+function exitCoverage(p, orders = ((acctBook() || {}).orders || [])) {
+  const held = Math.abs(Number(p.position));
+  if (!p.con_id || !Number.isFinite(held) || held === 0) return {mismatch: false, total: 0};
+  const working = orders.filter(o => Number(o.con_id) === Number(p.con_id)
+    && (!p.account || !o.account || o.account === p.account)
+    && !["Filled", "Cancelled", "ApiCancelled", "Inactive"].includes(o.status));
+  const parents = new Set(working.map(o => `${o.client_id}:${o.order_id}`));
+  const close = Number(p.position) > 0 ? "SELL" : "BUY", groups = new Map();
+  for (const o of working) {
+    if (String(o.action).toUpperCase() !== close
+        || (o.parent_id && parents.has(`${o.client_id}:${o.parent_id}`))) continue;
+    const remaining = o.qty != null && o.filled != null ? Number(o.qty) - Number(o.filled)
+      : o.remaining != null ? Number(o.remaining) : NaN;
+    if (!Number.isFinite(remaining) || remaining <= 0) return {mismatch: false, total: 0};
+    const key = o.oca_group ? `oca:${o.oca_group}` : `order:${o.client_id}:${o.order_id}:${o.perm_id}`;
+    const group = groups.get(key) || [];
+    group.push(remaining); groups.set(key, group);
+  }
+  const quantities = [...groups.values()];
+  const total = quantities.reduce((sum, values) => sum + Math.max(...values), 0);
+  const unequal = quantities.some(values => Math.max(...values) - Math.min(...values) > 1e-8);
+  return {mismatch: quantities.length > 0 && (unequal || Math.abs(total - held) > 1e-8), total, unequal};
+}
+function execReconcileExits(pos) {
+  if (!exitCoverage(pos).mismatch) return;
+  sendCommand("reconcile_exits", positionIdentity(pos));
+}
+window.execReconcileExits = execReconcileExits;
 function renderPositions() {
   const ab = acctBook();
   const head = `<div style="font:700 14px inherit;margin:0 0 6px">Positions <span class="cap" style="display:inline;font-weight:400">${ab && ab.label ? "· " + esc(ab.label) : ""}</span></div>`;
@@ -1142,11 +1170,13 @@ function renderPositions() {
           <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.25)'>Trim&frac14;</button>
           <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.5)'>Trim&frac12;</button>
           ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
-    const actions = p.sec_type === "OPT" ? legacyActions
+    const reconcileBtn = exitCoverage(p).mismatch
+      ? `<button class="btn xs ghost" data-mutation onclick='execReconcileExits(${posJson(p)})' title="Resize existing exit groups proportionally to the live position; preserve prices and dates">Reconcile</button>` : "";
+    const actions = (p.sec_type === "OPT" ? legacyActions
       : `<button class="btn xs" onclick='execSellTicket(${posJson(p)})' title="Close shares or a percentage and adjust existing exits">Close&hellip;</button>
          ${p.sec_type === "STK" ? `<button class="btn xs ghost" onclick='execAddTicket(${posJson(p)})' title="Add shares or a percentage with inherited exits">Add&hellip;</button>
          <button class="btn xs ghost exec-readd" aria-pressed="${readdOn}" onclick='execToggleReadd(${posJson(p)})' title="When enabled, re-add confirmed closed shares at the broker average cost with a DAY limit and attached exits">Re-add</button>` : ""}
-         ${protectBtn}`;
+         ${protectBtn}`) + reconcileBtn;
     const priceDigits = p.sec_type === "CASH" ? 5 : 2;
     return `<tr>
       <td class="l" style="font-weight:600">${sym}</td>
@@ -1565,7 +1595,6 @@ function execCancel(permId, orderId, symbol, conId = null, clientId = null) {
   if (rejectUnknownMutation()) return;
   if (permId || orderId) {
     // Every mutation binds account, contract and owning-client order identity.
-    if (!confirm(`${actionLead("cancel")} order ${orderId || permId} (${symbol}, ${state.account})?`)) return;
     sendCommand("cancel", { scope: "order", symbol, con_id: conId || null, client_id: clientId, perm_id: permId || null, order_id: orderId || null });
     return;
   }
@@ -1683,11 +1712,8 @@ function execModifySave(permId, orderId, symbol) {
     return v === "" ? null : Number(v);
   };
   const qty = read("me_qty"), lmt = read("me_lmt"), stp = read("me_stp");
-  const signedCombo = orig.sec_type === "BAG";
-  const bad = [qty, stp].some((v) => v != null && (!Number.isFinite(v) || v <= 0))
-    || (lmt != null && (!Number.isFinite(lmt) || (signedCombo ? lmt === 0 : lmt <= 0)));
-  if (bad) { alert(signedCombo ? "qty / stop must be positive; combo limit must be a finite nonzero signed price" : "qty / prices must be positive numbers"); return; }
-  if (qty != null && !Number.isSafeInteger(qty)) { alert("qty must be a positive whole number"); return; }
+  const bad = [qty, lmt, stp].some((v) => v !== undefined && v !== null && !Number.isFinite(v));
+  if (bad) { alert("qty / prices must be numbers"); return; }
   const payload = { symbol, con_id: orig.con_id || null, client_id: orig.client_id == null ? null : orig.client_id };
   if (permId) payload.perm_id = permId;
   if (orderId) payload.order_id = orderId;
@@ -1696,8 +1722,8 @@ function execModifySave(permId, orderId, symbol) {
   if (lmt !== undefined && lmt != null && lmt !== Number(orig.lmt)) { payload.new_limit = lmt; changes.push(`lmt ${orig.lmt} -> ${lmt}`); }
   if (stp !== undefined && stp != null && stp !== Number(orig.aux)) { payload.new_stop = stp; changes.push(`stop ${orig.aux} -> ${stp}`); }
   if (!changes.length) { execModifyAbort(); return; }   // nothing changed: just close the editor
-  // Save is the user's submit action. The broker derives purpose and risk from
-  // the existing order; the browser sends only identity and changed fields.
+  // Save is the operator's instruction. IBKR decides order validity; no local
+  // strategy, risk, inventory, or notional policy vetoes a manual edit.
   sendCommand("modify", payload);
   execModifyAbort();
 }

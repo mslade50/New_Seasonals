@@ -45,3 +45,13 @@ def test_execution_dashboard_control_matrix():
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_tradelog_contract_units():
     _run_js("test_tradelog_units.js")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_execution_manual_orders_javascript_contract():
+    _run_js("test_execution_manual_orders.js")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_execution_reconcile_button_contract():
+    _run_js("test_execution_reconcile.js")

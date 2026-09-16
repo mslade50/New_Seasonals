@@ -96,8 +96,8 @@ await check("nonfinite numeric values block before commands",()=>{
 await check("close/add retain account and exact position identity",async()=>{
  for(const account of ["primary","pa"])for(const sign of [1,-1])for(const type of ["close_only","close_resize","flatten","add_to_position"]){const f=fixture();book(f,[{...position,position:100*sign}]);f.run("state.account='"+account+"'");f.fields({...close,cmdType:type});f.run("sendTicket()");await Promise.resolve();assert.equal(f.commands.length,1);assert.equal(f.commands[0].payload.con_id,42);assert.equal(f.commands[0].payload.expected_position,100*sign);assert.equal(f.commands[0].payload.qty,25);assert.equal(f.commands[0].context.account,account);if(["close_only","close_resize"].includes(type))assert.equal(f.commands[0].payload.action,sign>0?"SELL":"BUY");}
 });
-await check("fractional edit and account switch never submit",()=>{
- const f=fixture();f.fields({me_qty:"1.5"});f.run("orderEdit.orig={account:'primary',con_id:42,client_id:99,qty:100};execModifySave(7,8,'TEST')");assert.equal(f.commands.length,0);
+await check("manual fractional quantity reaches broker and account switch clears editor",()=>{
+ const f=fixture();f.fields({me_qty:"1.5"});f.run("orderEdit.orig={account:'primary',con_id:42,client_id:99,qty:100};execModifySave(7,8,'TEST')");assert.equal(f.commands.length,1);assert.equal(f.commands[0].payload.new_qty,1.5);
  f.run("orderEdit.key='7:8';renderPanels=()=>{};setAccount('pa')");assert.equal(f.run("orderEdit.key"),null);
 });
 await check("working order controls match type",()=>{
@@ -165,8 +165,8 @@ await check("credit combo quantity edits preserve the existing signed limit",()=
  assert.equal(f.nodes.get("me_lmt").value,"-1.25");f.nodes.get("me_qty").value="1";f.run("execModifySave(7,8,'TEST')");
  assert.equal(f.commands.length,1);assert.equal(f.commands[0].payload.new_qty,1);assert.equal(f.commands[0].payload.new_limit,undefined);assert.equal(f.commands[0].payload.con_id,42);assert.equal(f.confirms.length,0);
 });
-await check("signed combo limits stay distinct from single-option prices",()=>{
- for(const [sectype,original,changed,allowed]of [["BAG",-1.25,-1.5,true],["OPT",1.25,1.5,true],["OPT",1.25,-1.5,false],["BAG",-1.25,Infinity,false]]){
+await check("manual finite prices reach broker; unencodable prices do not",()=>{
+ for(const [sectype,original,changed,allowed]of [["BAG",-1.25,-1.5,true],["OPT",1.25,1.5,true],["OPT",1.25,-1.5,true],["BAG",-1.25,Infinity,false]]){
   const f=fixture();f.fields({me_qty:"2",me_lmt:String(changed)});f.run("orderEdit.orig="+JSON.stringify({account:"primary",sec_type:sectype,con_id:42,client_id:99,qty:2,lmt:original})+";execModifySave(7,8,'TEST')");
   assert.equal(f.commands.length,Number(allowed),sectype+" "+changed);if(allowed){assert.equal(f.commands[0].payload.new_limit,changed);assert.equal(f.commands[0].payload.new_qty,undefined);assert.equal(f.confirms.length,0);}
  }
