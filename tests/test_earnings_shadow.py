@@ -49,18 +49,43 @@ def test_missing_events_are_not_hidden_by_high_ticker_agreement():
     statuses = details.set_index("ticker").status.to_dict()
     assert statuses == {"A": "exact_dates", "B": "missing_in_alpha", "C": "date_disagreement", "D": "alpha_only", "ETF": "no_upcoming_in_either"}
     assert summary["fmp_event_recall"] == pytest.approx(1 / 3)
-    assert summary["blackout_disagreement_tickers"] == 3
+    assert summary["blackout_disagreement_tickers"] == 2
     assert summary["switch_approved"] is False
 
 
-def test_multiple_events_and_shared_past_are_preserved():
+def test_distant_events_are_excluded_from_scoring():
     baseline = fmp([("A", "2026-09-15", 1), ("A", "2026-09-18", 1), ("A", "2026-10-20", 2)])
     candidate = alpha("A,A,2026-09-18,2026-06-30,1.2,USD\n")
     details, summary = shadow.compare(baseline, candidate, {"A"}, pd.Timestamp("2026-09-16"))
-    assert summary["fmp_events"] == 2
+    assert summary["fmp_events"] == 1
     assert summary["exact_events"] == 1
-    assert details.iloc[0].status == "date_disagreement"
+    assert details.iloc[0].status == "exact_dates"
     assert summary["eps_differences_over_1_cent"] == 1
+
+
+def test_ten_trading_days_includes_boundary_but_not_eleventh():
+    baseline = fmp([("A", "2026-09-30", 1), ("B", "2026-10-01", 1)])
+    candidate = alpha("A,A,2026-09-30,2026-06-30,1,USD\nB,B,2026-10-02,2026-06-30,1,USD\n")
+    details, summary = shadow.compare(baseline, candidate, {"A", "B"}, pd.Timestamp("2026-09-16"))
+    assert summary["window_end"] == "2026-09-30"
+    assert summary["fmp_events"] == summary["exact_events"] == 1
+    assert details.set_index("ticker").loc["B", "status"] == "no_upcoming_in_either"
+    assert summary["blackout_disagreement_tickers"] == 0
+
+
+def test_horizon_observes_nyse_holidays():
+    baseline = fmp([("A", "2026-09-21", 1)])
+    candidate = alpha("A,A,2026-09-21,2026-06-30,1,USD\n")
+    _, summary = shadow.compare(baseline, candidate, {"A"}, pd.Timestamp("2026-09-04"))
+    assert summary["window_end"] == "2026-09-21"  # Labor Day is excluded.
+
+
+def test_current_blackout_shares_recent_historical_fmp_date():
+    baseline = fmp([("A", "2026-09-15", 1), ("A", "2026-09-18", 1)])
+    candidate = alpha("B,B,2026-09-18,2026-06-30,1,USD\n")
+    details, summary = shadow.compare(baseline, candidate, {"A"}, pd.Timestamp("2026-09-16"))
+    assert details.iloc[0].status == "missing_in_alpha"
+    assert summary["blackout_disagreement_tickers"] == 0
 
 
 def test_conflicting_fmp_estimates_excluded_without_losing_blackout_date():

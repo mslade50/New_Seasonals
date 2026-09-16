@@ -91,16 +91,17 @@ def normalize_fmp(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def compare(fmp: pd.DataFrame, alpha: pd.DataFrame, universe: set[str],
-            as_of: pd.Timestamp, days: int = 60) -> tuple[pd.DataFrame, dict]:
+            as_of: pd.Timestamp, trading_days: int = 10) -> tuple[pd.DataFrame, dict]:
     """Compare event sets and decisions; absence in both feeds is not agreement.
 
     FMP history before as_of is shared by both decision paths. Thus the blackout
     comparison tests replacing FUTURE dates only, not a historical replacement.
     """
-    end = as_of + pd.Timedelta(days=days)
+    if trading_days < 1:
+        raise ShadowError("Comparison horizon must be at least one trading day")
+    end = as_of + trading_days * TRADING_DAY
     fwd_f = fmp[fmp.date.between(as_of, end)]
     fwd_a = alpha[alpha.date.between(as_of, end)]
-    sessions = pd.date_range(as_of, periods=21, freq=TRADING_DAY)
     rows = []
     for ticker in sorted(universe):
         f = fwd_f[fwd_f.ticker.eq(ticker)]
@@ -113,9 +114,11 @@ def compare(fmp: pd.DataFrame, alpha: pd.DataFrame, universe: set[str],
         past = set(historical)
         f_dates = np.array(sorted(past | fd), dtype="datetime64[D]")
         a_dates = np.array(sorted(past | ad), dtype="datetime64[D]")
-        # These are hypothetical signal-day decisions, not actual trades.
-        differences = [str(d.date()) for d in sessions
-                       if in_blackout(d, f_dates, window=10) != in_blackout(d, a_dates, window=10)]
+        # Evaluate today's decision only. Looking ahead at future signal dates
+        # would bring distant earnings back into the user's near-term test.
+        differences = ([str(as_of.date())]
+                       if in_blackout(as_of, f_dates, window=10) != in_blackout(as_of, a_dates, window=10)
+                       else [])
         joined = f[["date", "eps_est"]].merge(
             a[["date", "eps_est"]], on="date", suffixes=("_fmp", "_alpha"))
         valid = joined.dropna(subset=["eps_est_fmp", "eps_est_alpha"])
@@ -139,6 +142,8 @@ def compare(fmp: pd.DataFrame, alpha: pd.DataFrame, universe: set[str],
     expected = int(details.fmp_event_count.sum())
     matched = int(details.exact_event_count.sum())
     summary = {
+        "comparison_version": 2, "horizon_trading_days": trading_days,
+        "blackout_decision_as_of": str(as_of.date()),
         "as_of": str(as_of.date()), "window_end": str(end.date()),
         "universe_count": len(universe), "status_counts": details.status.value_counts().to_dict(),
         "fmp_events": expected, "alpha_events": int(details.alpha_event_count.sum()),
@@ -152,7 +157,8 @@ def compare(fmp: pd.DataFrame, alpha: pd.DataFrame, universe: set[str],
         "limitations": [
             "FMP is a comparison source, not ground truth; verify disputed dates with company IR.",
             "No upcoming date in either source is unknown coverage, not a matching earnings event.",
-            "Blackout comparison uses common FMP history before as_of and tests only future-date replacement.",
+            "Only events from as_of through the next 10 NYSE trading days are scored; later dates are excluded.",
+            "Blackout comparison evaluates today's decision using common FMP history before as_of and tests only future-date replacement.",
             "EPS differences are diagnostic: FMP cache has no currency or accounting-basis metadata.",
             "Revenue actuals/estimates, EPS actuals and historical completeness are NOT tested by this calendar.",
             "One snapshot cannot establish reliability; retain daily observations through an earnings cycle.",
@@ -257,9 +263,10 @@ def main(argv=None) -> int:
         counts = summary["status_counts"]
         core = summary["segments"]["regular_universe"]
         report = ["# Earnings calendar shadow comparison", "", f"As of: {as_of.date()} | Mode: {mode}",
+                  f"Scored window: today through {summary['window_end']} (next 10 NYSE trading days).",
                   f"Regular universe: {core['exact_events']} exact matches / {core['fmp_events']} FMP events.",
                   f"FMP events: {summary['fmp_events']}; exact date matches: {summary['exact_events']}.",
-                  f"Blackout disagreement tickers: {summary['blackout_disagreement_tickers']}.",
+                  f"Today's blackout disagreement tickers: {summary['blackout_disagreement_tickers']}.",
                   "", "Ticker classifications:", ""] + [f"- {k}: {v}" for k, v in counts.items()]
         report += ["", "This is evidence collection only. No switch is approved.", ""] + [f"- {x}" for x in summary["limitations"]]
         (run / "report.md").write_text("\n".join(report) + "\n", encoding="utf-8")
