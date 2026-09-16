@@ -343,8 +343,8 @@ set. It uses an interactive principal, `WakeToRun`, start-when-available, and
 three one-minute restart attempts. Those settings do not replace the login,
 Gateway, or clock prerequisites above.
 
-No task is currently installed. When the stable checkout is reviewed, shadow
-installation uses `-Install`. A live task additionally requires `-Live` and
+The three shadow tasks were installed September 16 from the stable checkout.
+They begin September 17. New shadow installations use `-Install`. A live task additionally requires `-Live` and
 the literal acknowledgement printed by the installer, but it still cannot
 trade without the independent exact-date runtime gate.
 
@@ -436,7 +436,8 @@ flatten for this sleeve.
 ## Verification
 
 ```powershell
-python -m pytest -q tests/test_legend_etf_signal.py `
+python -m pytest -q tests/test_legend_etf_native.py `
+  tests/test_legend_ema_backtest.py tests/test_legend_etf_signal.py `
   tests/test_legend_etf_execution.py `
   tests/test_legend_etf_recovery.py `
   tests/test_legend_etf_parity.py `

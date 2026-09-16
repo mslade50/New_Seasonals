@@ -1,7 +1,7 @@
 """Prepare an immutable SPY/QQQ signal plan from read-only IBKR history.
 
-The default maximum Databento charge is exactly $0.00.  Metadata is quoted
-before any timeseries request; a non-zero quote fails closed.
+The default path has no Databento dependency. The optional futures research
+path retains a zero-dollar cost ceiling and quotes before requesting data.
 """
 
 from __future__ import annotations
@@ -95,6 +95,8 @@ def make_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = make_parser().parse_args()
+    if args.check_data and args.source != "ibkr":
+        raise SystemExit("--check-data only supports the read-only IBKR ETF source")
     now = datetime.now(ZoneInfo(NY_TZ))
     entry_date = args.entry_date or now.date().isoformat()
     if args.source == "ibkr":

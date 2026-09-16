@@ -1,5 +1,8 @@
 # Legend activation readiness — September 16, 2026
 
+Historical futures-path notes: superseded by [SPY/QQQ integration](legend_spy_qqq_2026-09-16.md).
+The CME data blocker below does not apply to the new ETF-native default.
+
 Legend is not live. Primary-only shadow configuration now exists in the
 machine-global runtime, but tasks are not installed because the current
 futures feed cannot satisfy the existing freshness requirements.

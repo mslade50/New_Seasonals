@@ -27,11 +27,13 @@ attempt tripped the existing broker clock-skew check; a repeat passed without
 changing its threshold. No orders or paid data requests were made.
 
 Historical signal comparison over 2012–August 2026 matched both implementations:
-SPY 3,270 evaluated sessions / 132 signals; QQQ 3,245 / 183. There were zero
+SPY 3,477 evaluated sessions / 140 signals; QQQ 3,447 / 196. There were zero
 qualification, EMA, or ratio differences. Missing archived grids blocked
-352 SPY and 377 QQQ sessions. Both evaluators used identical bounded histories;
+145 SPY and 175 QQQ sessions. Both evaluators used identical bounded histories;
 this proves rule integration, not the original full-history return series.
-Final-source evidence must be generated in the stable checkout for deployment.
+Final-source evidence is retained in the main workspace under
+`artifacts/legend-spy-qqq-20260916/final_candidate_parity.json`. It passed
+validation against the stable checkout, input hashes, and runtime.
 
 The existing broker safety tests and 342-candidate execution replay are retained.
 The deployment manifest now requires native candidate proof and includes the
@@ -44,3 +46,32 @@ paper execution proof (including partial fills and OCA/timed exits), and the
 shared-executor capacity producer/integration attestation. Automated unit and
 historical tests do not substitute for those broker observations. No live date
 or execution direction is enabled by this source change.
+
+## Installed shadow schedule
+
+The stable checkout is `C:/Users/McKinley Slade/dev/new-seasonals-legend-runtime`.
+All 132 unique Legend checks passed, including the native signal tests, retained
+ETF research tests, and the 342-candidate execution regression. The historical
+replay was run separately against the exact stable source. Ruff and workspace
+hygiene checks passed. No additional dependency was installed.
+
+The three Windows tasks are registered and Ready, starting September 17, 2026:
+- `NewSeasonals-LegendETF-Signals`: trigger 08:45 ET, read-only ETF preparation.
+- `NewSeasonals-LegendETF-Session`: trigger 09:28 ET, Primary shadow through exit.
+- `NewSeasonals-LegendETF-Watchdog`: trigger 10:40 ET, shadow receipt check.
+
+Their commands point to the stable checkout and contain no `-Live` flag. Windows
+reported next runs at 08:45:45, 09:28:28, and 10:40:40 respectively while the
+stored trigger boundaries are exactly 08:45:00, 09:28:00, and 10:40:00. They remain
+before the required session preparation/observation deadlines.
+
+The existing disabled runtime was backed up as
+`runtime.env.pre-native-20260916.bak` beside `runtime.env`; only the strategy
+version was updated. Live execution and both directions remain zero, live date
+and account allowlist remain empty, and the paid data ceiling remains zero.
+No old dry/live state or signal plan exists to interfere with the new version.
+Tomorrow's 08:45 producer must create the first executable native plan.
+
+To pause observations, disable these three named tasks. There are no Legend
+orders to unwind from this rollout. Do not delete runtime evidence or use the
+shared account's positions as a substitute for Legend-owned lot accounting.
