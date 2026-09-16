@@ -28,7 +28,9 @@ from legend_etf.ibkr_adapter import (
     LegendAccountSnapshot,
     LiveGate,
     PhysicalIsolationMismatch,
+    TradeTickTape,
     owned_quantity,
+    trade_ticks_to_frame,
 )
 from legend_etf.paper_proof import validate_paper_proof
 from legend_etf.portfolio_guard import (
@@ -68,6 +70,82 @@ from legend_etf.storage import (
     read_json,
     validate_plan,
 )
+
+
+def _fake_trade_feed():
+    from eventkit import Event
+
+    ticker = SimpleNamespace(tickByTicks=[], updateEvent=Event())
+    contract = SimpleNamespace(conId=123)
+    connection = IBKRConnection(Endpoint("primary", "localhost", 1, 154, "TEST"), live=False)
+    connection.ib = SimpleNamespace(
+        isConnected=lambda: True,
+        reqMarketDataType=lambda _: None,
+        reqTickByTickData=lambda *args, **kwargs: ticker,
+        cancelTickByTickData=lambda *args: None,
+        disconnect=lambda: None,
+    )
+    return connection, contract, ticker
+
+
+def test_trade_subscription_retains_opening_ticks_across_network_updates():
+    connection, contract, ticker = _fake_trade_feed()
+    tape = connection.subscribe_trade_ticks(contract)
+    for time, price in [("09:30:00", 100), ("09:30:30", 102), ("09:31:00", 101)]:
+        # ib_insync.Wrapper.tcpDataArrived replaces tickByTicks on every packet.
+        ticker.tickByTicks = [SimpleNamespace(
+            time=pd.Timestamp(f"2026-09-16 {time}", tz="America/New_York"),
+            price=price, size=1,
+        )]
+        ticker.updateEvent.emit(ticker)
+    frame = trade_ticks_to_frame(tape)
+    assert frame["price"].tolist() == [100, 102, 101]
+    assert frame["sequence"].tolist() == [0, 1, 2]
+
+
+def test_trade_tape_new_tick_wait_uses_accumulated_count():
+    connection, contract, ticker = _fake_trade_feed()
+    tape = connection.subscribe_trade_ticks(contract)
+    ticker.tickByTicks = [object()]
+    ticker.updateEvent.emit(ticker)
+    baseline = len(tape.tickByTicks)
+
+    def next_packet(_):
+        ticker.tickByTicks = [object()]
+        ticker.updateEvent.emit(ticker)
+
+    connection.ib.sleep = next_packet
+    connection.wait_for_new_trade_tick(tape, after_count=baseline)
+    assert len(tape.tickByTicks) == 2
+
+
+def test_trade_tape_overflow_blocks_snapshot_and_new_tick_wait():
+    connection, _, _ = _fake_trade_feed()
+    tape = TradeTickTape(max_ticks=1)
+    tape.capture(SimpleNamespace(tickByTicks=[object()]))
+    tape.capture(SimpleNamespace(tickByTicks=[object()]))
+    assert len(tape.tickByTicks) == 1
+    with pytest.raises(RuntimeError, match="overflowed"):
+        trade_ticks_to_frame(tape)
+    with pytest.raises(RuntimeError, match="overflowed"):
+        connection.wait_for_new_trade_tick(tape, after_count=0)
+
+
+@pytest.mark.parametrize("cleanup", ["cancel", "disconnect"])
+def test_trade_tape_subscription_cleanup_detaches_callback(cleanup):
+    connection, contract, ticker = _fake_trade_feed()
+    tape = connection.subscribe_trade_ticks(contract)
+    with pytest.raises(RuntimeError, match="already exists"):
+        connection.subscribe_trade_ticks(contract)
+    ticker.tickByTicks = [object()]
+    ticker.updateEvent.emit(ticker)
+    if cleanup == "cancel":
+        connection.cancel_trade_ticks(contract)
+    else:
+        connection.disconnect()
+    ticker.updateEvent.emit(ticker)
+    assert len(tape.tickByTicks) == 1
+    assert not connection._trade_tapes
 
 
 def _futures_cache_frame(index: pd.DatetimeIndex) -> pd.DataFrame:

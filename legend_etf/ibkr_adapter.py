@@ -347,6 +347,32 @@ def _finite_price(value: Any) -> float | None:
     return price if math.isfinite(price) and 0 < price < 1e9 else None
 
 
+class TradeTickTape:
+    """Retain Last ticks across ib_insync's per-packet Ticker resets.
+
+    Never discard the opening tape to make room: overflow invalidates entry
+    evidence. The bound also limits memory if a shadow runs through 10:30.
+    """
+
+    def __init__(self, *, max_ticks: int = 500_000):
+        if max_ticks < 1:
+            raise ValueError("trade tape capacity must be positive")
+        self.max_ticks = max_ticks
+        self.tickByTicks: list[Any] = []
+        self.overflowed = False
+
+    def capture(self, ticker: Any) -> None:
+        batch = ticker.tickByTicks
+        if self.overflowed or len(self.tickByTicks) + len(batch) > self.max_ticks:
+            self.overflowed = True
+            return
+        self.tickByTicks.extend(batch)
+
+    def assert_complete(self) -> None:
+        if self.overflowed:
+            raise RuntimeError("ETF Last-trade tape overflowed; opening evidence is incomplete")
+
+
 class IBKRConnection:
     """Thin synchronous wrapper around one account-owned ib_insync client."""
 
@@ -354,6 +380,7 @@ class IBKRConnection:
         self.endpoint = endpoint
         self.live = live
         self.ib: Any | None = None
+        self._trade_tapes: dict[int, tuple[Any, TradeTickTape]] = {}
 
     def connect(self) -> None:
         try:
@@ -413,6 +440,9 @@ class IBKRConnection:
         return skew
 
     def disconnect(self) -> None:
+        for ticker, tape in self._trade_tapes.values():
+            ticker.updateEvent -= tape.capture
+        self._trade_tapes.clear()
         if self.ib is not None:
             self.ib.disconnect()
             self.ib = None
@@ -916,16 +946,27 @@ class IBKRConnection:
 
     def subscribe_trade_ticks(self, contract: Any) -> Any:
         ib = self._require()
+        con_id = int(contract.conId)
+        if con_id in self._trade_tapes:
+            raise RuntimeError("ETF Last-trade subscription already exists")
         ib.reqMarketDataType(1)
-        return ib.reqTickByTickData(
+        ticker = ib.reqTickByTickData(
             contract,
             tickType="Last",
             numberOfTicks=0,
             ignoreSize=False,
         )
+        tape = TradeTickTape()
+        ticker.updateEvent += tape.capture
+        self._trade_tapes[con_id] = (ticker, tape)
+        return tape
 
     def cancel_trade_ticks(self, contract: Any) -> None:
         self._require().cancelTickByTickData(contract, "Last")
+        subscription = self._trade_tapes.pop(int(contract.conId), None)
+        if subscription is not None:
+            ticker, tape = subscription
+            ticker.updateEvent -= tape.capture
 
     def wait_for_new_trade_tick(
         self,
@@ -941,6 +982,8 @@ class IBKRConnection:
         ib = self._require()
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
+            if isinstance(ticker, TradeTickTape):
+                ticker.assert_complete()
             if len(getattr(ticker, "tickByTicks", ())) > after_count:
                 return
             ib.sleep(0.01)
@@ -1361,8 +1404,10 @@ def realtime_bars_to_frame(bars: Any) -> pd.DataFrame:
 
 
 def trade_ticks_to_frame(ticker: Any) -> pd.DataFrame:
-    """Snapshot ordered exchange-reported Last ticks from one IBKR Ticker."""
+    """Snapshot ordered exchange-reported Last ticks from a retained tape."""
 
+    if isinstance(ticker, TradeTickTape):
+        ticker.assert_complete()
     rows: list[dict[str, Any]] = []
     for sequence, tick in enumerate(getattr(ticker, "tickByTicks", ())):
         timestamp = pd.Timestamp(tick.time)

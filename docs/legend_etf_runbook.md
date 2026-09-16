@@ -2,6 +2,16 @@
 
 ## Current release status
 
+See [September 16 activation readiness](legend_activation_2026-09-16.md) for
+the latest checks. Primary-only shadow configuration is now installed and the
+opening-tick retention bug is fixed. Live gates and paid data remain disabled;
+no tasks are installed. The observed Databento feed is eight hours behind and
+cannot meet the existing morning contract-probe requirements. Resolve that
+feed blocker before scheduling shadows. Paper proof, complete shadows, and the
+shared-capacity producer/attestation remain outstanding.
+
+### September 6 baseline
+
 The ETF implementation is built and its signal replay passes, but operational
 setup is incomplete and live activation remains disabled. As of September 6:
 
