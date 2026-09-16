@@ -32,7 +32,7 @@ qualification, EMA, or ratio differences. Missing archived grids blocked
 145 SPY and 175 QQQ sessions. Both evaluators used identical bounded histories;
 this proves rule integration, not the original full-history return series.
 Final-source evidence is retained in the main workspace under
-`artifacts/legend-spy-qqq-20260916/final_candidate_parity.json`. It passed
+`artifacts/legend-spy-qqq-20260916/release_candidate_parity.json`. It passed
 validation against the stable checkout, input hashes, and runtime.
 
 The existing broker safety tests and 342-candidate execution replay are retained.
@@ -75,3 +75,7 @@ Tomorrow's 08:45 producer must create the first executable native plan.
 To pause observations, disable these three named tasks. There are no Legend
 orders to unwind from this rollout. Do not delete runtime evidence or use the
 shared account's positions as a substitute for Legend-owned lot accounting.
+
+Final port check: paper Gateway 4002 and paper TWS 7497 were not listening;
+Primary TWS 7496 was listening. No broker execution drill could be completed
+without an available paper endpoint.
