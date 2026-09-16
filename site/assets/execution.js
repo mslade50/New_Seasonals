@@ -1174,11 +1174,6 @@ function orderEditRow(o) {
     (hasStp ? `<span class="cap" style="display:inline">stop</span> <input id="me_stp" value="${o.aux != null ? esc(String(o.aux)) : ""}" style="width:70px"> ` : "") +
     (hasLmt ? `<span class="cap" style="display:inline">lmt</span> <input id="me_lmt" value="${o.lmt != null ? esc(String(o.lmt)) : ""}" style="width:70px">` : "") +
     (!hasStp && !hasLmt ? "&mdash;" : "");
-  const purpose = Number(o.parent_id || 0) > 0 ? "" : `<tr class="modify-purpose"><td colspan="10" class="l">
-    <label>Order purpose <select id="me_kind"><option value="">Choose…</option><option value="exit">Close / reduce existing inventory</option><option value="entry">Open / add inventory</option></select></label>
-    <label>Entry direction <select id="me_direction"><option value="">Choose for entries…</option><option value="long">Long</option><option value="short">Short</option></select></label>
-    <label>Total entry risk after edit ($) <input id="me_risk" type="number" min="0" step="any" placeholder="Required for entries"></label>
-  </td></tr>`;
   return `<tr style="background:rgba(77,163,255,.08)">
     <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
     <td class="l" style="font-weight:600">${esc(o.action)}</td>
@@ -1192,7 +1187,7 @@ function orderEditRow(o) {
     <td class="l" style="white-space:nowrap">
       <button class="btn xs" data-mutation onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
       <button class="btn xs ghost" onclick='execModifyAbort()'>&times;</button></td>
-  </tr>${purpose}`;
+  </tr>`;
 }
 const expandedTickers = new Set();   // Open Orders: which tickers are expanded (persists across 4s polls)
 const orderEdit = { key: null, orig: null };   // inline Modify: row being edited + its pre-edit values
@@ -1500,7 +1495,6 @@ function execCancel(permId, orderId, symbol, conId = null, clientId = null) {
   if (rejectUnknownMutation()) return;
   if (permId || orderId) {
     // Every mutation binds account, contract and owning-client order identity.
-    if (!confirm(`${actionLead("cancel")} order ${orderId || permId} (${symbol}, ${state.account})?`)) return;
     sendCommand("cancel", { scope: "order", symbol, con_id: conId || null, client_id: clientId, perm_id: permId || null, order_id: orderId || null });
     return;
   }
@@ -1581,8 +1575,8 @@ function execModifySave(permId, orderId, symbol) {
     return v === "" ? null : Number(v);
   };
   const qty = read("me_qty"), lmt = read("me_lmt"), stp = read("me_stp");
-  const bad = [qty, lmt, stp].some((v) => v !== undefined && v !== null && (!isFinite(v) || v <= 0));
-  if (bad) { alert("qty / prices must be positive numbers"); return; }
+  const bad = [qty, lmt, stp].some((v) => v !== undefined && v !== null && !Number.isFinite(v));
+  if (bad) { alert("qty / prices must be numbers"); return; }
   const payload = { symbol, con_id: orig.con_id || null, client_id: orig.client_id == null ? null : orig.client_id };
   if (permId) payload.perm_id = permId;
   if (orderId) payload.order_id = orderId;
@@ -1591,19 +1585,8 @@ function execModifySave(permId, orderId, symbol) {
   if (lmt !== undefined && lmt != null && lmt !== Number(orig.lmt)) { payload.new_limit = lmt; changes.push(`lmt ${orig.lmt} -> ${lmt}`); }
   if (stp !== undefined && stp != null && stp !== Number(orig.aux)) { payload.new_stop = stp; changes.push(`stop ${orig.aux} -> ${stp}`); }
   if (!changes.length) { execModifyAbort(); return; }   // nothing changed: just close the editor
-  payload.mutation_kind = Number(orig.parent_id || 0) > 0 ? "modify" : document.getElementById("me_kind")?.value;
-  if (!["entry", "exit", "modify"].includes(payload.mutation_kind)) {
-    alert("Choose whether this order opens/adds inventory or closes/reduces it."); return;
-  }
-  if (payload.mutation_kind === "entry") {
-    payload.risk_usd = read("me_risk");
-    payload.portfolio_direction = document.getElementById("me_direction")?.value;
-    if (!(payload.risk_usd > 0 && Number.isFinite(payload.risk_usd)) || !["long","short"].includes(payload.portfolio_direction)) {
-      alert("Enter the total entry risk after this edit and select long or short."); return;
-    }
-    changes.push(`Total entry risk $${payload.risk_usd} · ${payload.portfolio_direction}`);
-  }
-  if (!confirm(`${actionLead("modify")} order ${orderId || permId} (${symbol}, ${state.account})?\n${changes.join("\n")}`)) return;
+  // Save is the operator's instruction. IBKR decides order validity; no local
+  // strategy, risk, inventory, or notional policy vetoes a manual edit.
   sendCommand("modify", payload);
   execModifyAbort();
 }

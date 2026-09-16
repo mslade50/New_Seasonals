@@ -64,7 +64,7 @@ await check('secondary acknowledgment retains Primary and dry-run',async()=>{
   assert.equal(sent[0].account,'primary');assert.equal(sent[0].dry_run,true);
   assert.match(confirmations[0],/on primary/);
 });
-await check('modify keeps exact identity and explicit entry risk',async()=>{
+await check('manual modify keeps exact identity without entry-risk inputs',async()=>{
   const {c}=browser('site/assets/execution.js');
   c.alert=()=>{};
   const values={me_qty:'12',me_lmt:'99',me_kind:'entry',me_risk:'240',me_direction:'long'};
@@ -72,16 +72,16 @@ await check('modify keeps exact identity and explicit entry risk',async()=>{
   vm.runInContext(`state.account='primary';orderEdit.orig={qty:10,lmt:100,account:'primary',con_id:42,client_id:123};
     sendCommand=(type,payload)=>{globalThis.command={type,payload}};execModifyAbort=()=>{};execModifySave(7,8,'AAA')`,c);
   const command=JSON.parse(JSON.stringify(c.command));
-  assert.equal(command.payload.mutation_kind,'entry');
-  assert.equal(command.payload.risk_usd,240);
-  assert.equal(command.payload.portfolio_direction,'long');
+  assert.equal(command.payload.mutation_kind,undefined);
+  assert.equal(command.payload.risk_usd,undefined);
+  assert.equal(command.payload.portfolio_direction,undefined);
   assert.equal(command.payload.con_id,42);assert.equal(command.payload.client_id,123);
   assert.equal(command.payload.perm_id,7);assert.equal(command.payload.order_id,8);
   c.command=null;values.me_kind='';
-  vm.runInContext("execModifySave(7,8,'AAA')",c);assert.equal(c.command,null);
+  vm.runInContext("execModifySave(7,8,'AAA')",c);assert.equal(c.command.type,'modify');
   values.me_kind='exit';
   vm.runInContext("execModifySave(7,8,'AAA')",c);
-  assert.equal(c.command.payload.mutation_kind,'exit');
+  assert.equal(c.command.payload.mutation_kind,undefined);
   assert.equal(c.command.payload.risk_usd,undefined);
   c.command=null;
   vm.runInContext("state.account='pa';execModifySave(7,8,'AAA')",c);
