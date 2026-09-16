@@ -172,25 +172,16 @@ def read_snapshot(snapshot, *, now):
     return result
 
 
-def load_capacity(inventory, *, now=None, bookend=False, reader=None, book_loader=None):
-    """Prefer reconciled inputs, then saved closing capacity, then a fresh book.
+def load_capacity(*, now=None, bookend=False, reader=None, book_loader=None):
+    """Read whole-ticker broker holdings and NAV independently of exit history.
 
-    Never promote the fallback to TaggedInventory.status=known. A failed
-    fallback preserves the owner's explicit policy to scan without this cap.
+    Settled-session scans use the saved closing capacity, then a fresh book
+    if unavailable. Execution attribution never determines ticker exposure.
+    An unavailable observation preserves the existing explicit bypass policy.
     """
     fixed_now = now
     now = stamp(now if now is not None else utc_now())
     failures = []
-    if inventory.status == 'known':
-        try:
-            from actual_inventory_io import load_primary_nav, load_pending_entry_notionals
-            at = inventory.asof_utc if inventory.source_kind == 'prior_close' else now.isoformat()
-            nav = load_primary_nav(inventory, asof=at)
-            pending = load_pending_entry_notionals(inventory, asof=at)
-            return Capacity(True, nav, dict(inventory.notionals), pending,
-                            inventory.source_kind, inventory.asof_utc)
-        except Exception as exc:
-            failures.append('reconciled capacity: '+type(exc).__name__)
     if bookend:
         try:
             if reader is None:
