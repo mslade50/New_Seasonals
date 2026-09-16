@@ -12,7 +12,10 @@ python scripts/compare_earnings_shadow.py --config-root 'C:\Users\McKinley Slade
 The key is read from `ALPHA_VANTAGE_API_KEY` in the environment or the config
 root's `.env`. Never include it on the command line. The tool makes one bulk
 Alpha Vantage `EARNINGS_CALENDAR` request using the three-month horizon. The
-comparison window is 60 calendar days to avoid the feed's outer boundary.
+scored comparison window is today through the next 10 NYSE trading days,
+inclusive. This follows the user's September 16 correction and the production
+blackout convention. The full feed is archived, but more distant differences
+do not count toward the match rate or trigger trial alerts.
 
 Inputs are the existing main and, if present, overflow earnings parquets under
 the config root. Date unions match `earnings_filter.load_earnings_dates_map`.
@@ -29,9 +32,9 @@ Failed runs retain a failure receipt and do not replace successful evidence.
 
 Metrics distinguish the regular CSV universe, liquid subset, and additional
 overflow tickers. A symbol without an upcoming date in either feed is unknown
-coverage, not agreement. The blackout metric evaluates hypothetical signal
-dates across the next 21 NYSE sessions using the existing +/-10 trading-day
-rule. It shares past FMP dates between both paths and substitutes only future
+coverage, not agreement. The blackout metric evaluates today's hypothetical
+signal decision using the existing +/-10 trading-day rule.
+It shares past FMP dates between both paths and substitutes only future
 dates, so it is NOT evidence that Alpha can replace historical earnings data.
 EPS differences are diagnostic only: currency/accounting-basis equivalence
 cannot be established from the existing FMP cache.
@@ -66,11 +69,42 @@ File age is recorded but is not proof of upstream freshness. Before concluding
 that one provider is wrong, check successful producer receipts and any degraded
 coverage. Preserve existing history throughout a future migration.
 
-Matching forward dates alone does not replace EPS/revenue actuals, revenue
-estimates, historical revisions, analyst grades, economic releases or research
-enrichment. Any retirement of these dependencies is a separate reviewed change.
+The replacement requirement is now near-term earnings dates plus economic
+release dates/times and reported values. The user does not need analyst grades
+or economic consensus/surprise data; these are not prerequisites for replacement.
+Existing historical caches should be retained. Any active research enrichment
+that still needs FMP must be retired or replaced before account cancellation.
+Analyst-grade collection is still present in the production pipeline; this
+observer does not modify the pinned runtime or its GitHub fallback.
 
-## First observation, 2026-09-16
+## Current near-term observation, 2026-09-16
+
+Replayed the same authenticated Alpha snapshot against the unchanged FMP input
+files. The scored interval is September 16 through September 30 (10 trading
+days ahead). Regular-universe events: 19/21 exact (90.5%). Liquid subset: 5/5
+exact. There are three regular-universe discrepancies:
+
+- PRGS: FMP September 28; Alpha October 5, outside the scored window.
+- UEC: FMP September 24; Alpha September 23. Both block a signal today.
+- SA: Alpha September 16; FMP's next date is November 11. Today's blackout
+  differs. Company IR review did not establish a September 16 announcement.
+
+Thus two regular-universe names have different current blackout decisions.
+These are vendor disagreements, not confirmed errors. Extra overflow names
+are reported separately: 1/9 FMP events match, with six missing in Alpha, two
+date disagreements and one Alpha-only event. Do not blend this population
+into the regular-universe headline.
+
+Primary-source checks of PRGS's press releases, UEC's releases and Seabridge's
+financial reports did not settle every disputed date on September 16:
+https://investors.progress.com/press-releases,
+https://www.uraniumenergy.com/news/releases/2026/,
+https://www.seabridgegold.com/investors/financial-reports.
+
+The earlier 60-day score and FedEx example below are historical context only;
+they are no longer acceptance criteria for this trial.
+
+## Superseded broad observation, 2026-09-16
 
 Authenticated snapshot `20260916T105335879001Z`: 684 of 820 upcoming FMP events
 in the regular universe matched exactly (83.4%). There were 105 tickers with
