@@ -21,6 +21,7 @@ from episodic_pivot.news import (
     GoogleNewsRssProvider,
 )
 from episodic_pivot.pipeline import run_shadow_pipeline
+from episodic_pivot.reviewed_news import MODE, apply_review, make_queue
 from episodic_pivot.schema import (
     NewsDocument,
     PremarketSnapshot,
@@ -356,7 +357,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--news-mode",
-        choices=("offline", "google-news", "google-cse"),
+        choices=("offline", "google-news", "google-cse", "agent-reviewed"),
         default="offline",
     )
     parser.add_argument(
@@ -365,6 +366,14 @@ def _parser() -> argparse.ArgumentParser:
         help="required for a Google news mode; permits read-only search/fetch requests",
     )
     parser.add_argument("--as-of", help="timezone-aware decision timestamp")
+    parser.add_argument(
+        "--prepare-google-review",
+        type=Path,
+        help="write a bounded search queue under artifacts; no news requests",
+    )
+    parser.add_argument(
+        "--reviews", type=Path, help="completed search-and-read review packet"
+    )
     parser.add_argument(
         "--target-session-date", help="regular-session date under review"
     )
@@ -383,8 +392,27 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.news_mode != "offline" and args.run_research and not args.allow_network:
+    if (
+        args.news_mode in {"google-news", "google-cse"}
+        and args.run_research
+        and not args.allow_network
+    ):
         raise SystemExit("Google news modes require the explicit --allow-network flag")
+    if bool(args.reviews) != (args.news_mode == "agent-reviewed"):
+        raise SystemExit(
+            "--reviews and --news-mode agent-reviewed must be used together"
+        )
+    if (args.reviews or args.prepare_google_review) and (
+        args.evidence or args.evidence_manifest or args.allow_network
+    ):
+        raise SystemExit(
+            "search-and-read mode cannot mix legacy evidence/network modes"
+        )
+    if args.prepare_google_review and (args.reviews or args.news_mode != "offline"):
+        raise SystemExit("queue preparation requires offline mode without reviews")
+    review_packet = (
+        json.loads(args.reviews.read_text(encoding="utf-8")) if args.reviews else None
+    )
     if args.news_mode == "offline" and args.evidence is None:
         print(
             "Note: offline mode without --evidence will leave every catalyst unconfirmed."
@@ -408,6 +436,11 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("research runs reject UNVERIFIED snapshot inputs")
     as_of = args.as_of or datetime.now(timezone.utc)
     as_of_dt = parse_timestamp(as_of)
+    scan_at = (
+        parse_timestamp(review_packet["queue"]["prepared_at"])
+        if review_packet
+        else as_of_dt
+    )
     snapshot_dates = {
         snapshot.target_session_date
         for snapshot in snapshots
@@ -461,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
 
     result = run_shadow_pipeline(
         snapshots,
-        as_of=as_of_dt,
+        as_of=scan_at,
         target_session_date=target_session_date,
         policy=DEFAULT_POLICY,
         offline_documents=documents,
@@ -469,6 +502,27 @@ def main(argv: list[str] | None = None) -> int:
         search_provider=provider,
         run_warnings=run_warnings,
     )
+    if args.prepare_google_review:
+        path = args.prepare_google_review.resolve()
+        if (ROOT / "artifacts").resolve() not in path.parents:
+            raise SystemExit("review queue must stay under this worktree's artifacts")
+        queue = make_queue(
+            result.candidates,
+            prepared_at=result.generated_at,
+            target_session_date=target_session_date,
+            policy=DEFAULT_POLICY,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8") as handle:
+            json.dump(queue, handle, indent=2)
+        print(
+            f"Google research queue prepared: {len(queue['targets'])} targets; no news or email sent."
+        )
+        return 0
+    if review_packet is not None:
+        result = apply_review(
+            result, review_packet, decision_at=as_of_dt, policy=DEFAULT_POLICY
+        )
     output_root = args.output_root.resolve()
     allowed_root = (ROOT / "artifacts").resolve()
     if output_root != allowed_root and allowed_root not in output_root.parents:
@@ -483,13 +537,17 @@ def main(argv: list[str] | None = None) -> int:
         input_files["evidence"] = args.evidence
     if args.evidence_manifest:
         input_files["evidence_manifest"] = args.evidence_manifest
+    if args.reviews:
+        input_files["agent_reviews"] = args.reviews
     written = write_run_artifacts(
         result,
         policy=DEFAULT_POLICY,
         output_dir=run_dir,
         input_files=input_files,
         search_provider=(
-            provider.name
+            MODE
+            if review_packet is not None
+            else provider.name
             if provider
             else (
                 f"OFFLINE_VERIFIED:{evidence_source_run_id}"

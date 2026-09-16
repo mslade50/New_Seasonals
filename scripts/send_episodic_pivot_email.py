@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, time, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -47,6 +49,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--send", action="store_true")
     parser.add_argument(
+        "--require-agent-review",
+        action="store_true",
+        help="reject legacy automatic news classification for morning delivery",
+    )
+    parser.add_argument(
         "--resend",
         action="store_true",
         help="explicitly bypass a matching successful delivery receipt",
@@ -81,15 +88,41 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         payload = _build_payload(args)
+        if (
+            args.kind == "morning"
+            and args.require_agent_review
+            and payload.metadata.get("research_mode") != "AGENT_GOOGLE_SEARCH_AND_READ"
+        ):
+            raise EmailDeliveryError(
+                "morning delivery requires completed search-and-read research"
+            )
         summary = payload_summary(payload)
         if not args.send:
             print(json.dumps({"delivery_status": "DRY_RUN", **summary}, indent=2))
             print("No email was sent. Add --send after reviewing this payload.")
             return 0
+        if (
+            args.kind == "morning"
+            and payload.metadata.get("research_mode") == "AGENT_GOOGLE_SEARCH_AND_READ"
+        ):
+            from episodic_pivot.schema import parse_timestamp
+
+            now = datetime.now(timezone.utc)
+            local_now = now.astimezone(ZoneInfo("America/New_York"))
+            age = (
+                now - parse_timestamp(payload.metadata["generated_at"])
+            ).total_seconds()
+            if (
+                payload.metadata.get("target_session_date")
+                != local_now.date().isoformat()
+                or local_now.time() >= time(9, 30)
+                or not 0 <= age <= 1800
+            ):
+                raise EmailDeliveryError(
+                    "morning research is stale or outside today's premarket"
+                )
         settings = resolve_email_settings(env_file=args.env_file)
-        status = deliver_email(
-            payload, settings, send=True, resend=bool(args.resend)
-        )
+        status = deliver_email(payload, settings, send=True, resend=bool(args.resend))
     except (EmailDeliveryError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"EP EMAIL DELIVERY FAILED: {exc}", file=sys.stderr)
         return 2

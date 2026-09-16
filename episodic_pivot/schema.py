@@ -347,3 +347,4 @@ class RunResult:
     decisions: list[QualificationDecision] = field(default_factory=list)
     previews: list[ResearchSizingPreview] = field(default_factory=list)
     warnings: tuple[str, ...] = ()
+    review_packet: dict[str, Any] | None = None

@@ -26,7 +26,15 @@ from .config import DEFAULT_POLICY
 from .news import assess_catalyst
 from .premarket import nominate_candidates
 from .qualify import prior_atr_blocker
-from .schema import NewsDocument, PremarketSnapshot, parse_timestamp
+from .schema import (
+    Candidate,
+    CatalystAssessment,
+    NewsDocument,
+    PremarketSnapshot,
+    QualificationDecision,
+    RunResult,
+    parse_timestamp,
+)
 from .tradingview import (
     result_counts_are_verified,
 )
@@ -365,6 +373,76 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
         if isinstance(item, dict)
     }
     evidence = _json_object(run_dir / "evidence.json")
+    reviewed_assessments = None
+    if manifest.get("research_mode") == "AGENT_GOOGLE_SEARCH_AND_READ":
+        from .manifest import _html_report, _report, _research_counts
+        from .reviewed_news import validate_packet
+
+        if "agent_reviews.json" not in artifacts:
+            raise EmailDeliveryError("EP agent review artifact is missing")
+        try:
+            packet = _json_object(run_dir / "agent_reviews.json")
+            candidates = [
+                Candidate(
+                    candidate_id=c["candidate_id"],
+                    snapshot=PremarketSnapshot.from_dict(c["snapshot"]),
+                    discovery_reasons=tuple(c["discovery_reasons"]),
+                    discovery_warnings=tuple(c.get("discovery_warnings", [])),
+                )
+                for c in candidates_by_id.values()
+            ]
+            reviewed_assessments = validate_packet(
+                packet,
+                candidates,
+                decision_at=manifest["generated_at"],
+                policy=DEFAULT_POLICY,
+            )
+            expected_ids = {
+                cid
+                for cid, a in reviewed_assessments.items()
+                if a.research_news_qualified
+            }
+            if {
+                d.get("candidate_id")
+                for d in _json_list(run_dir / "news_qualified.json")
+            } != expected_ids:
+                raise ValueError("email shortlist differs from source reviews")
+            for cid, assessment in reviewed_assessments.items():
+                expected = json.loads(json.dumps(assessment.to_dict()))
+                if (
+                    decisions_by_id[cid]["catalyst"] != expected
+                    or decisions_by_id[cid]["decision"] != "WATCH"
+                ):
+                    raise ValueError("saved assessment differs from source review")
+            # Re-render the delivered surfaces from validated records. Rehashed
+            # HTML cannot insert an unreviewed name or change the catalyst text.
+            restored = RunResult(
+                run_id=manifest["run_id"],
+                generated_at=manifest["generated_at"],
+                candidates=candidates,
+                decisions=[
+                    QualificationDecision(
+                        **{**d, "catalyst": CatalystAssessment(**d["catalyst"])}
+                    )
+                    for d in decisions_by_id.values()
+                ],
+                review_packet=packet,
+                warnings=tuple(manifest.get("warnings", [])),
+            )
+            if counts.get("research_sizing_previews") != 0:
+                raise ValueError("agent research cannot produce sizing previews")
+            for key, expected in _research_counts(restored, DEFAULT_POLICY).items():
+                if counts.get(key) != expected:
+                    raise ValueError("review coverage count differs from evidence")
+            for name, render in (("report.html", _html_report), ("report.md", _report)):
+                if (run_dir / name).read_text(encoding="utf-8") != render(
+                    restored, DEFAULT_POLICY
+                ):
+                    raise ValueError("delivered report differs from validated reviews")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EmailDeliveryError(
+                "EP search-and-read review validation failed"
+            ) from exc
     for item in _json_list(run_dir / "news_qualified.json"):
         if not isinstance(item, dict):
             raise EmailDeliveryError("EP news-qualified record is invalid")
@@ -407,21 +485,25 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
                 require_verified_premarket_move=True,
             ):
                 raise ValueError("candidate has no verified premarket move")
-            assessment = assess_catalyst(
-                [NewsDocument.from_dict(doc) for doc in evidence[candidate_id]],
-                decision_at=manifest["generated_at"],
-                policy=DEFAULT_POLICY.news,
-                symbol=snapshot.symbol,
-                company_name=snapshot.company_name,
-                first_trigger_at=(
-                    snapshot.first_trigger_at
-                    or (
-                        snapshot.observed_at
-                        if snapshot.source.upper().startswith("IBKR")
-                        else None
-                    )
-                ),
-                target_session_date=snapshot.target_session_date,
+            assessment = (
+                reviewed_assessments[candidate_id]
+                if reviewed_assessments is not None
+                else assess_catalyst(
+                    [NewsDocument.from_dict(doc) for doc in evidence[candidate_id]],
+                    decision_at=manifest["generated_at"],
+                    policy=DEFAULT_POLICY.news,
+                    symbol=snapshot.symbol,
+                    company_name=snapshot.company_name,
+                    first_trigger_at=(
+                        snapshot.first_trigger_at
+                        or (
+                            snapshot.observed_at
+                            if snapshot.source.upper().startswith("IBKR")
+                            else None
+                        )
+                    ),
+                    target_session_date=snapshot.target_session_date,
+                )
             )
             if not assessment.research_news_qualified or assessment.adverse_flags:
                 raise ValueError("catalyst failed source re-vetting")
@@ -466,6 +548,10 @@ def morning_payload(run_dir: Path) -> EmailPayload:
     manifest = _validate_run_manifest(run_dir)
     counts = manifest.get("counts") if isinstance(manifest.get("counts"), dict) else {}
     target_date = _target_date_from_candidates(run_dir)
+    if manifest.get("research_mode") == "AGENT_GOOGLE_SEARCH_AND_READ":
+        target_date = _json_object(run_dir / "agent_reviews.json")["queue"][
+            "target_session_date"
+        ]
     candidates = int(counts.get("candidates", 0))
     decisions = int(counts.get("decisions", 0))
     previews = int(counts.get("research_sizing_previews", 0))
@@ -507,6 +593,8 @@ def morning_payload(run_dir: Path) -> EmailPayload:
         source_sha256=source_hash,
         metadata={
             "run_id": manifest.get("run_id"),
+            "research_mode": manifest.get("research_mode", "LEGACY_AUTOMATED"),
+            "generated_at": manifest.get("generated_at"),
             "target_session_date": target_date,
             "candidates": candidates,
             "decisions": decisions,

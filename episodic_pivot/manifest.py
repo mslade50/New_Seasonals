@@ -149,17 +149,29 @@ def _research_counts(result: RunResult, policy: EPPolicy) -> dict[str, int]:
         and candidate.snapshot.ask > 0
         for candidate in result.candidates
     )
-    return {
+    counts = {
         "atr_qualified": int(atr_qualified),
         "news_research_selected": int(selected),
         "execution_data_verified": int(execution_verified),
         "news_qualified": len(_news_qualified(result, policy)),
         "news_coverage_unresolved": sum(
             not (_RESEARCH_SKIP_BLOCKERS & set(item.blockers))
-            and "NO_ACTUAL_SOURCE_EVIDENCE" in item.catalyst.reason_codes
+            and (
+                "NO_ACTUAL_SOURCE_EVIDENCE" in item.catalyst.reason_codes
+                or "AGENT_REVIEW_UNRESOLVED" in item.catalyst.reason_codes
+            )
             for item in result.decisions
         ),
     }
+    if result.review_packet is not None:
+        counts["news_review_rejected"] = sum(
+            "AGENT_REVIEW_REJECTED" in item.catalyst.reason_codes
+            for item in result.decisions
+        )
+        counts["news_unresearched_by_cap"] = result.review_packet["queue"][
+            "unresearched_by_cap"
+        ]
+    return counts
 
 
 def _news_qualified(result: RunResult, policy: EPPolicy):
@@ -237,6 +249,20 @@ def _report(result: RunResult, policy: EPPolicy) -> str:
                 f"  Sources: {', '.join(decision.catalyst.evidence_urls)}",
             ]
         )
+    if result.review_packet is not None:
+        lines.extend(
+            [
+                "",
+                (
+                    "Research method: agent Google search and opened-source reading; "
+                    "semantic judgments are agent-reviewed, not independently proven by hashes."
+                ),
+                (
+                    f"Reviewed and excluded: {research_counts['news_review_rejected']}; "
+                    f"not researched due to cap: {research_counts['news_unresearched_by_cap']}."
+                ),
+            ]
+        )
     lines.extend(
         [
             "",
@@ -301,6 +327,29 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
         snap = candidate.snapshot
         decision = decisions.get(candidate.candidate_id)
         if decision is None:
+            continue
+        if result.review_packet is not None:
+            review = next(
+                r
+                for r in result.review_packet["reviews"]
+                if r["candidate_id"] == candidate.candidate_id
+            )
+            links = "".join(
+                f'<li><a href="{_safe_link(s["url"])}" rel="noreferrer">{html.escape(s["title"])}</a>'
+                f" — announced {html.escape(s['announced_at'])}; {html.escape(s['source_kind'])}</li>"
+                for s in review["sources"]
+            )
+            candidate_html.append(
+                f'<article class="candidate"><h2>{html.escape(snap.symbol)} — {html.escape(snap.company_name)}</h2>'
+                f'<div class="tape"><span><b>{snap.discovery_gap_pct:+.2f}%</b> premarket move</span>'
+                f"<span><b>{snap.premarket_volume:,}</b> premarket shares</span>"
+                f"<span><b>{snap.prior_atr_pct:.2f}%</b> prior ATR</span>"
+                f"<span>Market data as of {html.escape(snap.observed_at)}</span></div>"
+                f"<h3>Catalyst</h3><p>{html.escape(review['business_change'])}</p>"
+                f"<h3>Why it matters</h3><p>{html.escape(review['materiality_reason'])}</p>"
+                f"<h3>Verification</h3><p>{html.escape(review['reason'])}</p><ul>{links}</ul>"
+                "<small>Source read and assessed by the research agent. Research only; no execution approval.</small></article>"
+            )
             continue
         docs = result.documents_by_candidate.get(candidate.candidate_id, [])
         preview = previews.get(candidate.candidate_id)
@@ -416,6 +465,14 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
         if research_counts["execution_data_verified"]
         else '<div class="coverage"><b>Execution data unavailable or unverified.</b> IBKR is not required for candidate research. Spread, depth, halt, contract, entry, and sizing fields are suppressed until a fresh read-only verification succeeds.</div>'
     )
+    if result.review_packet is not None:
+        execution_banner = (
+            '<div class="coverage"><b>Google search and source reading.</b> '
+            "Catalyst judgments are agent-reviewed; record hashes check integrity, not factual correctness. "
+            f"Reviewed and excluded: {research_counts['news_review_rejected']}. "
+            f"Not researched due to cap: {research_counts['news_unresearched_by_cap']}. "
+            "No execution review or sizing is performed.</div>"
+        )
     run_warning_banner = (
         '<div class="coverage"><b>Degraded coverage.</b> '
         + html.escape(", ".join(result.warnings))
@@ -487,6 +544,9 @@ def write_run_artifacts(
         "generated_at": result.generated_at,
         "policy": policy.to_dict(),
         "search_provider": search_provider,
+        "research_mode": "AGENT_GOOGLE_SEARCH_AND_READ"
+        if result.review_packet is not None
+        else "LEGACY_AUTOMATED",
         "warnings": list(result.warnings),
         "inputs": input_manifest,
         "counts": {
@@ -570,6 +630,9 @@ def write_run_artifacts(
         "report.md",
         "report.html",
     )
+    if result.review_packet is not None:
+        _json_dump(root / "agent_reviews.json", result.review_packet)
+        artifact_names += ("agent_reviews.json",)
     manifest["artifacts"] = {
         name: {
             "sha256": sha256_file(root / name),

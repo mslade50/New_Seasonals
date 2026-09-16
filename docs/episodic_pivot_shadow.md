@@ -4,7 +4,39 @@ Status: implemented as a local, research-only shadow workflow. The active Codex 
 
 ## Outcome and safety boundary
 
-### Morning inclusion contract (2026-09-15)
+### Active research contract (2026-09-16): Google search and source reading
+
+This section and [the search-and-read runbook](ep_google_research.md) supersede
+the September 8/15 automated news classification and delivery instructions below.
+Market ingestion and the +5% / 100,000-share / prior ATR >4% gates are unchanged.
+After daily enrichment, prepare a bounded **positive-mover-only** Google queue,
+then the scheduled Codex agent must actually search Google in the in-app browser,
+open the relevant articles and issuer releases, and judge the issuer-specific
+catalyst. Google snippets and AI overviews are discovery only. No CSE key or paid
+API is needed. The old RSS/Yahoo classifier is retained for offline comparison,
+not as a substitute for morning research.
+
+One clear original issuer, regulator or attributed wire announcement can suffice.
+A reliable editorial source can also suffice when its attribution and event facts
+are clear; the agent records why it is trustworthy. There is no two-publisher
+requirement or fixed publisher-domain allowlist for agent-reviewed research.
+Event time must be since the previous NYSE close through the review time. A fresh
+article about an old event does not qualify. Today-only date evidence observed
+premarket is allowed without fabricating a precise timestamp; prior-day date-only
+evidence cannot establish after-close timing.
+
+Every disposition is QUALIFIED, REJECTED (opened evidence supports exclusion),
+or UNRESOLVED (research/source access incomplete). Missing reviews are unresolved,
+never silently rejected. The 25-name cap and omitted coverage are disclosed.
+The agent owns semantic judgment; hashes verify record integrity, not factual
+correctness. The sender revalidates the retained review and tape gates, rebuilds
+the report, and rejects mismatches. Morning delivery must use
+`--require-agent-review`. Agent review never creates sizing or execution approval.
+
+Routine night ingestion stays local with no news work or email. Do not send test,
+retrospective, or duplicate reports during maintenance.
+
+### Previous automated inclusion contract (2026-09-15; research method superseded)
 
 The focused long-candidate email requires a verified premarket gain of **at least
 5%**, **at least 100,000 premarket shares**, price at least $1, verified prior
@@ -60,7 +92,7 @@ never truncate an oversized seed or exceed the aggregate 150-name IBKR budget.
 If the morning seed itself exceeds capacity, use a valid independently bounded
 night path or fail closed. No nightly or retrospective report is sent by this fix.
 
-### Morning delivery contract (2026-09-08, news-first)
+### Previous automated delivery contract (2026-09-08; superseded for scheduled mornings)
 
 Movement, liquidity and verified prior ATR above 4% are prerequisites for research,
 not reasons to appear in the email. There is no minimum number of daily candidates.
