@@ -1237,7 +1237,12 @@ class LegendSession:
         data_as_of_et = data_as_of.tz_convert(NY_TZ)
         earliest = et_timestamp(self.entry_date, "08:30")
         latest = et_timestamp(self.entry_date, "09:25")
-        if not (earliest <= data_as_of_et <= latest):
+        native_etf = plan.get("dataset") == "IBKR"
+        if native_etf and pd.Timestamp(plan["created_at"]) > pd.Timestamp.now(tz="UTC"):
+            raise RuntimeError("ETF plan creation timestamp is in the future")
+        if self.live_requested and not native_etf:
+            raise RuntimeError("This release only permits SPY/QQQ ETF-native live plans")
+        if not native_etf and not (earliest <= data_as_of_et <= latest):
             raise RuntimeError(
                 "signal plan must use a same-day futures contract probe between "
                 "08:30 and 09:25 New York time"
@@ -1288,7 +1293,7 @@ class LegendSession:
                 "live": self.gate.live,
                 "entry_date": self.entry_date,
                 "qualified": [],
-                "detail": "no qualified futures setups; all ETF symbols audited",
+                "detail": "no qualified setups; all ETF symbols audited",
             }
         return {
             "ok": True,
@@ -1550,11 +1555,22 @@ class LegendSession:
                 continue
             contract = self.feed.stock(item["etf"])
             history15 = self.feed.historical_bars(
-                contract, duration="20 D", bar_size="15 mins", use_rth=True
+                contract, duration="21 D" if self.plan.get("dataset") == "IBKR" else "20 D",
+                bar_size="15 mins", use_rth=True
             )
-            initial_ema = _seed_from_history(
-                history15, self.entry_date, item["setup_date"]
-            )
+            if self.plan.get("dataset") == "IBKR":
+                from .etf_source import evaluate_etf_setup
+
+                fresh = evaluate_etf_setup(history15, entry_date=self.entry_date)
+                if (not fresh["qualifies"]
+                        or fresh["history_sha256"] != item["history_sha256"]
+                        or fresh["initial_ema"] != item["initial_ema"]):
+                    raise RuntimeError("ETF history changed after signal preparation; prepare a new plan")
+                initial_ema = fresh["initial_ema"]
+            else:
+                initial_ema = _seed_from_history(
+                    history15, self.entry_date, item["setup_date"]
+                )
             daily = self.feed.historical_bars(
                 contract, duration="2 Y", bar_size="1 day", use_rth=True
             )
@@ -3068,7 +3084,8 @@ class LegendSession:
                 "side": "long" if direction > 0 else "short",
                 "order_ref": reference,
                 "plan_hash": self.plan["plan_hash"],
-                "futures_data_as_of": self.plan["data_as_of"],
+                "signal_data_as_of": self.plan["data_as_of"],
+                "signal_dataset": self.plan["dataset"],
                 "nlv_frozen": nlv,
                 "initial_ema": context.initial_ema,
                 "initial_target": context.initial_target,

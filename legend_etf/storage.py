@@ -167,6 +167,11 @@ def finalize_plan(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_plan(plan: dict[str, Any], *, entry_date: str) -> None:
+    if plan.get("dataset") == "IBKR":
+        from .etf_source import validate_etf_plan
+
+        validate_etf_plan(plan, entry_date=entry_date)
+        return
     if plan.get("strategy_version") != STRATEGY_VERSION:
         raise ValueError("signal plan strategy version mismatch")
     if plan.get("entry_date") != entry_date:

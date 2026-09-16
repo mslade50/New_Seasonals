@@ -7,7 +7,7 @@ from datetime import time
 from typing import Final
 
 STRATEGY_NAME: Final = "Legend EMA ETF"
-STRATEGY_VERSION: Final = "legend-etf-original-v1"
+STRATEGY_VERSION: Final = "legend-etf-spy-qqq-v2"
 NY_TZ: Final = "America/New_York"
 DATABENTO_DATASET: Final = "GLBX.MDP3"
 DATABENTO_SCHEMA: Final = "ohlcv-1m"

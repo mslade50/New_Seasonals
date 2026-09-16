@@ -108,6 +108,8 @@ def main() -> int:
         parity_evidence,
         legend_root=legend_root,
     )
+    if candidate_parity.get("protocol") != "legend-etf-native-candidate-parity-v1":
+        raise RuntimeError("SPY/QQQ deployment requires ETF-native candidate parity")
 
     config = {
         "protocol": PROTOCOL_VERSION,

@@ -26,6 +26,9 @@ if str(ROOT) not in sys.path:
 # from binding evidence to code other than the code loaded for this run.
 CANDIDATE_SOURCE_LABELS = frozenset(
     {
+        "legend_etf/etf_source.py",
+        "research/legend_ema_backtest.py",
+        "scripts/verify_legend_etf_candidate_parity.py",
         "legend_etf/__init__.py",
         "legend_etf/calendar.py",
         "legend_etf/config.py",

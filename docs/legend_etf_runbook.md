@@ -2,13 +2,14 @@
 
 ## Current release status
 
-See [September 16 activation readiness](legend_activation_2026-09-16.md) for
-the latest checks. Primary-only shadow configuration is now installed and the
-opening-tick retention bug is fixed. Live gates and paid data remain disabled;
-no tasks are installed. The observed Databento feed is eight hours behind and
-cannot meet the existing morning contract-probe requirements. Resolve that
-feed blocker before scheduling shadows. Paper proof, complete shadows, and the
-shared-capacity producer/attestation remain outstanding.
+The SPY/QQQ-only release is described in [ETF-native integration](legend_spy_qqq_2026-09-16.md).
+The default signal command now uses raw SPY/QQQ history from read-only IBKR.
+CME/Databento data is not required. The ETF research and broker runner are
+connected with 09:31 entry and 10:30 time exit. Live execution remains gated
+by exact-date configuration, native signal parity, shared-executor capacity
+and integration evidence, and actual paper broker proof.
+
+The historical activation notes below describe the superseded futures setup.
 
 ### September 6 baseline
 
@@ -42,21 +43,22 @@ shadow tasks only after configuration and current signal inputs are ready.
 
 ## Pinned strategy
 
-This is a dedicated SPY/QQQ/IWM execution sleeve for the original, validated
-Legend EMA rule. Futures data creates the prior-session candidate only:
+This release trades only SPY and QQQ. Each ETF creates its own setup:
 
-- ES -> SPY, NQ -> QQQ, RTY -> IWM.
-- Use the complete prior CME equity-index RTH session, 09:30-16:00 New York
-  time, with exactly 26 left-labelled 15-minute bars on a normal session.
-- Require `abs(close - open) / (high - low) >= 0.75`.
-- Every bar must remain strictly on the session-direction side of its same-bar
-  RTH EMA20. Equality is a touch and rejects the setup.
-- The setup and current contract instrument IDs must match. A missing setup
-  anchor or 15-minute bin, an intervening observed futures session,
-  insufficient causal EMA history, a roll, and known XNYS early-close entry
-  dates fail closed. Databento trade bars may legitimately omit no-trade
-  minutes or an exchange-closure date; those omissions do not invent bars or
-  invalidate an otherwise complete observed-bar EMA segment.
+- Use raw IBKR TRADES bars, RTH only, from the preceding 20 calendar days.
+  Fetch 21 days to ensure a complete first day, then select the exact window.
+- Require every expected XNYS 15-minute bar in that window and at least 200
+  warmup bars before the setup day. The immediately preceding exchange session
+  must be a full 26-bar session; known early closes fail closed.
+- Require `abs(close - open) / (high - low) >= 0.75` and no bar whose inclusive
+  low/high range touches its finalized same-bar EMA20. This is the original
+  ETF research qualification rule; candle direction does not add a new filter.
+- Carry EMA20 continuously through that window's RTH closes. The bounded seed
+  makes preparation and execution deterministic without downloading decades
+  each morning. Historical comparison uses this same window on both paths.
+- Hash the prior OHLC history and recompute it from IBKR before entry. A changed
+  history or setup blocks entry and requires a new plan. Current-session bars
+  never enter the prior-session signal.
 
 Execution is ETF-native and uses raw, unadjusted RTH prices:
 
@@ -76,10 +78,12 @@ Execution is ETF-native and uses raw, unadjusted RTH prices:
 - Exit at 10:30. There is no stop. Ex-dividend ETFs are excluded, and shorts
   require the live borrow checks to pass.
 
-IBKR CME market data is not needed for this ETF implementation. The futures
-candidate is prepared pre-open from the Databento cache; IBKR supplies only
-SPY/QQQ/IWM ticks, bars, account state, borrow/dividend references, and order
-state.
+Neither IBKR CME market data nor Databento is used by the default signal path.
+IBKR supplies SPY/QQQ history, ticks, bars, account and borrow/dividend references,
+and order state. ES/NQ/RTY research remains available behind the explicit
+`--source databento-research` option; its plans cannot enter live execution in
+this release. Recovery still audits all legacy symbols, including IWM, so an
+old unresolved lot cannot disappear from supervision.
 
 ## Sizing and portfolio capacity
 
@@ -126,7 +130,7 @@ All mutable runtime material belongs under:
 ```
 
 This includes `runtime.env`, the immutable daily `signal_plan.json`, the
-150-calendar-day futures cache and charge ledger, live/dry state and audit
+frozen ETF history inputs, optional legacy futures cache/charge ledger, live/dry state and audit
 files, critical alerts, scheduler receipts, logs, reservations, quarantine
 markers, deployment manifests, and daily portfolio budgets. It is shared by
 all checkouts on the machine, so moving between a Git checkout and a worktree
@@ -152,30 +156,27 @@ authoritative ETF-feed ports are deliberately operator-configured: verify the
 actual TWS/Gateway mode rather than assuming 7496/4001. Client IDs must be
 unique.
 
-## Databento plan and cost boundary
+## ETF plan preparation
 
-At or shortly after 08:45 ET, create the immutable signal plan:
+At 08:45 ET, create the immutable prior-session ETF signal plan:
 
 ```powershell
-python scripts\prepare_legend_etf_signals.py --max-cost-usd 0
+python scripts\prepare_legend_etf_signals.py
 ```
 
-The script maintains a machine-global 150-day rolling cache and seeds an empty
-cache from the already-purchased archive when available. Every parquet write
-has a SHA256 integrity sidecar; a missing/mismatched pair blocks the run. Each
-refresh quotes and re-fetches a 30-calendar-day overlap (or an older append
-gap), uses fresh rows to heal additions/corrections, and blocks if the fresh
-response omits a previously cached row. This protects the observed-bar EMA
-without pretending no-trade minutes exist. The default hard cost ceiling is
-exactly $0.00; a positive overlap or append quote therefore makes no data
-request. An ambiguous request or charge-ledger state also fails closed.
-An exact request ID already recorded as persisted is served from its verified
-cache and is never downloaded or counted as a new authorization again.
+For an intraday read-only check that does not create an executable plan:
 
-Any recurring Databento allowance requires separate approval. After that
-approval, set both the reviewed numeric ceiling and the literal paid
-confirmation in `runtime.env`. Historical quotes are not a promise of future
-cost. Do not raise the ceiling merely to make a failed run pass.
+```powershell
+python scripts\prepare_legend_etf_signals.py --check-data --output artifacts\native-check\signal_plan.json
+```
+
+The normal producer only writes plans between the prior close and the entry
+session's open. Missing/stale history fails closed. Frozen raw inputs are
+retained beside the plan. Client ID 156 is read-only and separate from the
+session feed (154) and Primary account session (155).
+
+The old Databento cache and charge protections are retained exclusively for
+explicit research runs. No Databento allowance is needed for SPY/QQQ operation.
 
 ## Shadow workflow
 
@@ -349,18 +350,19 @@ trade without the independent exact-date runtime gate.
 
 ## Live gate and staged rollout
 
-Historical candidate parity is a release invariant. The exhaustive baseline
-for 2016-01-01 through 2026-08-31 covered 2,660 sessions and matched 342 of 342
-candidates: ES 110, NQ 139, RTY 93, with zero candidate mismatches (maximum
-trend-ratio delta `1.11e-16`, maximum ATR delta `5.68e-14`). The parity evidence
-records SHA256 hashes for every input parquet and the complete candidate
-pipeline, plus the exact interpreter and package versions. The verifier rejects
-a source/runtime, historical-engine, golden-file, or archive change during its
-run. The deployment-manifest builder re-hashes every input and then binds that
-passing evidence to its current Legend tree; the live validator keeps checking
-the evidence, source, runtime, and input metadata. Re-run the verifier against
-the exact stable release tree and archive; stale or worktree-bound evidence is
-not sufficient.
+ETF-native candidate parity is a release invariant. Run
+`scripts/verify_legend_etf_candidate_parity.py --data-dir <15min-history> --output <evidence.json>`
+on the exact release tree. It compares the retained original ETF research rule
+with the new production evaluator over 2012 through August 2026, including
+rejected dates. Complete exchange grids are required; missing historical inputs
+are counted explicitly. Passing evidence requires both SPY and QQQ, at least
+2,500 evaluated sessions per ETF, zero qualification mismatches, and bounded
+EMA/ratio differences. Inputs, source files, interpreter, and packages are
+hashed. Source/input changes during replay invalidate the result.
+
+The release manifest requires this native proof. The old 342-candidate futures
+replay remains a useful execution regression but cannot authorize this version.
+Broker fill behavior still requires the drills below.
 
 The rollout gates are:
 
@@ -402,7 +404,7 @@ the date expires after the session.
 
 ## Failure, recovery, and halt behavior
 
-- Missing/stale futures data, a bad required-bar grid, a roll, stale or invalid ETF
+- Missing/stale ETF setup history, a bad required-bar grid, a roll, stale or invalid ETF
   ticks/bars, stale EMA/ATR history, clock skew, dividend-reference failure,
   delayed/missing borrow data, account/contract/client mismatch, portfolio
   budget failure, guard-manifest drift, or a late start blocks new exposure.
@@ -441,7 +443,7 @@ python -m pytest -q tests/test_legend_etf_signal.py `
   tests/test_legend_etf_hardening.py
 python -m ruff check legend_etf scripts/prepare_legend_etf_signals.py `
   scripts/run_legend_etf_session.py scripts/check_legend_etf_calendar.py `
-  scripts/verify_legend_futures_candidate_parity.py `
+  scripts/verify_legend_etf_candidate_parity.py `
   scripts/build_legend_executor_guard_manifest.py
 ```
 

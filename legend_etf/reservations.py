@@ -16,6 +16,7 @@ from typing import Any
 
 import pandas as pd
 
+from .config import STRATEGY_VERSION
 from .storage import (
     LockBusyError,
     atomic_write_json,
@@ -148,6 +149,7 @@ CRITICAL_RUNTIME_DISTRIBUTIONS = frozenset(
 )
 REQUIRED_LEGEND_RUNTIME_FILES = frozenset(
     {
+        "legend_etf/etf_source.py",
         "legend_etf/__init__.py",
         "legend_etf/calendar.py",
         "legend_etf/config.py",
@@ -170,6 +172,9 @@ REQUIRED_LEGEND_RUNTIME_FILES = frozenset(
 )
 CANDIDATE_PIPELINE_FILES = frozenset(
     {
+        "legend_etf/etf_source.py",
+        "research/legend_ema_backtest.py",
+        "scripts/verify_legend_etf_candidate_parity.py",
         "legend_etf/__init__.py",
         "legend_etf/calendar.py",
         "legend_etf/config.py",
@@ -487,6 +492,10 @@ def validate_candidate_parity_evidence(
         expected = str(expected_sha256).strip().lower()
         if len(expected) != 64 or digest != expected:
             raise RuntimeError("Legend candidate-parity evidence changed")
+    if evidence.get("protocol") == "legend-etf-native-candidate-parity-v1":
+        return _validate_native_candidate_evidence(
+            evidence, legend_root=legend_root, verify_input_files=verify_input_files
+        )
     if set(evidence) != {
         "protocol",
         "status",
@@ -627,6 +636,43 @@ def validate_candidate_parity_evidence(
         raise RuntimeError(
             "Legend candidate-parity evidence is stale for this source/runtime tree"
         )
+    return evidence
+
+
+def _validate_native_candidate_evidence(
+    evidence: dict[str, Any], *, legend_root: Path, verify_input_files: bool,
+) -> dict[str, Any]:
+    if (set(evidence) != {"protocol", "status", "range", "completed_at", "counts",
+                          "inputs", "candidate_pipeline", "runtime_seconds"}
+            or evidence.get("status") != "pass"
+            or evidence.get("range") != {"start": "2012-01-01", "end": "2026-08-28"}):
+        raise RuntimeError("ETF-native candidate evidence schema/range is invalid")
+    completed = pd.Timestamp(evidence["completed_at"])
+    duration = evidence["runtime_seconds"]
+    if (completed.tz is None or isinstance(duration, bool)
+            or not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration <= 0):
+        raise RuntimeError("ETF-native candidate evidence timing is invalid")
+    counts, inputs = evidence["counts"], evidence["inputs"]
+    if (not isinstance(counts, dict) or set(counts) != {"SPY", "QQQ"}
+            or not isinstance(inputs, dict) or set(inputs) != {"SPY", "QQQ"}):
+        raise RuntimeError("ETF-native candidate evidence symbol set mismatch")
+    integer_fields = {"evaluated", "blocked_history", "reference", "production", "mismatches"}
+    for symbol, count in counts.items():
+        if (not isinstance(count, dict)
+                or set(count) != integer_fields | {"max_ema_delta", "max_ratio_delta"}
+                or any(type(count[key]) is not int or count[key] < 0 for key in integer_fields)
+                or count["evaluated"] < 2500 or count["reference"] <= 0
+                or count["reference"] > count["evaluated"]
+                or count["reference"] != count["production"] or count["mismatches"] != 0):
+            raise RuntimeError("ETF-native candidate counts are incomplete or mismatched")
+        for key, limit in (("max_ema_delta", 1e-10), ("max_ratio_delta", 1e-12)):
+            value = count[key]
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value) or not 0 <= value <= limit):
+                raise RuntimeError("ETF-native candidate delta exceeds tolerance")
+        _validate_parity_input_file(inputs[symbol], label=symbol, verify_content=verify_input_files)
+    if evidence["candidate_pipeline"] != candidate_pipeline_attestation(legend_root):
+        raise RuntimeError("ETF-native candidate evidence is stale for this source/runtime tree")
     return evidence
 
 
@@ -805,7 +851,7 @@ def validate_guard_manifest(
         raise RuntimeError(  # noqa: TRY004 - invalid deployment artifact
             "shared executor manifest has no Legend build attestation"
         )
-    if str(build.get("strategy_version") or "") != "legend-etf-original-v1":
+    if str(build.get("strategy_version") or "") != STRATEGY_VERSION:
         raise RuntimeError("Legend build strategy version mismatch")
     declared_legend_root = Path(str(build.get("root") or ""))
     if not str(declared_legend_root).strip() or not declared_legend_root.is_dir():
@@ -830,6 +876,8 @@ def validate_guard_manifest(
         expected_sha256=parity_hash,
         verify_input_files=False,
     )
+    if parity_evidence.get("protocol") != "legend-etf-native-candidate-parity-v1":
+        raise RuntimeError("SPY/QQQ deployment requires ETF-native candidate parity, not futures evidence")
     if parity.get("source_tree_sha256") != parity_evidence["candidate_pipeline"][
         "source_tree_sha256"
     ]:

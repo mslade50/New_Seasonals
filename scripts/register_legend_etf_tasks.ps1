@@ -108,11 +108,13 @@ foreach ($definition in $definitions) {
         -WorkingDirectory $repoRoot
     $triggers = @()
     foreach ($at in @($definition.At)) {
+        $firstRun = [DateTime]::Today.Add([TimeSpan]::Parse($at))
+        if ($firstRun -le (Get-Date)) { $firstRun = $firstRun.AddDays(1) }
         $triggers += New-ScheduledTaskTrigger `
             -Weekly `
             -WeeksInterval 1 `
             -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday `
-            -At $at
+            -At $firstRun
     }
     $task = New-ScheduledTask `
         -Action $action `

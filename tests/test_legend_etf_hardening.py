@@ -783,7 +783,7 @@ def test_portfolio_capacity_is_atomically_debited_and_cannot_be_reused(tmp_path)
 def _paper_proof() -> dict:
     return {
         "protocol": "legend-ibkr-paper-proof-v1",
-        "strategy_version": "legend-etf-original-v1",
+        "strategy_version": "legend-etf-spy-qqq-v2",
         "source_manifest_sha256": "a" * 64,
         "created_at": "2026-09-01T09:00:00-04:00",
         "entry_date": "2026-09-01",
@@ -1319,7 +1319,19 @@ def test_manifest_builder_output_validates_end_to_end(tmp_path, monkeypatch):
     manifest = tmp_path / "manifest.json"
     root = __import__("pathlib").Path(__file__).resolve().parents[1]
     parity = tmp_path / "candidate_parity.json"
-    atomic_write_json(parity, _candidate_parity_evidence(root, tmp_path))
+    native_source = tmp_path / "native_input.parquet"
+    native_source.write_bytes(b"native archive fixture")
+    atomic_write_json(parity, {
+        "protocol": "legend-etf-native-candidate-parity-v1", "status": "pass",
+        "completed_at": "2026-09-16T12:00:00Z", "runtime_seconds": 1.0,
+        "range": {"start": "2012-01-01", "end": "2026-08-28"},
+        "inputs": {symbol: _input_file_record(native_source) for symbol in ("SPY", "QQQ")},
+        "counts": {symbol: {"evaluated": 3000, "blocked_history": 0,
+                            "reference": 100, "production": 100, "mismatches": 0,
+                            "max_ema_delta": 0., "max_ratio_delta": 0.}
+                   for symbol in ("SPY", "QQQ")},
+        "candidate_pipeline": candidate_pipeline_attestation(root),
+    })
     monkeypatch.setattr(
         sys,
         "argv",

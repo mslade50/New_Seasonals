@@ -21,12 +21,6 @@ from legend_etf.ibkr_adapter import (
     validate_live_gate,
 )
 from legend_etf.reservations import (
-    CANDIDATE_ATR_ATOL,
-    CANDIDATE_PARITY_COUNT,
-    CANDIDATE_PARITY_PROTOCOL,
-    CANDIDATE_PARITY_RANGE,
-    CANDIDATE_PARITY_SESSION_COUNT,
-    CANDIDATE_RATIO_ATOL,
     CRITICAL_RUNTIME_DISTRIBUTIONS,
     PROTOCOL_VERSION,
     REQUIRED_LEGEND_RUNTIME_FILES,
@@ -39,7 +33,6 @@ from legend_etf.sizing import SizeRequest, risk_profile_from_env, size_batch
 from legend_etf.storage import (
     StateStore,
     atomic_write_json,
-    content_hash,
     signal_identity,
 )
 
@@ -56,63 +49,19 @@ def _parity_input_record(path: Path) -> dict[str, object]:
 
 
 def _write_parity_evidence(path: Path, *, root: Path) -> None:
-    inputs = path.parent / "parity_inputs"
-    archive = inputs / "archive"
-    archive.mkdir(parents=True)
-    engine = inputs / "engine.py"
-    golden = inputs / "golden.csv"
-    archive_file = archive / "2016.parquet"
-    engine.write_text("# frozen engine fixture\n", encoding="utf-8")
-    golden.write_text("root,setup_date,entry_date\n", encoding="utf-8")
-    archive_file.write_bytes(b"frozen archive fixture")
-    archive_records = [_parity_input_record(archive_file)]
-    atomic_write_json(
-        path,
-        {
-            "protocol": CANDIDATE_PARITY_PROTOCOL,
-            "status": "pass",
-            "completed_at": "2026-09-02T12:00:00Z",
-            "command": "python scripts/verify_legend_futures_candidate_parity.py",
-            "inputs": {
-                "historical_engine": _parity_input_record(engine),
-                "golden": _parity_input_record(golden),
-                "archive": {
-                    "path": str(archive.resolve()),
-                    "metadata_manifest_sha256": content_hash(archive_records),
-                    "files": archive_records,
-                },
-            },
-            "range": CANDIDATE_PARITY_RANGE,
-            "candidate_pipeline": candidate_pipeline_attestation(root),
-            "full_session_count": CANDIDATE_PARITY_SESSION_COUNT,
-            "counts": {
-                label: CANDIDATE_PARITY_COUNT
-                for label in ("golden", "research", "production")
-            },
-            "duplicate_key_rows": {
-                label: 0 for label in ("golden", "research", "production")
-            },
-            "matches": {
-                label: CANDIDATE_PARITY_COUNT
-                for label in (
-                    "research_direction",
-                    "research_contract",
-                    "production_direction",
-                    "production_contract",
-                )
-            },
-            "max_deltas": {
-                "research_ratio": 0.0,
-                "production_ratio": 0.0,
-                "research_atr14": 0.0,
-            },
-            "tolerances": {
-                "ratio_atol": CANDIDATE_RATIO_ATOL,
-                "atr_atol": CANDIDATE_ATR_ATOL,
-            },
-            "runtime_seconds": 1.0,
-        },
-    )
+    source = path.parent / "native_input.parquet"
+    source.write_bytes(b"native archive fixture")
+    atomic_write_json(path, {
+        "protocol": "legend-etf-native-candidate-parity-v1", "status": "pass",
+        "completed_at": "2026-09-16T12:00:00Z", "runtime_seconds": 1.0,
+        "range": {"start": "2012-01-01", "end": "2026-08-28"},
+        "inputs": {symbol: _parity_input_record(source) for symbol in ("SPY", "QQQ")},
+        "counts": {symbol: {"evaluated": 3000, "blocked_history": 0,
+                            "reference": 100, "production": 100, "mismatches": 0,
+                            "max_ema_delta": 0., "max_ratio_delta": 0.}
+                   for symbol in ("SPY", "QQQ")},
+        "candidate_pipeline": candidate_pipeline_attestation(root),
+    })
 
 
 def test_primary_and_pa_size_independently_with_smaller_shorts():
@@ -210,7 +159,7 @@ def test_live_gate_is_dry_by_default_and_daily_expiring(monkeypatch):
         )
     monkeypatch.setenv("LEGEND_ETF_LIVE_ENABLED", "1")
     monkeypatch.setenv("LEGEND_ETF_LIVE_DATE", "2026-09-01")
-    monkeypatch.setenv("LEGEND_ETF_STRATEGY_VERSION", "legend-etf-original-v1")
+    monkeypatch.setenv("LEGEND_ETF_STRATEGY_VERSION", "legend-etf-spy-qqq-v2")
     monkeypatch.setenv("LEGEND_ETF_LIVE_ACCOUNTS", "U123")
     monkeypatch.setenv("LEGEND_ETF_ALLOW_LONGS", "1")
     monkeypatch.setenv("LEGEND_ETF_ALLOW_SHORTS", "0")
@@ -696,7 +645,7 @@ def test_file_backed_live_gate_is_hot_and_complete(tmp_path, monkeypatch):
                     ],
                 },
                 "legend_build": {
-                    "strategy_version": "legend-etf-original-v1",
+                    "strategy_version": "legend-etf-spy-qqq-v2",
                     "files": [
                         {
                             "label": label,
@@ -726,7 +675,7 @@ def test_file_backed_live_gate_is_hot_and_complete(tmp_path, monkeypatch):
     values = {
         "LEGEND_ETF_LIVE_ENABLED": "1",
         "LEGEND_ETF_LIVE_DATE": "2026-09-01",
-        "LEGEND_ETF_STRATEGY_VERSION": "legend-etf-original-v1",
+        "LEGEND_ETF_STRATEGY_VERSION": "legend-etf-spy-qqq-v2",
         "LEGEND_ETF_LIVE_ACCOUNTS": "DU123",
         "LEGEND_ETF_ALLOW_LONGS": "1",
         "LEGEND_ETF_ALLOW_SHORTS": "0",

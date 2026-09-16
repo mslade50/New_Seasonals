@@ -1,4 +1,4 @@
-"""Prepare today's immutable Legend ETF futures-signal plan.
+"""Prepare an immutable SPY/QQQ signal plan from read-only IBKR history.
 
 The default maximum Databento charge is exactly $0.00.  Metadata is quoted
 before any timeseries request; a non-zero quote fails closed.
@@ -37,11 +37,9 @@ except ImportError:
     pass
 
 from legend_etf.config import NY_TZ
-from legend_etf.databento_source import (
-    PAID_CONFIRMATION,
-    make_client,
-    prepare_signal_plan,
-)
+from legend_etf.etf_source import ETF_SYMBOLS, prepare_etf_signal_plan
+
+PAID_CONFIRMATION = "I_APPROVE_DATABENTO_CHARGE"
 
 
 def _default_cache_dir() -> Path:
@@ -53,6 +51,12 @@ def _default_cache_dir() -> Path:
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--source", choices=("ibkr", "databento-research"), default="ibkr",
+        help="SPY/QQQ IBKR history by default; futures retained for research only",
+    )
+    parser.add_argument("--check-data", action="store_true",
+                        help="Inspect current ETF setup inputs without writing an executable plan")
     parser.add_argument(
         "--entry-date",
         help="XNYS entry date (default: today's New York date)",
@@ -93,17 +97,61 @@ def main() -> int:
     args = make_parser().parse_args()
     now = datetime.now(ZoneInfo(NY_TZ))
     entry_date = args.entry_date or now.date().isoformat()
-    plan = prepare_signal_plan(
-        client=make_client(),
-        entry_date=entry_date,
-        as_of=now,
-        output_path=args.output,
-        lookback_days=args.lookback_days,
-        max_cost_usd=args.max_cost_usd,
-        paid_confirmation=args.paid_confirmation,
-        cache_dir=args.cache_dir,
-        archive_dir=args.archive_dir,
-    )
+    if args.source == "ibkr":
+        from dataclasses import replace
+
+        from legend_etf.ibkr_adapter import IBKRConnection
+        from legend_etf.session import _feed_endpoint
+
+        # Separate from the session feed; this client can never submit orders.
+        endpoint = replace(_feed_endpoint(RUNTIME_VALUES), label="signals", client_id=156)
+        connection = IBKRConnection(endpoint, live=False)
+        try:
+            connection.connect()
+            connection.assert_server_clock()
+            histories = {
+                symbol: connection.historical_bars(
+                    connection.stock(symbol), duration="21 D", bar_size="15 mins",
+                    use_rth=True,
+                )
+                for symbol in ETF_SYMBOLS
+            }
+            if args.check_data:
+                from legend_etf.etf_source import evaluate_etf_setup
+
+                results = {symbol: evaluate_etf_setup(frame, entry_date=entry_date)
+                           for symbol, frame in histories.items()}
+                archive = args.output.parent / "etf_data_check" / now.strftime("%Y%m%dT%H%M%S")
+                archive.mkdir(parents=True, exist_ok=True)
+                for symbol, frame in histories.items():
+                    frame.to_parquet(archive / f"{symbol}_15min.parquet")
+                print(json.dumps({"ok": True, "read_only": True, "entry_date": entry_date,
+                                  "markets": results, "archive": str(archive)}, indent=2))
+                return 0
+            plan = prepare_etf_signal_plan(
+                histories=histories, entry_date=entry_date, as_of=now,
+            )
+            # Freeze the exact broker input alongside the reviewed plan.
+            from legend_etf.storage import atomic_write_json
+
+            archive = args.output.parent / "etf_history" / plan["plan_hash"]
+            archive.mkdir(parents=True, exist_ok=True)
+            for symbol, frame in histories.items():
+                destination = archive / f"{symbol}_15min.parquet"
+                if not destination.exists():
+                    frame.to_parquet(destination)
+            atomic_write_json(args.output, plan)
+        finally:
+            connection.disconnect()
+    else:
+        from legend_etf.databento_source import make_client, prepare_signal_plan
+
+        plan = prepare_signal_plan(
+            client=make_client(), entry_date=entry_date, as_of=now,
+            output_path=args.output, lookback_days=args.lookback_days,
+            max_cost_usd=args.max_cost_usd, paid_confirmation=args.paid_confirmation,
+            cache_dir=args.cache_dir, archive_dir=args.archive_dir,
+        )
     print(
         json.dumps(
             {
