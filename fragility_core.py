@@ -312,7 +312,7 @@ def _compute_decay_metadata(sig: dict, spy_pct_from_high: float) -> dict | None:
     Returns None if signal is ON, never fired, or fully expired on all horizons.
     Otherwise returns {days_since, horizons: {5d/21d/63d: {weight, remaining_days}}, max_remaining_days}.
     """
-    if sig.get('on'):
+    if sig.get('on') or sig.get('available') is False or sig.get('recovery_cleared'):
         return None
 
     days_since = _days_since_last_fire(sig.get('signal_history'))
