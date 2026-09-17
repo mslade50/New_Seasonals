@@ -119,7 +119,8 @@ def load_risk_data_from_master(master_path=MASTER_PRICES, lookback_years=10):
 SIGNAL_METRICS = {
     "NYSE Net Highs": {
         "key": "net_highs", "label": "NYSE new highs minus new lows",
-        "unit": "issues", "decimals": 0, "thresholds": [0],
+        "unit": "issues", "decimals": 0,
+        "thresholds": [{"value": 0, "label": "Negative breadth", "operator": "<"}],
     },
     "Distribution Dominance": {
         "key": "da_ratio", "label": "D/A ratio", "unit": "ratio", "decimals": 2,
