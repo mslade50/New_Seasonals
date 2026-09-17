@@ -210,6 +210,8 @@ def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
         qty = int(cfg["nav_frac"] * ACCOUNT_VALUE / ref)
         action = "BUY" if cfg["side"] == "LONG" else "SELL_SHORT"
         rows.append(_row(trade, cfg, action, qty, ref, today, "MOC", note))
+        rows[-1]["Entry_Date"] = str(today.date())
+        rows[-1]["Execution_ID"] = f"{trade}|{today.date()}|entry"
         positions[trade] = {"shares": qty, "entry_date": str(today.date()),
                             "ref_close": ref, "exit_on": str(exit_on.date()),
                             "exit_order_type": exit_order_type}
