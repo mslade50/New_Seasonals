@@ -18,6 +18,7 @@ import os
 
 import numpy as np
 import pandas as pd
+from nyse_risk import main_dial_from_frame
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(_ROOT, "data")
@@ -51,7 +52,7 @@ RETIRED_RISK_SIGNALS = frozenset({"Pre-FOMC Rally"})
 def filter_risk_signals(signals: dict) -> dict:
     """Keep current risk components in their supplied display order."""
     return {name: value for name, value in signals.items()
-            if name in ACTIVE_RISK_SIGNALS}
+            if name in ACTIVE_RISK_SIGNALS or name == "NYSE Net Highs"}
 
 
 def load_horizon_stats() -> dict | None:
@@ -66,19 +67,20 @@ def load_horizon_stats() -> dict | None:
 
 
 def load_main_dial_series(path: str | None = None) -> pd.Series | None:
-    """Main display/sizing history: 10-session mean of the stored 63d dial.
+    """Main display/sizing history, using each date's saved model version.
 
-    The stored values already include five-session smoothing. Missing history
-    stays unavailable; a fresh recomputation is a different score vintage.
+    Legacy 63d values receive their ten-session mean. Explicit main_score
+    values already include the NYSE reset/floor and must not be smoothed again.
+    Missing history stays unavailable; recomputation is a different vintage.
     """
     try:
         frag = pd.read_parquet(path or PIT_FRAGILITY_PATH)
-        series = frag['63d'].dropna().copy()
+        series = main_dial_from_frame(frag)
         series.index = pd.to_datetime(series.index).tz_localize(None)
         series = series.sort_index()
         if series.empty:
             return None
-        return series.rolling(10, min_periods=1).mean()
+        return series
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -120,7 +122,7 @@ def load_pit_sizing_state(
         pass
     s63 = s63.sort_index()
 
-    ma10 = s63.rolling(10, min_periods=1).mean()
+    ma10 = main_dial_from_frame(frag)
     last_date = pd.Timestamp(s63.index[-1]).normalize()
     reference_date = pd.Timestamp(
         asof if asof is not None else datetime.datetime.now()
@@ -141,7 +143,9 @@ def load_pit_sizing_state(
         "stale_td": int(stale_td),
         "threshold": float(threshold),
         "throttle_on": score >= float(threshold),
-        "basis": "10d MA of append-only PIT 63d dial (stored 5d-smoothed)",
+        "basis": ("NYSE recovery-reset main dial; existing dial floor"
+                  if "main_score" in frag and pd.notna(frag["main_score"].iloc[-1])
+                  else "10d MA of append-only PIT 63d dial (stored 5d-smoothed)"),
     }
 
 

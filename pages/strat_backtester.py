@@ -53,7 +53,8 @@ def _frag_score_series():
         if os.path.exists(_fp):
             _fdf = pd.read_parquet(_fp)
             if '63d' in _fdf.columns:
-                _s = _fdf['63d'].dropna().rolling(10, min_periods=1).mean()
+                from nyse_risk import main_dial_from_frame
+                _s = main_dial_from_frame(_fdf)
                 _s.index = pd.to_datetime(_s.index).normalize()
                 try:
                     _s.index = _s.index.tz_localize(None)

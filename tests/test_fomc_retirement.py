@@ -101,7 +101,7 @@ def test_daily_producer_returns_only_current_components(monkeypatch):
     monkeypatch.setattr(report, 'compute_fomc_signal', retired, raising=False)
     result = report.compute_all_signals(spy.to_frame('Close'), pd.DataFrame(index=spy.index),
                                         pd.DataFrame(index=spy.index))
-    assert set(result['signals_ordered']) == set(core.ACTIVE_RISK_SIGNALS)
+    assert set(result['signals_ordered']) == set(core.ACTIVE_RISK_SIGNALS) | {'NYSE Net Highs'}
 
 
 def test_frontend_filters_legacy_payload_without_mutating_source():

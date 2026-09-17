@@ -117,6 +117,10 @@ def load_risk_data_from_master(master_path=MASTER_PRICES, lookback_years=10):
 # stay owned by risk_dashboard_v2; this map only describes how to serialize
 # and display the values that compute_all_signals() already returns.
 SIGNAL_METRICS = {
+    "NYSE Net Highs": {
+        "key": "net_highs", "label": "NYSE new highs minus new lows",
+        "unit": "issues", "decimals": 0, "thresholds": [0],
+    },
     "Distribution Dominance": {
         "key": "da_ratio", "label": "D/A ratio", "unit": "ratio", "decimals": 2,
         "thresholds": [
@@ -508,7 +512,8 @@ def build_sizing_state():
         return None
     s63.index = pd.to_datetime(s63.index)
     s63 = s63.sort_index()
-    ma = s63.rolling(10, min_periods=1).mean()
+    from nyse_risk import main_dial_from_frame
+    ma = main_dial_from_frame(frag)
     score = float(ma.iloc[-1])
 
     from strategy_config import STRATEGY_BOOK
@@ -564,7 +569,7 @@ def build_sizing_state():
 
     return {
         "asof": ma.index[-1].strftime("%Y-%m-%d"),
-        "basis": "10d MA of 63d dial, append-only PIT parquet (sizes live orders)",
+        "basis": "Main risk dial; saved decisions, with NYSE reset and floor from the recorded cutover",
         "score": round(score, 1),
         "raw_63d": round(float(s63.iloc[-1]), 1),
         "threshold": float(threshold),
@@ -628,7 +633,8 @@ def build_atr_downside(spy_df):
     if "63d" not in frag.columns:
         return out
     frag.index = pd.to_datetime(frag.index)
-    dial_ma = frag["63d"].dropna().sort_index().rolling(10, min_periods=1).mean()
+    from nyse_risk import main_dial_from_frame
+    dial_ma = main_dial_from_frame(frag)
     if dial_ma.empty:
         return out
     current = float(dial_ma.iloc[-1])

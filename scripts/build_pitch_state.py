@@ -255,7 +255,8 @@ def build_risk(today: pd.Timestamp, warnings: list[str]) -> dict:
     frag_path = ROOT / "data" / "rd2_fragility.parquet"
     try:
         frag = pd.read_parquet(frag_path)
-        ma10 = frag["63d"].dropna().rolling(10, min_periods=1).mean()
+        from nyse_risk import main_dial_from_frame
+        ma10 = main_dial_from_frame(frag)
         last_date = pd.Timestamp(frag.index[-1]).normalize()
         out["fragility"] = {
             "as_of": str(last_date.date()),

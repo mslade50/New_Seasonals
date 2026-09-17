@@ -12,6 +12,7 @@ const RISK_SIGNAL_COLORS = {
   "Low Absorption Ratio": "#9b59b6",
   "Seasonal Rank Divergence": "#1abc9c",
   "Dispersion": "#f39c12",
+  "NYSE Net Highs": "#2980b9",
   "Equity P/C Complacency": "#8e44ad",
 };
 
@@ -124,7 +125,7 @@ async function init() {
     sz.spark.daily.length === sz.spark.dates.length;
   if (d.spy_series) {
     const riskBasis = sizingChart
-      ? "production sizing fragility (63d · 10d MA · append-only PIT)"
+      ? "main risk dial (saved daily decisions)"
       : `display recompute ${fragKey || ""} (legacy payload; not a sizing input)`;
     html += `<h2>SPY vs ${riskBasis}</h2>
       <div class="card">
@@ -202,7 +203,7 @@ async function init() {
         dailyDates = sz.spark.dates;
         dailyValues = sz.spark.daily;
       }
-      riskName = "Sizing fragility 63d · 10d MA · PIT";
+      riskName = "Main risk dial";
     } else if (fragKey) {
       riskDates = seriesDates(d, fs);
       riskValues = fs[fragKey];
@@ -335,7 +336,7 @@ function sizingHeroHtml(sz) {
     <div class="head"><span class="tkr">Sizing State</span>
       <span class="badge ${on ? "on" : "off"}">${on ? "THROTTLE ON" : "THROTTLE OFF"}</span>
       <span class="signal-current">${fmt.num(sz.score, 1)}</span></div>
-    <div class="cap">10d MA of the 63d dial — the number that sizes live orders ·
+    <div class="cap">Main risk dial — the number that sizes live orders ·
       ${gapTxt} · ${sz.days_in_state != null ? `${sz.days_in_state}d in state` : ""} ·
       as of ${esc(sz.asof || "-")} (append-only PIT series)</div>
     <div class="sizing-throttle">${throttleLine}</div>
@@ -388,7 +389,7 @@ function kpiRowHtml(d) {
     const cls = on === null ? "" : on ? "neg" : "pos";
     cells += `<div class="kpi"><div class="l">Sizing Fragility</div>
       <div class="v ${cls}">${fmt.num(sz.score, 1)}</div>
-      <div class="s">63d · 10d MA · PIT as of ${esc(sz.asof || "-")} · threshold ${fmt.num(sz.threshold, 0)}</div></div>`;
+      <div class="s">Main dial as of ${esc(sz.asof || "-")} · threshold ${fmt.num(sz.threshold, 0)}</div></div>`;
   } else if (frag["63d"] != null) {
     cells += `<div class="kpi"><div class="l">Fragility 63d</div>
       <div class="v">${Math.round(frag["63d"])}</div>

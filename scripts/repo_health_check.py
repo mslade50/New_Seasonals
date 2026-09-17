@@ -265,7 +265,11 @@ def check_fragility_pit() -> None:
 
     frozen_through = state.get("frag_frozen_through")
     if frozen_through:
-        frozen = df.loc[:pd.Timestamp(frozen_through)]
+        # The NYSE migration adds an explicit main_score column. Validate the
+        # columns present at the prior checkpoint, then checkpoint the expanded
+        # schema below; adding a column must not masquerade as rewritten prices.
+        columns = state.get("frag_frozen_columns", ["5d", "21d", "63d"])
+        frozen = df.loc[:pd.Timestamp(frozen_through), columns]
         digest = hashlib.sha256(
             frozen.round(6).to_csv().encode("utf-8")).hexdigest()
         if digest != state.get("frag_frozen_sha"):
@@ -282,6 +286,7 @@ def check_fragility_pit() -> None:
         pd.Timestamp(np.busday_offset(np.datetime64(dt.date.today()), -5,
                                       roll="backward")))
     frozen = df.loc[:new_frozen]
+    state["frag_frozen_columns"] = list(frozen.columns)
     state["frag_frozen_through"] = str(new_frozen.date())
     state["frag_frozen_sha"] = hashlib.sha256(
         frozen.round(6).to_csv().encode("utf-8")).hexdigest()
