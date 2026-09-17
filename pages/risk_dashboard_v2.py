@@ -1258,7 +1258,9 @@ def render_signal_board(signals: dict, price_ctx: dict):
         summary = sig['summary']
         detail = sig.get('detail', '')
 
-        if elevated:
+        if sig.get('available') is False:
+            st.markdown(f"**{name} — UNAVAILABLE**  \n{detail}")
+        elif elevated:
             st.markdown(
                 f"<div style='padding: 6px 10px; margin-bottom: 6px; "
                 f"background: rgba(204,0,0,0.15); border-left: 4px solid #FF0000; "

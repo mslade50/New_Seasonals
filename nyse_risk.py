@@ -125,7 +125,11 @@ def load_nyse_signal(spy_close, path):
               if valid else "NYSE reading missing for the latest SPY session; existing dial retained.")
     if valid and not complete:
         detail += " Recent breadth history is incomplete; existing dial retained."
+    fired = np.flatnonzero(severity.fillna(0).gt(0).to_numpy())
+    recovered = np.flatnonzero(net.ge(0).to_numpy())
+    cleared = bool(len(recovered) and (not len(fired) or recovered[-1] >= fired[-1]))
     return {"on": bool(on), "available": complete, "detail": detail,
+            "recovery_cleared": cleared,
             "summary": detail, "signal_history": severity.fillna(0).gt(0),
             "net_highs": net, "severity": severity,
             "explanation": "More NYSE new lows than highs near an index high can reveal weakening participation. A nonnegative reading clears this warning and its smoothing memory."}

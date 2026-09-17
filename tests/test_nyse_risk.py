@@ -58,3 +58,22 @@ def test_saved_decisions_and_am_refresh_migration():
     assert out.loc["2026-09-17", "main_score"] == 55
     assert out.loc["2026-09-18":, "main_score"].notna().all()
     pd.testing.assert_series_equal(out["63d"], old["63d"])
+
+
+def test_display_respects_recovery_and_unknown_data(tmp_path):
+    from nyse_risk import load_nyse_signal
+    from fragility_core import _compute_decay_metadata
+    from daily_risk_report import _status_badge
+    _, spy, net = inputs()
+    path = tmp_path / "breadth.parquet"
+    net.iloc[-2] = 0
+    spy.iloc[-1] = 96
+    pd.DataFrame({"nyse_net": net}).to_parquet(path)
+    sig = load_nyse_signal(spy, path)
+    assert sig['recovery_cleared']
+    assert _compute_decay_metadata(sig, .04) is None
+    assert _status_badge(sig, {'drawdown': -.04})[0] == 'OFF'
+    net.iloc[-1] = np.nan
+    pd.DataFrame({"nyse_net": net}).to_parquet(path)
+    sig = load_nyse_signal(spy, path)
+    assert _status_badge(sig, {})[0] == 'UNAVAILABLE'
