@@ -437,6 +437,8 @@ def generate_analog_pdf(spy_df, analog_dates, today_vec_str, tmp_dir):
 
 def _status_badge(sig, price_ctx):
     """Return (badge_text, badge_color) for a signal."""
+    if sig.get('available') is False:
+        return 'UNAVAILABLE', '#888888'
     if sig.get('on'):
         if sig.get('elevated'):
             return 'ELEVATED', '#FF4500'
