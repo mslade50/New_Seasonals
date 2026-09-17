@@ -49,7 +49,7 @@ alone cannot establish a fill.
 ## Evidence and verification
 
 - The original code reproduces the stale block with a readable broker fixture.
-- 178 tests passed; one old source-pinning test skipped because its reviewed
+- 182 tests passed; one old source-pinning test skipped because its reviewed
   pre-upgrade fixture no longer matches the runtime.
 - Five legacy adapter tests fail identically on the unchanged baseline and this
   candidate: they apply an obsolete patcher to the current executor. New tests
@@ -65,11 +65,14 @@ alone cannot establish a fill.
 - Independent contrarian review rejected the first candidate for hidden coverage
   discrepancies, stale/incomplete structural snapshots and blank-account omission.
   A separate adversarial check found execution-correction overstatement. All have
-  targeted regression coverage in the revised candidate; second review pending.
+  targeted regression coverage in the revised candidate. The second review found
+  two related orphan-exit cases (flat exit-allocation journals lacking a direction
+  field, and old recorded exits after a position reversal); these are corrected
+  with long/short regression fixtures. Final verification of those fixes pending.
 
 ## Runtime activation and rollback
 
-Candidate: `artifacts/broker-reconciliation-candidate-v3/`. Its manifest pins the
+Candidate: `artifacts/broker-reconciliation-candidate-v4/`. Its manifest pins the
 current executor, agent and dependencies and hashes the four candidate modules.
 Preparation refuses an existing candidate directory or changed live sources.
 
@@ -85,6 +88,8 @@ stale workflows. Do not send a trade as a test.
 Before activation also check whether a configured Legend reservation guard pins
 the runtime source tree. Preserve its protections; if active, include the reviewed
 runtime hash update in the activation plan rather than bypassing that check.
+The September 17 preflight found no required marker, no reservation-config override
+in the launch environment file or user/machine settings, and no default config.
 
 There is no direct order exposure or charge from the observer; installing code
 in the live execution runtime nevertheless affects whether future user actions

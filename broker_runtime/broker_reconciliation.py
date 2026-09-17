@@ -156,8 +156,22 @@ def check_coverage(record, evidence):
         return
     position = evidence["position"]
     closing = "SELL" if position > 0 else "BUY" if position < 0 else record.get("closing")
+    if not closing and record.get("kind") == "reconcile_exits":
+        original_position = float(record["held"])
+        if not math.isfinite(original_position) or original_position == 0:
+            raise ValueError("original exit-allocation direction is unavailable")
+        closing = "SELL" if original_position > 0 else "BUY"
     live = [r for r in evidence["orders"] if r["status"] not in TERMINAL]
     parents = {(r["identity"][2], r["identity"][3]) for r in live}
+    owned = [leg["identity"] for leg in record.get("legs", []) if leg.get("identity")]
+    owned.extend(item["identity"] for item in record.get("plan", []) if item.get("identity"))
+    for allocation in record.get("addition", []):
+        owned.extend([evidence["account"], evidence["con_id"], 0, item["order_id"], item["perm_id"]]
+                     for item in allocation.get("children", []) if item.get("perm_id"))
+    for row in live:
+        if (any(matches(row["identity"], wanted) for wanted in owned)
+                and (not position or row["action"] != closing)):
+            raise ValueError("record-owned closing order remains working after the position became flat or reversed")
     exits = [r for r in live if r["action"] == closing
              and (not r["parent"] or (r["identity"][2], r["parent"]) not in parents)]
     if not position:

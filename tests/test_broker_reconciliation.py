@@ -438,6 +438,34 @@ def test_contradictory_completed_fill_quantity_is_not_ignored():
         obs.capture(ObservedBroker(exits=[trade]), "PRIMARY", 42)
 
 
+@pytest.mark.parametrize("held,side", [(100, "SELL"), (-100, "BUY")])
+def test_flat_exit_allocation_uses_actual_journal_shape_to_detect_orphan_exit(held, side):
+    r = dict(version=1, id="fixture", payload=request(), kind="reconcile_exits",
+             identity=["PRIMARY", 42], phase="attention", completed=[], held=str(held),
+             plan=[dict(identity=["PRIMARY", 42, 7, 1, 101], remaining="100")])
+    trade = exit_order(1, 100)
+    trade.order.action = side
+    broker = ObservedBroker(holdings=0, exits=[trade])
+    with pytest.raises(obs.CoverageDiscrepancy, match="closing order.*flat"):
+        obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
+    broker.orders = []
+    assert obs.resolve(r, obs.capture(broker, "PRIMARY", 42))["phase"] == "done"
+
+
+@pytest.mark.parametrize("position,old_side,new_side", [(-100, "SELL", "BUY"), (100, "BUY", "SELL")])
+def test_reversed_position_cannot_hide_old_record_owned_exit(position, old_side, new_side):
+    old, current = exit_order(1, 100), exit_order(2, 100)
+    old.order.action, current.order.action = old_side, new_side
+    r = stopped()
+    r.update(closing=old_side, legs=[dict(order_type="STP", qty=100, identity=["PRIMARY", 42, 7, 1, 101])])
+    broker = ObservedBroker(holdings=position, exits=[old, current])
+    with pytest.raises(obs.CoverageDiscrepancy, match="record-owned.*reversed"):
+        obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
+    # An unrelated new entry is not mistaken for an obsolete recorded exit.
+    old.order.permId = 999
+    assert obs.resolve(r, obs.capture(broker, "PRIMARY", 42))["phase"] == "done"
+
+
 @pytest.fixture
 def ib_event_loop():
     loop = asyncio.new_event_loop()
