@@ -80,7 +80,11 @@ alone cannot establish a fill.
   the review-driven coverage check is diagnostic, not a new admission policy.
   Regression fixtures prove a fresh close is allowed after an intentionally bare
   position and that Add retains only its pre-existing inherited-exit rule. This
-  policy-aligned revision is awaiting independent re-review.
+  policy-aligned revision `466e5f57` passed independent re-review: 177 passed and
+  one skipped across five suites, with no remaining blocker found. An additional
+  adversarial fixture verified a known filled Add with cancelled protection kept
+  its actual fill and explicit warning through JSON persistence, repeated receipt
+  reads and websocket reporting, without broker mutations or an added admission gate.
 
 ## Runtime activation and rollback
 
