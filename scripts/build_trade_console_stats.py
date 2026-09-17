@@ -54,7 +54,6 @@ ABBR = {
     "Distribution Dominance": "DA",
     "VIX Range Compression": "VRC",
     "Defensive Leadership": "DL",
-    "Pre-FOMC Rally": "FOMC",
     "Low Absorption Ratio": "AR",
     "Seasonal Rank Divergence": "SRD",
     "Dispersion": "DISP",
@@ -137,7 +136,11 @@ def class_fingerprint(signal_names) -> str:
     console (the old hedge block's failure). Catches name-set and class-set
     drift; threshold drift inside an unchanged signal name is NOT caught —
     that risk is carried by the vintage tripwire and deliberate review."""
-    basis = "|".join(sorted(signal_names)) + "||" + CLASS_SET_VERSION + "||" + \
+    # FOMC never defined any class. Retain its legacy fingerprint token
+    # so unchanged six-signal evidence stays compatible without regeneration.
+    # Missing/renamed class inputs still change the fingerprint.
+    names = set(signal_names) | {"Pre-FOMC Rally"}
+    basis = "|".join(sorted(names)) + "||" + CLASS_SET_VERSION + "||" + \
         ">".join(CLASS_PRECEDENCE)
     return hashlib.sha256(basis.encode()).hexdigest()[:16]
 
@@ -272,7 +275,8 @@ def main() -> None:
     print("downloading data (production pipeline) ...")
     spy_df, closes, sp500_closes = download_data()
     computed = compute_all_signals(spy_df, closes, sp500_closes)
-    signals_ordered = computed["signals_ordered"]
+    signals_ordered = {name: sig for name, sig in computed["signals_ordered"].items()
+                       if name in ABBR}
     spy_close = computed["spy_close"].dropna()
 
     frame = build_config_frame(signals_ordered, spy_close)

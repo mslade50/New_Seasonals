@@ -38,7 +38,6 @@ from pages.risk_dashboard_v2 import (
     compute_da_signal,
     compute_vix_range_compression,
     compute_defensive_leadership,
-    compute_fomc_signal,
     compute_low_ar_signal,
     compute_seasonal_divergence_signal,
     compute_dispersion_signal,
@@ -59,6 +58,7 @@ from pages.risk_dashboard_v2 import (
 
 # Also import the decay metadata helper for DECAYING badge
 from pages.risk_dashboard_v2 import _compute_decay_metadata
+from fragility_core import filter_risk_signals, load_main_dial_series
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ def download_data():
 # ---------------------------------------------------------------------------
 
 def compute_all_signals(spy_df, closes, sp500_closes):
-    """Compute all 6 signals and derived metrics."""
+    """Compute the seven current risk components and derived metrics."""
     spy_close = spy_df["Close"]
 
     sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
@@ -93,7 +93,6 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     vix_close = closes["^VIX"].dropna() if "^VIX" in closes.columns else pd.Series(dtype=float)
     vrc = compute_vix_range_compression(vix_close)
     dl = compute_defensive_leadership(sp500_closes, spy_close)
-    fomc = compute_fomc_signal(spy_close)
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
     disp = compute_dispersion_signal(sp500_closes, spy_df, spy_close)
@@ -103,17 +102,19 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'Distribution Dominance': da,
         'VIX Range Compression': vrc,
         'Defensive Leadership': dl,
-        'Pre-FOMC Rally': fomc,
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
         'Dispersion': disp,
         # 5d-horizon-only contributor (2026-08-05); stats entry has no
         # 21d/63d edges so the PIT parquet's sizing 63d column is unchanged.
-        # Excluded from the simple-dial shadow (pre-registered 7-signal spec).
+        # Excluded from the simple-dial shadow (six-signal shadow spec).
         'Equity P/C Complacency': pcc,
     }
 
     price_ctx = compute_price_context(spy_close)
+    from nyse_risk import load_nyse_signal, SIGNAL_NAME
+    signals_ordered[SIGNAL_NAME] = load_nyse_signal(
+        spy_close, os.path.join(current_dir, "data", "market_breadth.parquet"))
     regime_mult = compute_regime_multiplier(price_ctx)
 
     # Shared scoring pipeline (fragility_core, A3) — no _ts write here.
@@ -173,12 +174,16 @@ def merge_fragility_history(
 # ---------------------------------------------------------------------------
 
 def build_forward_returns_data(frag_df, spy_close, h_scores):
-    """Compute forward returns for each horizon at current fragility reading."""
+    """All forward-return windows conditioned on one main-dial reading.
+
+    Callers supply the main dial's already-smoothed history and current score.
+    The outer 63d key identifies the model; inner return keys identify windows.
+    """
     if frag_df is None or h_scores is None:
         return {}
 
     results = {}
-    for horizon in ['5d', '21d', '63d']:
+    for horizon in ['63d']:
         if horizon not in h_scores or h_scores.get(horizon) is None:
             continue
         # Zero is a real (robust) risk-dial reading, not missing data.  The
@@ -192,6 +197,15 @@ def build_forward_returns_data(frag_df, spy_close, h_scores):
         if ret is not None:
             results[horizon] = ret
     return results
+
+
+def build_main_dial_forward_returns(spy_close, path=None):
+    """Use the same stored statistic as the displayed sizing dial."""
+    main = load_main_dial_series(path)
+    if main is None:
+        return {}
+    return build_forward_returns_data(
+        main.to_frame('63d'), spy_close, {'63d': float(main.iloc[-1])})
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +232,7 @@ def generate_dial_image(sizing, tmp_dir):
     """Single 63d gauge on the sizing basis (10d MA of the 63d dial from the
     just-appended PIT parquet — never the in-memory recompute, which drifts
     near the threshold). Replaced the 3-dial 5d/21d/63d strip 2026-07-16:
-    5d failed every sizing test, 21d is ~90% redundant with 63d. All three
-    raw scores stay in the subject line."""
+    The subject and forward-return table use this same main reading."""
     if sizing is None or sizing.get('ma') is None:
         return None
 
@@ -268,29 +281,21 @@ def generate_overlay_image(spy_close, signals_ordered, tmp_dir):
 
 
 def find_analog_dates(frag_df, h_scores, h_scores_10d, n_matches=5, min_gap=10):
-    """Find the N closest historical dates by Euclidean distance on 4 fragility dims.
+    """Find the N closest historical dates by distance from the main dial.
 
-    Feature vector: [21d_raw, 21d_10d_avg, 63d_raw, 63d_10d_avg]
+    Historical matches use only the supplied main-dial score.
     Enforces min_gap trading days between matches to prevent clustering.
     """
     if frag_df is None or h_scores is None or h_scores_10d is None:
         return []
 
-    raw = frag_df[['21d', '63d']].copy()
-    avg10 = frag_df[['21d', '63d']].rolling(10, min_periods=1).mean()
-    avg10.columns = ['21d_10d', '63d_10d']
-    features = pd.concat([raw, avg10], axis=1).dropna()
+    features = frag_df[['63d']].dropna()
 
     if len(features) < 2:
         return []
 
     # Current feature vector
-    today_vec = np.array([
-        h_scores.get('21d', 0),
-        h_scores.get('63d', 0),
-        h_scores_10d.get('21d', 0),
-        h_scores_10d.get('63d', 0),
-    ])
+    today_vec = np.array([h_scores['63d']])
 
     # Exclude last 5 trading days (too recent / overlapping with "now")
     features = features.iloc[:-5]
@@ -453,7 +458,7 @@ def _build_fwd_returns_html(fwd_returns_data, title):
         return ""
 
     fwd_rows = ""
-    for horizon in ['5d', '21d', '63d']:
+    for horizon in ['63d']:
         ret_data = fwd_returns_data.get(horizon)
         if ret_data is None:
             continue
@@ -463,7 +468,7 @@ def _build_fwd_returns_html(fwd_returns_data, title):
         fwd_rows += f"""
         <tr style="border-bottom: 1px solid #444;">
             <td colspan="7" style="padding: 8px 12px; color: #FFD700; font-weight: bold; font-size: 13px;">
-                {horizon.upper()} Fragility = {score:.0f} | {n_episodes} historical episodes (band: {ret_data['band_low']:.0f}-{ret_data['band_high']:.0f})
+                Main risk dial = {score:.0f} | {n_episodes} historical episodes (band: {ret_data['band_low']:.0f}-{ret_data['band_high']:.0f})
             </td>
         </tr>
         <tr style="border-bottom: 1px solid #333;">
@@ -511,7 +516,7 @@ def _build_fwd_returns_html(fwd_returns_data, title):
 def build_html_email(computed, fwd_returns_10d=None):
     """Build the full HTML email body."""
     price_ctx = computed['price_ctx']
-    signals_ordered = computed['signals_ordered']
+    signals_ordered = filter_risk_signals(computed['signals_ordered'])
     h_scores = computed['h_scores']
     frag_df = computed['frag_df']
 
@@ -610,11 +615,9 @@ def build_html_email(computed, fwd_returns_10d=None):
     fwd_returns_10d_html = _build_fwd_returns_html(fwd_returns_10d, "Forward Returns at Similar Fragility (10d avg)")
 
     # --- Dial scores for subject line ---
-    s5 = h_scores.get('5d', 0) if h_scores else 0
-    s21 = h_scores.get('21d', 0) if h_scores else 0
-    s63 = h_scores.get('63d', 0) if h_scores else 0
-
-    subject = f"Risk Report \u2014 {date_str} | Fragility: {s5:.0f}/{s21:.0f}/{s63:.0f}"
+    main_score = (computed.get('main_sizing') or {}).get('score')
+    score_text = f"{main_score:.0f}" if main_score is not None else 'unavailable'
+    subject = f"Risk Report \u2014 {date_str} | Risk dial: {score_text}"
 
     # --- Full HTML ---
     html = f"""
@@ -799,6 +802,7 @@ def main():
             pass
 
         frag_out = frag_smoothed
+        existing = None
         frozen_through = None
         if os.path.exists(frag_cache_path):
             try:
@@ -824,12 +828,25 @@ def main():
                     f"refusing to rewrite frozen PIT history — fix or restore "
                     f"{frag_cache_path} from git") from e
 
+        # Explicit main score: reset NYSE memory independently of the legacy
+        # components. Keep historical sizing decisions and the 63d basis intact.
+        from nyse_risk import append_main_scores, MODEL_VERSION
+        breadth_path = os.path.join(data_dir, "market_breadth.parquet")
+        breadth = pd.read_parquet(breadth_path) if os.path.exists(breadth_path) else None
+        net = breadth["nyse_net"] if breadth is not None else pd.Series(dtype=float)
+        frag_out, nyse_state = append_main_scores(
+            frag_out, existing, computed["spy_close"], net,
+            computed["horizon_stats"], refresh_from if refresh_from is not None else pd.Timestamp.today().normalize())
+        if not bool(nyse_state["nyse_available"].iloc[-1]):
+            print("  NYSE breadth unavailable/incomplete: retaining existing main dial floor")
+
         try:
             import pyarrow as pa
             import pyarrow.parquet as pq
             table = pa.Table.from_pandas(frag_out)
             md = dict(table.schema.metadata or {})
             md[b"fragility_basis"] = b"5d_smoothed"
+            md[b"main_score_basis"] = MODEL_VERSION.encode()
             md[b"fragility_generated"] = datetime.datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S").encode()
             md[b"fragility_last_date"] = str(frag_out.index.max()).encode()
@@ -861,10 +878,9 @@ def main():
         # history only — nothing consumes it until a PIT-gated swap decision.
         try:
             from fragility_simple import (compute_simple_dial,
-                                          SIMPLE_CACHE_NAME, SIMPLE_SIGNALS)
-            # Pin to the registered 7-signal spec: composite additions after
-            # 2026-07-16 (Equity P/C Complacency) must not leak into the
-            # pre-registered shadow.
+                                          SIMPLE_CACHE_NAME, SIMPLE_SIGNALS, SIMPLE_SPEC_VERSION)
+            # The shadow excludes retired FOMC and the later P/C addition.
+            # Preserve existing rows; stamp the membership transition below.
             _simple_inputs = {n: computed['signals_ordered'].get(n, {})
                               for n in SIMPLE_SIGNALS}
             simple_raw = compute_simple_dial(
@@ -889,6 +905,16 @@ def main():
                         simple_out, existing_s.sort_index(),
                         pd.Timestamp.today().normalize(),
                         refresh_from=refresh_from)
+                # Keep the original cache path and frozen rows. Record the first
+                # written row of this membership vintage so research can split eras.
+                transitions = dict(existing_s.attrs.get("spec_transitions", {})) if os.path.exists(simple_path) else {}
+                new_rows = simple_out.index if simple_frozen is None else simple_out.index[simple_out.index > simple_frozen]
+                if len(new_rows):
+                    transitions.setdefault(SIMPLE_SPEC_VERSION, new_rows[0].strftime("%Y-%m-%d"))
+                simple_out.attrs.update({"spec_version": SIMPLE_SPEC_VERSION,
+                                         "signal_names": list(SIMPLE_SIGNALS),
+                                         "spec_transitions": transitions,
+                                         "legacy_spec": "v1: seven signals including Pre-FOMC Rally"})
                 simple_out.to_parquet(simple_path)
                 frozen_note = (f"frozen through {simple_frozen.date()}"
                                if simple_frozen is not None else "bootstrap write")
@@ -907,7 +933,8 @@ def main():
                                      summary_line as sleeve_summary)
             cache = pd.read_parquet(frag_cache_path)
             if '63d' in cache.columns:
-                ma = cache['63d'].dropna().rolling(10, min_periods=1).mean()
+                from nyse_risk import main_dial_from_frame
+                ma = main_dial_from_frame(cache)
                 ma.index = pd.to_datetime(ma.index)
                 sleeve_state = sleeve_eval(
                     computed['spy_close'].dropna(), ma, sleeve_load(),
@@ -941,9 +968,7 @@ def main():
 
     # 3. Forward returns (10d-avg sizing basis only; 5d-avg set cut 2026-07-16)
     print("[3/6] Computing forward returns...")
-    fwd_returns_10d = build_forward_returns_data(
-        computed['frag_df'], computed['spy_close'], computed['h_scores_10d']
-    )
+    fwd_returns_10d = build_main_dial_forward_returns(computed['spy_close'])
 
     # 4. Generate images + analog PDF
     print("[4/7] Generating images...")
@@ -954,9 +979,11 @@ def main():
     try:
         cache = pd.read_parquet(os.path.join(data_dir, "rd2_fragility.parquet"))
         if '63d' in cache.columns and not cache['63d'].dropna().empty:
-            ma = cache['63d'].dropna().rolling(10, min_periods=1).mean()
+            from nyse_risk import main_dial_from_frame
+            ma = main_dial_from_frame(cache)
             sizing = {'ma': float(ma.iloc[-1]), 'raw': float(cache['63d'].dropna().iloc[-1]),
                       'on': bool(ma.iloc[-1] >= THROTTLE_THRESHOLD)}
+            computed['main_sizing'] = {'score': float(ma.iloc[-1])}
     except Exception as e:
         print(f"  WARNING: could not read sizing parquet for dial ({e})")
     dial_path = generate_dial_image(sizing, tmp_dir)
@@ -965,17 +992,15 @@ def main():
     )
 
     print("[5/7] Finding analog dates & generating PDF...")
+    main_history = load_main_dial_series()
+    main_scores = ({'63d': float(main_history.iloc[-1])}
+                   if main_history is not None else None)
     analog_dates = find_analog_dates(
-        computed['frag_df'], computed['h_scores'], computed['h_scores_10d']
-    )
+        main_history.to_frame('63d') if main_history is not None else None,
+        main_scores, main_scores)
     pdf_path = None
     if analog_dates:
-        h = computed['h_scores'] or {}
-        h10 = computed['h_scores_10d'] or {}
-        today_vec_str = (
-            f"21d={h.get('21d', 0):.0f} / 21d-10avg={h10.get('21d', 0):.0f} | "
-            f"63d={h.get('63d', 0):.0f} / 63d-10avg={h10.get('63d', 0):.0f}"
-        )
+        today_vec_str = f"Main risk dial={main_scores['63d']:.0f}"
         pdf_path = generate_analog_pdf(spy_df, analog_dates, today_vec_str, tmp_dir)
         print(f"  Found {len(analog_dates)} analog matches")
     else:

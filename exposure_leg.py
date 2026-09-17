@@ -110,7 +110,8 @@ def _read_dial_readings(frag_path: str) -> Optional[Dict[str, float]]:
         return None
     raw_21d = float(df['21d'].dropna().iloc[-1])
     raw_63d = float(df['63d'].dropna().iloc[-1])
-    ma10_63d = float(df['63d'].dropna().rolling(10, min_periods=1).mean().iloc[-1])
+    from nyse_risk import main_dial_from_frame
+    ma10_63d = float(main_dial_from_frame(df).iloc[-1])
     return {
         'raw_21d': raw_21d,
         'raw_63d': raw_63d,
@@ -387,7 +388,8 @@ def compute_exposure_leg_backtest(
     # reproduce the pre-removal stack in counterfactual replays.
     raw_21d = frag['21d']
     raw_63d = frag['63d']
-    ma10_63d = raw_63d.rolling(10, min_periods=1).mean()
+    from nyse_risk import main_dial_from_frame
+    ma10_63d = main_dial_from_frame(frag)
     rule1_active = raw_21d > 50
     rule3_active = ma10_63d > 50
     rule2_active = (raw_21d < 5) & (raw_63d < 5)

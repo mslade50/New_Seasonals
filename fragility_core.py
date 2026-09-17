@@ -18,6 +18,7 @@ import os
 
 import numpy as np
 import pandas as pd
+from nyse_risk import main_dial_from_frame
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(_ROOT, "data")
@@ -38,13 +39,50 @@ def _select_horizon_stats_path(
 HORIZON_STATS_PATH = _select_horizon_stats_path()
 PIT_FRAGILITY_PATH = os.path.join(DATA_DIR, "rd2_fragility.parquet")
 
+# Current composite membership. Retired signals in legacy inputs must never
+# regain a numerator or denominator contribution.
+ACTIVE_RISK_SIGNALS = (
+    "Distribution Dominance", "VIX Range Compression", "Defensive Leadership",
+    "Low Absorption Ratio", "Seasonal Rank Divergence", "Dispersion",
+    "Equity P/C Complacency",
+)
+RETIRED_RISK_SIGNALS = frozenset({"Pre-FOMC Rally"})
+
+
+def filter_risk_signals(signals: dict) -> dict:
+    """Keep current risk components in their supplied display order."""
+    return {name: value for name, value in signals.items()
+            if name in ACTIVE_RISK_SIGNALS or name == "NYSE Net Highs"}
+
 
 def load_horizon_stats() -> dict | None:
     """Load backtested signal horizon stats from JSON."""
     if not os.path.exists(HORIZON_STATS_PATH):
         return None
     with open(HORIZON_STATS_PATH, 'r') as f:
-        return json.load(f)
+        stats = json.load(f)
+    stats['signals'] = {name: value for name, value in stats.get('signals', {}).items()
+                        if name not in RETIRED_RISK_SIGNALS}
+    return stats
+
+
+def load_main_dial_series(path: str | None = None) -> pd.Series | None:
+    """Main display/sizing history, using each date's saved model version.
+
+    Legacy 63d values receive their ten-session mean. Explicit main_score
+    values already include the NYSE reset/floor and must not be smoothed again.
+    Missing history stays unavailable; recomputation is a different vintage.
+    """
+    try:
+        frag = pd.read_parquet(path or PIT_FRAGILITY_PATH)
+        series = main_dial_from_frame(frag)
+        series.index = pd.to_datetime(series.index).tz_localize(None)
+        series = series.sort_index()
+        if series.empty:
+            return None
+        return series
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def load_pit_sizing_state(
@@ -84,7 +122,7 @@ def load_pit_sizing_state(
         pass
     s63 = s63.sort_index()
 
-    ma10 = s63.rolling(10, min_periods=1).mean()
+    ma10 = main_dial_from_frame(frag)
     last_date = pd.Timestamp(s63.index[-1]).normalize()
     reference_date = pd.Timestamp(
         asof if asof is not None else datetime.datetime.now()
@@ -105,12 +143,16 @@ def load_pit_sizing_state(
         "stale_td": int(stale_td),
         "threshold": float(threshold),
         "throttle_on": score >= float(threshold),
-        "basis": "10d MA of append-only PIT 63d dial (stored 5d-smoothed)",
+        "basis": ("NYSE recovery-reset main dial; existing dial floor"
+                  if "main_score" in frag and pd.notna(frag["main_score"].iloc[-1])
+                  else "10d MA of append-only PIT 63d dial (stored 5d-smoothed)"),
     }
 
 
 def _signal_edge(stats: dict, signal_key: str, horizon: str) -> float:
     """Return the downside edge (positive = worse) for a signal at a horizon."""
+    if signal_key in RETIRED_RISK_SIGNALS:
+        return 0.0
     sig = stats.get('signals', {}).get(signal_key, {})
     dm = sig.get('horizons', {}).get(horizon, {}).get('diff_mean', 0)
     if dm is None:
@@ -321,7 +363,6 @@ def compute_horizon_fragility(
     da = signals_ordered.get('Distribution Dominance', {})
     vrc = signals_ordered.get('VIX Range Compression', {})
     dl = signals_ordered.get('Defensive Leadership', {})
-    fomc = signals_ordered.get('Pre-FOMC Rally', {})
     ar = signals_ordered.get('Low Absorption Ratio', {})
     srd = signals_ordered.get('Seasonal Rank Divergence', {})
     disp = signals_ordered.get('Dispersion', {})
@@ -329,7 +370,7 @@ def compute_horizon_fragility(
     # stats entry carries no 21d/63d horizons, so _signal_edge returns 0
     # there and the 21d/63d composites (incl. the sizing column) are
     # untouched. Persistent signal (~15% of days) -> STATIC denominator
-    # member, unlike the calendar-sparse FOMC.
+    # member.
     pcc = signals_ordered.get('Equity P/C Complacency', {})
 
     # SPY distance from highs (positive = below high)
@@ -353,10 +394,6 @@ def compute_horizon_fragility(
         if dl_w > 0:
             active_weight += _signal_edge(stats, 'Defensive Leadership', h) * dl_w
 
-        fomc_w = _signal_decay_weight(fomc, h, spy_pct_from_high)
-        if fomc_w > 0:
-            active_weight += _signal_edge(stats, 'Pre-FOMC Rally', h) * fomc_w
-
         ar_w = _signal_decay_weight(ar, h, spy_pct_from_high)
         if ar_w > 0:
             active_weight += _signal_edge(stats, 'Low Absorption Ratio', h) * ar_w
@@ -373,10 +410,7 @@ def compute_horizon_fragility(
         if pcc_w > 0:
             active_weight += _signal_edge(stats, 'Equity P/C Complacency', h) * pcc_w
 
-        # Dynamic max_weight: FOMC is calendar-dependent — only include its
-        # edge in the denominator when it's contributing (ON or decaying).
-        # Otherwise its large 5d edge (47% of total) prevents the dial from
-        # reaching meaningful levels on the ~95% of days FOMC can't fire.
+        # Only current component edges belong in the denominator.
         max_weight = (
             _signal_edge(stats, 'Distribution Dominance', h)
             + _signal_edge(stats, 'VIX Range Compression', h)
@@ -386,9 +420,6 @@ def compute_horizon_fragility(
             + _signal_edge(stats, 'Dispersion', h)
             + _signal_edge(stats, 'Equity P/C Complacency', h)
         )
-        if fomc_w > 0:
-            max_weight += _signal_edge(stats, 'Pre-FOMC Rally', h)
-
         if max_weight > 0:
             calm_mult = _compute_calm_multiplier_scalar(spy_close) if spy_close is not None else 1.0
             score = (active_weight / max_weight) * 80 * regime_mult * calm_mult
@@ -411,6 +442,7 @@ def compute_fragility_timeseries(
 
     Returns DataFrame with columns ['5d', '21d', '63d'], indexed by date.
     """
+    signals_ordered = filter_risk_signals(signals_ordered)
     # Build boolean fire DataFrame from signal histories
     fires = {}
     for name, sig in signals_ordered.items():
@@ -450,7 +482,6 @@ def compute_fragility_timeseries(
         edges = {name: _signal_edge(horizon_stats, name, horizon) for name in signal_names}
 
         active_weight = pd.Series(0.0, index=spy_close.index)
-        fomc_weight_series = pd.Series(0.0, index=spy_close.index)
 
         for name in signal_names:
             if name not in fire_df.columns:
@@ -476,14 +507,7 @@ def compute_fragility_timeseries(
             )
             active_weight += edge * weight
 
-            if name == 'Pre-FOMC Rally':
-                fomc_weight_series = pd.Series(weight, index=spy_close.index)
-
-        # Dynamic max_weight: exclude FOMC edge on days it can't contribute
-        base_max = sum(e for n, e in edges.items() if n != 'Pre-FOMC Rally')
-        fomc_edge = edges.get('Pre-FOMC Rally', 0.0)
-        max_weight = base_max + np.where(fomc_weight_series > 0, fomc_edge, 0.0)
-        max_weight = np.maximum(max_weight, 1e-9)  # avoid division by zero
+        max_weight = max(sum(edges.values()), 1e-9)  # avoid division by zero
 
         result[horizon] = ((active_weight / max_weight) * 80 * regime_mult * calm_mult).clip(0.0)
 

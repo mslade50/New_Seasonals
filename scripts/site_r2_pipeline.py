@@ -49,6 +49,7 @@ CANONICAL_INPUTS: tuple[R2Input, ...] = (
     R2Input("atr_seasonal_ranks", "atr_seasonal_ranks.parquet", "atr_seasonal_ranks.parquet"),
     R2Input("analyst_grades", "analyst_grades.parquet", "data/analyst_grades.parquet"),
     R2Input("fragility", "rd2_fragility.parquet", "data/rd2_fragility.parquet"),
+    R2Input("market_breadth", "market_breadth.parquet", "data/market_breadth.parquet", False),
     R2Input("risk_environment", "rd2_environment.json", "data/rd2_environment.json"),
     R2Input("exposure_state", "exposure_state.json", "data/exposure_state.json"),
     R2Input("dial_sleeve", "dial_sleeve_paper.json", "data/dial_sleeve_paper.json"),

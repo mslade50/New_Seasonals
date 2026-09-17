@@ -21,6 +21,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
 sys.path.insert(0, _ROOT)
 
+from fragility_core import filter_risk_signals
+
 OUT = os.path.join(_ROOT, "data", "site_risk.json")
 MASTER_PRICES = os.path.join(_ROOT, "data", "master_prices.parquet")
 
@@ -115,6 +117,10 @@ def load_risk_data_from_master(master_path=MASTER_PRICES, lookback_years=10):
 # stay owned by risk_dashboard_v2; this map only describes how to serialize
 # and display the values that compute_all_signals() already returns.
 SIGNAL_METRICS = {
+    "NYSE Net Highs": {
+        "key": "net_highs", "label": "NYSE new highs minus new lows",
+        "unit": "issues", "decimals": 0, "thresholds": [0],
+    },
     "Distribution Dominance": {
         "key": "da_ratio", "label": "D/A ratio", "unit": "ratio", "decimals": 2,
         "thresholds": [
@@ -132,7 +138,6 @@ SIGNAL_METRICS = {
         "unit": "pp", "decimals": 1,
         "thresholds": [{"value": -10.0, "label": "Fire", "operator": "<"}],
     },
-    "Pre-FOMC Rally": None,
     "Low Absorption Ratio": {
         "key": "ar_pctile", "label": "Absorption Ratio percentile",
         "unit": "percentile", "decimals": 1,
@@ -213,7 +218,7 @@ def _build_signal_detail(signals_ordered, dates, signal_periods_fn):
     invoking the heavy ten-year market-data refresh.
     """
     detail = {}
-    for name, sig_raw in signals_ordered.items():
+    for name, sig_raw in filter_risk_signals(signals_ordered).items():
         sig = sig_raw or {}
         periods = []
         try:
@@ -507,7 +512,8 @@ def build_sizing_state():
         return None
     s63.index = pd.to_datetime(s63.index)
     s63 = s63.sort_index()
-    ma = s63.rolling(10, min_periods=1).mean()
+    from nyse_risk import main_dial_from_frame
+    ma = main_dial_from_frame(frag)
     score = float(ma.iloc[-1])
 
     from strategy_config import STRATEGY_BOOK
@@ -563,7 +569,7 @@ def build_sizing_state():
 
     return {
         "asof": ma.index[-1].strftime("%Y-%m-%d"),
-        "basis": "10d MA of 63d dial, append-only PIT parquet (sizes live orders)",
+        "basis": "Main risk dial; saved decisions, with NYSE reset and floor from the recorded cutover",
         "score": round(score, 1),
         "raw_63d": round(float(s63.iloc[-1]), 1),
         "threshold": float(threshold),
@@ -613,6 +619,7 @@ def build_atr_downside(spy_df):
     out = {k: stats.get(k) for k in (
         "measure", "atr_period", "mults", "horizons",
         "baseline", "baseline_n", "data_from", "data_through", "signals")}
+    out["signals"] = filter_risk_signals(out.get("signals") or {})
 
     # ---- dial-conditioned table (live) ----
     if _HERE not in sys.path:
@@ -626,7 +633,8 @@ def build_atr_downside(spy_df):
     if "63d" not in frag.columns:
         return out
     frag.index = pd.to_datetime(frag.index)
-    dial_ma = frag["63d"].dropna().sort_index().rolling(10, min_periods=1).mean()
+    from nyse_risk import main_dial_from_frame
+    dial_ma = main_dial_from_frame(frag)
     if dial_ma.empty:
         return out
     current = float(dial_ma.iloc[-1])
@@ -677,8 +685,6 @@ def build_nuggets(p):
     context) — no fabricated history.
     """
     out = []
-    frag = p.get("fragility") or {}
-    frag10 = p.get("fragility_10d") or {}
     ctx = p.get("price_ctx") or {}
     fwd = p.get("forward_returns") or {}
     sigs = p.get("signals") or []
@@ -688,26 +694,21 @@ def build_nuggets(p):
         return "robust" if v < 33 else "neutral" if v < 66 else "fragile"
 
     # 1. fragility level + trend
-    if frag.get("21d") is not None:
-        f21 = frag["21d"]
-        trend = ""
-        if frag10.get("21d") is not None:
-            d = f21 - frag10["21d"]
-            trend = " and easing" if d < -1 else " and building" if d > 1 else ", flat"
-        tone = "good" if f21 < 33 else "warn" if f21 < 66 else "bad"
+    main_score = (p.get("sizing_state") or {}).get("score")
+    if main_score is not None:
+        tone = "good" if main_score < 33 else "warn" if main_score < 66 else "bad"
         out.append({
-            "title": f"Fragility: {lvl(f21)}{trend}",
+            "title": f"Fragility: {lvl(main_score)}",
             "tone": tone,
             "lines": [
-                f"21d score {f21:.0f} / 100 ({lvl(f21)}){trend} vs its 10d average. "
-                f"5d at {frag.get('5d', 0):.0f}, 63d at {frag.get('63d', 0):.0f}.",
+                f"Main risk dial {main_score:.0f} / 100 ({lvl(main_score)}).",
             ],
         })
 
     # 2. conditional forward returns at the current readings
     fwd_lines, zs, z_by_h = [], [], {}
     for h in ["5d", "21d", "63d"]:
-        r = fwd.get(h)
+        r = fwd.get("63d")
         if not r:
             continue
         w = h.replace("d", "")
@@ -718,7 +719,7 @@ def build_nuggets(p):
         zs.append(mz)
         z_by_h[h] = mz
         fwd_lines.append(
-            f"{h} fragility {r['current_score']:.0f} ({r['n_episodes']} similar episodes): "
+            f"Main dial {r['current_score']:.0f} ({r['n_episodes']} similar episodes): "
             f"SPY next {w}d averaged {st['mean']:+.2%} vs {st['uncond_mean']:+.2%} baseline "
             f"(mean Z {mz:+.2f}, {st['pct_neg']:.0%} negative).")
     if fwd_lines:
@@ -817,7 +818,6 @@ TC_FULL_NAMES = {
     "DA": "Distribution Dominance", "VRC": "VIX Range Compression",
     "DL": "Defensive Leadership", "AR": "Low Absorption Ratio",
     "SRD": "Seasonal Rank Divergence", "DISP": "Dispersion",
-    "FOMC": "Pre-FOMC Rally",
 }
 
 
@@ -1100,11 +1100,11 @@ def build_trade_console(computed):
     with open(TC_STATS_PATH, encoding="utf-8") as f:
         stats = json.load(f)
 
-    signals_ordered = computed["signals_ordered"]
+    signals_ordered = filter_risk_signals(computed["signals_ordered"])
     spy_close = computed["spy_close"].dropna()
 
-    # The trade-console evidence file was built on the ABBR taxonomy (the 7
-    # base signals). Signals added to the composite later (Equity P/C
+    # The trade-console classes use the six bearish base signals.
+    # Signals added to the composite later (Equity P/C
     # Complacency, 2026-08-05) are filtered out here so the fingerprint gate
     # checks the taxonomy the evidence actually covers instead of degrading.
     signals_ordered = {k: v for k, v in signals_ordered.items() if k in ABBR}
@@ -1127,8 +1127,6 @@ def build_trade_console(computed):
 
     fired = []
     for name, abbr in ABBR.items():
-        if abbr == "FOMC":
-            continue
         if bool(row[f"any_{abbr}"]):
             on_col = frame[f"on_{abbr}"]
             if bool(row[f"on_{abbr}"]):
@@ -1145,7 +1143,7 @@ def main():
     try:
         from daily_risk_report import (
             compute_all_signals,
-            build_forward_returns_data,
+            build_main_dial_forward_returns,
             _status_badge,
         )
         from pages.risk_dashboard_v2 import _signal_periods
@@ -1157,7 +1155,7 @@ def main():
 
         signals = []
         price_ctx = computed["price_ctx"] or {}
-        for name, sig in computed["signals_ordered"].items():
+        for name, sig in filter_risk_signals(computed["signals_ordered"]).items():
             badge, color = _status_badge(sig or {}, price_ctx)
             signals.append({
                 "name": name,
@@ -1170,10 +1168,8 @@ def main():
 
         fwd_raw = {}
         fwd = {}
-        if computed.get("frag_df") is not None and computed.get("h_scores"):
-            fwd_raw = build_forward_returns_data(
-                computed["frag_df"], computed["spy_close"], computed["h_scores"])
-            fwd = _clean(fwd_raw)
+        fwd_raw = build_main_dial_forward_returns(computed["spy_close"])
+        fwd = _clean(fwd_raw)
 
         spy_close = computed["spy_close"].dropna()
         shared_dates = spy_close.index

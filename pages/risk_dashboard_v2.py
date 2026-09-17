@@ -1361,7 +1361,7 @@ def save_signal_fire_history(signals_ordered: dict, spy_close: pd.Series):
     """Persist full signal fire history as wide boolean DataFrame to parquet."""
     try:
         histories = {}
-        for name, sig in signals_ordered.items():
+        for name, sig in filter_risk_signals(signals_ordered).items():
             h = sig.get('signal_history')
             if h is not None and not h.empty:
                 histories[name] = h.astype(bool)
@@ -1400,6 +1400,7 @@ def compute_changes(current_states: dict, previous_states: dict) -> list:
 # consumers (daily_risk_report, weekly_market_rundown, scripts, tests)
 # keep working unchanged.
 from fragility_core import (  # noqa: F401
+    filter_risk_signals,
     HORIZON_STATS_PATH,
     HORIZON_DAYS,
     HORIZON_DECAY_DD,
@@ -1416,6 +1417,7 @@ from fragility_core import (  # noqa: F401
     compute_horizon_fragility,
     compute_fragility_bundle,
     load_pit_sizing_state,
+    load_main_dial_series,
 )
 
 def build_risk_dial(fragility_score: float, title: str = "") -> go.Figure:
@@ -1746,7 +1748,6 @@ SIGNAL_COLORS = {
     'Distribution Dominance': '#e74c3c',
     'VIX Range Compression': '#e67e22',
     'Defensive Leadership': '#2ecc71',
-    'Pre-FOMC Rally': '#3498db',
     'Equity P/C Complacency': '#8e44ad',
     'Low Absorption Ratio': '#9b59b6',
     'Seasonal Rank Divergence': '#1abc9c',
@@ -1762,6 +1763,7 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict,
     """
     from plotly.subplots import make_subplots
 
+    signals_ordered = filter_risk_signals(signals_ordered)
     sig_names = list(signals_ordered.keys())
     n_sigs = len(sig_names)
 
@@ -2066,7 +2068,7 @@ def render_similar_readings_table(similar_results: dict):
     if not any(v is not None for v in similar_results.values()):
         return
 
-    horizon_labels = {'5d': 'Short (5d)', '21d': 'Intermed (21d)', '63d': 'Long (63d)'}
+    horizon_labels = {'63d': 'Main dial'}
     fwd_windows = [5, 10, 21, 42, 63]
 
     def _fmt_ret(val):
@@ -2078,7 +2080,7 @@ def render_similar_readings_table(similar_results: dict):
 
     header = (
         '<tr style="border-bottom: 1px solid #444;">'
-        '<th style="text-align:left; padding:4px 8px; font-size:11px;">Horizon</th>'
+        '<th style="text-align:left; padding:4px 8px; font-size:11px;">Dial</th>'
         '<th style="text-align:center; padding:4px 6px; font-size:11px;">Score</th>'
         '<th style="text-align:center; padding:4px 6px; font-size:11px;">Band</th>'
         '<th style="text-align:center; padding:4px 6px; font-size:11px;">N</th>'
@@ -2088,7 +2090,7 @@ def render_similar_readings_table(similar_results: dict):
     header += '</tr>'
 
     rows = ''
-    for h_key in ['5d', '21d', '63d']:
+    for h_key in ['63d']:
         res = similar_results.get(h_key)
         if res is None:
             rows += (
@@ -2964,9 +2966,9 @@ def _render_regime_deep_dive(spy_df, closes, frag_df, h_scores, cache_key):
 
     tab_labels = []
     tab_keys = []
-    for h in ['5d', '21d', '63d']:
+    for h in ['63d']:
         if h in deep_dive_data:
-            label = {'5d': 'Short-Term (5d)', '21d': 'Intermediate (21d)', '63d': 'Long-Term (63d)'}[h]
+            label = 'Main dial model (63d)'
             tab_labels.append(label)
             tab_keys.append(h)
 
@@ -3084,7 +3086,6 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
     vix_close = _closes["^VIX"].dropna() if "^VIX" in _closes.columns else pd.Series(dtype=float)
     vrc = compute_vix_range_compression(vix_close)
     dl = compute_defensive_leadership(_sp500_closes, spy_close)
-    fomc = compute_fomc_signal(spy_close)
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
     disp = compute_dispersion_signal(_sp500_closes, _spy_df, spy_close)
@@ -3094,15 +3095,17 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
         'Distribution Dominance': da,
         'VIX Range Compression': vrc,
         'Defensive Leadership': dl,
-        'Pre-FOMC Rally': fomc,
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
         'Dispersion': disp,
         # 5d-horizon-only contributor (2026-08-05) — its stats entry carries
         # no 21d/63d edges, so the sizing 63d column is untouched. NOT in the
-        # simple-dial shadow (pre-registered 7-signal spec, fragility_simple).
+        # simple-dial shadow (six-signal shadow spec, fragility_simple).
         'Equity P/C Complacency': pcc,
     }
+    from nyse_risk import load_nyse_signal, SIGNAL_NAME
+    signals_ordered[SIGNAL_NAME] = load_nyse_signal(
+        spy_close, os.path.join(DATA_DIR, "market_breadth.parquet"))
     signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
 
     price_ctx = compute_price_context(spy_close)
@@ -3145,7 +3148,6 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
     da = signals_ordered['Distribution Dominance']
     vrc = signals_ordered['VIX Range Compression']
     dl = signals_ordered['Defensive Leadership']
-    fomc = signals_ordered['Pre-FOMC Rally']
     ar = signals_ordered['Low Absorption Ratio']
     srd = signals_ordered['Seasonal Rank Divergence']
     disp = signals_ordered.get('Dispersion', {})
@@ -3166,7 +3168,7 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
         elif len(vix_close) > 0:
             st.info("VIX compression data requires 504+ days of history.")
 
-    row2_c1, row2_c2 = st.columns(2)
+    row2_c1 = st.container()
 
     with row2_c1:
         if len(dl['spread'].dropna()) > 0:
@@ -3175,10 +3177,6 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Defensive Leadership requires S&P 500 data + risk classification.")
-
-    with row2_c2:
-        if len(fomc['signal_dates']) > 0:
-            st.plotly_chart(chart_fomc_signals(spy_close, fomc['signal_dates'], year_filter), use_container_width=True)
 
     row3_c1, row3_c2 = st.columns(2)
 
@@ -3216,13 +3214,9 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
 
 @st.fragment
 def _render_fragility_chart(frag_df, spy_close, year_filter):
-    """Nested fragment: only this re-runs when the horizon dropdown changes."""
-    h_labels = {'5d': '5-Day (Short-Term)', '21d': '21-Day (Intermediate)', '63d': '63-Day (Long-Term)'}
-    frag_horizon = st.selectbox(
-        "Fragility horizon",
-        ['63d', '21d', '5d'],
-        format_func=lambda h: h_labels[h],
-    )
+    """Main-model diagnostics; forward-return windows remain independent."""
+    h_labels = {'63d': 'Main dial model'}
+    frag_horizon = '63d'
     st.caption(
         "Diagnostic series: recomputed from current data and allowed to revise history. "
         "Live sizing uses the append-only PIT 63d dial and its 10-session average."
@@ -3393,13 +3387,11 @@ def main():
     if horizon_stats is not None:
 
         # One production dial: the exact PIT statistic consumed by live sizing.
-        # 5d failed every sizing test and 21d agrees with 63d on the decision
-        # state ~90% of days, so they are context chips, not gauges
-        # (RISK_DIALS_2026-07-16.md A5). The raw in-session recompute remains
+        # The raw in-session recompute remains
         # available in the diagnostic chart below, never as a throttle proxy.
         pit_sizing = load_pit_sizing_state()
 
-        dial_col, ctx_col = st.columns([2, 1])
+        dial_col = st.container()
         with dial_col:
             if pit_sizing is not None:
                 score = pit_sizing['score']
@@ -3426,27 +3418,16 @@ def main():
                     "Production fragility source unavailable — no throttle state shown. "
                     "The raw diagnostic chart remains available below."
                 )
-        with ctx_col:
-            st.markdown("<div style='padding-top:38px'></div>", unsafe_allow_html=True)
-            st.metric("5d (context)", f"{h_scores['5d']:.0f}",
-                      help="Failed every sizing test — display only")
-            st.metric("21d (context)", f"{h_scores['21d']:.0f}",
-                      help="~90% state-agreement with 63d — display only, no confirm semantics")
     else:
         st.warning("Horizon stats file missing — using equal-weight fallback.")
         fallback = (active_count / total_count * 80 * regime_mult) if total_count > 0 else 0
         st.plotly_chart(build_risk_dial(max(0, fallback), 'Fragility'), use_container_width=True)
 
     # Similar-reading forward returns table
-    if frag_df is not None and h_scores is not None:
-        similar_results = {}
-        for h_key in ['5d', '21d', '63d']:
-            if h_key in frag_df.columns and h_key in h_scores:
-                similar_results[h_key] = compute_similar_reading_returns(
-                    frag_df[h_key], spy_close, h_scores[h_key])
-            else:
-                similar_results[h_key] = None
-        render_similar_readings_table(similar_results)
+    main_history = load_main_dial_series()
+    if main_history is not None:
+        render_similar_readings_table({'63d': compute_similar_reading_returns(
+            main_history, spy_close, float(main_history.iloc[-1]))})
 
     # Regime Deep Dive
     if frag_df is not None and h_scores is not None:
