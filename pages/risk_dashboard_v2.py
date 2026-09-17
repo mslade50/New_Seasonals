@@ -1417,6 +1417,7 @@ from fragility_core import (  # noqa: F401
     compute_horizon_fragility,
     compute_fragility_bundle,
     load_pit_sizing_state,
+    load_main_dial_series,
 )
 
 def build_risk_dial(fragility_score: float, title: str = "") -> go.Figure:
@@ -2067,7 +2068,7 @@ def render_similar_readings_table(similar_results: dict):
     if not any(v is not None for v in similar_results.values()):
         return
 
-    horizon_labels = {'5d': 'Short (5d)', '21d': 'Intermed (21d)', '63d': 'Long (63d)'}
+    horizon_labels = {'63d': 'Main dial'}
     fwd_windows = [5, 10, 21, 42, 63]
 
     def _fmt_ret(val):
@@ -2079,7 +2080,7 @@ def render_similar_readings_table(similar_results: dict):
 
     header = (
         '<tr style="border-bottom: 1px solid #444;">'
-        '<th style="text-align:left; padding:4px 8px; font-size:11px;">Horizon</th>'
+        '<th style="text-align:left; padding:4px 8px; font-size:11px;">Dial</th>'
         '<th style="text-align:center; padding:4px 6px; font-size:11px;">Score</th>'
         '<th style="text-align:center; padding:4px 6px; font-size:11px;">Band</th>'
         '<th style="text-align:center; padding:4px 6px; font-size:11px;">N</th>'
@@ -2089,7 +2090,7 @@ def render_similar_readings_table(similar_results: dict):
     header += '</tr>'
 
     rows = ''
-    for h_key in ['5d', '21d', '63d']:
+    for h_key in ['63d']:
         res = similar_results.get(h_key)
         if res is None:
             rows += (
@@ -2965,9 +2966,9 @@ def _render_regime_deep_dive(spy_df, closes, frag_df, h_scores, cache_key):
 
     tab_labels = []
     tab_keys = []
-    for h in ['5d', '21d', '63d']:
+    for h in ['63d']:
         if h in deep_dive_data:
-            label = {'5d': 'Short-Term (5d)', '21d': 'Intermediate (21d)', '63d': 'Long-Term (63d)'}[h]
+            label = 'Main dial model (63d)'
             tab_labels.append(label)
             tab_keys.append(h)
 
@@ -3210,13 +3211,9 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
 
 @st.fragment
 def _render_fragility_chart(frag_df, spy_close, year_filter):
-    """Nested fragment: only this re-runs when the horizon dropdown changes."""
-    h_labels = {'5d': '5-Day (Short-Term)', '21d': '21-Day (Intermediate)', '63d': '63-Day (Long-Term)'}
-    frag_horizon = st.selectbox(
-        "Fragility horizon",
-        ['63d', '21d', '5d'],
-        format_func=lambda h: h_labels[h],
-    )
+    """Main-model diagnostics; forward-return windows remain independent."""
+    h_labels = {'63d': 'Main dial model'}
+    frag_horizon = '63d'
     st.caption(
         "Diagnostic series: recomputed from current data and allowed to revise history. "
         "Live sizing uses the append-only PIT 63d dial and its 10-session average."
@@ -3387,13 +3384,11 @@ def main():
     if horizon_stats is not None:
 
         # One production dial: the exact PIT statistic consumed by live sizing.
-        # 5d failed every sizing test and 21d agrees with 63d on the decision
-        # state ~90% of days, so they are context chips, not gauges
-        # (RISK_DIALS_2026-07-16.md A5). The raw in-session recompute remains
+        # The raw in-session recompute remains
         # available in the diagnostic chart below, never as a throttle proxy.
         pit_sizing = load_pit_sizing_state()
 
-        dial_col, ctx_col = st.columns([2, 1])
+        dial_col = st.container()
         with dial_col:
             if pit_sizing is not None:
                 score = pit_sizing['score']
@@ -3420,27 +3415,16 @@ def main():
                     "Production fragility source unavailable — no throttle state shown. "
                     "The raw diagnostic chart remains available below."
                 )
-        with ctx_col:
-            st.markdown("<div style='padding-top:38px'></div>", unsafe_allow_html=True)
-            st.metric("5d (context)", f"{h_scores['5d']:.0f}",
-                      help="Failed every sizing test — display only")
-            st.metric("21d (context)", f"{h_scores['21d']:.0f}",
-                      help="~90% state-agreement with 63d — display only, no confirm semantics")
     else:
         st.warning("Horizon stats file missing — using equal-weight fallback.")
         fallback = (active_count / total_count * 80 * regime_mult) if total_count > 0 else 0
         st.plotly_chart(build_risk_dial(max(0, fallback), 'Fragility'), use_container_width=True)
 
     # Similar-reading forward returns table
-    if frag_df is not None and h_scores is not None:
-        similar_results = {}
-        for h_key in ['5d', '21d', '63d']:
-            if h_key in frag_df.columns and h_key in h_scores:
-                similar_results[h_key] = compute_similar_reading_returns(
-                    frag_df[h_key], spy_close, h_scores[h_key])
-            else:
-                similar_results[h_key] = None
-        render_similar_readings_table(similar_results)
+    main_history = load_main_dial_series()
+    if main_history is not None:
+        render_similar_readings_table({'63d': compute_similar_reading_returns(
+            main_history, spy_close, float(main_history.iloc[-1]))})
 
     # Regime Deep Dive
     if frag_df is not None and h_scores is not None:

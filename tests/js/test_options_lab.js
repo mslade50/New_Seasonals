@@ -192,7 +192,7 @@ state.seasonalTheses = {tickers: {
     first_rejection: "Current catalysts can dominate."
   }}}
 }};
-state.risk = {asof: "2026-08-04", forward_returns: {"21d": {
+state.risk = {asof: "2026-08-04", forward_returns: {"63d": {
   n_episodes: 10, returns: {"10": {n: 10, p_up: 0.30, pct_neg: 0.70,
     mean: -0.012, median: -0.008, q10: -0.06, q25: -0.03, q75: 0.012, q90: 0.025,
     up_median: 0.015, down_median: -0.025, worst: -0.08, best: 0.04}}
@@ -209,6 +209,7 @@ const riskThesis = context.riskHouseThesis(10);
 assert.strictEqual(riskThesis.sourceKey, "risk");
 assert.strictEqual(riskThesis.event, "terminal");
 assert.strictEqual(riskThesis.direction, "bearish");
+assert.strictEqual(riskThesis.scoreKey, "63d");
 assert.ok(riskThesis.methodology.includes("no seasonal data"));
 assert.ok(riskThesis.target < 100);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.availableThesisSources("SPY"))), ["seasonal", "risk"]);

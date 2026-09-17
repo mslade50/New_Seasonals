@@ -24,8 +24,8 @@ function currentRiskPayload(payload) {
   const signals = (payload.signals || []).filter(s => keep(s.name));
   const hadFomc = (payload.signals || []).some(s => s.name === "Pre-FOMC Rally") ||
     Object.hasOwn(payload.signal_detail || {}, "Pre-FOMC Rally");
-  const result = {...payload, signals, n_active: signals.filter(s => s.on).length,
-    signal_detail: filterMap(payload.signal_detail)};
+  const result = {...payload, signals, n_active: signals.filter(s => s.on).length};
+  if (payload.signal_detail) result.signal_detail = filterMap(payload.signal_detail);
   if (payload.atr_downside) result.atr_downside = {...payload.atr_downside,
     signals: filterMap(payload.atr_downside.signals)};
   if (hadFomc) {
@@ -59,7 +59,7 @@ async function init() {
   if (sz && sz.score != null) html += sizingHeroHtml(sz);
   if (d.atr_downside) html += atrDialTableHtml(d.atr_downside);
 
-  // 2. KPI strip: SPY, the 63d dial, context horizons, signals, vol term
+  // 2. KPI strip: SPY, the main dial, signals, vol term
   html += kpiRowHtml(d);
 
   // 3. price context strip (replaces the old raw kv dump)
@@ -117,7 +117,7 @@ async function init() {
   // 5. chart: SPY + the exact PIT sizing statistic.  The recompute-vintage
   // fragility series is retained only as a fallback for old payloads.
   const fs = d.fragility_series || {};
-  const fragKey = fs["63d"] ? "63d" : fs["21d"] ? "21d" : null;
+  const fragKey = fs["63d"] ? "63d" : null;
   const sizingChart = sz && sz.spark && Array.isArray(sz.spark.dates) &&
     Array.isArray(sz.spark.ma) && sz.spark.dates.length;
   const dailyChart = sizingChart && Array.isArray(sz.spark.daily) &&
@@ -134,16 +134,11 @@ async function init() {
         <div class="chart" id="riskChart"></div></div>`;
   }
 
-  // 6. forward returns — 63d is the sizing horizon; other horizons collapsed
+  // One score selects the historical sample; retain every return window.
   const fwd = d.forward_returns || {};
-  if (fwd["63d"] || fwd["21d"] || fwd["5d"]) {
+  if (fwd["63d"]) {
     html += `<h2>Forward returns at similar fragility readings</h2>`;
     if (fwd["63d"]) html += fwdTable("63d", fwd["63d"]);
-    const others = ["5d", "21d"].filter(h => fwd[h]);
-    if (others.length) {
-      html += `<details class="fwd-others"><summary class="cap">Context horizons (${others.join(", ")}) — not sizing inputs</summary>` +
-        others.map(h => fwdTable(h, fwd[h])).join("") + `</details>`;
-    }
     html += `<p class="cap">Similar-reading history includes the pre-2026-07-02 recompute
       vintage; the point-in-time series starts 2026-07-02.</p>`;
   }
@@ -398,13 +393,6 @@ function kpiRowHtml(d) {
     cells += `<div class="kpi"><div class="l">Fragility 63d</div>
       <div class="v">${Math.round(frag["63d"])}</div>
       <div class="s">display recompute · legacy payload · not a sizing input</div></div>`;
-  }
-  const chips = ["5d", "21d"].filter(h => frag[h] != null)
-    .map(h => `${h} ${Math.round(frag[h])}`).join(" · ");
-  if (chips) {
-    cells += `<div class="kpi"><div class="l">Context horizons</div>
-      <div class="v" style="font-size:15px;padding-top:6px">${chips}</div>
-      <div class="s">not sizing inputs</div></div>`;
   }
   cells += `<div class="kpi"><div class="l">Active Signals</div>
       <div class="v ${d.n_active > 0 ? "neg" : "pos"}">${d.n_active} / ${(d.signals || []).length}</div>
@@ -698,7 +686,7 @@ function fwdTable(h, r) {
     ? `<div class="tblwrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`
     : `<p>Insufficient sample: at least ${esc(r.min_samples)} completed observations per window are required. Return statistics are withheld.</p>`;
   return `<div class="card" style="margin-bottom:12px">
-    <div class="cap" style="margin-top:0">${h.toUpperCase()} fragility = ${Math.round(r.current_score)} ·
+    <div class="cap" style="margin-top:0">Main risk dial = ${Math.round(r.current_score)} ·
       ${r.n_episodes} episodes · band ${Math.round(r.band_low)}-${Math.round(r.band_high)}</div>
     ${body}
   </div>`;
@@ -707,7 +695,7 @@ function fwdTable(h, r) {
 function matchExplorerAvailable(d) {
   const px = d && d.price_explorer;
   const fwd = (d && d.forward_returns) || {};
-  const hasMatches = ["63d", "21d", "5d"].some(h =>
+  const hasMatches = ["63d"].some(h =>
     fwd[h] && Array.isArray(fwd[h].episode_dates) && fwd[h].episode_dates.length);
   return !!(px && Array.isArray(px.assets) && px.assets.length &&
     px.series && typeof px.series === "object" && hasMatches);
@@ -715,21 +703,11 @@ function matchExplorerAvailable(d) {
 
 function matchExplorerHtml(d) {
   const px = d.price_explorer;
-  const fwd = d.forward_returns || {};
-  const horizons = ["63d", "21d", "5d"].filter(h =>
-    fwd[h] && Array.isArray(fwd[h].episode_dates) && fwd[h].episode_dates.length);
-  const horizonLabels = {
-    "63d": "Long (63d)", "21d": "Intermediate (21d)", "5d": "Short (5d)",
-  };
-  const horizonOptions = horizons.map((h, i) =>
-    `<option value="${h}"${i === 0 ? " selected" : ""}>${horizonLabels[h]}</option>`).join("");
   const assetOptions = px.assets.filter(ticker => px.series[ticker]).map(ticker =>
     `<option value="${esc(ticker)}"${ticker === "SPY" ? " selected" : ""}>${esc(ticker)}</option>`).join("");
   return `<h2>Similar-fragility match explorer</h2>
     <div class="card risk-match-card">
       <div class="tbl-controls risk-match-controls">
-        <label for="matchHorizon">Match set</label>
-        <select id="matchHorizon">${horizonOptions}</select>
         <label for="matchAsset">Candlestick asset</label>
         <select id="matchAsset">${assetOptions}</select>
         <span class="info cap-inline" id="matchCoverage"></span>
@@ -768,13 +746,12 @@ function bindMatchExplorerZoom(el) {
 
 function renderMatchExplorer(d) {
   const chartEl = document.getElementById("matchPriceChart");
-  const horizonEl = document.getElementById("matchHorizon");
   const assetEl = document.getElementById("matchAsset");
   const coverageEl = document.getElementById("matchCoverage");
   const captionEl = document.getElementById("matchCaption");
-  if (!chartEl || !horizonEl || !assetEl) return;
+  if (!chartEl || !assetEl) return;
 
-  const horizon = horizonEl.value || "63d";
+  const horizon = "63d";
   const ticker = assetEl.value || "SPY";
   const study = (d.forward_returns || {})[horizon];
   const px = d.price_explorer || {};
@@ -857,16 +834,14 @@ function renderMatchExplorer(d) {
   if (coverageEl) coverageEl.textContent = visibleMatches.length === matches.length
     ? `${matches.length} matches`
     : `${visibleMatches.length} of ${matches.length} matches in ${ticker} history`;
-  if (captionEl) captionEl.innerHTML = `${horizon.toUpperCase()} fragility ${Math.round(study.current_score)} &middot; ` +
+  if (captionEl) captionEl.innerHTML = `Main risk dial ${Math.round(study.current_score)} &middot; ` +
     `band ${Math.round(study.band_low)}&ndash;${Math.round(study.band_high)} &middot; ` +
     `${matches.length} declustered episodes`;
 }
 
 function initMatchExplorer(d) {
-  const horizonEl = document.getElementById("matchHorizon");
   const assetEl = document.getElementById("matchAsset");
-  if (!horizonEl || !assetEl || typeof horizonEl.addEventListener !== "function") return;
-  horizonEl.addEventListener("change", () => renderMatchExplorer(d));
+  if (!assetEl || typeof assetEl.addEventListener !== "function") return;
   assetEl.addEventListener("change", () => renderMatchExplorer(d));
   renderMatchExplorer(d);
 }

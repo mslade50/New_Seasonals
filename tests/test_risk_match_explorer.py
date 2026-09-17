@@ -133,12 +133,10 @@ Promise.resolve(ready()).then(() => {
     throw new Error("asset switch changed match overlays");
   }
 
-  element("matchHorizon").value = "21d";
-  element("matchHorizon").listeners.change();
-  const horizon = plots[plots.length - 1];
-  if (horizon.layout.shapes.length !== 1 || horizon.layout.shapes[0].x0 !== dates[2]) {
-    throw new Error("horizon switch did not use its match set");
+  if (html.includes('id="matchHorizon"') || html.includes("Context horizons")) {
+    throw new Error("retired dial controls remain visible");
   }
+  if (element("matchHorizon").listeners.change) throw new Error("retired dial listener remains");
 }).catch(error => { console.error(error); process.exitCode = 1; });
 """.replace("__RISK_JS__", json.dumps(str(RISK_JS)))
 

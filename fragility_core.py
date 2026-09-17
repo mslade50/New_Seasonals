@@ -65,6 +65,24 @@ def load_horizon_stats() -> dict | None:
     return stats
 
 
+def load_main_dial_series(path: str | None = None) -> pd.Series | None:
+    """Main display/sizing history: 10-session mean of the stored 63d dial.
+
+    The stored values already include five-session smoothing. Missing history
+    stays unavailable; a fresh recomputation is a different score vintage.
+    """
+    try:
+        frag = pd.read_parquet(path or PIT_FRAGILITY_PATH)
+        series = frag['63d'].dropna().copy()
+        series.index = pd.to_datetime(series.index).tz_localize(None)
+        series = series.sort_index()
+        if series.empty:
+            return None
+        return series.rolling(10, min_periods=1).mean()
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def load_pit_sizing_state(
     path: str | None = None,
     threshold: float = 50.0,

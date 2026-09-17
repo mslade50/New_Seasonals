@@ -122,7 +122,7 @@ let ready;
 const payload = {
   asof: "2026-07-15", built_at: "2026-07-15 12:00 UTC", spy_last: 700,
   price_ctx: {}, fragility: {"21d": 20}, regime_mult: 1, n_active: 0,
-  signals: [{name: "Legacy Signal", on: false, badge: "OFF", detail: ""}],
+  signals: [{name: "Distribution Dominance", on: false, badge: "OFF", detail: ""}],
   forward_returns: {},
   spy_series: {dates: ["2026-07-14", "2026-07-15"], close: [699, 700]},
 };
@@ -131,7 +131,7 @@ const sandbox = {
   console,
   document: {
     addEventListener(name, fn) { if (name === "DOMContentLoaded") ready = fn; },
-    getElementById: element,
+    getElementById: element, querySelectorAll() { return []; },
   },
   renderNav() {}, setAsof() {}, fetchJSONOrNull: async () => payload,
   fmt: {num: v => String(v), pct: v => String(v), signed: v => String(v)},
@@ -146,7 +146,7 @@ vm.createContext(sandbox);
 vm.runInContext(source, sandbox);
 Promise.resolve(ready()).then(() => {
   const html = element("content").innerHTML;
-  if (!html.includes("Legacy Signal")) throw new Error("legacy signal card missing");
+  if (!html.includes("Distribution Dominance")) throw new Error("legacy signal card missing");
   if (html.includes("signalOverlayChart")) throw new Error("unguarded signal overlay");
   if (plots.length !== 1 || plots[0].id !== "riskChart") {
     throw new Error("legacy SPY chart did not render");
