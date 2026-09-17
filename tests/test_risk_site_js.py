@@ -23,9 +23,16 @@ const html = sandbox.fwdTable("63d", {
   returns: {5: null, 10: null, 21: null, 42: null, 63: null},
 });
 if (!html.includes("Insufficient sample") || !html.includes("4 episodes") ||
-    !html.includes("5 completed observations") || html.includes("<table")) {
+    !html.includes("5 completed observations") ||
+    ![5, 10, 21, 42, 63].every(w => html.includes(`>${w}d</td>`))) {
   throw new Error("small-sample card is missing or invents return statistics");
 }
+const partial = sandbox.fwdTable("63d", {
+  current_score: 83, n_episodes: 7, band_low: 78, band_high: 88,
+  returns: {42: null, 63: null},
+});
+if (!partial.includes(">42d</td>") || !partial.includes(">63d</td>") ||
+    partial.includes("undefined")) throw new Error("sparse windows are hidden or malformed");
 '''.replace("__RISK_JS__", json.dumps(str(RISK_JS)))
     subprocess.run([shutil.which("node"), "-e", script], check=True, capture_output=True, text=True)
 

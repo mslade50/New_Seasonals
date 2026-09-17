@@ -671,8 +671,12 @@ function fwdTable(h, r) {
   const head = `<tr>
     <th class="l">Window</th><th>Mean</th><th>Median</th><th>% Neg</th><th>Mean Z</th></tr>`;
   let rows = "";
-  for (const [w, st] of Object.entries(r.returns || {})) {
-    if (!st) continue;
+  for (const w of [5, 10, 21, 42, 63]) {
+    const st = (r.returns || {})[w];
+    if (!st) {
+      rows += `<tr><td class="l">${w}d</td><td colspan="4" class="cap">Insufficient sample (at least ${esc(r.min_samples || 5)} completed observations required)</td></tr>`;
+      continue;
+    }
     const mz = st.mean_z || 0;
     const mCls = mz <= -1 ? "neg" : mz < 0 ? "" : "pos";
     rows += `<tr>
@@ -682,10 +686,7 @@ function fwdTable(h, r) {
       <td class="${st.pct_neg > 0.5 ? "neg" : ""}">${fmt.pct(st.pct_neg, 0)}</td>
       <td class="${mCls}">${fmt.signed(mz, 2)}</td></tr>`;
   }
-  if (!rows && r.status !== "insufficient_sample") return "";
-  const body = rows
-    ? `<div class="tblwrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`
-    : `<p>Insufficient sample: at least ${esc(r.min_samples)} completed observations per window are required. Return statistics are withheld.</p>`;
+  const body = `<div class="tblwrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
   return `<div class="card" style="margin-bottom:12px">
     <div class="cap" style="margin-top:0">Main risk dial = ${Math.round(r.current_score)} ·
       ${r.n_episodes} episodes · band ${Math.round(r.band_low)}-${Math.round(r.band_high)}</div>
