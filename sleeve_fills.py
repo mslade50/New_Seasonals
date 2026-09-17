@@ -53,8 +53,7 @@ def reconcile_event_fills(state: dict, fills: pd.DataFrame, config: dict) -> Non
     """Keep obligations until attributed executions confirm their exit."""
     for trade, position in list(state.get("positions", {}).items()):
         cfg = config[trade]
-        rows = fills.loc[fills["strategy"].eq(trade)
-                         & fills["ref_date"].eq(position["entry_date"])]
+        rows = event_cycle_fills(fills, trade, position["entry_date"], cfg)
         inventory = signed_inventory(rows, trade)
         entered = rows["ref_action"].isin({"BUY", "SELL_SHORT"}).any()
         exited = rows["ref_action"].isin({"SELL", "BUY_TO_COVER"}).any()
@@ -71,3 +70,48 @@ def reconcile_event_fills(state: dict, fills: pd.DataFrame, config: dict) -> Non
             position["inventory_basis"] = "attributed_executions"
         else:
             position["inventory_basis"] = "entry_unconfirmed"
+
+
+def event_cycle_fills(fills: pd.DataFrame, trade: str, entry_date: str,
+                      cfg: dict) -> pd.DataFrame:
+    """Match stable entry-date tags and the deployed runner's legacy exit tags.
+
+    Legacy exits used the submission date in orderRef. Event strategies never
+    have overlapping cycles of the SAME trade, so include those exits only
+    after the exact tagged entry. A later entry makes attribution ambiguous
+    and must be reconciled explicitly. Other strategies sharing SPY/IWM/SVXY
+    and non-Primary accounts never contribute inventory.
+    """
+    rows = fills.loc[fills["strategy"].eq(trade)
+                     & fills["account_key"].eq("primary")].copy()
+    if rows.empty:
+        return rows
+    refs = pd.to_datetime(rows["ref_date"], errors="raise")
+    sessions = pd.to_datetime(rows["session_date"], errors="raise")
+    entry = pd.Timestamp(entry_date)
+    if refs.isna().any() or sessions.isna().any():
+        raise RuntimeError(f"{trade}: execution dates are incomplete")
+    current = (refs >= entry) & (sessions >= entry)
+    rows = rows.loc[current]
+    refs, sessions = refs.loc[current], sessions.loc[current]
+    opening, closing = (("BUY", "SELL") if cfg["side"] == "LONG"
+                        else ("SELL_SHORT", "BUY_TO_COVER"))
+    if (rows["ref_action"].eq(opening) & refs.ne(entry)).any():
+        raise RuntimeError(f"{trade}: later entry makes cycle attribution ambiguous")
+    if not rows["symbol"].eq(cfg["ticker"]).all():
+        raise RuntimeError(f"{trade}: execution ticker does not match strategy")
+    if not rows["ref_action"].isin({opening, closing}).all():
+        raise RuntimeError(f"{trade}: unexpected execution action")
+    expected_sides = rows["ref_action"].map({"BUY": "BOT", "SELL_SHORT": "SLD",
+                                            "SELL": "SLD", "BUY_TO_COVER": "BOT"})
+    sides = rows["side"].str.upper().replace({"BUY": "BOT", "SELL": "SLD"})
+    if not sides.eq(expected_sides).all():
+        raise RuntimeError(f"{trade}: execution side contradicts action")
+    qty = pd.to_numeric(rows["qty"], errors="raise")
+    if not ((qty > 0) & (qty % 1 == 0)).all():
+        raise RuntimeError(f"{trade}: invalid execution quantity")
+    if not (refs.eq(entry) | (rows["ref_action"].eq(closing) & refs.eq(sessions))).all():
+        raise RuntimeError(f"{trade}: ambiguous legacy exit reference")
+    if rows["ref_action"].eq(closing).any() and not rows["ref_action"].eq(opening).any():
+        raise RuntimeError(f"{trade}: exit has no confirmed entry")
+    return rows

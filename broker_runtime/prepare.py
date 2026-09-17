@@ -236,9 +236,13 @@ def patch_batch(source):
 def patch_auction(source, *, event):
     loader = "load_event_rows" if event else "load_trend_rows"
     def load(text):
-        due = 'raw[(execute_on == today_ts) | ((execute_on < today_ts) & raw["Action"].isin({"SELL", "BUY_TO_COVER"}))].copy()' if event else 'raw[execute_on <= today_ts].copy()'
+        # Event retries must be freshly staged AFTER canonical reconciliation.
+        # Replaying yesterday's tab bypasses the producer's inventory gate.
+        due = 'raw[execute_on == today_ts].copy()' if event else 'raw[execute_on <= today_ts].copy()'
         text = replace_once(text, 'raw[execute_on == today_ts].copy()', due)
         text = replace_once(text, '    if (due["Quantity"] <= 0).any():', '    if (due["Quantity"] % 1 != 0).any():\n        errors.append("Quantity must be whole shares")\n    if (due["Quantity"] <= 0).any():')
+        if event:
+            text = replace_once(text, '    due["Quantity"] = due["Quantity"].astype(int)', '    from event_contract import entry_identity\n    for _, row in due.iterrows():\n        try:\n            entry_identity(row)\n        except (KeyError, ValueError, TypeError) as exc:\n            raise EventSheetError(str(exc)) from exc\n    due["Quantity"] = due["Quantity"].astype(int)')
         return text
     source = change_function(source, loader, load)
     def process(text):
@@ -248,7 +252,10 @@ def patch_auction(source, *, event):
         text = replace_once(text, '            print(f"[WARN] could not read session fills for dedup: {exc}")', '            raise RuntimeError("session execution reconciliation failed") from exc')
         text = replace_once(text, '        for pos in ib.positions():', '        for pos in ib.positions():\n            if str(getattr(pos, "account", "")) != account or pos.contract.secType != "STK" or pos.contract.currency != "USD":\n                continue')
         if event:
-            text = replace_once(text, 'sig = signal_ref(symbol, staged_action, row["Trade"], today_str)', 'sig = signal_ref(symbol, staged_action, row["Trade"], str(row.get("Entry_Date") or row["Execute_On"]))')
+            text = replace_once(text, 'sig = signal_ref(symbol, staged_action, row["Trade"], today_str)', 'from event_contract import entry_identity\n            sig = signal_ref(symbol, staged_action, row["Trade"], entry_identity(row))')
+            text = replace_once(text, 'today_str: str, now=None)', 'today_str: str, now=None, clock=None)')
+            text = replace_once(text, '    now = now or dt.datetime.now()', '    clock = clock or ((lambda: now) if now is not None else dt.datetime.now)\n    now = clock()')
+            text = replace_once(text, '            if order_type == "MOO" and now.time() >= OPG_CUTOFF:', '            if order_type == "MOO" and clock().time() >= OPG_CUTOFF:')
         else:
             text = replace_once(text, 'sig = signal_ref(symbol, action, STRATEGY_REF, today_str)', 'sig = signal_ref(symbol, action, STRATEGY_REF, str(row["Asof"]))')
         text = replace_once(text, '            order.orderRef = sig', '            order.orderRef = sig\n            order.account = account')
@@ -256,7 +263,18 @@ def patch_auction(source, *, event):
         exception = '                    summary.append(missed(row, "PENDING_RECONCILIATION"))' if event else '                    summary.append({"Symbol": symbol, "Action": action, "Quantity": qty, "Status": "PENDING_RECONCILIATION"})'
         text = replace_once(text, marker, '                if not claim(Path(__file__).resolve().parent / "auction_intents", account, contract.conId, sig, qty, order.orderType, order.tif):\n' + exception + '\n                    continue\n' + marker)
         text = replace_once(text, '                    signal_id=sig,', '                    signal_id=sig,\n                    account=account,')
-        text = text.replace('if status in TERMINAL_REJECT_STATUSES:', 'if status in TERMINAL_REJECT_STATUSES or status in {"UNKNOWN", "PendingSubmit", "ApiPending"}:')
+        if event:
+            # Do not infer rejection means no delivery, and never cancel an
+            # order found by reference alone (other accounts may reuse it).
+            start = text.index('                if status in TERMINAL_REJECT_STATUSES:')
+            end = text.index('                journal_placed(', start)
+            text = text[:start] + '                if status in TERMINAL_REJECT_STATUSES or status in {"UNKNOWN", "PendingSubmit", "ApiPending"}:\n                    summary.append(missed(row, "PENDING_RECONCILIATION"))\n                    continue\n' + text[end:]
+            text = replace_once(text, '                if not claim(', '                from event_contract import AuctionClient\n                cutoff = OPG_CUTOFF if order_type == "MOO" else MOC_CUTOFF\n                def before_call():\n                    current = clock()\n                    if current.date().isoformat() != today_str or current.time() >= cutoff:\n                        raise RuntimeError("auction deadline passed; no broker submission")\n                before_call()\n                if not claim(')
+            text = replace_once(text, '                trade = guarded_place_order(\n                    ib,', '                trade = guarded_place_order(\n                    AuctionClient(ib, before_call),')
+            text = replace_once(text, '                    account=account,', '                    account=account,\n                    before_broker_call=before_call,')
+            text = replace_once(text, '                from event_contract import AuctionClient', '                from event_contract import AuctionClient, assert_migrated_cycle\n                assert_migrated_cycle(Path(__file__).resolve().parent / "auction_intents", account, row)')
+        else:
+            text = text.replace('if status in TERMINAL_REJECT_STATUSES:', 'if status in TERMINAL_REJECT_STATUSES or status in {"UNKNOWN", "PendingSubmit", "ApiPending"}:')
         return text
     return change_function(source, "process_orders", process)
 
@@ -459,7 +477,7 @@ PATCHERS = {"execute_order.py": patch_execute, "exec_agent.py": patch_agent,
             "trend_moo.py": lambda s: patch_auction(s, event=False), "olv_exit_moo.py": patch_olv}
 
 
-def prepare(source_dir: Path, output_dir: Path):
+def prepare(source_dir: Path, output_dir: Path, *, event_only: bool = False):
     source_dir, output_dir = source_dir.resolve(), output_dir.resolve()
     if output_dir == source_dir or source_dir in output_dir.parents or output_dir in source_dir.parents:
         raise ValueError("candidate output must be separate from the deployed source")
@@ -467,7 +485,8 @@ def prepare(source_dir: Path, output_dir: Path):
         raise ValueError("candidate output must be new; existing files are never overwritten")
     manifest = json.loads((HERE / "source_hashes.json").read_text())
     candidates = {}
-    for filename, patch in PATCHERS.items():
+    patchers = {"event_moo.py": PATCHERS["event_moo.py"]} if event_only else PATCHERS
+    for filename, patch in patchers.items():
         body = (source_dir / filename).read_bytes()
         if hashlib.sha256(body).hexdigest() != manifest[filename]:
             raise ValueError(f"reviewed source hash changed: {filename}")
@@ -478,7 +497,9 @@ def prepare(source_dir: Path, output_dir: Path):
     output_dir.mkdir(parents=True)
     for filename, candidate in candidates.items():
         (output_dir / filename).write_text(candidate, encoding="utf-8")
-    for helper in ("execution_lifecycle.py", "auction_lifecycle.py", "olv_contract.py", "entry_journal.py"):
+    helpers = (("auction_lifecycle.py", "event_contract.py") if event_only else
+               ("execution_lifecycle.py", "auction_lifecycle.py", "event_contract.py", "olv_contract.py", "entry_journal.py"))
+    for helper in helpers:
         (output_dir / helper).write_bytes((HERE / helper).read_bytes())
     return sorted(candidates)
 
@@ -487,5 +508,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--event-only", action="store_true",
+                        help="prepare only the Event runner and its two helpers")
     args = parser.parse_args()
-    print("Prepared candidate files: " + ", ".join(prepare(args.source, args.output)))
+    print("Prepared candidate files: " + ", ".join(prepare(args.source, args.output, event_only=args.event_only)))
