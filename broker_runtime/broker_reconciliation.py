@@ -19,6 +19,13 @@ TERMINAL = {"Filled", "Cancelled", "ApiCancelled"}
 STABLE = TERMINAL | {"Submitted", "PreSubmitted"}
 
 
+class CoverageDiscrepancy(ValueError):
+    def __init__(self, result, detail):
+        self.result = result
+        super().__init__("Broker outcome reconciled: " + result["detail"] +
+                         ". Current exit discrepancy: " + detail + "; no broker changes made")
+
+
 def number(value):
     value = float(value)
     if not math.isfinite(value) or value < 0:
@@ -36,38 +43,63 @@ def order_row(trade, *, completed=False):
         reported = float(getattr(o, "filledQuantity", float("nan")))
         filled = reported if math.isfinite(reported) and 0 <= reported <= qty else None
     if str(s.status) == "Filled":
+        if completed and filled is not None and filled != qty:
+            raise ValueError("completed Filled status contradicts broker filled quantity")
         filled = qty
     return dict(identity=[str(o.account), int(trade.contract.conId), int(o.clientId),
                           int(o.orderId), int(o.permId or 0)],
                 status=str(s.status), filled=filled, qty=qty,
                 action=str(o.action), ref=str(o.orderRef or ""), parent=int(o.parentId or 0),
-                limit=float(o.lmtPrice), stop=float(o.auxPrice))
+                limit=float(o.lmtPrice), stop=float(o.auxPrice), order_type=str(o.orderType),
+                oca_group=str(o.ocaGroup or ""), oca_type=int(o.ocaType), tif=str(o.tif),
+                good_after=str(o.goodAfterTime or ""), good_till=str(o.goodTillDate or ""),
+                outside_rth=bool(o.outsideRth), transmit=bool(o.transmit))
 
 
-def capture(ib, account, con_id):
+def capture(ib, account, con_id, *, open_reader=None):
     timeout = getattr(ib, "RequestTimeout", None)
     if timeout is not None:
         ib.RequestTimeout = min(timeout, 8) if timeout > 0 else 8
     try:
-        return _capture(ib, account, con_id)
+        return _capture(ib, account, con_id, open_reader=open_reader)
     finally:
         if timeout is not None:
             ib.RequestTimeout = timeout
 
 
-def _capture(ib, account, con_id):
+def _capture(ib, account, con_id, *, open_reader=None):
     """Double read detects a moving book; request timeout/None is not empty."""
+    def bound_account(value):
+        if str(value or "").strip():
+            return str(value).strip()
+        if hasattr(ib, "managedAccounts") and ib.managedAccounts() == [account]:
+            return account
+        raise ValueError("broker returned an ambiguous blank account for this contract")
+
+    def rows_for(trades, *, completed=False):
+        rows = []
+        for trade in trades:
+            if int(trade.contract.conId) != con_id:
+                continue
+            resolved = bound_account(trade.order.account)
+            if resolved == account:
+                row = order_row(trade, completed=completed)
+                row["identity"][0] = resolved
+                rows.append(row)
+        return rows
+
     def current():
         positions = ib.reqPositions()
-        orders = ib.reqAllOpenOrders()
+        if hasattr(ib, "wrapper") and open_reader is None:
+            raise ValueError("raw broker order reader is required; cached Trade objects are insufficient")
+        orders = open_reader(ib) if open_reader else ib.reqAllOpenOrders()
         if positions is None or orders is None:
             raise ValueError("broker position/open-order request did not complete")
         ps = [float(p.position) for p in positions
-              if str(p.account) == account and int(p.contract.conId) == con_id]
+              if int(p.contract.conId) == con_id and bound_account(p.account) == account]
         if len(ps) > 1 or any(not math.isfinite(p) for p in ps):
             raise ValueError("broker position identity is ambiguous")
-        rows = [order_row(t) for t in orders
-                if str(t.order.account) == account and int(t.contract.conId) == con_id]
+        rows = rows_for(orders)
         if any(r["status"] not in STABLE for r in rows):
             raise ValueError("broker still reports an order transition")
         if len({tuple(r["identity"]) for r in rows}) != len(rows):
@@ -78,15 +110,15 @@ def _capture(ib, account, con_id):
     fills = ib.reqExecutions()
     if completed is None or fills is None:
         raise ValueError("broker completed-order/execution request did not complete")
-    history = [order_row(t, completed=True) for t in completed
-               if str(t.order.account) == account and int(t.contract.conId) == con_id]
+    history = rows_for(completed, completed=True)
     executions = []
     for fill in fills:
         e = fill.execution
-        if str(e.acctNumber) == account and int(fill.contract.conId) == con_id:
+        if int(fill.contract.conId) == con_id and bound_account(e.acctNumber) == account:
             executions.append(dict(identity=[account, con_id, int(e.clientId), int(e.orderId),
                                              int(e.permId or 0)], exec_id=str(e.execId),
-                                   cumulative=number(e.cumQty), shares=number(e.shares)))
+                                   cumulative=number(e.cumQty), shares=number(e.shares),
+                                   ref=str(e.orderRef or "")))
     after = current()
     if before != after:
         raise ValueError("broker state changed during reconciliation; checking again shortly")
@@ -102,9 +134,11 @@ def matches(identity, wanted):
     return identity[2:4] == list(wanted[2:4])
 
 
-def lookup(evidence, wanted):
-    live = [r for r in evidence["orders"] if matches(r["identity"], wanted)]
-    past = [r for r in evidence["completed"] if matches(r["identity"], wanted)]
+def lookup(evidence, wanted, *, ref=None):
+    def belongs(row):
+        return matches(row["identity"], wanted) and (wanted[4] > 0 or (ref and row["ref"] == ref))
+    live = [r for r in evidence["orders"] if belongs(r)]
+    past = [r for r in evidence["completed"] if belongs(r)]
     if len(live) > 1 or len(past) > 1:
         raise ValueError("exact broker order has conflicting identities")
     if live and past and (live[0]["status"], live[0]["filled"]) != (past[0]["status"], past[0]["filled"]):
@@ -114,6 +148,69 @@ def lookup(evidence, wanted):
 
 def outcome(ok, detail, fill=None):
     return dict(ok=ok, state="executed" if ok else "rejected", detail=detail, fill=fill)
+
+
+def check_coverage(record, evidence):
+    """A known fill does not imply the remaining holdings are protected."""
+    if not (record.get("legs") or record.get("addition") or record.get("kind") == "reconcile_exits"):
+        return
+    position = evidence["position"]
+    closing = "SELL" if position > 0 else "BUY" if position < 0 else record.get("closing")
+    live = [r for r in evidence["orders"] if r["status"] not in TERMINAL]
+    parents = {(r["identity"][2], r["identity"][3]) for r in live}
+    exits = [r for r in live if r["action"] == closing
+             and (not r["parent"] or (r["identity"][2], r["parent"]) not in parents)]
+    if not position:
+        if exits:
+            raise ValueError("position is flat but closing orders are still working")
+        return
+    required_protection = bool(record.get("addition")) or any(
+        l.get("order_type") in {"STP", "STP LMT"} or
+        (l.get("order_type") == "MKT" and l.get("good_after")) for l in record.get("legs", []))
+    groups = {}
+    for row in exits:
+        if row["filled"] is None:
+            raise ValueError("current closing order activation or fill quantity is unclear")
+        remaining = row["qty"] - row["filled"]
+        if remaining <= 0:
+            raise ValueError("current closing order remaining quantity is inconsistent")
+        if row["oca_group"] and row["oca_type"] not in {1, 2}:
+            raise ValueError("current OCA group does not establish bounded exit coverage")
+        group = row["oca_group"] or tuple(row["identity"])
+        groups.setdefault(group, []).append((row, remaining))
+    coverage = 0
+    for siblings in groups.values():
+        quantities = {qty for _, qty in siblings}
+        if len(quantities) != 1:
+            raise ValueError("current OCA exit quantities disagree")
+        if required_protection and not any(
+                r["order_type"] in {"STP", "STP LMT"} or
+                (r["order_type"] == "MKT" and r["good_after"]) for r, _ in siblings):
+            raise ValueError("remaining position has an exit group without its stop/time protection")
+        coverage += next(iter(quantities))
+    if not math.isclose(coverage, abs(position), rel_tol=0, abs_tol=1e-8):
+        raise ValueError(f"current exits cover {coverage:g} units but position holds {abs(position):g}")
+
+
+def execution_quantity(evidence, wanted, ref):
+    fills = [e for e in evidence["executions"] if matches(e["identity"], wanted)
+             and (wanted[4] > 0 or e.get("ref") == ref)]
+    ids = {}
+    for fill in fills:
+        execution_id = fill.get("exec_id", "")
+        if not execution_id:
+            raise ValueError("execution evidence lacks a unique execution ID")
+        base, sep, revision = execution_id.rpartition(".")
+        if not sep or revision != "01":
+            raise ValueError("corrected/unrecognized execution requires terminal order confirmation")
+        if base in ids and ids[base] != fill:
+            raise ValueError("conflicting execution evidence")
+        ids[base] = fill
+    total = sum(number(e["shares"]) for e in ids.values())
+    cumulative = max([number(e["cumulative"]) for e in ids.values()] or [0])
+    if not math.isclose(total, cumulative, rel_tol=0, abs_tol=1e-8):
+        raise ValueError("execution history is incomplete or inconsistent")
+    return total
 
 
 def resolve(record, evidence):
@@ -190,12 +287,21 @@ def resolve(record, evidence):
                          "current exits retained, no entry or exit replayed", dict(filled=total_filled))
     elif record.get("wire") and record.get("mutation") != "stage addition and attached exits":
         wanted = record["wire"]
-        row = lookup(evidence, wanted)
-        filled = max([e["cumulative"] for e in evidence["executions"] if matches(e["identity"], wanted)] or [0])
+        ref = record.get("close_order_ref") or f"EXEC|{record['id']}|unified-close"
+        row = lookup(evidence, wanted, ref=ref)
+        # A terminal order echo is authoritative. Execution-only recovery needs
+        # unique, complete, uncorrected fills; max(cumQty) can overstate busts.
+        fill_rows = [e for e in evidence["executions"] if matches(e["identity"], wanted)
+                     and (wanted[4] > 0 or e.get("ref") == ref)]
+        if any(e.get("exec_id", "").rpartition(".")[2] != "01" for e in fill_rows):
+            raise ValueError("broker reports an execution correction; quantity needs corrected reconciliation")
+        filled = (row["filled"] or 0) if row and row["status"] in TERMINAL else execution_quantity(evidence, wanted, ref)
         qty = number(record["quantity"])
         if row:
             if row["qty"] != qty or row["action"] != record["closing"]:
                 raise ValueError("close terms changed at broker; inspect exact order")
+            if row["status"] not in TERMINAL:
+                raise ValueError("close order is still working at broker")
             filled = max(filled, row["filled"] or 0)
         if filled > qty:
             raise ValueError("broker fill exceeds recorded close quantity")
@@ -208,13 +314,18 @@ def resolve(record, evidence):
                              dict(status=status, filled=filled if known else None, order_id=wanted[3]))
     if result is None:
         raise ValueError("broker evidence does not yet resolve the attempted operation")
+    if "modify" not in record:
+        try:
+            check_coverage(record, evidence)
+        except ValueError as exc:
+            raise CoverageDiscrepancy(result, str(exc)) from exc
     resolved = copy.deepcopy(record)
     resolved.update(phase="done", result=result,
                     resolution=dict(kind="broker_readback", evidence=evidence, no_replay=True))
     return resolved
 
 
-def refresh_target(ib, root, account, con_id):
+def refresh_target(ib, root, account, con_id, *, open_reader=None):
     """Resolve each stopped receipt independently from one consistent snapshot."""
     targets = [(folder, r) for folder in (root, root / "order_edits") for r in actions.records(folder)
                if r["phase"] != "done" and r["payload"]["_broker_account"] == account
@@ -222,7 +333,7 @@ def refresh_target(ib, root, account, con_id):
                and not (folder == root and r["phase"] == "pending" and r.get("wire"))]
     if not targets:
         return {}
-    evidence = capture(ib, account, int(con_id))
+    evidence = capture(ib, account, int(con_id), open_reader=open_reader)
     results = {}
     for folder, record in targets:
         try:
@@ -231,4 +342,8 @@ def refresh_target(ib, root, account, con_id):
             results[record["id"]] = resolved["result"]
         except ValueError as exc:
             results[record["id"]] = dict(ok=False, state="unknown", detail=str(exc), fill=None)
+            record["observation"] = dict(at=evidence["at"], detail=str(exc))
+            if isinstance(exc, CoverageDiscrepancy):
+                record["observation"]["broker_outcome"] = exc.result
+            actions.save(folder, record)
     return results

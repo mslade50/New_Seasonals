@@ -343,7 +343,7 @@ def reconcile(ns, ib, record, root, host, port, cid, close=None):
         except ImportError:
             import broker_reconciliation as observation
         results = observation.refresh_target(ib, root, record["payload"]["_broker_account"],
-                                             record["payload"]["con_id"])
+                                             record["payload"]["con_id"], open_reader=ns.get("_fresh_open_trades"))
         return results[record["id"]]
     position = current_position(ns, ib, record["payload"], permit_flat=True)
     # A stored, qualified contract is recovered from the actual close order
@@ -418,7 +418,8 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
             except ImportError:
                 import broker_reconciliation as observation
             if payload.get("observe_only"):
-                results = observation.refresh_target(ib, root, payload["_broker_account"], payload["con_id"])
+                results = observation.refresh_target(ib, root, payload["_broker_account"], payload["con_id"],
+                                                     open_reader=ns.get("_fresh_open_trades"))
                 return results.get(str(payload.get("_command_id")),
                                    dict(ok=True, state="executed", detail="Broker journal check complete", fill=None))
             command_id = str(payload.get("_command_id") or "")
@@ -433,7 +434,8 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                 return reconcile(ns, ib, record, root, host, port, cid)
             if payload.get("reconcile_only"):
                 raise ValueError("no original operation to reconcile")
-            observation.refresh_target(ib, root, payload["_broker_account"], payload["con_id"])
+            observation.refresh_target(ib, root, payload["_broker_account"], payload["con_id"],
+                                       open_reader=ns.get("_fresh_open_trades"))
             for previous in records(root):
                 if previous["phase"] != "done" and previous["payload"]["_broker_account"] == payload["_broker_account"] and previous["payload"]["con_id"] == payload["con_id"]:
                     raise ValueError("An earlier position action is unresolved; reconcile it before another")
@@ -537,6 +539,7 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
             order.outsideRth = bool(payload.get("outside_rth"))
             order.orderId = ib.client.getReqId()
             order.orderRef = ns["_command_signal"](payload, "unified-close")
+            record["close_order_ref"] = order.orderRef
             record["wire"] = [payload["_broker_account"], int(contract.conId), cid, order.orderId, 0]
             mark_mutating(root, record, "submit close")
             trade = ns["guarded_place_order"](ib, contract, order, mutation_kind="exit",

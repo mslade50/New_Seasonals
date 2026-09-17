@@ -79,7 +79,8 @@ async def loop(ns, ws):
                     result = await ns["_execute_live"](command)
                 else:
                     result = {"ok": False, "state": "unknown",
-                              "detail": "Position action needs broker reconciliation; do not retry: " + record.get("error", record.get("mutation", ""))}
+                              "detail": (record.get("observation") or {}).get("detail") or
+                              "Position action needs broker reconciliation; do not retry: " + record.get("error", record.get("mutation", ""))}
                 signature = json.dumps(result, sort_keys=True)
                 if delivered.get(record["id"]) != signature:
                     await ws.send(json.dumps(dict(result, type="result", id=record["id"], at=time.time())))

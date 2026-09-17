@@ -185,7 +185,8 @@ def run(ns, ib, payload, host, port, cid, *, modify=False):
                     from . import broker_reconciliation as observation
                 except ImportError:
                     import broker_reconciliation as observation
-                results = observation.refresh_target(ib, root, wanted[0], wanted[1])
+                results = observation.refresh_target(ib, root, wanted[0], wanted[1],
+                                                     open_reader=ns.get("_fresh_open_trades"))
                 if command_id in results:
                     return ns["_out"](**results[command_id])
                 return ns["_out"](ok=False, state="unknown",

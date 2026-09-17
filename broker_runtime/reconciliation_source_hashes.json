@@ -6,5 +6,6 @@
   "exec_agent.py": "75346e74c293c0e627b172cba92bd33d00bc9cdc6d74f03a2138d4c17bf73b64",
   "execution_lifecycle.py": "8bd445a4a95400a44e211dcc507652e79f05f575a1e50a4f8adeee495d19ff8c",
   "execution_contracts.py": "cef653787c38dba57b74c98d85bcaf8df0c672e2817d4a4fde4f4d1b325c022a",
-  "reconcile_position_exits.py": "e8e8a01fa793ce9ab6dd66b2d12a55ea4b87bddbc91d3a1f7f96010a6ee90a0b"
+  "reconcile_position_exits.py": "e8e8a01fa793ce9ab6dd66b2d12a55ea4b87bddbc91d3a1f7f96010a6ee90a0b",
+  "legend_reservation_guard.py": "d0cf6d0eab1a1dedeab1faebf830ff6dac64985ccede919d49ea63ef850fbf08"
 }

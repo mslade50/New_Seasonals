@@ -162,7 +162,7 @@ def test_complete_execution_evidence_resolves_missing_close_without_inventing_no
     record = stopped(wire=["PRIMARY", 42, 7, 9, 109])
     record["mutation"] = "submit close"
     ev = evidence()
-    ev["executions"] = [dict(identity=record["wire"], cumulative=40)]
+    ev["executions"] = [dict(identity=record["wire"], cumulative=40, shares=40, exec_id="trade.01")]
     assert obs.resolve(record, ev)["result"]["fill"]["filled"] == 40
     ev["executions"][0]["cumulative"] = 10
     with pytest.raises(ValueError):
@@ -233,7 +233,7 @@ def test_completed_add_with_attached_exits_reconciles_without_another_entry():
     record.update(mutation="stage addition and attached exits", addition_requested=40,
                   add_context=dict(entry_action="BUY", close_action="SELL", legs=[dict(qty=100, source_key="stop")]),
                   addition=[dict(parent=[dict(order_id=9, perm_id=109)], children=[dict(order_id=10, perm_id=110)])])
-    broker = ObservedBroker(exits=[parent, child])
+    broker = ObservedBroker(holdings=140, exits=[parent, child, exit_order(1, 100)])
     assert obs.resolve(record, obs.capture(broker, "PRIMARY", 42))["result"]["fill"]["filled"] == 40
     assert not broker.mutations
     child.order.parentId = 7
@@ -276,7 +276,9 @@ def test_request_timeout_is_bounded_and_restored_after_failure():
 def test_partial_exit_reconciliation_is_retired_without_finishing_old_allocation():
     record = stopped()
     record.update(kind="reconcile_exits", plan=[dict(identity=["PRIMARY", 42, 7, 1, 101], remaining="80")])
-    result = obs.resolve(record, evidence())
+    ev = evidence()
+    ev["position"] = 0
+    result = obs.resolve(record, ev)
     assert result["phase"] == "done" and not result["result"]["ok"]
     assert "no remaining changes replayed" in result["result"]["detail"]
 
@@ -313,3 +315,173 @@ def test_candidate_is_pinned_to_reviewed_runtime_and_contains_only_required_modu
     assert manifest == json.loads((out / 'manifest.json').read_text())
     with pytest.raises(ValueError, match='new'):
         prep.prepare(runtime, out)
+
+
+def test_execution_correction_cannot_overstate_original_cumulative_fill():
+    r = stopped(wire=["PRIMARY", 42, 7, 9, 109])
+    r["mutation"] = "submit close"
+    ev = evidence()
+    ev["executions"] = [dict(identity=r["wire"], exec_id="trade.01", cumulative=40, shares=40),
+                        dict(identity=r["wire"], exec_id="trade.02", cumulative=10, shares=10)]
+    with pytest.raises(ValueError, match="correction"):
+        obs.resolve(r, ev)
+
+
+def test_execution_only_recovery_requires_complete_unique_fill_history():
+    r = stopped(wire=["PRIMARY", 42, 7, 9, 109])
+    r["mutation"] = "submit close"
+    ev = evidence()
+    fill = dict(identity=r["wire"], exec_id="trade.01", cumulative=40, shares=40)
+    ev["executions"] = [fill, fill.copy()]
+    assert obs.resolve(r, ev)["result"]["fill"]["filled"] == 40
+    ev["executions"] = [dict(fill, shares=10)]
+    with pytest.raises(ValueError, match="incomplete"):
+        obs.resolve(r, ev)
+
+
+def test_zero_permanent_id_requires_matching_command_reference():
+    r = stopped(wire=["PRIMARY", 42, 7, 9, 0])
+    r["mutation"] = "submit close"
+    trade = exit_order(9, 40)
+    trade.orderStatus.status = "Filled"
+    broker = ObservedBroker(exits=[trade])
+    with pytest.raises(ValueError):
+        obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
+    trade.order.orderRef = "EXEC|fixture|unified-close"
+    assert obs.resolve(r, obs.capture(broker, "PRIMARY", 42))["phase"] == "done"
+
+
+def test_stop_cancellation_failure_keeps_real_coverage_discrepancy_visible(tmp_path):
+    r = stopped()
+    r["legs"] = [dict(order_type="STP", qty=100)]
+    actions.save(tmp_path, r)
+    broker = ObservedBroker(holdings=100)
+    result = obs.refresh_target(broker, tmp_path, "PRIMARY", 42)[r["id"]]
+    assert result["state"] == "unknown" and "cover 0" in result["detail"]
+    saved = next(actions.records(tmp_path))
+    assert saved["phase"] == "attention"
+    assert saved["observation"]["broker_outcome"]["state"] == "rejected"
+    assert "before entry/close" in saved["observation"]["broker_outcome"]["detail"]
+    assert not broker.mutations
+    broker.orders = [exit_order(1, 100)]
+    assert obs.refresh_target(broker, tmp_path, "PRIMARY", 42)[r["id"]]["state"] == "rejected"
+    assert next(actions.records(tmp_path))["phase"] == "done"
+
+
+def test_partial_cancelled_close_reports_fill_but_does_not_hide_unprotected_remainder():
+    trade, stop = exit_order(9, 40), exit_order(1, 60)
+    trade.orderStatus.status = "Cancelled"
+    trade.order.filledQuantity = 10
+    r = stopped(wire=["PRIMARY", 42, 7, 9, 109])
+    r.update(mutation="submit close", legs=[dict(order_type="STP", qty=100)])
+    with pytest.raises(obs.CoverageDiscrepancy, match="cover 60.*holds 90") as caught:
+        obs.resolve(r, obs.capture(ObservedBroker(holdings=90, exits=[trade, stop]), "PRIMARY", 42))
+    assert caught.value.result["fill"]["filled"] == 10
+
+
+def test_filled_add_with_cancelled_protection_cannot_be_reported_successful():
+    parent, child = exit_order(9, 40), exit_order(10, 40)
+    parent.order.action, parent.orderStatus.status = "BUY", "Filled"
+    child.order.parentId, child.orderStatus.status = 9, "Cancelled"
+    r = stopped()
+    r.update(mutation="stage addition and attached exits", addition_requested=40,
+             add_context=dict(entry_action="BUY", close_action="SELL", legs=[dict(qty=100, source_key="stop")]),
+             addition=[dict(parent=[dict(order_id=9, perm_id=109)], children=[dict(order_id=10, perm_id=110)])])
+    broker = ObservedBroker(holdings=140, exits=[parent, child, exit_order(1, 100)])
+    with pytest.raises(obs.CoverageDiscrepancy, match="cover 100.*holds 140") as caught:
+        obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
+    assert caught.value.result["fill"]["filled"] == 40
+
+
+@pytest.mark.parametrize("field,value", [("ocaGroup", "changed"), ("ocaType", 3), ("orderType", "LMT"),
+    ("parentId", 900), ("goodAfterTime", "20270917 15:59:00"), ("transmit", False), ("tif", "DAY")])
+def test_snapshot_detects_structural_changes(field, value):
+    trade = exit_order(1, 100)
+    broker = ObservedBroker(exits=[trade])
+    def executions():
+        setattr(trade.order, field, value)
+        return []
+    broker.reqExecutions = executions
+    with pytest.raises(ValueError, match="changed"):
+        obs.capture(broker, "PRIMARY", 42)
+
+
+def test_blank_account_is_not_silently_treated_as_absent():
+    broker = ObservedBroker(exits=[exit_order(1, 100, account="")])
+    with pytest.raises(ValueError, match="blank account"):
+        obs.capture(broker, "PRIMARY", 42)
+    broker.managedAccounts = lambda: ["PRIMARY"]
+    assert obs.capture(broker, "PRIMARY", 42)["orders"][0]["identity"][0] == "PRIMARY"
+    broker.managedAccounts = lambda: ["PRIMARY", "PA"]
+    with pytest.raises(ValueError, match="blank account"):
+        obs.capture(broker, "PRIMARY", 42)
+
+
+def test_real_ib_wrapper_requires_raw_decoder_reader_instead_of_cached_trades():
+    broker = ObservedBroker()
+    broker.wrapper = N()
+    with pytest.raises(ValueError, match="raw broker"):
+        obs.capture(broker, "PRIMARY", 42)
+    calls = []
+    def raw(ib):
+        calls.append(ib)
+        return []
+    obs.capture(broker, "PRIMARY", 42, open_reader=raw)
+    assert len(calls) == 2
+
+
+def test_contradictory_completed_fill_quantity_is_not_ignored():
+    trade = exit_order(9, 40)
+    trade.orderStatus.status = "Filled"
+    trade.order.filledQuantity = 10
+    with pytest.raises(ValueError, match="contradicts"):
+        obs.capture(ObservedBroker(exits=[trade]), "PRIMARY", 42)
+
+
+@pytest.fixture
+def ib_event_loop():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    yield loop
+    loop.close()
+    asyncio.set_event_loop(None)
+
+
+def test_installed_raw_collector_observes_structural_changes_hidden_by_ib_cache(monkeypatch, ib_event_loop):
+    import dataclasses
+    import math
+    import threading
+    from ib_insync import IB, Order, OrderState, Stock
+    path = Path('C:/Users/McKinley Slade/OneDrive/trading_ibkr/legend_reservation_guard.py')
+    if not path.exists():
+        pytest.skip('host runtime not available')
+    names = {'_fresh_open_trades', '_clean_raw_broker_order'}
+    nodes = [n for n in ast.parse(path.read_text(encoding='utf-8-sig')).body
+             if isinstance(n, ast.FunctionDef) and n.name in names]
+    env = dict(deepcopy=copy.deepcopy, SimpleNamespace=N, math=math,
+               is_dataclass=dataclasses.is_dataclass, dataclass_fields=dataclasses.fields,
+               BrokerMutationBlocked=ValueError, _BROKER_SNAPSHOT_LOCK=threading.RLock())
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), '<raw reader>', 'exec'), env)
+    # Construct the actual library wrapper without connecting to a broker.
+    ib = IB()
+    contract = Stock('TEST', 'SMART', 'USD', conId=42)
+    old = Order(orderId=1, clientId=7, permId=101, account='PRIMARY', action='SELL',
+                totalQuantity=100, orderType='STP', auxPrice=90, parentId=8,
+                ocaGroup='OLD', ocaType=1, tif='GTC')
+    state = OrderState(status='Submitted')
+    ib.wrapper.openOrder(1, contract, old, state)
+    actual = copy.deepcopy(old)
+    actual.ocaGroup, actual.parentId, actual.goodAfterTime = 'CURRENT', 9, '20270917 15:59:00'
+    def response():
+        ib.wrapper.openOrder(1, contract, actual, state)
+        ib.wrapper.orderStatus(1, 'Submitted', 0, 100, 0, 101, 9, 0, 7, '', 0)
+        return list(ib.wrapper.trades.values())
+    monkeypatch.setattr(ib, 'reqAllOpenOrders', response)
+    monkeypatch.setattr(ib, 'reqPositions', lambda: [N(account='PRIMARY', contract=contract, position=100)])
+    monkeypatch.setattr(ib, 'reqCompletedOrders', lambda **kw: [])
+    monkeypatch.setattr(ib, 'reqExecutions', lambda: [])
+    ev = obs.capture(ib, 'PRIMARY', 42, open_reader=env['_fresh_open_trades'])
+    assert ev['orders'][0]['oca_group'] == 'CURRENT'
+    assert ev['orders'][0]['parent'] == 9
+    assert ev['orders'][0]['good_after'] == '20270917 15:59:00'
+    assert next(iter(ib.wrapper.trades.values())).order.ocaGroup == 'OLD'
