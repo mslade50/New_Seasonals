@@ -68,7 +68,11 @@ alone cannot establish a fill.
   targeted regression coverage in the revised candidate. The second review found
   two related orphan-exit cases (flat exit-allocation journals lacking a direction
   field, and old recorded exits after a position reversal); these are corrected
-  with long/short regression fixtures. Final verification of those fixes pending.
+  with long/short regression fixtures. Independent final review of `d9c9df80`
+  found no remaining blocking correctness issue in the observer/integration scope:
+  175 passed and one skipped across its five reviewed suites. This is code-review
+  clearance, not user approval for live activation. No runtime/journal changes
+  were made during either review.
 
 ## Runtime activation and rollback
 
