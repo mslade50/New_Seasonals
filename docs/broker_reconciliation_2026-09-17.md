@@ -1,6 +1,7 @@
 # Broker evidence reconciliation
 
-Prepared and tested; activation requires the separate live-runtime approval.
+Installed with explicit user approval on September 17, 2026 at 12:47 ET;
+the restarted agent and all five stale PA resolutions were verified live.
 
 The execution agent previously left interrupted position actions in `attention`
 indefinitely. It did not query the broker again, and later manual edits paused
@@ -87,6 +88,23 @@ alone cannot establish a fill.
   reads and websocket reporting, without broker mutations or an added admission gate.
 
 ## Runtime activation and rollback
+
+Activation installed the four reviewed modules from code revision `466e5f57`.
+All installed hashes match candidate v5, and the six pinned dependencies remain
+unchanged. The original modules, journal and scheduled-task definition are backed
+up under `artifacts/activation-backup-20260917-124748/` in this task worktree.
+The existing ExecAgent task restarted at 12:47:51 ET and connected at 12:47:52;
+verification found exactly one agent process and no executor child.
+
+Fresh broker readback retired the five stale PA workflows (MCHP, ENTG, HXL,
+RTX and SNA) at 12:47:53–57 ET. Each receipt is now `done`, preserves broker
+evidence, and records `no_replay: true`, with no coverage warnings. Comparison
+against the activation backup found exactly these five journal files changed.
+The old pre-submission workflows retain `result.state: rejected`, describing
+their stopped outcome; this is not a new rejection or a completed trade claim.
+RTX readback showed 100 shares and two working exits; the other four were flat
+with no working orders. No test orders were submitted, and the observer did not
+place, modify, cancel or restore broker orders.
 
 Candidate: `artifacts/broker-reconciliation-candidate-v5/`. Its manifest pins the
 current executor, agent and dependencies and hashes the four candidate modules.
