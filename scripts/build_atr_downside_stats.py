@@ -126,7 +126,7 @@ def compute_signal_masks(spy_df, closes, sp500_closes):
     from risk_dashboard_v2 import (
         SECTOR_ETFS,
         compute_da_signal, compute_vix_range_compression,
-        compute_defensive_leadership, compute_fomc_signal,
+        compute_defensive_leadership,
         compute_low_ar_signal, compute_seasonal_divergence_signal,
         compute_dispersion_signal, compute_pc_complacency_signal,
     )
@@ -139,7 +139,6 @@ def compute_signal_masks(spy_df, closes, sp500_closes):
         "Distribution Dominance": compute_da_signal(spy_df),
         "VIX Range Compression": compute_vix_range_compression(vix_close),
         "Defensive Leadership": compute_defensive_leadership(sp500_closes, spy_close),
-        "Pre-FOMC Rally": compute_fomc_signal(spy_close),
         "Low Absorption Ratio": compute_low_ar_signal(sector_returns, spy_close),
         "Seasonal Rank Divergence": compute_seasonal_divergence_signal(spy_close),
         "Dispersion": compute_dispersion_signal(sp500_closes, spy_df, spy_close),
@@ -152,11 +151,11 @@ def compute_signal_masks(spy_df, closes, sp500_closes):
 # Day-level event counts from the frozen signal_horizon_stats.json vintage.
 # Only DA and SRD share this generator's day-level definition (both match
 # exactly and anchor the reconstruction); the others counted deduped episodes
-# (Low-AR, Dispersion) or triggered events (Pre-FOMC) so they are NOT expected
+# (Low-AR, Dispersion) so they are NOT expected
 # to line up — shown for reference only.
 _FROZEN_N = {
     "Distribution Dominance": 269, "VIX Range Compression": 107,
-    "Defensive Leadership": 176, "Pre-FOMC Rally": 16,
+    "Defensive Leadership": 176,
     "Low Absorption Ratio": 17, "Seasonal Rank Divergence": 139, "Dispersion": 12,
 }
 _FROZEN_COMPARABLE = {"Distribution Dominance", "Seasonal Rank Divergence"}

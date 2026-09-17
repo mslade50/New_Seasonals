@@ -1,13 +1,13 @@
 """Simple-dial shadow: equal-weight fragility composite (pre-registered).
 
 Spec (RISK_DIALS_2026-07-16.md A6, registered before any parallel history
-exists): score = mean over the 7 signals of a per-signal weight that is 1.0
+exists): score = mean over the six current shadow signals of a per-signal weight that is 1.0
 while the signal is ON and decays LINEARLY to 0 over 63 trading days after it
 turns off, scaled to 0-100. Deliberately absent vs the incumbent composite:
 diff_mean edge weights, regime multiplier, calm-duration multipliers, the x80
-scale factor, the drawdown-modulated decay, and the dynamic FOMC denominator
-(FOMC sits in the fixed denominator like every other signal). ~35 fitted or
-hand-set parameters removed.
+scale factor and the drawdown-modulated decay. FOMC was removed from the
+shadow on 2026-09-17; earlier appended rows retain the original seven-signal
+spec and cache metadata records the transition.
 
 Pre-registered threshold rule (no scanning): at evaluation time the shadow's
 gate threshold is the percentile of its 10d-MA history that matches the
@@ -28,16 +28,14 @@ import pandas as pd
 
 DECAY_TD = 63
 SIMPLE_CACHE_NAME = "rd2_fragility_simple.parquet"
+SIMPLE_SPEC_VERSION = "v2_without_fomc_2026-09-17"
 
-# The pre-registered spec is a SEVEN-signal sum — frozen at registration
-# (2026-07-16). Signals added to the incumbent composite later (e.g. Equity
-# P/C Complacency, 2026-08-05) must NOT leak into the shadow: the comparison
-# is only meaningful if the shadow's inputs stay what was registered.
+# Six original components remain after FOMC retirement (2026-09-17).
+# The later Equity P/C addition remains outside this shadow.
 SIMPLE_SIGNALS = (
     "Distribution Dominance",
     "VIX Range Compression",
     "Defensive Leadership",
-    "Pre-FOMC Rally",
     "Low Absorption Ratio",
     "Seasonal Rank Divergence",
     "Dispersion",
@@ -65,10 +63,12 @@ def compute_simple_dial(signals_ordered: dict, index: pd.Index) -> pd.DataFrame:
     """
     # Generic over whatever dict it is handed (tests exercise synthetic
     # signal sets). The PRODUCTION caller (daily_risk_report) must pass a
-    # dict filtered to SIMPLE_SIGNALS — the registered 7 — so later
+    # dict filtered to SIMPLE_SIGNALS — the current six — so later
     # composite additions never leak into the shadow.
     weights = []
-    for sig in signals_ordered.values():
+    for name, sig in signals_ordered.items():
+        if name == "Pre-FOMC Rally":
+            continue
         history = (sig or {}).get("signal_history")
         if history is None or not hasattr(history, "empty") or history.empty:
             continue

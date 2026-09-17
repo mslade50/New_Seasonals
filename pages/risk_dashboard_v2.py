@@ -1361,7 +1361,7 @@ def save_signal_fire_history(signals_ordered: dict, spy_close: pd.Series):
     """Persist full signal fire history as wide boolean DataFrame to parquet."""
     try:
         histories = {}
-        for name, sig in signals_ordered.items():
+        for name, sig in filter_risk_signals(signals_ordered).items():
             h = sig.get('signal_history')
             if h is not None and not h.empty:
                 histories[name] = h.astype(bool)
@@ -1400,6 +1400,7 @@ def compute_changes(current_states: dict, previous_states: dict) -> list:
 # consumers (daily_risk_report, weekly_market_rundown, scripts, tests)
 # keep working unchanged.
 from fragility_core import (  # noqa: F401
+    filter_risk_signals,
     HORIZON_STATS_PATH,
     HORIZON_DAYS,
     HORIZON_DECAY_DD,
@@ -1746,7 +1747,6 @@ SIGNAL_COLORS = {
     'Distribution Dominance': '#e74c3c',
     'VIX Range Compression': '#e67e22',
     'Defensive Leadership': '#2ecc71',
-    'Pre-FOMC Rally': '#3498db',
     'Equity P/C Complacency': '#8e44ad',
     'Low Absorption Ratio': '#9b59b6',
     'Seasonal Rank Divergence': '#1abc9c',
@@ -1762,6 +1762,7 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict,
     """
     from plotly.subplots import make_subplots
 
+    signals_ordered = filter_risk_signals(signals_ordered)
     sig_names = list(signals_ordered.keys())
     n_sigs = len(sig_names)
 
@@ -3084,7 +3085,6 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
     vix_close = _closes["^VIX"].dropna() if "^VIX" in _closes.columns else pd.Series(dtype=float)
     vrc = compute_vix_range_compression(vix_close)
     dl = compute_defensive_leadership(_sp500_closes, spy_close)
-    fomc = compute_fomc_signal(spy_close)
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
     disp = compute_dispersion_signal(_sp500_closes, _spy_df, spy_close)
@@ -3094,13 +3094,12 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
         'Distribution Dominance': da,
         'VIX Range Compression': vrc,
         'Defensive Leadership': dl,
-        'Pre-FOMC Rally': fomc,
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
         'Dispersion': disp,
         # 5d-horizon-only contributor (2026-08-05) — its stats entry carries
         # no 21d/63d edges, so the sizing 63d column is untouched. NOT in the
-        # simple-dial shadow (pre-registered 7-signal spec, fragility_simple).
+        # simple-dial shadow (six-signal shadow spec, fragility_simple).
         'Equity P/C Complacency': pcc,
     }
     signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
@@ -3145,7 +3144,6 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
     da = signals_ordered['Distribution Dominance']
     vrc = signals_ordered['VIX Range Compression']
     dl = signals_ordered['Defensive Leadership']
-    fomc = signals_ordered['Pre-FOMC Rally']
     ar = signals_ordered['Low Absorption Ratio']
     srd = signals_ordered['Seasonal Rank Divergence']
     disp = signals_ordered.get('Dispersion', {})
@@ -3166,7 +3164,7 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
         elif len(vix_close) > 0:
             st.info("VIX compression data requires 504+ days of history.")
 
-    row2_c1, row2_c2 = st.columns(2)
+    row2_c1 = st.container()
 
     with row2_c1:
         if len(dl['spread'].dropna()) > 0:
@@ -3175,10 +3173,6 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Defensive Leadership requires S&P 500 data + risk classification.")
-
-    with row2_c2:
-        if len(fomc['signal_dates']) > 0:
-            st.plotly_chart(chart_fomc_signals(spy_close, fomc['signal_dates'], year_filter), use_container_width=True)
 
     row3_c1, row3_c2 = st.columns(2)
 

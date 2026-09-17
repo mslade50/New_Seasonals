@@ -38,7 +38,6 @@ from pages.risk_dashboard_v2 import (
     compute_da_signal,
     compute_vix_range_compression,
     compute_defensive_leadership,
-    compute_fomc_signal,
     compute_low_ar_signal,
     compute_seasonal_divergence_signal,
     compute_dispersion_signal,
@@ -59,6 +58,7 @@ from pages.risk_dashboard_v2 import (
 
 # Also import the decay metadata helper for DECAYING badge
 from pages.risk_dashboard_v2 import _compute_decay_metadata
+from fragility_core import filter_risk_signals
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ def download_data():
 # ---------------------------------------------------------------------------
 
 def compute_all_signals(spy_df, closes, sp500_closes):
-    """Compute all 6 signals and derived metrics."""
+    """Compute the seven current risk components and derived metrics."""
     spy_close = spy_df["Close"]
 
     sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
@@ -93,7 +93,6 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     vix_close = closes["^VIX"].dropna() if "^VIX" in closes.columns else pd.Series(dtype=float)
     vrc = compute_vix_range_compression(vix_close)
     dl = compute_defensive_leadership(sp500_closes, spy_close)
-    fomc = compute_fomc_signal(spy_close)
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
     disp = compute_dispersion_signal(sp500_closes, spy_df, spy_close)
@@ -103,13 +102,12 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'Distribution Dominance': da,
         'VIX Range Compression': vrc,
         'Defensive Leadership': dl,
-        'Pre-FOMC Rally': fomc,
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
         'Dispersion': disp,
         # 5d-horizon-only contributor (2026-08-05); stats entry has no
         # 21d/63d edges so the PIT parquet's sizing 63d column is unchanged.
-        # Excluded from the simple-dial shadow (pre-registered 7-signal spec).
+        # Excluded from the simple-dial shadow (six-signal shadow spec).
         'Equity P/C Complacency': pcc,
     }
 
@@ -511,7 +509,7 @@ def _build_fwd_returns_html(fwd_returns_data, title):
 def build_html_email(computed, fwd_returns_10d=None):
     """Build the full HTML email body."""
     price_ctx = computed['price_ctx']
-    signals_ordered = computed['signals_ordered']
+    signals_ordered = filter_risk_signals(computed['signals_ordered'])
     h_scores = computed['h_scores']
     frag_df = computed['frag_df']
 
@@ -861,10 +859,9 @@ def main():
         # history only — nothing consumes it until a PIT-gated swap decision.
         try:
             from fragility_simple import (compute_simple_dial,
-                                          SIMPLE_CACHE_NAME, SIMPLE_SIGNALS)
-            # Pin to the registered 7-signal spec: composite additions after
-            # 2026-07-16 (Equity P/C Complacency) must not leak into the
-            # pre-registered shadow.
+                                          SIMPLE_CACHE_NAME, SIMPLE_SIGNALS, SIMPLE_SPEC_VERSION)
+            # The shadow excludes retired FOMC and the later P/C addition.
+            # Preserve existing rows; stamp the membership transition below.
             _simple_inputs = {n: computed['signals_ordered'].get(n, {})
                               for n in SIMPLE_SIGNALS}
             simple_raw = compute_simple_dial(
@@ -889,6 +886,16 @@ def main():
                         simple_out, existing_s.sort_index(),
                         pd.Timestamp.today().normalize(),
                         refresh_from=refresh_from)
+                # Keep the original cache path and frozen rows. Record the first
+                # written row of this membership vintage so research can split eras.
+                transitions = dict(existing_s.attrs.get("spec_transitions", {})) if os.path.exists(simple_path) else {}
+                new_rows = simple_out.index if simple_frozen is None else simple_out.index[simple_out.index > simple_frozen]
+                if len(new_rows):
+                    transitions.setdefault(SIMPLE_SPEC_VERSION, new_rows[0].strftime("%Y-%m-%d"))
+                simple_out.attrs.update({"spec_version": SIMPLE_SPEC_VERSION,
+                                         "signal_names": list(SIMPLE_SIGNALS),
+                                         "spec_transitions": transitions,
+                                         "legacy_spec": "v1: seven signals including Pre-FOMC Rally"})
                 simple_out.to_parquet(simple_path)
                 frozen_note = (f"frozen through {simple_frozen.date()}"
                                if simple_frozen is not None else "bootstrap write")

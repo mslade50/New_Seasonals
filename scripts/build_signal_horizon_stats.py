@@ -85,7 +85,6 @@ PARAMS = {
     "Distribution Dominance (Elevated)": "63d window, ratio > 6.0, SPY within 2% of 52w high",
     "VIX Range Compression": "21d range pctile < 15, VIX above floor and rising vs SMA",
     "Defensive Leadership": "50d risk-on minus risk-off spread < -10pp",
-    "Pre-FOMC Rally": "3 sessions before scheduled FOMC decisions",
     "Low Absorption Ratio": "AR pctile < 10, SPY near 52w high",
     "Seasonal Rank Divergence": "risk-off minus risk-on seasonal spread > +10pp",
     "Dispersion": "composite dispersion pctile > 85",
@@ -111,6 +110,8 @@ def _episodes(hist: pd.Series) -> list[pd.Timestamp]:
 
 
 def signal_block(name: str, hist: pd.Series, spy_close: pd.Series) -> dict | None:
+    if name == "Pre-FOMC Rally":
+        return None
     hist = hist.dropna().astype(bool)
     hist = hist.reindex(spy_close.index).dropna() if hist.index.difference(
         spy_close.index).size else hist

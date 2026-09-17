@@ -21,6 +21,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
 sys.path.insert(0, _ROOT)
 
+from fragility_core import filter_risk_signals
+
 OUT = os.path.join(_ROOT, "data", "site_risk.json")
 MASTER_PRICES = os.path.join(_ROOT, "data", "master_prices.parquet")
 
@@ -132,7 +134,6 @@ SIGNAL_METRICS = {
         "unit": "pp", "decimals": 1,
         "thresholds": [{"value": -10.0, "label": "Fire", "operator": "<"}],
     },
-    "Pre-FOMC Rally": None,
     "Low Absorption Ratio": {
         "key": "ar_pctile", "label": "Absorption Ratio percentile",
         "unit": "percentile", "decimals": 1,
@@ -213,7 +214,7 @@ def _build_signal_detail(signals_ordered, dates, signal_periods_fn):
     invoking the heavy ten-year market-data refresh.
     """
     detail = {}
-    for name, sig_raw in signals_ordered.items():
+    for name, sig_raw in filter_risk_signals(signals_ordered).items():
         sig = sig_raw or {}
         periods = []
         try:
@@ -613,6 +614,7 @@ def build_atr_downside(spy_df):
     out = {k: stats.get(k) for k in (
         "measure", "atr_period", "mults", "horizons",
         "baseline", "baseline_n", "data_from", "data_through", "signals")}
+    out["signals"] = filter_risk_signals(out.get("signals") or {})
 
     # ---- dial-conditioned table (live) ----
     if _HERE not in sys.path:
@@ -817,7 +819,6 @@ TC_FULL_NAMES = {
     "DA": "Distribution Dominance", "VRC": "VIX Range Compression",
     "DL": "Defensive Leadership", "AR": "Low Absorption Ratio",
     "SRD": "Seasonal Rank Divergence", "DISP": "Dispersion",
-    "FOMC": "Pre-FOMC Rally",
 }
 
 
@@ -1100,11 +1101,11 @@ def build_trade_console(computed):
     with open(TC_STATS_PATH, encoding="utf-8") as f:
         stats = json.load(f)
 
-    signals_ordered = computed["signals_ordered"]
+    signals_ordered = filter_risk_signals(computed["signals_ordered"])
     spy_close = computed["spy_close"].dropna()
 
-    # The trade-console evidence file was built on the ABBR taxonomy (the 7
-    # base signals). Signals added to the composite later (Equity P/C
+    # The trade-console classes use the six bearish base signals.
+    # Signals added to the composite later (Equity P/C
     # Complacency, 2026-08-05) are filtered out here so the fingerprint gate
     # checks the taxonomy the evidence actually covers instead of degrading.
     signals_ordered = {k: v for k, v in signals_ordered.items() if k in ABBR}
@@ -1127,8 +1128,6 @@ def build_trade_console(computed):
 
     fired = []
     for name, abbr in ABBR.items():
-        if abbr == "FOMC":
-            continue
         if bool(row[f"any_{abbr}"]):
             on_col = frame[f"on_{abbr}"]
             if bool(row[f"on_{abbr}"]):
@@ -1157,7 +1156,7 @@ def main():
 
         signals = []
         price_ctx = computed["price_ctx"] or {}
-        for name, sig in computed["signals_ordered"].items():
+        for name, sig in filter_risk_signals(computed["signals_ordered"]).items():
             badge, color = _status_badge(sig or {}, price_ctx)
             signals.append({
                 "name": name,
