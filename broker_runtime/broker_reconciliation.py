@@ -19,13 +19,6 @@ TERMINAL = {"Filled", "Cancelled", "ApiCancelled"}
 STABLE = TERMINAL | {"Submitted", "PreSubmitted"}
 
 
-class CoverageDiscrepancy(ValueError):
-    def __init__(self, result, detail):
-        self.result = result
-        super().__init__("Broker outcome reconciled: " + result["detail"] +
-                         ". Current exit discrepancy: " + detail + "; no broker changes made")
-
-
 def number(value):
     value = float(value)
     if not math.isfinite(value) or value < 0:
@@ -151,7 +144,7 @@ def outcome(ok, detail, fill=None):
 
 
 def check_coverage(record, evidence):
-    """A known fill does not imply the remaining holdings are protected."""
+    """Describe current exit discrepancies, independently of receipt resolution."""
     if not (record.get("legs") or record.get("addition") or record.get("kind") == "reconcile_exits"):
         return
     position = evidence["position"]
@@ -297,8 +290,8 @@ def resolve(record, evidence):
             if parent["filled"] is None:
                 raise ValueError("terminal addition filled quantity unavailable")
             total_filled += parent["filled"]
-        result = outcome(bool(total_filled), "Broker confirms addition entries are terminal; "
-                         "current exits retained, no entry or exit replayed", dict(filled=total_filled))
+        result = outcome(bool(total_filled), f"Broker confirms addition entries are terminal: {total_filled:g} filled; "
+                         "no entry or exit replayed", dict(filled=total_filled))
     elif record.get("wire") and record.get("mutation") != "stage addition and attached exits":
         wanted = record["wire"]
         ref = record.get("close_order_ref") or f"EXEC|{record['id']}|unified-close"
@@ -328,14 +321,19 @@ def resolve(record, evidence):
                              dict(status=status, filled=filled if known else None, order_id=wanted[3]))
     if result is None:
         raise ValueError("broker evidence does not yet resolve the attempted operation")
+    warnings = []
     if "modify" not in record:
         try:
             check_coverage(record, evidence)
         except ValueError as exc:
-            raise CoverageDiscrepancy(result, str(exc)) from exc
+            # This is broker state we can explain, not an uncertain execution.
+            # Report it without reviving an old plan or vetoing the next user
+            # instruction. The next instruction retains its existing rules.
+            warnings.append(str(exc))
+            result["detail"] += ". Current exit discrepancy: " + str(exc) + "; no broker changes made"
     resolved = copy.deepcopy(record)
     resolved.update(phase="done", result=result,
-                    resolution=dict(kind="broker_readback", evidence=evidence, no_replay=True))
+                    resolution=dict(kind="broker_readback", evidence=evidence, no_replay=True, warnings=warnings))
     return resolved
 
 
@@ -357,7 +355,5 @@ def refresh_target(ib, root, account, con_id, *, open_reader=None):
         except ValueError as exc:
             results[record["id"]] = dict(ok=False, state="unknown", detail=str(exc), fill=None)
             record["observation"] = dict(at=evidence["at"], detail=str(exc))
-            if isinstance(exc, CoverageDiscrepancy):
-                record["observation"]["broker_outcome"] = exc.result
             actions.save(folder, record)
     return results

@@ -31,13 +31,16 @@ are retired without continuing their old plan. No observer places, modifies,
 cancels or restores an order, nor does it replay a close or re-add. Original
 errors remain in the receipt alongside the resolution and evidence.
 
-Current exit coverage is checked against actual holdings before retiring a
-position workflow that managed exits. OCA groups count once and must have
-consistent quantities; protection required by the original bracket must remain.
-Cancelled addition children do not count as protection. A known execution with
-insufficient coverage is explicitly reported as a reconciled broker outcome plus
-a current exit discrepancy, remains visible, and never triggers stale restoration.
-Explicit manual edits themselves retain their existing unrestricted semantics.
+Current exit coverage is reported separately from the execution outcome. OCA
+groups count once, inconsistent quantities are identified, and cancelled children
+do not count as protection. Once broker evidence resolves an old workflow, its
+receipt becomes terminal even if current exits differ from that workflow's plan.
+The receipt preserves an explicit discrepancy in its visible detail and resolution
+warnings. The observer never restores old orders or blocks a new instruction solely
+because of exit coverage. New instructions retain their existing execution rules;
+for example, Add still requires inherited exits, while a new bare-position close
+is no longer blocked by a known pre-close failure. Explicit manual edits retain
+their existing unrestricted semantics.
 
 IBKR completed-order callbacks create default zero fill counters in ib_insync;
 the observer uses completed-order filled quantity where available, full quantity
@@ -49,7 +52,7 @@ alone cannot establish a fill.
 ## Evidence and verification
 
 - The original code reproduces the stale block with a readable broker fixture.
-- 182 tests passed; one old source-pinning test skipped because its reviewed
+- 184 tests passed; one old source-pinning test skipped because its reviewed
   pre-upgrade fixture no longer matches the runtime.
 - Five legacy adapter tests fail identically on the unchanged baseline and this
   candidate: they apply an obsolete patcher to the current executor. New tests
@@ -73,10 +76,15 @@ alone cannot establish a fill.
   175 passed and one skipped across its five reviewed suites. This is code-review
   clearance, not user approval for live activation. No runtime/journal changes
   were made during either review.
+- Follow-up scope correction separates resolved outcomes from exit discrepancies:
+  the review-driven coverage check is diagnostic, not a new admission policy.
+  Regression fixtures prove a fresh close is allowed after an intentionally bare
+  position and that Add retains only its pre-existing inherited-exit rule. This
+  policy-aligned revision is awaiting independent re-review.
 
 ## Runtime activation and rollback
 
-Candidate: `artifacts/broker-reconciliation-candidate-v4/`. Its manifest pins the
+Candidate: `artifacts/broker-reconciliation-candidate-v5/`. Its manifest pins the
 current executor, agent and dependencies and hashes the four candidate modules.
 Preparation refuses an existing candidate directory or changed live sources.
 

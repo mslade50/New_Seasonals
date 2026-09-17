@@ -351,21 +351,20 @@ def test_zero_permanent_id_requires_matching_command_reference():
     assert obs.resolve(r, obs.capture(broker, "PRIMARY", 42))["phase"] == "done"
 
 
-def test_stop_cancellation_failure_keeps_real_coverage_discrepancy_visible(tmp_path):
+def test_stop_cancellation_failure_resolves_receipt_and_reports_current_coverage(tmp_path):
     r = stopped()
     r["legs"] = [dict(order_type="STP", qty=100)]
     actions.save(tmp_path, r)
     broker = ObservedBroker(holdings=100)
     result = obs.refresh_target(broker, tmp_path, "PRIMARY", 42)[r["id"]]
-    assert result["state"] == "unknown" and "cover 0" in result["detail"]
+    assert result["state"] == "rejected" and "cover 0" in result["detail"]
     saved = next(actions.records(tmp_path))
-    assert saved["phase"] == "attention"
-    assert saved["observation"]["broker_outcome"]["state"] == "rejected"
-    assert "before entry/close" in saved["observation"]["broker_outcome"]["detail"]
+    assert saved["phase"] == "done"
+    assert saved["resolution"]["warnings"]
+    assert "before entry/close" in saved["result"]["detail"]
     assert not broker.mutations
     broker.orders = [exit_order(1, 100)]
-    assert obs.refresh_target(broker, tmp_path, "PRIMARY", 42)[r["id"]]["state"] == "rejected"
-    assert next(actions.records(tmp_path))["phase"] == "done"
+    assert obs.refresh_target(broker, tmp_path, "PRIMARY", 42) == {}
 
 
 def test_partial_cancelled_close_reports_fill_but_does_not_hide_unprotected_remainder():
@@ -374,12 +373,12 @@ def test_partial_cancelled_close_reports_fill_but_does_not_hide_unprotected_rema
     trade.order.filledQuantity = 10
     r = stopped(wire=["PRIMARY", 42, 7, 9, 109])
     r.update(mutation="submit close", legs=[dict(order_type="STP", qty=100)])
-    with pytest.raises(obs.CoverageDiscrepancy, match="cover 60.*holds 90") as caught:
-        obs.resolve(r, obs.capture(ObservedBroker(holdings=90, exits=[trade, stop]), "PRIMARY", 42))
-    assert caught.value.result["fill"]["filled"] == 10
+    resolved = obs.resolve(r, obs.capture(ObservedBroker(holdings=90, exits=[trade, stop]), "PRIMARY", 42))
+    assert resolved["phase"] == "done" and resolved["result"]["fill"]["filled"] == 10
+    assert "cover 60 units but position holds 90" in resolved["result"]["detail"]
 
 
-def test_filled_add_with_cancelled_protection_cannot_be_reported_successful():
+def test_filled_add_reports_actual_fill_and_cancelled_protection_separately():
     parent, child = exit_order(9, 40), exit_order(10, 40)
     parent.order.action, parent.orderStatus.status = "BUY", "Filled"
     child.order.parentId, child.orderStatus.status = 9, "Cancelled"
@@ -388,9 +387,10 @@ def test_filled_add_with_cancelled_protection_cannot_be_reported_successful():
              add_context=dict(entry_action="BUY", close_action="SELL", legs=[dict(qty=100, source_key="stop")]),
              addition=[dict(parent=[dict(order_id=9, perm_id=109)], children=[dict(order_id=10, perm_id=110)])])
     broker = ObservedBroker(holdings=140, exits=[parent, child, exit_order(1, 100)])
-    with pytest.raises(obs.CoverageDiscrepancy, match="cover 100.*holds 140") as caught:
-        obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
-    assert caught.value.result["fill"]["filled"] == 40
+    resolved = obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
+    assert resolved["phase"] == "done" and resolved["result"]["fill"]["filled"] == 40
+    assert "cover 100 units but position holds 140" in resolved["result"]["detail"]
+    assert resolved["resolution"]["warnings"] and not broker.mutations
 
 
 @pytest.mark.parametrize("field,value", [("ocaGroup", "changed"), ("ocaType", 3), ("orderType", "LMT"),
@@ -446,8 +446,10 @@ def test_flat_exit_allocation_uses_actual_journal_shape_to_detect_orphan_exit(he
     trade = exit_order(1, 100)
     trade.order.action = side
     broker = ObservedBroker(holdings=0, exits=[trade])
-    with pytest.raises(obs.CoverageDiscrepancy, match="closing order.*flat"):
-        obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
+    resolved = obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
+    assert resolved["phase"] == "done"
+    assert "record-owned closing order remains working" in resolved["result"]["detail"]
+    assert resolved["resolution"]["warnings"]
     broker.orders = []
     assert obs.resolve(r, obs.capture(broker, "PRIMARY", 42))["phase"] == "done"
 
@@ -459,11 +461,37 @@ def test_reversed_position_cannot_hide_old_record_owned_exit(position, old_side,
     r = stopped()
     r.update(closing=old_side, legs=[dict(order_type="STP", qty=100, identity=["PRIMARY", 42, 7, 1, 101])])
     broker = ObservedBroker(holdings=position, exits=[old, current])
-    with pytest.raises(obs.CoverageDiscrepancy, match="record-owned.*reversed"):
-        obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
+    resolved = obs.resolve(r, obs.capture(broker, "PRIMARY", 42))
+    assert resolved["phase"] == "done"
+    assert "record-owned" in resolved["result"]["detail"] and "reversed" in resolved["result"]["detail"]
     # An unrelated new entry is not mistaken for an obsolete recorded exit.
     old.order.permId = 999
-    assert obs.resolve(r, obs.capture(broker, "PRIMARY", 42))["phase"] == "done"
+    assert not obs.resolve(r, obs.capture(broker, "PRIMARY", 42))["resolution"]["warnings"]
+
+
+def test_known_old_failure_does_not_block_new_close_after_operator_removed_exits(tmp_path):
+    old = stopped()
+    old.update(quantity=100, legs=[dict(order_type="STP", qty=100)], removed=["old-stop"])
+    actions.save(tmp_path, old)
+    broker = ObservedBroker(holdings=100)
+    result = actions.run(namespace(tmp_path, broker), broker, dict(request(), _command_id="new-close", qty=40),
+                         "primary", "", 0, 7)
+    assert result["ok"] and broker.position.position == 60
+    assert len(broker.mutations) == 1 and broker.mutations[0][2] == 40
+    saved = next(r for r in actions.records(tmp_path) if r["id"] == "fixture")
+    assert saved["phase"] == "done" and saved["resolution"]["warnings"]
+
+
+def test_add_retains_existing_protection_rule_after_old_receipt_is_resolved(tmp_path):
+    old = stopped()
+    old["legs"] = [dict(order_type="STP", qty=100)]
+    actions.save(tmp_path, old)
+    broker = ObservedBroker(holdings=100)
+    result = actions.run(namespace(tmp_path, broker), broker, dict(request(), _command_id="new-add"),
+                         "primary", "", 0, 7, adding=True)
+    assert result["state"] == "rejected" and "requires existing exits" in result["detail"]
+    assert "earlier position action" not in result["detail"]
+    assert next(actions.records(tmp_path))["phase"] == "done" and not broker.mutations
 
 
 @pytest.fixture
