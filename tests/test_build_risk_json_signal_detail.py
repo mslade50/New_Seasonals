@@ -66,3 +66,16 @@ def test_malformed_period_history_does_not_drop_metric_detail():
     assert detail["periods"] == []
     assert detail["metric"]["values"] == [85.0, 90.1]
     assert detail["current"]["value"] == 90.1
+
+
+def test_nyse_zero_line_has_the_frontend_threshold_contract():
+    dates = pd.date_range("2026-09-14", periods=2, freq="B")
+    signals = {"NYSE Net Highs": {
+        "net_highs": pd.Series([12, -158], index=dates),
+        "signal_history": pd.Series([False, True], index=dates),
+    }}
+    metric = _build_signal_detail(signals, dates, _periods)["NYSE Net Highs"]["metric"]
+    assert metric["values"] == [12, -158]
+    assert metric["thresholds"] == [
+        {"value": 0, "label": "Negative breadth", "operator": "<"}
+    ]
