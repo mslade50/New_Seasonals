@@ -68,6 +68,7 @@ from pages.risk_dashboard_v2 import (
 
 from daily_scan import load_seasonal_map
 from indicators import get_sznl_val_series
+from fragility_core import load_pit_sizing_state
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +187,7 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'horizon_stats': horizon_stats,
         'h_scores': h_scores,
         'h_scores_10d': h_scores_10d,
+        'main_sizing': load_pit_sizing_state(),
         'frag_df': frag_df,
         'spy_close': spy_close,
         'spy_df': spy_df,
@@ -493,23 +495,12 @@ def _generate_regime_table(computed, tmp_dir):
 # 6. COVER PAGE DIALS
 # ---------------------------------------------------------------------------
 
-def generate_dial_image(h_scores, tmp_dir):
-    """Generate combined 3-dial gauge image for the cover page."""
-    if h_scores is None:
+def generate_dial_image(sizing, tmp_dir):
+    """Generate the main sizing dial for the cover page."""
+    if sizing is None:
         return None
 
-    horizons = [('5d', '5-Day'), ('21d', '21-Day'), ('63d', '63-Day')]
-    fig = make_subplots(
-        rows=1, cols=3,
-        specs=[[{"type": "indicator"}] * 3],
-        horizontal_spacing=0.05,
-    )
-
-    for i, (key, label) in enumerate(horizons):
-        score = h_scores.get(key, 0)
-        dial_fig = build_risk_dial(score, title=label)
-        indicator = dial_fig.data[0]
-        fig.add_trace(indicator, row=1, col=i + 1)
+    fig = build_risk_dial(sizing['score'], title='Main risk dial (63d, 10d average)')
 
     fig.update_layout(
         height=500,
@@ -666,7 +657,7 @@ class RundownPDF(FPDF):
             self.set_font("Helvetica", "B", 14)
             self.set_text_color(136, 136, 136)
             self.set_xy(25, y)
-            self.cell(0, 8, "FRAGILITY DIALS (5d / 21d / 63d)", ln=True)
+            self.cell(0, 8, "MAIN RISK DIAL", ln=True)
             y += 10
             dial_w = 240
             dial_x = (PDF_W - dial_w) / 2
@@ -674,14 +665,13 @@ class RundownPDF(FPDF):
             y += dial_w * 0.29 + 4
 
         # 10d trailing average below dials
-        if h_scores_10d:
+        main_sizing = computed.get('main_sizing')
+        if main_sizing:
             self.set_font("Helvetica", "", 15)
-            parts = []
-            for key, label in [('5d', '5d'), ('21d', '21d'), ('63d', '63d')]:
-                score = h_scores_10d.get(key, 0)
-                regime = _assign_regime_bucket(score)
-                parts.append(f"{label}: {score:.0f} ({regime})")
-            avg_line = "10d Trailing Avg:   " + "   |   ".join(parts)
+            score = main_sizing['score']
+            avg_line = f"Main risk dial: {score:.0f} | as of {main_sizing['asof']}"
+            if main_sizing['stale']:
+                avg_line += ' | STALE'
             self.set_text_color(170, 170, 170)
             self.set_xy(20, y)
             self.cell(0, 6, avg_line, align='C')
@@ -743,12 +733,10 @@ def send_email(pdf_path, computed):
         print("  EMAIL_USER / EMAIL_PASS not set - skipping send")
         return False
 
-    h_scores = computed.get('h_scores', {}) or {}
-    s5 = h_scores.get('5d', 0)
-    s21 = h_scores.get('21d', 0)
-    s63 = h_scores.get('63d', 0)
+    score = (computed.get('main_sizing') or {}).get('score')
+    score_text = f'{score:.0f}' if score is not None else 'unavailable'
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-    subject = f"Weekly Rundown - {date_str} | Fragility: {s5:.0f}/{s21:.0f}/{s63:.0f}"
+    subject = f"Weekly Rundown - {date_str} | Risk dial: {score_text}"
 
     msg = MIMEMultipart()
     msg["Subject"] = subject
@@ -800,7 +788,7 @@ def main():
     # 3. Generate chart images
     print("[3/5] Generating charts...")
     tmp_dir = tempfile.mkdtemp()
-    dial_path = generate_dial_image(computed['h_scores'], tmp_dir)
+    dial_path = generate_dial_image(computed.get('main_sizing'), tmp_dir)
     charts = generate_charts(computed, tmp_dir)
     print(f"  {len(charts)} chart pages generated")
 

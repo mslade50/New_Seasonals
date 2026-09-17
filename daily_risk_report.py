@@ -58,7 +58,7 @@ from pages.risk_dashboard_v2 import (
 
 # Also import the decay metadata helper for DECAYING badge
 from pages.risk_dashboard_v2 import _compute_decay_metadata
-from fragility_core import filter_risk_signals
+from fragility_core import filter_risk_signals, load_main_dial_series
 
 
 # ---------------------------------------------------------------------------
@@ -171,12 +171,16 @@ def merge_fragility_history(
 # ---------------------------------------------------------------------------
 
 def build_forward_returns_data(frag_df, spy_close, h_scores):
-    """Compute forward returns for each horizon at current fragility reading."""
+    """All forward-return windows conditioned on one main-dial reading.
+
+    Callers supply the main dial's already-smoothed history and current score.
+    The outer 63d key identifies the model; inner return keys identify windows.
+    """
     if frag_df is None or h_scores is None:
         return {}
 
     results = {}
-    for horizon in ['5d', '21d', '63d']:
+    for horizon in ['63d']:
         if horizon not in h_scores or h_scores.get(horizon) is None:
             continue
         # Zero is a real (robust) risk-dial reading, not missing data.  The
@@ -190,6 +194,15 @@ def build_forward_returns_data(frag_df, spy_close, h_scores):
         if ret is not None:
             results[horizon] = ret
     return results
+
+
+def build_main_dial_forward_returns(spy_close, path=None):
+    """Use the same stored statistic as the displayed sizing dial."""
+    main = load_main_dial_series(path)
+    if main is None:
+        return {}
+    return build_forward_returns_data(
+        main.to_frame('63d'), spy_close, {'63d': float(main.iloc[-1])})
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +229,7 @@ def generate_dial_image(sizing, tmp_dir):
     """Single 63d gauge on the sizing basis (10d MA of the 63d dial from the
     just-appended PIT parquet — never the in-memory recompute, which drifts
     near the threshold). Replaced the 3-dial 5d/21d/63d strip 2026-07-16:
-    5d failed every sizing test, 21d is ~90% redundant with 63d. All three
-    raw scores stay in the subject line."""
+    The subject and forward-return table use this same main reading."""
     if sizing is None or sizing.get('ma') is None:
         return None
 
@@ -266,29 +278,21 @@ def generate_overlay_image(spy_close, signals_ordered, tmp_dir):
 
 
 def find_analog_dates(frag_df, h_scores, h_scores_10d, n_matches=5, min_gap=10):
-    """Find the N closest historical dates by Euclidean distance on 4 fragility dims.
+    """Find the N closest historical dates by distance from the main dial.
 
-    Feature vector: [21d_raw, 21d_10d_avg, 63d_raw, 63d_10d_avg]
+    Historical matches use only the supplied main-dial score.
     Enforces min_gap trading days between matches to prevent clustering.
     """
     if frag_df is None or h_scores is None or h_scores_10d is None:
         return []
 
-    raw = frag_df[['21d', '63d']].copy()
-    avg10 = frag_df[['21d', '63d']].rolling(10, min_periods=1).mean()
-    avg10.columns = ['21d_10d', '63d_10d']
-    features = pd.concat([raw, avg10], axis=1).dropna()
+    features = frag_df[['63d']].dropna()
 
     if len(features) < 2:
         return []
 
     # Current feature vector
-    today_vec = np.array([
-        h_scores.get('21d', 0),
-        h_scores.get('63d', 0),
-        h_scores_10d.get('21d', 0),
-        h_scores_10d.get('63d', 0),
-    ])
+    today_vec = np.array([h_scores['63d']])
 
     # Exclude last 5 trading days (too recent / overlapping with "now")
     features = features.iloc[:-5]
@@ -451,7 +455,7 @@ def _build_fwd_returns_html(fwd_returns_data, title):
         return ""
 
     fwd_rows = ""
-    for horizon in ['5d', '21d', '63d']:
+    for horizon in ['63d']:
         ret_data = fwd_returns_data.get(horizon)
         if ret_data is None:
             continue
@@ -461,7 +465,7 @@ def _build_fwd_returns_html(fwd_returns_data, title):
         fwd_rows += f"""
         <tr style="border-bottom: 1px solid #444;">
             <td colspan="7" style="padding: 8px 12px; color: #FFD700; font-weight: bold; font-size: 13px;">
-                {horizon.upper()} Fragility = {score:.0f} | {n_episodes} historical episodes (band: {ret_data['band_low']:.0f}-{ret_data['band_high']:.0f})
+                Main risk dial = {score:.0f} | {n_episodes} historical episodes (band: {ret_data['band_low']:.0f}-{ret_data['band_high']:.0f})
             </td>
         </tr>
         <tr style="border-bottom: 1px solid #333;">
@@ -608,11 +612,9 @@ def build_html_email(computed, fwd_returns_10d=None):
     fwd_returns_10d_html = _build_fwd_returns_html(fwd_returns_10d, "Forward Returns at Similar Fragility (10d avg)")
 
     # --- Dial scores for subject line ---
-    s5 = h_scores.get('5d', 0) if h_scores else 0
-    s21 = h_scores.get('21d', 0) if h_scores else 0
-    s63 = h_scores.get('63d', 0) if h_scores else 0
-
-    subject = f"Risk Report \u2014 {date_str} | Fragility: {s5:.0f}/{s21:.0f}/{s63:.0f}"
+    main_score = (computed.get('main_sizing') or {}).get('score')
+    score_text = f"{main_score:.0f}" if main_score is not None else 'unavailable'
+    subject = f"Risk Report \u2014 {date_str} | Risk dial: {score_text}"
 
     # --- Full HTML ---
     html = f"""
@@ -948,9 +950,7 @@ def main():
 
     # 3. Forward returns (10d-avg sizing basis only; 5d-avg set cut 2026-07-16)
     print("[3/6] Computing forward returns...")
-    fwd_returns_10d = build_forward_returns_data(
-        computed['frag_df'], computed['spy_close'], computed['h_scores_10d']
-    )
+    fwd_returns_10d = build_main_dial_forward_returns(computed['spy_close'])
 
     # 4. Generate images + analog PDF
     print("[4/7] Generating images...")
@@ -964,6 +964,7 @@ def main():
             ma = cache['63d'].dropna().rolling(10, min_periods=1).mean()
             sizing = {'ma': float(ma.iloc[-1]), 'raw': float(cache['63d'].dropna().iloc[-1]),
                       'on': bool(ma.iloc[-1] >= THROTTLE_THRESHOLD)}
+            computed['main_sizing'] = {'score': float(ma.iloc[-1])}
     except Exception as e:
         print(f"  WARNING: could not read sizing parquet for dial ({e})")
     dial_path = generate_dial_image(sizing, tmp_dir)
@@ -972,17 +973,15 @@ def main():
     )
 
     print("[5/7] Finding analog dates & generating PDF...")
+    main_history = load_main_dial_series()
+    main_scores = ({'63d': float(main_history.iloc[-1])}
+                   if main_history is not None else None)
     analog_dates = find_analog_dates(
-        computed['frag_df'], computed['h_scores'], computed['h_scores_10d']
-    )
+        main_history.to_frame('63d') if main_history is not None else None,
+        main_scores, main_scores)
     pdf_path = None
     if analog_dates:
-        h = computed['h_scores'] or {}
-        h10 = computed['h_scores_10d'] or {}
-        today_vec_str = (
-            f"21d={h.get('21d', 0):.0f} / 21d-10avg={h10.get('21d', 0):.0f} | "
-            f"63d={h.get('63d', 0):.0f} / 63d-10avg={h10.get('63d', 0):.0f}"
-        )
+        today_vec_str = f"Main risk dial={main_scores['63d']:.0f}"
         pdf_path = generate_analog_pdf(spy_df, analog_dates, today_vec_str, tmp_dir)
         print(f"  Found {len(analog_dates)} analog matches")
     else:

@@ -817,7 +817,7 @@ function seasonalHouseThesis(ticker, requestedHorizon) {
 function riskHouseThesis(requestedHorizon) {
   const risk = state.risk || {};
   const all = risk.forward_returns || {};
-  const scoreKey = requestedHorizon <= 7 ? "5d" : requestedHorizon <= 31 ? "21d" : "63d";
+  const scoreKey = "63d"; // Main dial; requested horizon selects its return window.
   const block = all[scoreKey];
   if (!block || !block.returns) return null;
   const horizon = nearestHorizon(Object.keys(block.returns).filter((key) => block.returns[key]), requestedHorizon);

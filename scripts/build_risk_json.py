@@ -679,8 +679,6 @@ def build_nuggets(p):
     context) — no fabricated history.
     """
     out = []
-    frag = p.get("fragility") or {}
-    frag10 = p.get("fragility_10d") or {}
     ctx = p.get("price_ctx") or {}
     fwd = p.get("forward_returns") or {}
     sigs = p.get("signals") or []
@@ -690,26 +688,21 @@ def build_nuggets(p):
         return "robust" if v < 33 else "neutral" if v < 66 else "fragile"
 
     # 1. fragility level + trend
-    if frag.get("21d") is not None:
-        f21 = frag["21d"]
-        trend = ""
-        if frag10.get("21d") is not None:
-            d = f21 - frag10["21d"]
-            trend = " and easing" if d < -1 else " and building" if d > 1 else ", flat"
-        tone = "good" if f21 < 33 else "warn" if f21 < 66 else "bad"
+    main_score = (p.get("sizing_state") or {}).get("score")
+    if main_score is not None:
+        tone = "good" if main_score < 33 else "warn" if main_score < 66 else "bad"
         out.append({
-            "title": f"Fragility: {lvl(f21)}{trend}",
+            "title": f"Fragility: {lvl(main_score)}",
             "tone": tone,
             "lines": [
-                f"21d score {f21:.0f} / 100 ({lvl(f21)}){trend} vs its 10d average. "
-                f"5d at {frag.get('5d', 0):.0f}, 63d at {frag.get('63d', 0):.0f}.",
+                f"Main risk dial {main_score:.0f} / 100 ({lvl(main_score)}).",
             ],
         })
 
     # 2. conditional forward returns at the current readings
     fwd_lines, zs, z_by_h = [], [], {}
     for h in ["5d", "21d", "63d"]:
-        r = fwd.get(h)
+        r = fwd.get("63d")
         if not r:
             continue
         w = h.replace("d", "")
@@ -720,7 +713,7 @@ def build_nuggets(p):
         zs.append(mz)
         z_by_h[h] = mz
         fwd_lines.append(
-            f"{h} fragility {r['current_score']:.0f} ({r['n_episodes']} similar episodes): "
+            f"Main dial {r['current_score']:.0f} ({r['n_episodes']} similar episodes): "
             f"SPY next {w}d averaged {st['mean']:+.2%} vs {st['uncond_mean']:+.2%} baseline "
             f"(mean Z {mz:+.2f}, {st['pct_neg']:.0%} negative).")
     if fwd_lines:
@@ -1144,7 +1137,7 @@ def main():
     try:
         from daily_risk_report import (
             compute_all_signals,
-            build_forward_returns_data,
+            build_main_dial_forward_returns,
             _status_badge,
         )
         from pages.risk_dashboard_v2 import _signal_periods
@@ -1169,10 +1162,8 @@ def main():
 
         fwd_raw = {}
         fwd = {}
-        if computed.get("frag_df") is not None and computed.get("h_scores"):
-            fwd_raw = build_forward_returns_data(
-                computed["frag_df"], computed["spy_close"], computed["h_scores"])
-            fwd = _clean(fwd_raw)
+        fwd_raw = build_main_dial_forward_returns(computed["spy_close"])
+        fwd = _clean(fwd_raw)
 
         spy_close = computed["spy_close"].dropna()
         shared_dates = spy_close.index
