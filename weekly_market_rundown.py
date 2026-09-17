@@ -37,7 +37,6 @@ from pages.risk_dashboard_v2 import (
     compute_da_signal,
     compute_vix_range_compression,
     compute_defensive_leadership,
-    compute_fomc_signal,
     compute_low_ar_signal,
     compute_seasonal_divergence_signal,
     compute_dispersion_signal,
@@ -54,7 +53,6 @@ from pages.risk_dashboard_v2 import (
     chart_da_ratio,
     chart_vix_compression,
     chart_leadership,
-    chart_fomc_signals,
     chart_ar_signal,
     chart_seasonal_divergence,
     chart_dispersion_signal,
@@ -126,7 +124,6 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     vix_close = closes["^VIX"].dropna() if "^VIX" in closes.columns else pd.Series(dtype=float)
     vrc = compute_vix_range_compression(vix_close)
     dl = compute_defensive_leadership(sp500_closes, spy_close)
-    fomc = compute_fomc_signal(spy_close)
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
     disp = compute_dispersion_signal(sp500_closes, spy_df, spy_close)
@@ -136,7 +133,6 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'Distribution Dominance': da,
         'VIX Range Compression': vrc,
         'Defensive Leadership': dl,
-        'Pre-FOMC Rally': fomc,
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
         'Dispersion': disp,
@@ -202,7 +198,6 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'da': da,
         'vrc': vrc,
         'dl': dl,
-        'fomc': fomc,
         'ar': ar,
         'srd': srd,
         'disp': disp,
@@ -267,7 +262,6 @@ def generate_charts(computed, tmp_dir):
     da = computed['da']
     vrc = computed['vrc']
     dl = computed['dl']
-    fomc = computed['fomc']
     ar = computed['ar']
     srd = computed['srd']
     disp = computed['disp']
@@ -330,14 +324,6 @@ def generate_charts(computed, tmp_dir):
         p = os.path.join(tmp_dir, "06_leadership.png")
         _save_fig(fig, p)
         charts.append((p, "Risk-On vs Risk-Off Breadth"))
-
-    # --- FOMC (conditional) ---
-    if _fomc_upcoming() and len(fomc.get('signal_dates', [])) > 0:
-        fig = chart_fomc_signals(spy_close, fomc['signal_dates'], year_filter=None)
-        _style_fig(fig)
-        p = os.path.join(tmp_dir, "07_fomc.png")
-        _save_fig(fig, p)
-        charts.append((p, "Pre-FOMC Rally Signal"))
 
     # --- AR Signal ---
     if len(ar.get('ar_pctile', pd.Series(dtype=float)).dropna()) > 0:

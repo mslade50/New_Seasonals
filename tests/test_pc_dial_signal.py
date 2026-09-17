@@ -103,22 +103,22 @@ def test_scalar_scores_21d_63d_unchanged():
     assert b["5d"] != a["5d"]  # ON signal must move the 5d dial
 
 
-def test_simple_dial_shadow_pinned_to_registered_seven():
+def test_simple_dial_shadow_keeps_six_after_fomc_retirement():
     # The production caller (daily_risk_report) filters signals_ordered to
     # SIMPLE_SIGNALS before calling compute_simple_dial — replicate that
-    # filter here and assert an added 8th signal cannot change the shadow.
-    assert NAME not in SIMPLE_SIGNALS and len(SIMPLE_SIGNALS) == 7
+    # filter here and assert the later P/C signal cannot change the shadow.
+    assert NAME not in SIMPLE_SIGNALS and len(SIMPLE_SIGNALS) == 6
     spy, base, withpcc, _ = _synth_world()
-    seven = {n: {"on": False, "signal_history":
+    shadow = {n: {"on": False, "signal_history":
                  pd.Series(True, index=spy.index[:50]).reindex(spy.index, fill_value=False)}
              for n in SIMPLE_SIGNALS}
-    eight = dict(seven)
-    eight[NAME] = withpcc[NAME]
-    filtered = {n: eight.get(n, {}) for n in SIMPLE_SIGNALS}
-    a = compute_simple_dial(seven, spy.index)
+    expanded = dict(shadow)
+    expanded[NAME] = withpcc[NAME]
+    filtered = {n: expanded.get(n, {}) for n in SIMPLE_SIGNALS}
+    a = compute_simple_dial(shadow, spy.index)
     b = compute_simple_dial(filtered, spy.index)
     pd.testing.assert_frame_equal(a, b)
-    assert b.attrs["n_signals"] == 7
+    assert b.attrs["n_signals"] == 6
     # and the source-of-truth caller really does filter
     import inspect, daily_risk_report
     src = inspect.getsource(daily_risk_report)

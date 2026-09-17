@@ -41,10 +41,8 @@ def test_signal_detail_uses_shared_dates_and_rounds_metric_values():
     }
     assert da["periods"] == [["2026-01-06", "2026-01-07"]]
 
-    fomc = detail["Pre-FOMC Rally"]
-    assert fomc["metric"] is None
-    assert fomc["current"] == {"value": None, "summary": "Next FOMC: Jan 28"}
-    assert fomc["periods"] == [["2026-01-07", "2026-01-07"]]
+    # Legacy cached inputs cannot restore a retired component to the payload.
+    assert "Pre-FOMC Rally" not in detail
 
     # The compact block must remain strict JSON (no NaN/Infinity leakage).
     json.dumps(detail, allow_nan=False)

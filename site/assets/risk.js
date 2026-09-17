@@ -9,29 +9,47 @@ const RISK_SIGNAL_COLORS = {
   "Distribution Dominance": "#e74c3c",
   "VIX Range Compression": "#e67e22",
   "Defensive Leadership": "#2ecc71",
-  "Pre-FOMC Rally": "#3498db",
   "Low Absorption Ratio": "#9b59b6",
   "Seasonal Rank Divergence": "#1abc9c",
   "Dispersion": "#f39c12",
   "Equity P/C Complacency": "#8e44ad",
 };
 
-// Signals rendered as a flat card with NO per-signal chart accordion.
-// Pre-FOMC fires ~8x/yr on a fixed calendar — the SPY-with-shaded-windows
-// chart earned its space poorly (removed 2026-08-05 per McKinley). Its
-// periods still shade the shared signal-overlay chart above the cards.
-const NO_CHART_SIGNALS = new Set(["Pre-FOMC Rally"]);
+// Older payloads can survive a code rollout. Hide retired components and
+// suppress their cached 5d/21d scores until the payload is rebuilt. FOMC's
+// production 63d edge was zero, so the sizing record remains unchanged.
+function currentRiskPayload(payload) {
+  const keep = name => Object.hasOwn(RISK_SIGNAL_COLORS, name);
+  const filterMap = value => Object.fromEntries(Object.entries(value || {}).filter(([name]) => keep(name)));
+  const signals = (payload.signals || []).filter(s => keep(s.name));
+  const hadFomc = (payload.signals || []).some(s => s.name === "Pre-FOMC Rally") ||
+    Object.hasOwn(payload.signal_detail || {}, "Pre-FOMC Rally");
+  const result = {...payload, signals, n_active: signals.filter(s => s.on).length,
+    signal_detail: filterMap(payload.signal_detail)};
+  if (payload.atr_downside) result.atr_downside = {...payload.atr_downside,
+    signals: filterMap(payload.atr_downside.signals)};
+  if (hadFomc) {
+    for (const key of ["fragility", "fragility_10d", "fragility_series", "forward_returns"]) {
+      result[key] = Object.fromEntries(Object.entries(payload[key] || {}).filter(([h]) => h !== "5d" && h !== "21d"));
+    }
+    // Old prose can repeat obsolete signal counts; the current cards carry
+    // the filtered counts and the compatible trade console remains intact.
+    result.nuggets = [];
+  }
+  return result;
+}
 
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
   renderNav("risk.html");
   const el = document.getElementById("content");
-  const d = await fetchJSONOrNull("data/risk.json");
-  if (!d) {
+  const payload = await fetchJSONOrNull("data/risk.json");
+  if (!payload) {
     el.innerHTML = '<p class="cap">No risk payload in this build (build_risk_json.py skipped or failed).</p>';
     return;
   }
+  const d = currentRiskPayload(payload);
   setAsof(`as of ${d.asof} · built ${d.built_at}`);
 
   let html = "";
@@ -74,8 +92,7 @@ async function init() {
     const hasMetric = !!(sd && sd.metric && Array.isArray(sd.metric.values) &&
       sd.metric.values.some(v => v != null && Number.isFinite(Number(v))));
     const hasPeriods = !!(sd && Array.isArray(sd.periods) && sd.periods.length);
-    const hasChart = !NO_CHART_SIGNALS.has(s.name) &&
-      !!(d.spy_series && sd && (hasMetric || hasPeriods));
+    const hasChart = !!(d.spy_series && sd && (hasMetric || hasPeriods));
     const headRow = `<span class="tkr">${esc(s.name)}</span>
         <span class="badge ${badgeCls}">${esc(s.badge)}</span>
         ${currentFigure ? `<span class="signal-current">${esc(currentFigure)}</span>` : ""}`;
