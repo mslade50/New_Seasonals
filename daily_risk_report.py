@@ -112,6 +112,9 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     }
 
     price_ctx = compute_price_context(spy_close)
+    from nyse_risk import load_nyse_signal, SIGNAL_NAME
+    signals_ordered[SIGNAL_NAME] = load_nyse_signal(
+        spy_close, os.path.join(current_dir, "data", "market_breadth.parquet"))
     regime_mult = compute_regime_multiplier(price_ctx)
 
     # Shared scoring pipeline (fragility_core, A3) — no _ts write here.
@@ -799,6 +802,7 @@ def main():
             pass
 
         frag_out = frag_smoothed
+        existing = None
         frozen_through = None
         if os.path.exists(frag_cache_path):
             try:
@@ -824,12 +828,25 @@ def main():
                     f"refusing to rewrite frozen PIT history — fix or restore "
                     f"{frag_cache_path} from git") from e
 
+        # Explicit main score: reset NYSE memory independently of the legacy
+        # components. Keep historical sizing decisions and the 63d basis intact.
+        from nyse_risk import append_main_scores, MODEL_VERSION
+        breadth_path = os.path.join(data_dir, "market_breadth.parquet")
+        breadth = pd.read_parquet(breadth_path) if os.path.exists(breadth_path) else None
+        net = breadth["nyse_net"] if breadth is not None else pd.Series(dtype=float)
+        frag_out, nyse_state = append_main_scores(
+            frag_out, existing, computed["spy_close"], net,
+            computed["horizon_stats"], refresh_from if refresh_from is not None else pd.Timestamp.today().normalize())
+        if not bool(nyse_state["nyse_available"].iloc[-1]):
+            print("  NYSE breadth unavailable/incomplete: retaining existing main dial floor")
+
         try:
             import pyarrow as pa
             import pyarrow.parquet as pq
             table = pa.Table.from_pandas(frag_out)
             md = dict(table.schema.metadata or {})
             md[b"fragility_basis"] = b"5d_smoothed"
+            md[b"main_score_basis"] = MODEL_VERSION.encode()
             md[b"fragility_generated"] = datetime.datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S").encode()
             md[b"fragility_last_date"] = str(frag_out.index.max()).encode()
@@ -916,7 +933,8 @@ def main():
                                      summary_line as sleeve_summary)
             cache = pd.read_parquet(frag_cache_path)
             if '63d' in cache.columns:
-                ma = cache['63d'].dropna().rolling(10, min_periods=1).mean()
+                from nyse_risk import main_dial_from_frame
+                ma = main_dial_from_frame(cache)
                 ma.index = pd.to_datetime(ma.index)
                 sleeve_state = sleeve_eval(
                     computed['spy_close'].dropna(), ma, sleeve_load(),
@@ -961,7 +979,8 @@ def main():
     try:
         cache = pd.read_parquet(os.path.join(data_dir, "rd2_fragility.parquet"))
         if '63d' in cache.columns and not cache['63d'].dropna().empty:
-            ma = cache['63d'].dropna().rolling(10, min_periods=1).mean()
+            from nyse_risk import main_dial_from_frame
+            ma = main_dial_from_frame(cache)
             sizing = {'ma': float(ma.iloc[-1]), 'raw': float(cache['63d'].dropna().iloc[-1]),
                       'on': bool(ma.iloc[-1] >= THROTTLE_THRESHOLD)}
             computed['main_sizing'] = {'score': float(ma.iloc[-1])}

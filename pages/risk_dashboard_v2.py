@@ -3103,6 +3103,9 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
         # simple-dial shadow (six-signal shadow spec, fragility_simple).
         'Equity P/C Complacency': pcc,
     }
+    from nyse_risk import load_nyse_signal, SIGNAL_NAME
+    signals_ordered[SIGNAL_NAME] = load_nyse_signal(
+        spy_close, os.path.join(DATA_DIR, "market_breadth.parquet"))
     signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
 
     price_ctx = compute_price_context(spy_close)

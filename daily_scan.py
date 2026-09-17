@@ -2882,7 +2882,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         try:
             frag_df = pd.read_parquet(frag_path)
             if '63d' in frag_df.columns:
-                frag_series = frag_df['63d'].dropna().rolling(10, min_periods=1).mean()
+                from nyse_risk import main_dial_from_frame
+                frag_series = main_dial_from_frame(frag_df)
                 if not frag_series.empty:
                     # Staleness guard: a fragility reading older than FRAG_STALE_TD
                     # trading days means the producer (risk_report.yml) is broken or

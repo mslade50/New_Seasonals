@@ -83,7 +83,8 @@ SETS: dict[str, tuple[list, list]] = {
             ("rd2_fragility.parquet", "data/rd2_fragility.parquet"),
             ("dial_sleeve_paper.json", "data/dial_sleeve_paper.json"),
         ],
-        [("rd2_environment.json", "data/rd2_environment.json")],
+        [("rd2_environment.json", "data/rd2_environment.json"),
+         ("market_breadth.parquet", "data/market_breadth.parquet")],
     ),
     # Daily Pitch runs locally after the premarket pipeline. These state
     # objects are now published by the local primary directly to R2; pulling
