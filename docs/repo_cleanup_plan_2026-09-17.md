@@ -1,5 +1,14 @@
 # Repo cleanup plan — New_Seasonals (written 2026-09-17, execute 2026-09-18+)
 
+**STATUS 2026-09-18:** Phases 0-4 EXECUTED. Worktrees 107 -> 4, local branches
+207 -> 38, stashes 3 -> 0, `.git` 598 -> 318 MB, ~42.4 GB reclaimed, scheduled
+tasks byte-identical before/after. Open: section 8 decisions
+(`artifacts/recon_2026-09-17/unmerged_branches_decision.md`: 30 codex branches
+with unique work + 4 `wip/` branches), Phase 5 origin deletes (still GATED),
+Repo Health Check task re-registration. Log:
+`artifacts/recon_2026-09-17/cleanup_log.md`; recovery bundle
+`pre_cleanup_all_refs.bundle` (keep 30 days).
+
 Deliverable for a cleanup agent. Read all of section 0 and 1 before running a
 single mutating command. Evidence tables are in `artifacts/recon_2026-09-17/`
 (gitignored, local only):
