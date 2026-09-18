@@ -97,7 +97,8 @@ async function init() {
     !(SHARED_RISK && /^book posture/i.test(String((n && n.title) || ""))));
   if (tc && tc.state) {
     html += tradeConsoleHtml(tc);
-  } else if (nuggets.length) {
+  } else if (nuggets.length && !SHARED_RISK) {
+    // Shared site: no console and no nuggets fallback in its place (2026-09-18).
     html += nuggetsHtml(nuggets);
   }
 

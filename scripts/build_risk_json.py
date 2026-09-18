@@ -837,6 +837,11 @@ SHARED_BANNED_SIZING_KEYS = (
 # Nuggets that read out book posture rather than the tape.
 SHARED_BANNED_NUGGET_PREFIXES = ("Book posture",)
 
+# Whole blocks that read as desk guidance rather than tape: the trade console
+# is action prose ("smaller size, not premium purchase") and was pulled from the
+# shared site on 2026-09-18.
+SHARED_BANNED_BLOCKS = ("trade_console",)
+
 # Vocabulary that only ever appears when a block is describing the book's own
 # machinery. Matched case-insensitively against the serialized payload.
 SHARED_BANNED_PHRASES = ("sizes live orders", "throttle", "exposure_leg", "sleeve")
@@ -862,6 +867,8 @@ def redact_for_shared(payload: dict) -> dict:
     """Deep-copied, book-free twin of the risk payload. Never mutates input."""
     shared = copy.deepcopy(payload)
     names = _strategy_names()
+    for key in SHARED_BANNED_BLOCKS:
+        shared.pop(key, None)
 
     sizing = shared.get("sizing_state")
     if isinstance(sizing, dict):
@@ -911,6 +918,10 @@ def assert_shared_payload_clean(payload: dict) -> None:
         raise ValueError(
             "shared risk payload describes book machinery: " + ", ".join(phrases)
         )
+
+    blocks = [k for k in SHARED_BANNED_BLOCKS if k in payload]
+    if blocks:
+        raise ValueError("shared risk payload keeps desk blocks: " + ", ".join(blocks))
 
     sizing = payload.get("sizing_state") or {}
     if isinstance(sizing, dict):

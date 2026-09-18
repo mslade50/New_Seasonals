@@ -119,14 +119,15 @@ def test_redaction_leaves_market_regime_blocks_untouched():
     shared = redact_for_shared(payload)
 
     for key in ("asof", "built_at", "spy_last", "regime_mult", "price_ctx",
-                "fragility", "signals", "forward_returns", "trade_console"):
+                "fragility", "signals", "forward_returns"):
         assert shared[key] == payload[key]
+    assert "trade_console" not in shared
     assert shared["shared_redacted"] is True
 
 
 def test_assertion_raises_on_a_real_strategy_name():
     shared = redact_for_shared(_payload())
-    shared["trade_console"]["action_line"] = f"Trim {STRATEGY_NAMES[0]} by half."
+    shared["signals"].append({"name": STRATEGY_NAMES[0], "on": True, "badge": "ON"})
 
     with pytest.raises(ValueError, match="names STRATEGY_BOOK strategies"):
         assert_shared_payload_clean(shared)
