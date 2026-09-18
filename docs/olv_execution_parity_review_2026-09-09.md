@@ -1,10 +1,12 @@
 # OLV: model versus installed execution
 
+> Note (2026-09-18): the task worktrees this review linked to were removed in the repo cleanup. The linked working notes are now tracked in this same `docs/` folder, and copies of the throwaway evidence live in `artifacts/evidence_archive/2026-09-09/`.
+
 Reviewed September 9, 2026. Priority 3, second bounded strategy review. This
 review records the pre-change findings. The owner subsequently approved both
 target-anchor and pending-cap choices; those source changes and OLV rounding
 are now implemented locally. See the
-[implementation status](../artifacts/task-worktrees/olv-parity-review-20260909/docs/olv_implementation_2026-09-09.md).
+[implementation status](olv_implementation_2026-09-09.md).
 The production inventory/stop cutover remains open. No scan, order, email,
 scheduler change or production rebuild was performed.
 
@@ -18,7 +20,7 @@ Restore the actual-inventory-to-volume-stop handoff first. It has a demonstrated
 - Pinned runtime remains `90c30dd698244ef46ff9dc43a74d6bfb0ff5b7e3`. Its strategy configuration, scanner, strategy engine, actual-inventory adapter and pivot policy are byte-identical to the reviewed files.
 - Inspected installed `OneDrive/trading_ibkr/order_staging.py`, `eq_order_entry.py`, `olv_exit_moo.py` and the OLV batch launcher without running them.
 - Task Scheduler's `IBKR OLV Pre-Market Exits` is Ready and points to that installed batch/script at 09:10 ET. Its September 8 log says no exits were due and returns zero; that is not proof the upstream stop evaluation worked. The old OLV Book Cap task remains Disabled.
-- Reproduction script and file hashes: [review.py](../artifacts/task-worktrees/olv-parity-review-20260909/artifacts/olv-review/review.py), [summary.json](../artifacts/task-worktrees/olv-parity-review-20260909/artifacts/olv-review/summary.json). Fixtures execute the actual model and AST-extracted installed pure functions with inert inputs; no broker module is imported by the reproduction script.
+- Reproduction script and file hashes: not preserved. The `review.py` and `summary.json` this section used to link lived only in a throwaway task worktree under the gitignored `artifacts/`, were never committed on any ref, and were already gone before the 2026-09-18 cleanup. Fixtures execute the actual model and AST-extracted installed pure functions with inert inputs; no broker module is imported by the reproduction script.
 
 ## Rules that agree
 

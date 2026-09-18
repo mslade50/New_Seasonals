@@ -1,5 +1,7 @@
 # Trading desk improvement plan
 
+> Note (2026-09-18): the `artifacts/task-worktrees/...` paths this plan linked to were removed in the repo cleanup. Notes that are tracked under `docs/` are now linked as siblings; the throwaway evidence was copied to `artifacts/evidence_archive/2026-09-09/<worktree-dirname>/<relative path>` before removal and the links below point there.
+
 Updated: 2026-09-10. Owner: McKinley. Work proceeds one priority at a time.
 
 ## Purpose and decisions
@@ -99,7 +101,7 @@ McKinley then authorized implementation of the remaining sizing cleanup. Both co
 
 Review: [PR #31](https://github.com/mslade50/New_Seasonals/pull/31), source commit `7109fe3a`, merged as `7633af144bddcf9ffeafb8971f6425e98b91f3bd`. [CI run 34344673552](https://github.com/mslade50/New_Seasonals/actions/runs/34344673552) passed Linux's full pytest suite and browser/Worker tests, plus Windows process/allocation contracts.
 
-The owner explicitly approved the shared fallback correction for both Primary and PA. The reviewed broker candidate was installed at 07:36 ET after idle/source-hash checks and a byte-verified backup. Valid stamped sizes retain precedence; only missing or invalid settings use the corrected 20% P2 multiplier and 1.125% daily cap. No broker process or task was started. The pinned producer was promoted and passed its existing ValidateOnly guard; 64 model/related tests also passed with its actual Python environment. The final runtime commit is `90c30dd698244ef46ff9dc43a74d6bfb0ff5b7e3`, immutable fallback tag `automation-runtime-2026-09-09.2`. This includes the already-approved Close/Add/Re-add UI because scheduled site builds use the pinned snapshot; retaining its old site files would undo that simplification. The exact hashes, backups, rollback, and verification are documented in [the cleanup handoff](../artifacts/task-worktrees/ovs-sizing-parity-20260909/docs/ovs_sizing_cleanup_2026-09-09.md).
+The owner explicitly approved the shared fallback correction for both Primary and PA. The reviewed broker candidate was installed at 07:36 ET after idle/source-hash checks and a byte-verified backup. Valid stamped sizes retain precedence; only missing or invalid settings use the corrected 20% P2 multiplier and 1.125% daily cap. No broker process or task was started. The pinned producer was promoted and passed its existing ValidateOnly guard; 64 model/related tests also passed with its actual Python environment. The final runtime commit is `90c30dd698244ef46ff9dc43a74d6bfb0ff5b7e3`, immutable fallback tag `automation-runtime-2026-09-09.2`. This includes the already-approved Close/Add/Re-add UI because scheduled site builds use the pinned snapshot; retaining its old site files would undo that simplification. The exact hashes, backups, rollback, and verification are documented in [the cleanup handoff](ovs_sizing_cleanup_2026-09-09.md).
 
 Cloud publication completed at 08:03 ET in [build 34346385829](https://github.com/mslade50/New_Seasonals/actions/runs/34346385829), using canonical R2 inputs and source `7633af14`. Every required stage passed: ledger and seasonal generation, immutable R2 bundle publication and exact readback, site assembly, freshness/provenance gate, and Pages deployment. Cloudflare production deployment `0b46eaef-f29d-4578-b851-5f642278d9da` reports source `7633af1` on main. [PR #32](https://github.com/mslade50/New_Seasonals/pull/32) merged as `8952f835066f90570ad0d0f57a433ca9c5b6b6bb`, aligning the fallback controller with the final runtime tag. That follow-up changes the controller pin, tests and dated release notes; it does not change the published site/model source. Its final CI passed 1,931 Python tests (102 skipped), all 25 JavaScript suites, and 235 Windows contracts (9 skipped).
 
@@ -127,7 +129,7 @@ accepted exclusion of same-day target credit in Portfolio remain unchanged.
 Final local verification passed 2,010 tests, with 55 skipped and two expected
 failures, using hash-verified historical sources for the older broker-patcher
 fixtures. Workspace hygiene passed.
-See the [implementation and rollout prerequisites](../artifacts/task-worktrees/olv-parity-review-20260909/docs/olv_implementation_2026-09-09.md).
+See the [implementation and rollout prerequisites](olv_implementation_2026-09-09.md).
 
 Read-only production checks found further prerequisites for the stop/cap input:
 the collector lacks remaining order quantities and per-account observation
@@ -187,7 +189,7 @@ Priority 3 remains open. The specific assignment of yesterday's 753-share D
 sale is pending, the older D stop metadata remains unverified, and canonical
 fill continuity still needs a coordinated relay/runtime repair. No seed was
 activated and no daily scan, trade, email or scheduler change occurred.
-Detailed record: [inventory inputs](../artifacts/task-worktrees/inventory-inputs-20260909/docs/inventory_inputs_2026-09-09.md).
+Detailed record: [inventory inputs](inventory_inputs_2026-09-09.md).
 
 ## Priority 3 completion package — September 9, after close
 
@@ -210,7 +212,7 @@ site log does not itself prove missed executions can be recovered. Seven-day
 history must be verified, then the seed, relay, pinned producer and broker
 candidate activated together with the required financial approval. No daily
 scan, order runner, test trade, email, seed upload or trading deployment occurred.
-Priority 4 remains queued. See the [cutover package](../artifacts/task-worktrees/inventory-inputs-20260909/docs/olv_inventory_cutover_2026-09-09.md).
+Priority 4 remains queued. See the [cutover package](olv_inventory_cutover_2026-09-09.md).
 
 Source handoff: [PR #35](https://github.com/mslade50/New_Seasonals/pull/35),
 commit `639bbcb7`, is a draft pending activation prerequisites. Its
@@ -301,7 +303,7 @@ Cloudflare receipt-clock skew. Regression tests cover both; final CI passed.
 The deployed Worker is `95786eec`; its final deployment is
 [run 34427623216](https://github.com/mslade50/New_Seasonals/actions/runs/34427623216).
 Runtime CI is [run 34427970035](https://github.com/mslade50/New_Seasonals/actions/runs/34427970035).
-See the [completed cutover record](../artifacts/task-worktrees/inventory-inputs-20260909/docs/olv_inventory_cutover_2026-09-09.md).
+See the [completed cutover record](olv_inventory_cutover_2026-09-09.md).
 
 Completion is based on installed-code, live read-only, archive readback and
 inert execution tests. It does not claim a new live fill or next-day scheduled
@@ -315,8 +317,8 @@ queued; wait for McKinley to review this step before starting it.
 ## Priority 4 first step — September 9 evening
 
 McKinley authorized the intake review and initial research shortlist. That step
-is complete: [six ranked leads and the recommended first investigation](../artifacts/task-worktrees/priority4-shortlist-20260909/artifacts/priority4/strategy_shortlist.html),
-with a [supporting working note](../artifacts/task-worktrees/priority4-shortlist-20260909/docs/discovery_shortlist_2026-09-09.md).
+is complete: [six ranked leads and the recommended first investigation](../artifacts/evidence_archive/2026-09-09/priority4-shortlist-20260909/artifacts/priority4/strategy_shortlist.html),
+with a [supporting working note](../artifacts/evidence_archive/2026-09-09/priority4-shortlist-20260909/docs/discovery_shortlist_2026-09-09.md).
 
 Start by validating the existing TLT month-end study. It has reusable work and
 a plausible structural-flow mechanism, but its old graduation label is not
@@ -343,8 +345,8 @@ threshold change or fresh market-data backtest occurred in this first step.
 
 The owner authorized the next investigation. The fixed TLT T-5-to-month-end
 validation is complete with a **retain research-only / do not implement now**
-recommendation. See the [full report](../artifacts/task-worktrees/tlt-validation-20260910/artifacts/tlt-validation/tlt_validation.html)
-and [working record](../artifacts/task-worktrees/tlt-validation-20260910/docs/tlt_validation_2026-09-10.md).
+recommendation. See the [full report](../artifacts/evidence_archive/2026-09-09/tlt-validation-20260910/artifacts/tlt-validation/tlt_validation.html)
+and [working record](../artifacts/evidence_archive/2026-09-09/tlt-validation-20260910/docs/tlt_validation_2026-09-10.md).
 
 Fresh prices closely reproduce the earlier event returns. Daily marked
 drawdown is 17.60%, versus the old 12.10% at completed trades. Since 2020,
@@ -372,8 +374,8 @@ approved to trade.
 The owner authorized the first PEAD investigation. The methodology review,
 input audit and declared delayed-entry pilot are complete. **Park the simple
 price-reaction version; do not implement.** See the
-[report](../artifacts/task-worktrees/pead-feasibility-20260910/artifacts/pead/pead_feasibility.html)
-and [working note](../artifacts/task-worktrees/pead-feasibility-20260910/docs/pead_feasibility_2026-09-10.md).
+[report](../artifacts/evidence_archive/2026-09-09/pead-feasibility-20260910/artifacts/pead/pead_feasibility.html)
+and [working note](../artifacts/evidence_archive/2026-09-09/pead-feasibility-20260910/docs/pead_feasibility_2026-09-10.md).
 
 The corrected current-liquid-universe sample has 6,771 completed events.
 Buying the strongest reaction fifth beats SPY by +0.23% on average over the
@@ -406,8 +408,8 @@ scheduler change, production data edit or deployment occurred.
 The owner questioned whether conditional setups were being dismissed too
 early and authorized price reaction, 52-week-high proximity and beat-size
 tests. That bounded follow-up is complete. See the
-[interactive matrices and report](../artifacts/task-worktrees/pead-feasibility-20260910/artifacts/pead/proximity/pead_proximity.html)
-and [working note](../artifacts/task-worktrees/pead-feasibility-20260910/docs/pead_proximity_results_2026-09-10.md).
+[interactive matrices and report](../artifacts/evidence_archive/2026-09-09/pead-feasibility-20260910/artifacts/pead/proximity/pead_proximity.html)
+and [working note](../artifacts/evidence_archive/2026-09-09/pead-feasibility-20260910/docs/pead_proximity_results_2026-09-10.md).
 
 Adding proximity within 5% of the high to the strongest-reaction fifth yields
 +0.22% versus SPY after costs overall, compared with +0.23% unfiltered. The
