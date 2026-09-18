@@ -139,8 +139,23 @@ data/pitch_tape.json
 data/pitch_research_index.json
 data/pitch_ideas.json
 data/pitch_delivery_receipts/
-data/pitch_journal.jsonl.lock
 scripts/logs/
+
+# machine-local job side-effects (2026-09-18 cleanup, dirty_tree_report.md S5)
+# every journal/receipt writer takes a file lock; the generic rule replaces the
+# old literal data/pitch_journal.jsonl.lock line.
+*.lock
+# delivery / failure receipts + collector run state, like the receipts dir above
+data/*_receipts.jsonl
+data/strategy_research/*_receipts.jsonl
+data/strategy_research/latest_decision.json
+data/strategy_source_cursors.json
+# local analytic caches
+data/*.sqlite
+data/*.sqlite3
+# scratch-root throwaways (the dated *_checks/ trees stay tracked)
+scratch/*.txt
+scratch/*.html
 
 # Market Context generated inputs (rebuilt every evening by
 # build_context_state.py) and the briefs themselves. The BRIEFS are local-only
