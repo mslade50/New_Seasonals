@@ -18,7 +18,7 @@
    "script": "scratch/pitch_checks/2026-08-10/d1_hyg_lqd_unanchored.py",
    "source": "near_miss",
    "expires": "2027-08-10",
-   "note": "2026-09-04 verdict: PASS on the episode count, unchanged at 3 declustered against the 8 required. LQD +0.27% above its 252d low, HYG -0.35% off its high."
+   "note": "2026-09-07 verdict: PASS. CORRECTION to the entry's own text and to the 09-04 note: at the stated tolerances the declustered episode count is FIVE, not the 3 or 4 claimed - 2018-06-11, 2018-07-20, 2018-09-07, 2026-08-04 and 2026-09-02, because the 24-day 2026 cluster has split in two. Still 1 distinct year ex-2018 against the >= 3 arm."
   },
   {
    "added": "2026-08-11",
@@ -54,11 +54,11 @@
    "added": "2026-08-12",
    "title": "Long TLT with the whole investment-grade complex pinned at 52w lows",
    "cell": "rates price-state",
-   "trigger": "FRESHNESS, not the price state. At the tight rung (TLT within 0.5% of its 52w low AND IEF within 1.0% AND LQD within 1.0%) the cell pays +0.354pp excess at an 82.4% hit over 17 EPISODE-FIRST days, sign p 0.0101, ex-2022 +0.339% at 90%, local-control t +2.15, and TLT<=0.5% alone is -0.120% at a 50% hit so the three-way join is load-bearing. Later days inside the same episode pay -0.079pp at a 50.0% hit (N=52, sign p 0.67). TURNS ON when the tight rung fires on a day that is the FIRST trigger day in >= 10 trading sessions, long TLT h=1 MOC. Today 2026-08-12 failed only that leg: 6 sessions into an episode that began 2026-08-03. The loose rung (1.0/1.5/1.5) is dead on its own (+0.046pp, Welch t +0.22) and worth nothing as a conditioner on the PPI cell (+0.0036pp, t +0.01), so do not widen it to reach a sample.",
-   "script": "scratch/pitch_checks/2026-08-12/a6b_c4_tight_horizon_freshness.py",
+   "trigger": "THE JOIN MUST BE SHOWN TO FILTER RATHER THAN RE-ANCHOR. The old arm (tight rung fires as the FIRST trigger day in >= 10 td) FIRED IN FULL on 2026-09-10 -- TLT, IEF and LQD all closed EXACTLY at their trailing-252 lows with the previous trigger 16 td back -- and the cell died anyway, so re-arming on the same price state would only re-run the same kill. What happened: the parked arithmetic reproduced to the digit under declusters(10) (N=18, +0.385pp excess, 83.3% hit, sign p 0.0038, 15.1x cost), concentration was excellent (top-2 episodes 9% of total), LOYO was positive throughout (+0.42 to +0.51pp), the vehicle was TLT-specific (rank 1 of 5) and the dose trap did NOT fire (+87.0 bp of 252-session yield thrust is the 45th percentile of the eleven episode doses, response flat; TLT within 0.05% of the low pays +0.605% on N=7 at 85.7% against +0.155% for merely near). It died on a decomposition nobody here had run: matching each PARENT anchor to its cell counterpart inside 21 td, the anchors the join DELETES pay -0.256% (N=6) and the ones it KEEPS measured at the parent's own date pay -0.213% (N=10), while those same ten episodes measured at the cell's LATER date pay +0.470%. Filtering is worth +0.016pp and RE-ANCHORING +0.683pp of a +0.699pp total; six of eleven anchors move 1-17 td forward for an average +1.139pp. The IEF leg deletes ZERO episodes while moving the mean +0.314pp. Two confirmations: the excess rises MONOTONICALLY with the decluster gap (+0.048pp at gap 1, from a parent worth nothing at N=76 / 57.9% / sign p 0.1034, to +0.733pp at gap 63), which is a selector rather than a state; and bucketing the freshness claim by offset from the episode start into SIX bins instead of two makes it oscillate in sign three times (0 +0.470%, 1-2 -0.210%, 3-5 +0.224%, 6-10 +0.169%, 11-21 -0.315%, 22+ +0.352%) with the STALEST bucket paying nearly as much as offset 0. TURNS ON when the parent anchors the join DELETES underperform the ones it KEEPS by >= 0.35pp, both measured at the PARENT's own anchor dates, over >= 12 parent anchors; today that gap is +0.043pp. Equivalently the decluster-then-filter ordering (the version with no date shift in it) must reach sign p <= 0.05 in its own right; it is currently N=4, +0.330%, 3-1, p 0.3125. ONE NUMBER ARGUES THE OTHER WAY and is recorded rather than buried: against a null that re-anchors the parent by a random draw from the join's OWN shift distribution, the cell's +0.470% has P = 0.0223, so the join does pick better dates than a blind delay. TWO RECONCILIATIONS OWED before this is ever scored again: (a) the arm's prose ('first trigger day in >= 10 td', a MASK) and the parked statistic (declusters(trig,10), which restarts at the last KEPT day) describe DIFFERENT populations -- 11 anchors against 19, differing by 8 dates; the mask form is the executable one. (b) The anchor-swap-free version (TLT & LQD only) pays +0.139pp = 4.6x cost, under the 5x bar. Also on file: ZERO of the ten historical episodes ever entered on a CPI session, and the edge is one bar wide (h=1 +0.453pp, h=2 +0.017pp at a 50% hit, h=3 +0.475pp, h=5 +0.067pp). Do NOT rediscover: carrying the parent's anchors forward a flat 4 sessions pays +0.329% at 87.5% on N=16, sign p 0.0021 -- better than the cell, with no IG legs at all -- but +6 td pays -0.505%, so the delay ladder is noise.",
+   "script": "scratch/pitch_checks/2026-09-11/k1_tlt_filter_vs_reanchor_b.py",
    "source": "near_miss",
-   "expires": "2027-02-12",
-   "note": "2026-09-04 verdict: PASS, same single failing leg for a fourth session. TLT +1.27% above its 252d low against the <= 0.5% rung; IEF +0.47% and LQD +0.27% both clear."
+   "expires": "2027-09-11",
+   "note": "2026-09-11: ARM FIRED IN FULL and the cell was killed. Entry rewritten from a price-state arm to a construction test. See the registry's 'Decompose a price-state JOIN into FILTERING and RE-ANCHORING' trap."
   },
   {
    "added": "2026-08-12",
@@ -148,7 +148,7 @@
    "script": "scratch/pitch_checks/2026-08-19/a5b_c2_dropbest.py",
    "source": "stand_down",
    "expires": "2027-02-19",
-   "note": "2026-09-04 verdict: PASS, and wrong-signed today. The one-day XLV minus XLK gap is -1.11pp against the >= +3.0pp rung."
+   "note": "2026-09-04 verdict: PASS, and wrong-signed today. The one-day XLV minus XLK gap is -1.11pp against the >= +3.0pp rung. | 2026-09-15 verdict: PASS. The subclass state FIRED on 2026-09-14 (XLV minus XLK +3.25pp, SPY -2.19% off its high, SPY Wilder ATR 0.82%), but it is a 2026-cluster episode and the arm needs three new winners OUTSIDE that cluster."
   },
   {
    "added": "2026-08-19",
@@ -168,7 +168,7 @@
    "script": "scratch/pitch_checks/2026-08-20/a2b_c2_tlt_round2.py",
    "source": "stand_down",
    "expires": "2027-02-20",
-   "note": "2026-09-04 verdict: PASS. TLT 1-day +0.15% against the >= +1.5% thrust rung."
+   "note": "2026-09-04 verdict: PASS. TLT 1-day +0.15% against the >= +1.5% thrust rung. | 2026-09-18 verdict: PASS on the short (TLT +1.11%). The long-side read of the [1.0,1.5) band was checked and killed: the whole band is [1.00,1.25) (+0.394% to the long, 15-8), [1.25,1.50) -0.058%, top two episodes 91%. (kC_c8_r1.py)"
   },
   {
    "added": "2026-08-20",
@@ -178,17 +178,17 @@
    "script": "scratch/pitch_checks/2026-08-20/a3c_c7_kre_pair_teardown.py",
    "source": "stand_down",
    "expires": "2027-02-20",
-   "note": "2026-09-04 verdict: PASS. The arm is an ex-crisis cost threshold that no single session moves."
+   "note": "2026-09-04 verdict: PASS. The arm is an ex-crisis cost threshold that no single session moves. | 2026-09-17: breadth live (9 of 11 at r5 <= 20) but the median 63d rank was 29.0, the broken form, not the intact >= 70 cell."
   },
   {
    "added": "2026-09-01",
    "title": "The duration-neutral curve position, long IEF against short 0.523 TLT, with the ten-year at a 52-week high AND a real year of yield thrust behind it",
    "cell": "rates, curve x yield-level trigger",
-   "trigger": "THE YEAR'S YIELD THRUST, and this entry was RE-ARMED on 2026-09-01 after the old trigger FIRED and the cell died anyway. What happened: ^TNX closed AT its trailing-252 maximum (100.00% under BOTH percentile conventions, so the 99.75 rung fired either way), the Jackson Hole blocker cleared when the conference passed on 2026-08-28, and the COST arm resolved IN THE TRADE'S FAVOUR -- a two-leg round trip is 3.59 bps (6.18x) on a half-spread MOC basis and 4.42 bps (5.01x) with 0.50%/yr borrow on the short leg, against the 4.4 bps the old entry asked for; only the full-cross bound of 5.31 bps fails, and an MOC does not cross. The cell also reproduced to the decimal (h=8, 50 episodes, 22.2 bps, gate-off attribution +0.188pp at welch t +2.20). It died on two NEW blockers. (1) MULTIPLICITY: the traded h=8 rung is OUTSIDE the grid the original permutation charged, which declared horizons (1,2,3,5,10). Charged over the walk actually disclosed -- 3 vehicles x h=1..10 x 6 proximity rungs = 180 cells, itself a floor since the 6 lookbacks make it 1080 -- the shipped cell is P 0.388 and the grid max P 0.144, a near-median draw from the best-cell-under-no-effect distribution. (2) THE LIVE MAGNITUDE BUCKET: today's 252-session yield change is +55.1 bp against an episode median of +77.6, i.e. the LOW half, which pays 5.0 bps (N=25, 56% hit) = 1.38x cost and 1.12x with borrow. Three of four magnitude conditioners put the live signal under the 5x bar (63d change +28.3 bp = 18th pctile -> 13.3 bps = 3.69x; 252d range width 80.5 bp = 18th pctile -> 9.5 bps = 2.65x) and the fourth, the 21-day change, has NO dose at all (low half +0.228% against high half +0.215%), so it cannot be cited as support either. Declustering at gap 42 drops the cell to 12.0 bps at |t| 1.08. TURNS ON at ^TNX at a trailing-252 maximum AND a 252-session yield change >= +78 bp, i.e. ^TNX at or above its own level 252 sessions prior plus 0.78 pt, which is 4.983 today against a live 4.758 -- a +22.5 bp gap. That half pays 39.4 bps = 8.9x cost. MANDATORY when it next fires: re-charge the multiplicity over the FULL disclosed walk rather than the 15-cell subset, because the old P 0.018 does not cover the rung the trade is actually taken on. Units note, filed because it cost a separate candidate the same morning: ^TNX is quoted in PERCENT, so an index point change x100 is basis points.",
-   "script": "scratch/pitch_checks/2026-09-01/a1_r2c_verdict.py",
+   "trigger": "OUT OF SAMPLE ONLY. KILLED 2026-09-14 on the re-arm itself. The dose arm fired (252-session change +94.3 bp on 2026-09-11, ^TNX 4.975 at its 252 max) and the +88 bp dose did not filter: as its own cell it pays +34.5 bps at h=8 on 25 episodes (20-5) against +34.7 bps on 29 for the +78 bp parent, and absolute-change buckets are non-monotone (+45.6 / -2.3 / +20.1 / +59.2 bps at [88,100) / [100,113) / [113,150) / >=150, Spearman +0.021). The parent owes the charge for the walk that found it: P 0.8187 over 360 cells (3 vehicles x 10 horizons x 6 proximity rungs x thresholds {78, 88}), null-max median 64.7 bps. No live-state rung can cure a multiplicity charge. TURNS ON when at least 3 declustered +78 bp episodes (^TNX within 0.25% of its 252 max, 252-session change >= +78 bp, filter-then-decluster at gap 10) signalled AFTER 2026-09-01 have realized a mean h=8 curve return of at least +22.1 bps (5x the 4.423 bp round trip including borrow). OOS episode 1 is the 2026-09-09 signal (entry 09-10 MOC, exit 09-22 close); 09-10 and 09-11 belong to the same episode. Do not re-arm on another dose, threshold or era split: before 2018 the gate trails its own complement (+10.4 against +16.7 bps) and it only filters from 2018 (+51.8 against -9.6). On file and not load-bearing: FOMC inside the hold 6-0 at +41.2 bps; the thin-start-then-dose path 5-0 at sign p 0.031 but +9.9 bps (2.2x cost) after dropping the best episode.",
+   "script": "scratch/pitch_checks/2026-09-14/k1_c1_dose_b.py",
    "source": "stand_down",
    "expires": "2027-09-01",
-   "note": "2026-09-04 verdict: PASS on the magnitude floor. The 252-session yield change is +55.1bp against the +78bp arm. ^TNX closed at its 252d max again, so proximity is still not the binding leg."
+   "note": "2026-09-10: fired in full and died on its own declared charge; re-armed on the clearance dose (see the trigger). The level leg is satisfied today, so the only open arm is magnitude: >= +88 bp on the 252-session change, against +79.1 bp live. | 2026-09-14: dose arm FIRED (+94.3 bp) and the cell was killed on firing; trigger rewritten to an out-of-sample realized-return arm (k1_c1_dose.py, k1_c1_dose_b.py, k1_c1_parent_c.py)."
   },
   {
    "added": "2026-08-24",
@@ -198,7 +198,7 @@
    "script": "scratch/pitch_checks/2026-08-24/b4_tail_risk_and_nearmiss.py",
    "source": "near_miss",
    "expires": "2027-02-24",
-   "note": "2026-09-04 verdict: PASS. Count of the 11-name complex at z10 >= 2.0 is 0 (max VLO +1.45) against the [2,3] arm, a third straight session at zero with XLE, XOP, CVX and VLO all at or beside 52-week highs."
+   "note": "2026-09-04 verdict: PASS. Count of the 11-name complex at z10 >= 2.0 is 0 (max VLO +1.45) against the [2,3] arm, a third straight session at zero with XLE, XOP, CVX and VLO all at or beside 52-week highs. | 2026-09-11 verdict: PASS, and the entry now carries a CONVENTION DEBT. Under pitch_lab.zscore (the convention its own parked numbers were computed in, and therefore the binding one) the live count is 1 -- USO at 2.00 alone. Under build_pitch_state._metrics_for it is 2 (USO 3.23, VLO 2.21), which is INSIDE the [2,3] arm. The two functions compute different objects (vol-scaled 10d move against a standardised 10d return) and CLAUDE.md records the mismatch only for the context engine. State the convention in the arm before this is scored again."
   },
   {
    "added": "2026-08-24",
@@ -208,7 +208,7 @@
    "script": "scratch/pitch_checks/2026-08-24/c2_c6_breadth_attribution.py",
    "source": "near_miss",
    "expires": "2027-02-24",
-   "note": "2026-09-04 verdict: PASS, both legs failing. SPY -0.61% off its high against > 2.0%; raw-21d fragility 63.1 against <= 50."
+   "note": "2026-09-04 verdict: PASS, both legs failing. SPY -0.61% off its high against > 2.0%; raw-21d fragility 63.1 against <= 50. | 2026-09-15 verdict: PASS. Both numbered arms cleared for the first time (SPY -2.19% off its high; raw-21d fragility 49.5), but the breadth leg underneath did not fire: zero of nine SPDRs within 0.25% of a 52w high (nearest XLE -1.19%)."
   },
   {
    "added": "2026-08-25",
@@ -228,7 +228,7 @@
    "script": "scratch/pitch_checks/2026-08-25/b1_c3_xlu_washout_tlt_fine.py",
    "source": "stand_down",
    "expires": "2027-02-25",
-   "note": "2026-09-04 verdict: PASS, rates leg wrong-signed a seventh straight session. XLU r21 39.4 against <= 5, TLT r21 43.0 against < 25."
+   "note": "2026-09-04 verdict: PASS, rates leg wrong-signed a seventh straight session. XLU r21 39.4 against <= 5, TLT r21 43.0 against < 25. | 2026-09-15 verdict: PASS, closest single-leg miss on the list. XLU r21 3.97 clears <= 5; TLT r21 25.79 against < 25, short by 0.79. Not re-derived at a looser rung."
   },
   {
    "added": "2026-08-26",
@@ -254,11 +254,11 @@
    "added": "2026-08-27",
    "title": "The leader's deep correction, long the semiconductor complex at a 63-day rank floor inside a top-decile year",
    "cell": "us_large / sectors price-state, the laggard that has NOT turned",
-   "trigger": "TWO numbers, and the second is the one the pitch got backwards. Within SMH the cell looks like a survivor: 63d PIT rank <= 5 while the trailing-252d return is top-decile pays +3.267% at h=10 over 16 episodes against its own +0.763% drift, edge +2.504pp, 12-4, sign p 0.0384, bootstrap P(mean<=0) 0.019, 65x cost, and the 252d gate genuinely filters (629 trigger days -> 73, a cut of 88.4%). (1) REFERENCE CLASS: the identical rule on 23 sector/industry ETFs is homogeneous, Cochran Q 11.82 on 22 df at p 0.961 with I-squared 0.0% and a fixed-effect common excess of +0.581pp, and SMH's +2.673pp is a BELOW-MEDIAN best-of-23 draw against a permutation null whose median is +3.983pp -- family-wise p 0.8805, the IHI shape (0.9330). (2) THE CONDITIONER IS INVERTED from how it was pitched: the entire edge sits in laggards STILL FALLING (5-day rank < 15, N=7, +6.442%, 7-0, sign p 0.0078) while 5-day rank >= 25 pays -0.354% on 4-4, and SMH sat at 31.3 on 2026-08-26. The surface map argued r5 31.3 DISTINGUISHED this from the closed laggard-snapback cell; it is the opposite, 31.3 is the flat side, which makes this that cell. TURNS ON when the 23-ETF reference class shows real heterogeneity (Cochran Q p < 0.10 with SMH first of 23 by |t|) AND the 5-day rank is under 15. Standing caveats no threshold cures: 2 of the 16 episodes are 2026-07-28 and 2026-08-11, this same live drawdown, so the sample is partly in-sample on the state being traded; the top-2 episodes are 57% of the total; and the book already buys this tape (98 ledger trades on trigger days at avgR +0.653, OVS 38 at +0.592 and OLV 30 at +0.835). Dial max on any trigger episode 74.7 against 2026-08-27's 88.6.",
-   "script": "scratch/pitch_checks/2026-08-27/b2_c7_smh_refclass.py",
+   "trigger": "KILLED 2026-09-15 ON FIRING, now OUT OF SAMPLE ONLY. The still-falling leg fired (SMH r63 1.19, r5 12.70 on 2026-09-14) and the family form died. (1) The parked 7-0 (+6.442%) reads r5 on each episode's FIRST day; the tradeable daily mask form on SMH is N=11, +3.26% at h=10, 8-3, sign p 0.113. (2) Out of sample on the 22 non-SMH members the cell pays +0.861pp over own drift on 86 episodes (46 date clusters, 27-19, p 0.151), but 2021 carries 114% of that excess (a 252d >= +40% gate over-samples post-crash recovery years: 33 of 86 episodes), drop 2021 -0.193pp, drop 2021 and 2026 -1.001pp, pre-2018 -1.365pp. (3) The r5<15 conditioner RE-ANCHORS rather than filters ex-SMH: filtering -0.586pp, re-anchoring +1.166pp; the parent anchors it deletes pay +0.952pp and the ones it keeps pay -0.305pp at their own dates. TURNS ON only when BOTH hold on episodes signalled AFTER 2026-09-15: the ex-SMH, ex-2021 family excess at h=10 is >= +0.30pp over at least 20 new episodes, AND the kept-minus-deleted gap measured at parent anchor dates is >= +0.35pp. Standing caveats: dial max on trigger episodes 77.9 (non-SMH) and 74.7 (SMH) against 85.2 on 2026-09-14; SMH's live episode started 2026-09-09 at r5 79.4, the flat side of the split.",
+   "script": "scratch/pitch_checks/2026-09-15/k1_c2_smh_family_b.py",
    "source": "near_miss",
    "expires": "2027-02-27",
-   "note": "2026-09-04 verdict: PASS, and the closest single-leg miss on the list for a second session. SMH r63 0.8 so the floor is live; r5 15.5 against the < 15 still-falling arm, missing by half a rank point."
+   "note": "2026-09-04 verdict: PASS, and the closest single-leg miss on the list for a second session. SMH r63 0.8 so the floor is live; r5 15.5 against the < 15 still-falling arm, missing by half a rank point. | 2026-09-15: still-falling leg FIRED and the family form was killed on firing (k1_c2_smh_family.py, _b, _c, _d); trigger rewritten to an out-of-sample arm."
   },
   {
    "added": "2026-08-27",
@@ -298,7 +298,7 @@
    "source": "stand_down",
    "expires": "2027-08-31",
    "added": "2026-08-31",
-   "note": "2026-09-04 verdict: PASS. The complex bounced again (SLV +2.51%, GDX +3.95%, GLD +1.85%); the depth arm needs a break of -4.00% or worse."
+   "note": "2026-09-04 verdict: PASS. The complex bounced again (SLV +2.51%, GDX +3.95%, GLD +1.85%); the depth arm needs a break of -4.00% or worse. | 2026-09-18 verdict: PASS (complex rose). The UP-day mirror was checked and killed: the continuation lands on D+1 (lag 0 +0.498% vs lag 1 -0.035% at h=1), and confirmed days pay less than SLV-only days at the tradeable lag. (kC_c6_r1.py, kC_c6c_magnitude.py)"
   },
   {
    "title": "Long duration with the ten-year at a yield high and bond vol MID-RANGE, not compressed",
@@ -334,21 +334,21 @@
    "added": "2026-09-03",
    "title": "Long SVXY into a scheduled print out of a 21-day VIX range in the (5,15] band, with a clear calendar behind it",
    "cell": "scheduled print x volatility, compression release on a clear calendar",
-   "trigger": "THE BAND, not the ceiling. This entry RE-ARMS after its date arm fired in full on 2026-09-03 and the cell died anyway, and it is reframed on both axes the morning settled. AXIS 1, the event: it is not payrolls, it is a CLEAR CALENDAR. PPI's median runway to the next scheduled print is 2 td (43.9% at <= 1) against NFP's 5 (87.5% at >= 3), and splitting on runway erases the inversion that produced the old multiplicity charge (gated PPI SVXY -2.150% -> -0.113%, short ^VIX -4.929% -> +0.374%), with the split reproducing on CPI and FOMC. The pooled clear-calendar cell (deduped by anchor date) pays SVXY +0.910% over 56 anchors at 38-17, sign p 0.005, and short ^VIX +1.975% over 114 at t 3.717, monotone in runway (<=1 -0.805, >=2 +0.625, >=3 +0.954, >=4 +0.900); inside that subset NFP's family-wise P is 0.6181, i.e. the event label does no work, which is the coherence signature rather than a charge. AXIS 2, and this is what killed it: THE COMPRESSION GATE IS BIMODAL. rel-range (0,5] pays -0.096% over 25 anchors at 13-11 (short ^VIX -0.046%), against +1.465% at an 82.4% hit for (5,10] and +2.034% at 78.6% for (10,15]. It holds in both eras (pre-2018 5-6, post-2018 8-5), and it is not the VIX level or the term structure: the 2x2 has (5,15] paying at both VIX-level buckets (+1.773 / +1.674) while (0,5] is dead at both (+0.054 / -0.259), and today's contango bucket [12,18)% is the cell's BEST at +0.804%. 2026-09-03 read 3.57. TURNS ON when the VIX 21-day relative-range percentile (21d max minus min over the 21d mean, trailing-252 rank) closes in (5.0, 15.0] on the k=-2 anchor of a scheduled print carrying >= 3 trading sessions of clear calendar to the next one. That arm: SVXY n=31, 25-6, +1.722%, t 4.943, sign p 0.0004, bootstrap P(mean<=0) 0.0000; short ^VIX +4.181%, t 4.552. Next qualifying anchors: CPI 2026-09-11 (runway 3), FOMC 2026-09-16 (runway 12), NFP 2026-10-02 (runway 7); PPI 2026-09-10 is disqualified at runway 1. THREE THINGS ALREADY SETTLED, do not re-run them. (1) The fragility dial is a headwind and not a kill: corr(dial, next-session long SVXY) is -0.0486 at t -2.41 over 2,458 days (LOYO -0.043..-0.060), but on a benign tape matching this state the dial adds nothing (+0.057% below 40, -0.019% at 40-70, +0.056% at 70+), and the endogeneity defence is FALSE (corr(gate, dial) -0.100, mean dial 19.0 ON vs 25.2 OFF, Jaccard 0.167 with the production VRC signal). (2) The vehicle is SVXY, not short UVXY: risk-adjusted per session 0.3771 vs 0.3652 at corr 0.976, per 1 ATR of risk +0.331 vs +0.246, and UVXY's borrow is a soft cost that can fail while its left tail is unbounded (worst -12.63% vs -4.85%). VXX, VIXY, SVIX and UVIX are NOT in master_prices. (3) Development is done: h=1 only (short-^VIX edge +2.184pp at h=1, +1.593 at h=2, +0.275 at h=3, negative beyond); MOC beats every close-anchored limit as a whole variant (+0.910% vs +0.772 / +0.756 / +0.531 / +0.511 at 0.10 / 0.25 / 0.40 / 0.60 ATR); time-only, since every target and stop ties or loses; losers are 17 of 114 anchors at a mean of -1.864%, worst 2025-07-30 at SVXY -4.13% on ^VIX +21.89%. ONE DEBT THAT SURVIVES THE ARM: the trade is substantially levered equity beta on the print session (corr(SPY h=1, SVXY h=1) +0.626 gated, beta 1.75, R-squared 0.392), so it can never be composed beside a long-SPY idea and the write-up owes the residual.",
-   "script": "scratch/pitch_checks/2026-09-03/a9_c1_live_rung_verdict.py",
+   "trigger": "RE-ARMED 2026-09-10 after the old arm FIRED IN FULL and the cell died anyway, and the new arm is a CONJUNCTION and is deliberately harder than the one it replaces. What happened: the arm cleared exactly as written -- the VIX 21-day relative-range percentile closed at 9.921 on 2026-09-09, inside (5.0, 15.0], on a legal k=-2 anchor of the 2026-09-11 CPI carrying a runway of 3 clear sessions -- and the parked arithmetic reproduced to the decimal: n=31, 25-6, +1.722%, t 4.943, sign p 0.0004, bootstrap P(mean<=0) 0.0000. ONE CORRECTION to the parked text: the short ^VIX +4.181% at t 4.552 is the MATCHED 31-anchor subset, not the 65-anchor full history, which pays +2.575% at t 3.495; quote the matched number only beside the matched cell. In the only tradeable -0.5x era the cell is n=19, 14-5, +0.988%, t 3.091, sign p 0.032, an edge of +0.915pp over that era's own +0.073% unconditional, and it survives declustering (gap 42: N=12, +1.158%, t 3.18). The placebo ladder ranks the true k=-2 anchor 1 OF 11 in BOTH samples, there is no midterm inversion, and h=1 is confirmed as the hold by the era's own horizon scan (h=1 +0.988%, h=2 +0.915%, flat-to-negative h=3 through h=9, h=10 +0.800%). THREE THINGS KILLED IT. (1) THE SPY RESIDUAL, which is mandatory and which it does not have: the cell reduces to SVXY = a + 1.48*SPY on the era-wide line and the beta-charged alpha is +0.292pp at sign p 0.32 on an 11-8 record (all-era it is NEGATIVE at -0.118pp), so its content is the SPY leg (+0.482%, 23-7 on the same 31 anchors), which is watchlist entry #35 and is already blocked on the dial. (2) THE LOCATION INSIDE THE BAND: in the -0.5x era the band is not a plateau -- (5,10] pays +1.455% on n=12 at 10-2, t 3.762, while (10,15] pays +0.188% on n=7 at 4-3, t 0.427 -- and today's 9.921 sits 0.079 percentile points below a boundary above which there is no edge at all. (3) THE CHARGED PERMUTATION on the defended t-statistic over the 800-cell walk that produced the cell: 0.6747 in the -0.5x era (0.1398 all-era), a below-median draw; on the MEAN the same charge is 0.9915, and the t-form is the honest one here because the grid spans horizons whose standard deviations differ by ~4x. TURNS ON when ALL THREE of the following hold on the same anchor, not any one of them. (i) A BETA-CHARGED ALPHA THAT CLEARS ON ITS OWN TERMS: the alpha against the era-wide SVXY-on-SPY line positive with a sign-test p <= 0.10 on the -0.5x anchors, against +0.292pp at sign p 0.32 on 11-8 today. A positive raw mean is not the test; the SPY leg has to stop being the whole trade. (ii) A LIVE READING WELL INSIDE (5,10] RATHER THAN AT ITS CEILING: a relative-range percentile in (5.0, 8.5] on the k=-2 anchor, against 9.921 today, which is 1.4 points from a cliff. (iii) THE FRAGILITY DIAL BACK INSIDE THE SAMPLE: ma10(63d) at or below 68.0, which is the MAXIMUM ever observed across the 21 dial-covered armed anchors (median 1.2), against a live 87.66 -- a fall of 19.69 points. The nearest available read is against it: the three clear-calendar k=-2 anchors above dial 80 (2022-01-05, 2022-01-11, 2026-03-04) are 1-2 at -2.788%, against +0.045% for the [60,80) band. ITEM (a) OF THE THREE PREVIOUSLY SETTLED ITEMS NO LONGER HOLDS AS APPLIED: 'the fragility dial is a headwind and not a kill' was measured across a dial range this cell has never occupied, so the -0.0486 correlation and the benign-tape bucket table cannot be carried up to 87.66; the dial is now a live arm rather than a caveat. Item (b) STANDS: the vehicle is SVXY, not short UVXY (risk-adjusted per session 0.3771 vs 0.3652 at corr 0.976; VXX, VIXY, SVIX and UVIX are not in master_prices). Item (c) STANDS and is now load-bearing in the WRONG direction: the settlement-flow mechanism is unfalsifiable with local data, and with no SPY residual there is no local evidence of a volatility-specific mechanism at all -- the cell currently has neither a mechanism it can test nor a residual it can point to. Development remains done and should not be re-run: h=1 only, MOC entry beats every close-anchored limit as a whole variant, time-only with no target and no stop.",
+   "script": "scratch/pitch_checks/2026-09-10/d1b_round2.py",
    "source": "stand_down",
    "expires": "2027-09-03",
-   "note": "2026-09-04 verdict: PASS, second session in the dead half. Rel-range percentile 3.35, inside the (0,5] band that pays -0.096%. Today's OTHER volatility route, the holiday-closure anchor, was opened and killed outright (see the entry added today): ^VIX RISES +4.80% across a >= 3 calendar-day closure, so short vol into a long weekend is wrong-signed."
+   "note": "2026-09-10: the entry fired and was re-armed (see the trigger); this note carries forward the SECOND RUNG from the 2026-09-08 amendment so it is not lost. That rung is long SVXY entered MOC on the SECOND print of a back-to-back pair, held 5 sessions into the cleared calendar (+1.268% over 23 live-era episodes at an 82.6% hit, alpha +0.793%, sign p 0.017, LOYO minimum +0.908%). Its instance is the 2026-09-11 CPI close, the second print of the 09-10 PPI / 09-11 CPI pair. Status this morning: its compression leg is SATISFIED for the first time (rel-range 9.921, in band), and its second leg was NOT re-measured today -- the live-era post-pair cleared-calendar segment stood at +0.117% at a 56.5% hit on n=23 as of 2026-09-08 against a required +0.50%. Grade both rungs on the same morning; do not mint a second entry."
   },
   {
    "added": "2026-09-02",
    "title": "The pooled sector triple rank floor, with the index-near-a-high gate taken OFF",
    "cell": "sectors, oversold-across-three-horizons, pooled family",
-   "trigger": "A REASON TO EXIST BESIDE THE BOOK, which is a harder arm than a number. The bare form is the strongest statistic produced on 2026-09-02: a sector at a 5, 21 AND 63-day rank floor simultaneously pays +1.131% at h=10 pooled over the nine SPDRs across 493 episodes, edge +0.732pp over all days, fixed-effect common excess +0.773pp at t +3.06, Cochran Q homogeneous with I-squared 0.0% - a genuine family effect rather than a best-of-K draw. It is not pitchable for two reasons that no threshold cures. (1) IT IS THE BOOK: 153 systematic signals fired inside a [-1,+11] td window around these episodes (Overbot Vol Spike 58, Oversold Low Volume 37, LT Trend ST OS 26), so the pooled bare floor is generic oversold mean reversion the scanner already harvests, and repeating the scanner has zero value here. (2) The NOVELTY that would distinguish it - the index-near-a-high gate - SUBTRACTS 0.733pp, taking XLI from +1.646% on 65 episodes at t 2.236 down to +0.913% on 11, and the nine-SPDR fixed-effect common excess of the GATED form is NEGATIVE at -0.381pp (t -1.18). TURNS ON if a future instance shows the near-high gate's h=10 attribution POSITIVE (today -0.733pp) - which would make the cell something other than the book's own oversold harvest - or if a conditioner is found that the scanner demonstrably does not trade, measured as under 20 book signals in the [-1,+11] td window against today's 153. Do NOT re-open this on the bare pooled statistic alone, however good it looks; that is the re-running-the-scanner failure and it is closed by design.",
-   "script": "scratch/pitch_checks/2026-09-02/c5c7_supplement.py",
+   "trigger": "SPY BELOW ITS 200-DAY, restated 2026-09-16 as a live-state arm (the portfolio-overlap arm is retired). Scored in full on 2026-09-16 with XLU and XLI both at the 5/21/63 <= 10 floor: the pooled nine-SPDR form reproduces (+1.131% at h=10 over 493 episodes, excess +0.733pp, fixed-effect common +0.801pp at t 3.17, I-squared 0%) and every state except the live one pays +1.384pp, but midterm with SPY above its 200d pays -0.393pp over 28 date clusters (raw +0.015%, under cost) and never tops +0.335pp across 18 definition neighbours. TURNS ON at a SPY close below its 200d SMA while a nine-SPDR member holds the floor (midterm below the 200d pays +2.069pp at 15-4); on 2026-09-15 SPY sat 6.15% above it. Standing debts: the 5d leg re-anchors rather than filters (filtering -0.792pp against the 21/63 double floor), and XLU ranks 9 of 9 at -0.590pp, so a utilities-heavy basket is the weakest form.",
+   "script": "scratch/pitch_checks/2026-09-16/kC_c7_triple_floor_b.py",
    "source": "stand_down",
    "expires": "2027-03-02",
-   "note": "2026-09-04 verdict: PASS, and the breadth has collapsed. Only XLI holds the 5, 21 and 63-day floor today, down from nine names, so the pooled form has nothing to trade."
+   "note": "2026-09-04 verdict: PASS, and the breadth has collapsed. Only XLI holds the 5, 21 and 63-day floor today, down from nine names, so the pooled form has nothing to trade. | 2026-09-14: the arm text ('a reason to exist beside the book', <20 book signals in the window) is a portfolio-overlap criterion that the 2026-09-08 owner decision retires for the Daily Pitch. Restate it as a live-state arm (a nine-SPDR member at the 5/21/63 floor) before scoring. Carry the 2026-09-14 finding into any re-score: the 22-ETF washout family pools to +0.12pp at h=10 (t 0.38), and its strong midterm slice pays only with SPY below its 200-day (+1.68pp at h=5 against -0.26pp above). No nine-SPDR member held the floor on 2026-09-11 (nearest XLI r5 20.6 / r21 3.6 / r63 5.2). | 2026-09-16: CHECKED and killed on the live regime (closest #1 in the short slate); arm restated to SPY below its 200d."
   },
   {
    "added": "2026-09-03",
@@ -386,40 +386,214 @@
    "script": "scratch/pitch_checks/2026-09-04/a1b_svxy_gap_decomp.py",
    "source": "stand_down",
    "expires": "2027-09-04"
+  },
+  {
+   "added": "2026-09-07",
+   "title": "Long SPY against short IWM when the fragility dial sits in its 56-70 band",
+   "cell": "fragility dial x cross-section (large vs small) - the dial's FIRST cross-sectional content",
+   "trigger": "THE DIAL FALLING BACK INTO THE BAND, and note this entry is the OPPOSITE of the reading that generated it. Everything this repo has ever tested the dial for is book-wide DIRECTION and SIZING and all of it failed (aggregate PIT t -0.23, the book-wide throttle registry-dead). Nobody had tested it CROSS-SECTIONALLY. The pair is real: h=5 pays +0.517% over 71 episodes at 47-24, sign p 0.0043, bootstrap 0.0054, against an all-days -0.020% and a local +/-126td -0.061%; h=10 +0.998% on 26-13. It survives every overlap form (gap=21 +0.502%, gap=63 +0.596%, RUN-1st 9-4, YEAR-mean 8-0 at sign p 0.0039), is LOYO-stable (+0.463% to +0.577%, all p <= 0.020), monotone in the threshold (q80 +0.376 -> q95 +0.556), and its top-3 episodes are MINUS 14% of total, so the winners are broad. Three attacks failed to dent it: no cheap substitute reproduces it (best is days-since-a-5%-drawdown at +0.377% on 43-24 with Jaccard 0.20 against the dial; the dial-ON/substitute-OFF residual is +0.502% at 31-16 against sub-ON/dial-OFF +0.230% at 26-21), it is NOT the static large-over-small tilt (unconditional dial-era drift +0.075%, 14.6% of the total, and conditional beats unconditional in all 8 years with episodes), and it is vintage-robust (drop-2021 +0.463% at 34-15; stressing the cut +/-3.5 and +/-7 dial points keeps every cell positive at +0.409 to +0.753). WHAT KILLED IT is LOCATION: the entire edge lives in [56,70) - 49 episodes, +0.594%, 35-14, sign p 0.0019 - while [70,80) is 14 episodes at +0.071% on a 6-8 record, and regressing the pair return on the dial reading gives a slope of -0.0053pp per point (t -0.33, R2 0.002), fitting +0.393% at today's 87.96. The [80,+) bucket is not independent support: four clustered Dec-2021/Jan-2022 dates plus four inside the currently running episode, which has already paid +0.02% twice (2026-08-27 and 2026-09-03). TURNS ON when the 10d-MA of the 63d dial closes back INSIDE [56, 70), which from 87.96 is a fall of at least 18 points. Deduct the Event Sleeve wash when it does: T2 shorts SPY $75k of the fixed $750k book, cancelling about 27% of a 30 bps-risk SPY leg for any session a T2 window overlaps.",
+   "script": "scratch/pitch_checks/2026-09-07/10_dial_spy_iwm.py",
+   "source": "near_miss",
+   "expires": "2027-09-07",
+   "note": "2026-09-07: parked the day it was found. Dial 87.96 = 99.15th percentile, 18+ points above the arm."
+  },
+  {
+   "added": "2026-09-07",
+   "title": "Long HYG at the first close back from an extended market closure",
+   "cell": "market-holiday closure x credit - the class the closure anchor had never been run on",
+   "trigger": "THE STATE FLIPPING, and it is the opposite of the state that generated it. The bare cell is real: 130 anchors after a >= 4 calendar-day NYSE closure, MOC h=5, +0.275%, 66.2% hit, t 3.26 against an ordinary 3-day-weekend control of +0.094%, era-stable (pre-2013 +0.352 / 2018+ +0.229 / 2021+ +0.241), surviving a month-turn/coupon attack, top-5 moves only 23% of total, and only 0.38 correlated with the LQD post-closure cell and about 0.00 with IEF and TLT. Three independent constructions found it the same morning: the 697-cell closure survey, a Labor-Day-only seasonal grid at 73.7% on 14 of 19, and a nearest-neighbour analogue lane that used no calendar information at all and made HYG the only instrument positive in all six of its constructions. WHAT KILLED IT is that the closure gate filters nothing in the state that was live: with HYG within 1% of its 252d high AND in the calm realised-vol tercile the cell pays +0.064% (n=40) against +0.075% for an ordinary weekend in the same state and +0.069% for all days in it, a closure excess of -0.012% at Welch t -0.12, while the whole +0.267% excess (t 1.93) lives in the other half. TURNS ON when HYG is more than 1% BELOW its 252-day high OR its 21-day realised vol is above 4.4% annualised. Two debts it still owes even then. (1) A CREDIT-SPECIFIC RESIDUAL, which this family has now failed to produce five separate times: HYG = -0.014% + 0.189*IEF + 0.446*SPY, so +0.196% of the +0.275% is beta and the residual is 68-62 at sign p 0.331 (20-20 in the near-high bucket), while raw SPY pays +0.370% on the identical 130 anchors - a lower-return, higher-cost, 0.43-beta way to buy the post-holiday equity drift. (2) A MECHANISM, because accrual make-up is falsified inside its own window: the first session back is -0.122% at t -2.62 against an unconditional +0.021%, the worst session in the neighbourhood, and 45% of the 5-day total arrives on hold day 2. That is reversal, not carry. One benign finding worth keeping: corr(HYG 5d, SPY 5d) is +0.598 on the anchors, so 25% NAV of HYG at beta 0.43 is +10.8% NAV SPY-equivalent and would very nearly neutralise the Event Sleeve's T2 short-SPY 10% leg.",
+   "script": "scratch/pitch_checks/2026-09-07/08_hyg_closure.py",
+   "source": "near_miss",
+   "expires": "2027-09-07",
+   "note": "2026-09-07: parked the day it was found. HYG -0.41% off its high at 2.6% realised vol = the dead bucket."
+  },
+  {
+   "added": "2026-09-08",
+   "title": "Short IEF at h=5 with the commodity complex at a 252-day high and an inflation print inside the hold",
+   "cell": "commodities price-state x event -> rates, the duration expression",
+   "trigger": "THE PLACEBO LADDER, which is a mechanism test rather than a level, and note this entry is the one leg of a three-candidate energy sweep that did not die. The cell: 49 episodes, +0.184%, 63.3% hit, sign p 0.0427, 6.1x cost, and its print gate contributes +0.173pp at EPISODE level and +0.325pp at DAY level -- the same sign at both, which is precisely the signature the 2026-09-07 anchor-swap trap lacks. It also holds with the inflation-shock years removed: +0.255% on n=20 at a 70.0% hit, sign p 0.0577, so it is not the 2007/2008/2021/2022 artefact that killed the long-commodity form beside it (there, four years held 26 of 53 episodes and MORE than 100% of the total). WHAT KILLED IT: the true print anchor ranks 5 of 11 on its own k=-5..+5 placebo ladder, with k=-5 at +0.262% and k=-3 at +0.236% both paying more than the true anchor's +0.184%. Until the anchor outranks its own placebos this is short-duration momentum wearing an event label, and with the whole IG complex already pinned at 52-week lows that momentum is free. TURNS ON when the true print anchor ranks 1st or 2nd of 11 on the k=-5..+5 placebo ladder by episode mean. Two standing notes if it ever arms: the TLT expression is NOT the same trade (its pitched h=3 form is +0.072% at 2.4x cost with the print gate SUBTRACTING at episode level, placebo rank 8 of 11), and a fully-live TLT three-way at h=8 that reads 5-for-5 at +1.670% with placebo rank 1 of 11 was tested and killed as a lucky subset -- it discards 49 of 54 episodes while the complement still pays +0.379% against the parent's +0.443%, P(random 5-subset beats it) 0.0631, family-wise P 0.648 over the 16 cells searched. Do not rediscover it.",
+   "script": "scratch/pitch_checks/2026-09-08/c8b_print_gate_and_regime.py",
+   "source": "near_miss",
+   "expires": "2027-03-08",
+   "note": ""
+  },
+  {
+   "added": "2026-09-08",
+   "title": "Long SPY across the September PPI-then-CPI pair, entered two sessions before the first print",
+   "cell": "back-to-back inflation print pair x month-of-year, us_large",
+   "trigger": "THE PARENT'S SIGN, and read the scan charge before touching this. The September subcell is 14 observations at +0.844% and an 85.7% hit; it survives the decomposition that kills the annual cell (today's bucket, FOMC OUTSIDE the hold, is 11 at +0.518%, 81.8%, sign p 0.033) and it survives month-by-trading-day-of-month matching at +0.755pp. That is more than the parent manages. WHAT KILLED IT is that it is a one-in-six month scan sitting on an INVERTED parent: P(some month with n>=3 looks this good) = 0.1618 across the 12-month scan, and the gate it decorates is worth -0.115pp where its own complement (PPI with NO CPI on the next session) pays +0.024pp, so the pair gate selects its parent's worse half. TURNS ON only when BOTH hold: the 12-month permutation P falls below 0.05, AND the parent pair gate stops being negative, i.e. the back-to-back cell's excess over the single-PPI complement turns positive. Re-measure after each new PPI-then-CPI pair; September pairs accrue at roughly one a year. STANDING CORRECTION filed the same morning: the surface map's claim that the PPI-then-CPI ordering was unmeasured is FALSE -- it reproduces the 2026-08-10 line at -0.1135% on N=127 (registry -0.071% on N=133), so today's ordering is the NEGATIVE side of a pair this repo already measured, and the annual cell should never be re-opened as novel. Also settled: the placebo ladder ranks the true anchor 8 of 11 on SPY and 9 of 11 on IWM, with k=+1 paying +0.339%.",
+   "script": "scratch/pitch_checks/2026-09-08/c1b_september_subcell.py",
+   "source": "stand_down",
+   "expires": "2027-09-08",
+   "note": ""
+  },
+  {
+   "added": "2026-09-09",
+   "title": "Long TLT from the PPI release close, with the ten-year at a 252-day high",
+   "cell": "ppi x rates, the POST-release anchor",
+   "trigger": "A CORRELATED-FAMILY PERMUTATION, and note the anchor is the RELEASE close rather than the pre-print close this tab can place. The cell: long TLT entered MOC at the close of the PPI release session with ^TNX at a 252-day high pays +1.352% at h=3 over 9 declustered episodes, 8-1, sign p 0.0195, era-stable at pre-2018 +1.490% (4 of 4) and 2018+ +1.242%, midterm +0.996% against non-midterm +1.637%, and 45.1x a 3 bp round trip. WHAT BLOCKS IT is that it is the top rung of an 11-offset ladder x 2 vehicles x 3 horizons: the charged permutation is 0.2682 against an uncharged 0.0055, and that null treats 66 correlated cells as independent, so it over-charges a ladder whose rungs share most of their observations. TURNS ON when a permutation that preserves the ladder's correlation structure puts the observed +1.352% under 0.05, or at +4 new declustered episodes with the record still at or above 80%. WHY IT COULD NOT SHIP on 2026-09-09 even at conviction: the anchor for this PPI is the 2026-09-10 close, and the pitch tab places on the morning it is published. THE PRE-RELEASE FORM IS DEAD and must not be substituted: the true k=-2 anchor ranks 8 of 11 at h=1 and 4 of 11 at h=3 on the same ladder, and gap-share falsifies it outright, with the release session itself paying -0.115% on IEF (-28% of the h=3 hold) and -0.306% on TLT (-55% of a +0.556% hold). Duration SELLS OFF on the print and makes it back afterwards, which is why the informative rung is k=+1. One differentiation already settled, do not re-derive it: this is NOT a re-skin of watchlist 41, Jaccard against the DBC-252d-high mask is 0.0358 with P(COMMOD | RATE) = 0.092, and the surviving direction is the opposite one. One definition caveat: the headline moves 0.188pp between decluster-then-filter (+0.406%, n=10) and filter-then-decluster (+0.218%, n=9) on the pre-release form, so fix the order before quoting anything.",
+   "script": "scratch/pitch_checks/2026-09-09/c12c_postprint_nearmiss.py",
+   "source": "stand_down",
+   "expires": "2027-09-09",
+   "note": ""
+  },
+  {
+   "added": "2026-09-09",
+   "title": "Long SPY with high yield at a 252-day high on the session the ten-year prints one too",
+   "cell": "credit x rates -> us_large, the equity leg of a cell with no credit residual",
+   "trigger": "THE INDEX'S OWN DEPTH, and the live tape sat outside the sample that generated it. The cell (HYG within 0.5% of its trailing-252 high AND ^TNX at a 252-day high) pays SPY +0.558% at h=3 over 7 episodes, 6-1, sign p 0.0625, bootstrap P(mean<=0) 0.018, with the credit gate worth +0.727pp over the rates parent whose complement pays -0.364%, and a MONOTONE dose response across the credit rung (0.25% +0.601 / 0.5% +0.558 / 1.0% +0.372 / 2.0% -0.081%). WHAT KILLED IT is depth: 6 of the 7 episodes had SPY at or within 0.22% of its OWN 252-day high, five of them exactly at it, while the 1.0-2.0%-off band holds exactly ONE episode and that episode is one of the two carrying 66% of the total. On 2026-09-09 SPY was 1.53% off. TURNS ON at a cell day with SPY ALSO within 0.5% of its own 252-day high, where the 6 matching episodes paid +0.467% at h=3 against a complement of +0.014%; and independently the vehicle x horizon permutation tested against the defended +0.558% must fall under 0.05, it is 0.7688 (uncharged 0.2712). TWO CAVEATS NO TRIGGER CURES. (1) The horizon is a spike, not a plateau: h=2 +0.599, h=3 +0.558, h=4 -0.092, h=5 -0.713% with a worst episode of -5.967%, so only h=3 is the object. (2) There is NO credit-specific residual and this is the SIXTH consecutive failure of the family to produce one: HYG = -0.001% + 0.189*IEF + 0.395*SPY (R-squared 0.477), the residual vehicle pays -0.107% at h=1 on 4 of 15 (t -2.465) and -0.180% at h=3 on 2 of 8, and the HYG gate against the rates parent is worth -0.001pp with the discarded complement paying MORE. Pitch the equity leg or nothing. ONE THING THAT PASSED, unlike watchlist 24: the fragility dial is INSIDE this cell's sample, which reaches ma10(63d) 87.9 with 4 of 12 days at or above 70, where watchlist 24's maximum ever observed was 68.0.",
+   "script": "scratch/pitch_checks/2026-09-09/c11b_credit_rates_r2.py",
+   "source": "stand_down",
+   "expires": "2027-09-09",
+   "note": ""
+  },
+  {
+   "added": "2026-09-09",
+   "title": "Long SVXY on the settle session when a VIX expiry lands on an FOMC decision date",
+   "cell": "vix_expiry x fomc_decision collision x volatility, the settle-session rung",
+   "trigger": "NEW POST-2018 COLLISIONS, because the era break IS the instrument. The cell pays +1.574% over 25-9 at sign p 0.004 and it is the rare volatility cell that CLEARS the mandatory SPY-residual rule outright: alpha +1.628% at t 5.91 against SPY (R-squared 0.797, the beta term explaining only -0.055%), so this is genuinely volatility-specific rather than levered equity wearing a vol label. WHAT KILLED IT is that pre-2018 pays +3.943% on 13-2 at t 5.06 while 2018+ pays -0.297% on 12-7 at t -0.48, and February 2018 is exactly when SVXY re-levered from -1.0x to -0.5x, so the half carrying the number is a product that no longer trades. The two most recent collisions are both losers (2026-03 -3.98%, 2026-06 -2.17%). TURNS ON when the 2018+ subsample alone reaches a positive mean with a record at or above 60% on at least 16 collisions, i.e. +4 new ones beyond today's 12, measured on the -0.5x vehicle only and never pooled with the pre-2018 half. Collisions run about 20.2% of FOMCs (45 of them in 2000-2027), so this accrues roughly once a year. THREE THINGS ALREADY SETTLED, do not re-run them. (1) The placebo ladder ranks the true anchor 1 OF 11 on both the run-in and the settle session, so the anchor is real. (2) The RUN-IN rung is dead and is not this entry: it splits non-midterm +1.504% (t 2.87) against midterm -1.753% on 4-6, reduces to the pre-FOMC drift's midterm inversion (all-FOMC midterm gap -1.084pp against the collision's -3.257pp, same sign amplified), and its only live direction is the Event Sleeve's own T2 short. (3) The settlement FLOW mechanism cannot be falsified in this repo at all: there is no dealer gamma, no open-interest history and no roll positioning, and the option_* files start 2026-08-05. Any revival owes a mechanism that local data can test, or it ships graded as unverified on mechanism.",
+   "script": "scratch/pitch_checks/2026-09-09/a3c_c8_svxy_settle.py",
+   "source": "stand_down",
+   "expires": "2027-09-09",
+   "note": ""
+  },
+  {
+   "added": "2026-09-10",
+   "title": "Long the September natural-gas seasonal on the FRONT CONTRACT, NG=F rather than an ETF wrapper",
+   "cell": "natgas x month-of-year, the front-contract seasonal",
+   "trigger": "A NON-ROLL EXPRESSION AND A MECHANISM THAT SURVIVES THE MONTH LADDER. The seasonal is REAL and the wrapper is what killed the pitched version: September alone on NG=F pays +2.249% at h=5 over N=120, t 3.00, sign p 0.041, while the identical cell on UNG pays +0.365% at t 0.56. The gap is entirely instrument drag -- UNG compounds at -28.36%/yr against the NG=F front at -4.91%/yr over 19.4 years, which is -10.62 bp per session or 3.30x the USO drag this repo has already killed a cell on, and September is UNG's WORST month of twelve at -35.57 bp per session (October -43.41), so a five-session hold pays -178 bp against a gross cell mean of +24 bp. TURNS ON when BOTH of the following hold. (1) THE CELL IS EXPRESSED ON A NON-ROLL VEHICLE: a futures leg on NG=F, which this owner trades and which the pitch grammar supports with sec_type FUT. An ETF wrapper is NOT required and the absence of one is never a reason to reject the idea; UNG specifically is disqualified by the drag above, and any wrapper proposed later has to be priced against the front contract before it is used. (2) A MECHANISM THAT SURVIVES THE MONTH LADDER: the end-of-injection-season story does not pick out the month it named. September ranks 5 OF 12 at h=5, behind May at +3.53% and April at +2.90%, which are the START of injection season and the opposite of the stated mechanism. Either the mechanism is restated so that it predicts the top of that ladder, or this is a bare month effect and has to be charged as a 1-of-12 scan before it can ship. ALSO SETTLED 2026-09-10, do not re-run it: the price gate ('within 6% of a one-year low') is an ANTI-FILTER and must be DROPPED or re-derived rather than widened -- the join pays +0.238% against September alone at +0.365%, while the discarded complement, September NOT near the low, pays +2.266% on NG=F at t 2.94.",
+   "script": "scratch/pitch_checks/2026-09-10/c2_cost.py",
+   "source": "stand_down",
+   "expires": "2027-09-30",
+   "note": ""
+  },
+  {
+   "added": "2026-09-11",
+   "title": "Long SPY into the run-in when an FOMC decision and a VIX expiry land on the SAME date, non-midterm years only",
+   "cell": "fomc_decision x vix_expiry collision x us_large, the run-in rung",
+   "trigger": "THE CYCLE YEAR, and this parks to a DATE rather than to a level. The pooled run-in is a real object: k=3 pays +0.489% at 29-13, sign p 0.010, edge +0.373pp over 42 collisions, placebo rank 1 OF 11 on the k=-5..+5 ladder, drop-best-2 +0.285%. The cycle split is monotone and TOTAL -- non-midterm +0.530 / +0.751 / +0.753 / +1.313 / +1.289 pp at k=2/3/4/5/6 against midterm -0.380 / -0.837 / -1.568 / -1.944 / -2.337 -- and the non-midterm cell alone is k=3 +0.867% on 25-7 at sign p 0.001, k=5 +1.504% at t 2.87. 2026 is midterm, so the live half is the wrong-signed one and the short that would express it fails its OWN placebo ladder at 8 of 11 (shift -2 pays +1.441% against the true anchor's +0.721%) with its entire payoff in 3 episodes anchored BELOW the 200d SMA (+2.791%, 3-0) while the 7 above pay -0.166%; SPY closed 757.83 against a 200d of 712.02. TURNS ON at the next NON-MIDTERM collision, which is 2027-03-17. Three standing notes: the expiry leg contributes +0.006pp on its own and the collision gate over the FOMC-only parent is worth +0.187pp at k=3 and NEGATIVE on IWM at k=4, so this is the FOMC's drift and the collision is close to decoration -- re-check that before pitching it. IWM adds no cross-sectional contrast. And the FLOW MECHANISM IS NOT MEASURABLE in this repo: both option_* files hold a single date (2026-08-05) with zero collisions in span, while the measurable proxies REFUTE the pin story (3-session run-in change in 5d realised vol -0.245 on collisions against -0.247 on plain expiries; VIX/VIX3M 0.900 against 0.901). Any future pitch grades on price evidence alone.",
+   "script": "scratch/pitch_checks/2026-09-11/k4_collision.py",
+   "source": "stand_down",
+   "expires": "2027-04-30"
+  },
+  {
+   "added": "2026-09-11",
+   "title": "The deep five-day flush inside a top-decile 63-day trend, at the r5<=2 / r63>=90 corner rather than the pitched rung",
+   "cell": "sectors, flush-inside-strength, the tight corner of a dead parent",
+   "trigger": "TWO NUMBERS, and note this entry is a CORNER recovered from a parent that is an anti-filter, so the anti-rescue rule applies and it owes its own pre-registration. The pitched rung (r5<=5 & r63>=85) is dead: pooled over 20 index and industry ETFs at h=5 the parent r5<=5 alone pays +0.353% (N=6,123 / 1,614 dates, t 3.05), the join -0.069%, and the DISCARDED COMPLEMENT r5<=5 & r63<85 pays +0.385% at t 3.33 -- an intact-trend gate INVERTING for the fourth recorded time. But the tight corner is a different object with clean gate attribution: r5<=2 & r63>=90 pays +1.608% at h=5 over 34 obs / 29 dates, 70.6% hit, date-clustered t 1.84, sign p 0.0122, positive in BOTH eras (pre-2018 +2.399%, 2018+ +1.231%), with parent r5<=2 alone at +0.247% and its complement at +0.251%. TURNS ON at a date-averaged h=5 excess >= +1.743% (the 72-cell null-max 95th percentile) WITH the leave-one-member-out floor above +0.961%; today those read +1.577% (0.166pp short) and +0.436%. The LOO leg is the hard one: dropping KRE -- whose four observations include 2008-10-08 at +22.77%, and top-2 dates are 60% of the total -- takes the charged P from 0.0865 to 0.9915. Reaching it needs roughly 10 new fresh-trigger dates averaging +5.2% at h=5, so this is a LONG park, not a near-term watch. Also definition-fragile: of 15 (lookback, window) combinations the pitched (252, 5, 63) is the single best, r5->r7 gives +0.179 / -0.165 / -1.180% across lookbacks 252/126/504. The family is heterogeneous (Cochran Q p 0.0076, I-squared 49.6%) so no fixed-effect claim is available, and IBB -- today's only live instance, and one that has fired this rung 4 days EVER (three in June 2003 plus today) -- ranks 11 of 19.",
+   "script": "scratch/pitch_checks/2026-09-11/k2_a2_turnon_number.py",
+   "source": "stand_down",
+   "expires": "2028-09-11"
+  },
+  {
+   "added": "2026-09-14",
+   "title": "Long XLV against 0.71 SPY after a healthcare complex flush, as a family effect",
+   "cell": "sectors, flush x beta-neutral residual against the index",
+   "trigger": "THE FAMILY EFFECT CLEARING COST, or XLV separating from its family. The cell (XLV 5-day rank <= 1 with >= 3 of XLV/IBB/XBI/IHI at r5 <= 5), long XLV against 0.71 SPY (full-sample beta), pays +0.702pp of excess at h=10 over 21 episodes, 16-5, sign p 0.0133, matched on SPY's forward-return bucket +0.86pp at 15-6, both eras positive (+0.81 pre-2018, +0.70 after), top-two episodes 54%. It is flat at h=1..4 (<= +0.08%). The same rule on 8 sector complexes is homogeneous (Cochran Q 6.75 on 7 df, I-squared 0%) with a fixed-effect common excess of +0.294pp, 4.5x a 6.5 bp pair round trip, and XLV ranks 3rd of 8 (max-of-8 P 0.904 beta-neutral, 0.776 equal-dollar). TURNS ON when the 8-complex common excess reaches >= +0.33pp at h=10 (5x cost; +0.294pp today), OR XLV's max-of-8 P falls to <= 0.10, OR the reference class is widened with the missing complexes (KBE, KIE, IGV, SOXX, IDU, PBJ are not in master_prices) and the common effect clears 5x on the wider class. THREE DEBTS, none optional. (1) The residual is midterm-concentrated: +1.441pp at 9-1 against +0.018pp at 7-4, a split nobody pre-registered. (2) Hedge ratio: XLV's trailing 63-day beta to SPY was -0.23 on 2026-09-11 and its 252-day beta 0.29; at the 63-day beta the residual falls to +0.38pp. (3) The live definition is the best of 18 neighbours; r5 <= 2 halves it to about +0.53pp. Do not pitch the outright (h=10 excess -0.03pp against XLV's drift) or the equal-dollar pair (its edge is the short SPY leg).",
+   "script": "scratch/pitch_checks/2026-09-14/k2_c2_xlv_flush_b.py",
+   "source": "stand_down",
+   "expires": "2026-10-05",
+   "note": "2026-09-14: near-miss in the stand-down; family table in k2_c2_xlv_flush_d.py."
+  },
+  {
+   "added": "2026-09-14",
+   "title": "Beta-hedged short SVXY the session after a 10% one-day VIX crush, 2018+",
+   "cell": "volatility price-state, the ungated parent of the pre-FOMC crush candidate",
+   "trigger": "COST, and the dose has to turn the right way. Short SVXY hedged against SPY at the era beta (1.48-1.51), entered MOC the session after any >= 10% one-day ^VIX fall in the -0.5x era (2018-03+), pays +0.335% at h=1 over 101 crush days, 62-39, sign p 0.014, t 2.14, 2.8x a ~12 bp two-leg round trip. TURNS ON at 5x cost, i.e. +0.60% at h=1 on the hedged form, AND a monotone dose: the >= 12% crush bucket must pay at least the >= 10% cell, against +0.097% at h=1 and -0.099% at h=2 today. Two things already settled, do not re-run them: the FOMC-ahead gate SUBTRACTS (+0.123% with an FOMC in the next three sessions against +0.361% without), and the pre-FOMC crush does not get re-bid (^VIX to the decision close 1-7 at -3.86%, long UVXY 2018+ 0-4). Adjacent to the registry's dead 'SVXY as a pre-FOMC leg' and to W33's SPY-residual rule; the hedged construction is what makes this a different object.",
+   "script": "scratch/pitch_checks/2026-09-14/k3_c6_vix_crush_prefomc_b.py",
+   "source": "stand_down",
+   "expires": "2026-10-05",
+   "note": "2026-09-14: near-miss in the stand-down (closest #2). | 2026-09-18 verdict: CHECK, killed. State fired (^VIX -12.82% on 09-17). Parent re-runs at +0.326% at h=1 on 62-40 (2.7x cost); the [12,15) bucket -0.073% (20-21); entry on an opex close 2-3 at h=1; FOMC k=+1 crushes +0.116% vs +0.321%. The dose ordering flips across the 2018 leverage break (synthetic [10,12) -0.017% vs >=12% +0.367%), so the dose leg of the arm is noise; the COST leg (+0.60% at h=1) is the binding condition. (kA_c3_r1.py)"
+  },
+  {
+   "added": "2026-09-15",
+   "title": "Long SVXY into an FOMC decision after a pre-decision VIX re-bid, backwardated form only",
+   "cell": "fomc_decision x volatility, re-bid at k=-2 split by term structure",
+   "trigger": "THE TERM STRUCTURE, then the charge for the split that found it. Long SVXY MOC at k=-1 to the decision close after ^VIX rose >= 5% on the k=-2 session pays +0.224% on 17-4 in the -0.5x era (sign p 0.004), beta-charged alpha +0.389% on 16-5 at beta 1.48, but the re-bid gate filters nothing (all-FOMC parent +0.237%, gate worth -0.018pp) and k=-2 ranks 6 of 11 on the placebo ladder. All of the alpha sits where VIX/VIX3M closed >= 0.90 at k=-2: +1.233% on 12-1 (sign p 0.002), alpha 11-2. Below 0.90 it is 5-3 at -1.42% and holds both decision-day blowups (2021-01-27 -10.54%, 2024-12-18 -8.66%). 2026-09-14 read 0.887. TURNS ON at the next FOMC whose k=-2 session carries a >= 5% ^VIX rise AND VIX/VIX3M >= 0.90 at that close, AND only if the split survives its own charge: the term threshold was found by a search, so walk 0.85 / 0.875 / 0.90 / 0.925 / 0.95 and require the 0.90 cell's alpha sign p to hold at <= 0.05 after that charge. Standing notes: the midterm members are 5-0 but every one had a dose >= 9.4%, term >= 0.91 and dial <= 32 (live 85.2); pre-2018 short ^VIX in the state paid LESS than its complement (+1.97% against +2.71%), so the re-bid decays less, not more, on the non-levered read; the collision subset (FOMC on a VIX expiry) is +0.029% on 6-1.",
+   "script": "scratch/pitch_checks/2026-09-15/k3_c3_vix_rebid_b.py",
+   "source": "stand_down",
+   "expires": "2026-12-10",
+   "note": "2026-09-15: closest #1 in the stand-down. Next anchors: FOMC 2026-10-28 (k=-2 session 2026-10-26) and 2026-12-09 (k=-2 2026-12-07)."
+  },
+  {
+   "added": "2026-09-15",
+   "title": "Short a large bank against XLF after a non-earnings intraday slide of 1.5 ATR on a calm tape",
+   "cell": "banks, single-name information shock continuation vs the sector ETF",
+   "trigger": "THE REFERENCE CLASS, then the modern era. Short the name against XLF at beta after a non-earnings, intraday-led drop >= 1.5 Wilder ATR (prior-day ATR) on a session SPY falls less than 1% pays +0.316% at h=5 over 108 episodes, 66-42, two-sided sign p 0.026, +0.422pp over the same-date universe, positive in 18 of 26 years, top-two episodes -3% of total, 6.3x a ~5 bp round trip. It dies because banks are not special: the same rule across 12 sector groups (159 names against their sector SPDRs) has a common excess of -0.047pp (Cochran Q 7.66 on 11 df, I-squared 0%), banks rank 1 of 12 at P(max group >= banks) 0.324, and non-financial names REVERT (-0.214% to the short at h=5 over 867 episodes, t -1.91). 2018+ pays +0.034% (t 0.10, 0.7x cost) against +0.510% before. TURNS ON when BOTH move: banks' max-of-12 P falls to <= 0.10 (or a structural reason is shown why bank information shocks drift while other sectors' revert), AND the 2018+ bank cell reaches >= +0.25% at h=5 (5x cost). Neighbours on file: 2 ATR +0.850% (16-11), 2.5 ATR -0.018%; gap-led +0.740% (29-7) is stronger than the intraday-led form; dropping the SPY > -1% gate takes it to -0.019%. The long side of the same shock is dead (earnings-print content, -0.449% at h=5 on the non-earnings parent).",
+   "script": "scratch/pitch_checks/2026-09-15/k2_c1x_family.py",
+   "source": "stand_down",
+   "expires": "2026-10-06",
+   "note": "2026-09-15: closest #2 in the stand-down; live instance BAC -2.93 ATR on 2026-09-14 (gap share 0.11, break at 13:00 ET), with GS, MS and BNY also in the cell. | 2026-09-17: GS -1.43 ATR (below 1.5); USB -2.35 and PNC -2.14 ATR intraday-led on a -0.44% SPY, both outside the cell's eight-name universe."
+  },
+  {
+   "added": "2026-09-16",
+   "title": "Long TLT across the FOMC announcement session with the ten-year at its 252 high",
+   "cell": "fomc_decision x rates, the eve-close-to-decision-close rung",
+   "trigger": "THE NEXT FOMC EVE, plus a reconciliation debt. Long TLT MOC on the eve close, exit at the decision close: hike-regime decisions pay +0.354% at 39-16 (sign p 0.001) and decisions with ^TNX at its trailing-252 max +0.663% at 6-1 (sign p 0.062), within 2% +0.336% at 10-6. Found as a byproduct of the 2026-09-16 post-decision kill, so it owes a charge for that walk. TURNS ON at the 2026-10-27 eve close (FOMC 10-28) if ^TNX closes within 2% of its 252 max, AND only after it is reconciled against two registry kills of duration into the FOMC (09-01 gate attribution on the flattener, +0.017pp over 192 anchors; 09-15 80/80 bond-vol rung -0.306% at h=1, placebo 9 of 11). Those measured different vehicles and holds; say which object this is before it ships. Placebo ladder on the one-session hold is owed.",
+   "script": "scratch/pitch_checks/2026-09-16/kA_c1_c5_c6_postfomc_b.py",
+   "source": "short_slate",
+   "expires": "2026-10-28",
+   "note": "2026-09-16: closest #2 in the short slate; window was the 09-15 close, gone at publish."
+  },
+  {
+   "added": "2026-09-16",
+   "title": "Long HYG after a SPREAD-driven five-day flush, the any-day parent",
+   "cell": "credit price-state, flush split by the duration leg",
+   "trigger": "IEF NOT FLUSHED ALONGSIDE. HYG tape-convention z10 <= -2 on any day pays +0.549% at h=3 over 47 episodes (34-13) and +0.784% at h=5. The live 2026-09-15 flush (HYG z10 -2.27) was duration-driven with IEF's 5d rank at 1.2, and that form pays +0.152% at h=3 and -0.023% at h=5 over 34 episodes (the registry's 09-14 dead cell). TURNS ON at a HYG z10 <= -2 close with IEF's 5d rank above 20; round 2 (declustering, era, concentration) has NOT been run on the spread-driven form and is owed before it is scored. The z10 convention must be stated: pitch_lab.zscore gives 10 episodes where the tape convention gives 5 on decision closes.",
+   "script": "scratch/pitch_checks/2026-09-16/kB_c4_hyg_fomc_flush.py",
+   "source": "short_slate",
+   "expires": "2026-10-07",
+   "note": "2026-09-16: closest #3 in the short slate."
+  },
+  {
+   "added": "2026-09-17",
+   "title": "Long the dollar into the September quarter-end close",
+   "cell": "quarter-end x dollar_fx, split from the SEP FOMC window",
+   "trigger": "A QUARTER-END PREMIUM THAT SURVIVES REMOVING THE FOMC WINDOW. September QE-9 to QE since 2008 goes 14-4 at +0.696% (sign p 0.015), and with the decision before the entry 6-0 at +1.365% (sign p 0.016), but the identical windows measured as post-decision drift are the same 14-4, and non-quarter FOMC months pay +0.374% on 47-28, so the quarter-end adds nothing. Pooled quarter-ends beat ordinary month-ends by only +0.084pp (t +0.51), +0.210pp since 2008. TURNS ON only if quarters with NO FOMC decision inside the QE-9..QE window beat ordinary month-ends by >= +0.25pp since 2008 (not yet measured). Standing blockers: December, the funding peak, is 8-18 (6-12 since 2008), and a DX 5d rank >= 95 at the signal is 2-5. A September form is yesterday's post-FOMC long-DX idea and must not ship under this label.",
+   "script": "scratch/pitch_checks/2026-09-17/k1_c7_fomc_split.py",
+   "source": "stand_down",
+   "expires": "2026-10-08",
+   "note": "2026-09-17: closest #1 in the stand-down."
+  },
+  {
+   "added": "2026-09-17",
+   "title": "Short the quarter's two best SPDRs against its two worst from the quarter-end close",
+   "cell": "quarter-end x sectors, the post-quarter reversal half of window dressing",
+   "trigger": "A DATE, then an era split. Winners minus losers (top-2 minus bottom-2 SPDRs by 63d) from the quarter-end close to QE+5 run -0.367% over 105 quarters (44-61) against -0.007% at ordinary month-ends, so the reversal pair earns about +0.37%. Unchecked beyond that one row, and a byproduct of the dead run-in cell (September 2018+ 3-5; run-in and reversal uncorrelated at +0.038), so it owes a charge for the walk. CHECK on the 2026-09-30 morning (anchor = the 09-30 close, h=5): TURNS ON if the 2018+ reversal clears +0.40% (5x an 8 bp two-leg round trip) and the September subset is not wrong-signed.",
+   "script": "scratch/pitch_checks/2026-09-17/k1_c2_window_dressing.py",
+   "source": "stand_down",
+   "expires": "2026-10-01",
+   "note": "2026-09-17: closest #2 in the stand-down; enterable only at a quarter-end close."
+  },
+  {
+   "added": "2026-09-18",
+   "title": "Long IWM from a quad-witching close after a small-cap washout, outside September",
+   "cell": "quad_witching x us_small, washout gate (inversion of the event sleeve T3 skip rule)",
+   "trigger": "A DATE AND A LEVEL. Pooled across quarterly quads, IWM z10 (event-sleeve definition: 10-session return over vol21*sqrt(10)) <= -1.0 at the prior close pays +3.655% at h=8 on 10-1 (sign p 0.006) against a -0.003% discarded complement, ranks 1 of 11 on the offset ladder at h=5/8/10, holds 4-1 before 2018 and 6-0 after, 7-0 with no FOMC in the hold, drop-best-2 +2.70%. Ex-September 9-1 at +3.116% (sign p 0.0107) against a +0.742% complement; December rows 4-0. TURNS ON at a non-September quad (next 2026-12-18, signal 12-17) with IWM z10 <= -1.0. It died on 2026-09-18 only because September is uncovered: one gated September (2001 reopening), ungated September post-quad 6-19 at -2.03%, month-demeaned lift predicts -0.48%. Dose note: the all-opex (-1.0,-0.75] bin is the worst on every z definition (h=8 -0.334%), so a reading just under -1.0 sits beside a cliff; report the live bin. Owes round 3 (horizon, entry form, loser paths) when it fires.",
+   "script": "scratch/pitch_checks/2026-09-18/kB_c1d_sept.py",
+   "source": "stand_down",
+   "expires": "2026-12-21"
+  },
+  {
+   "added": "2026-09-18",
+   "title": "Long SPY from a monthly opex close after a one-day VIX crush in the three sessions before",
+   "cell": "opex x volatility state -> us_large, the inversion of the killed vanna short",
+   "trigger": "THE CYCLE YEAR, and it owes a search charge. A >= 10% one-day ^VIX fall in the three sessions before a monthly opex, long SPY MOC on the opex close, pays +0.535% at h=2 over 40 anchors at 29-11 (sign p 0.003) against +0.040% for the same crush on non-opex days and +0.091% for all opex closes, placebo rank 1 of 11, 18-9 before 2018 and 11-2 after. It was the best of about 12 cells (charged p about 0.04). Midterm years 4-5 at +0.099% against 25-6 at +0.661% otherwise; September 2-1 at +0.060%. TURNS ON at a non-midterm, non-September opex (first chance 2027-01-15) after a >= 10% one-day crush in the three prior sessions, with a fresh placebo ladder and the midterm split re-run on the day.",
+   "script": "scratch/pitch_checks/2026-09-18/kA_c2c_inverse_lead.py",
+   "source": "stand_down",
+   "expires": "2027-09-17"
+  },
+  {
+   "added": "2026-09-18",
+   "title": "Short CL=F from October trading day 13 into the refinery-turnaround trough",
+   "cell": "energy x month-of-year, fall refinery maintenance",
+   "trigger": "A DATE, then the roll. On the 2026-09-18 month ladder the October tdom-13 short ranks 1 of 12 on CL=F 2001-2014 (+1.90% at h=10) and 2 of 12 on USO 2015-2025 (+1.48%), about 15-10, while the September boundary ranks 6 of 12. Found on a ladder, so it is charged for the 12-month walk. TURNS ON at the 2026-10-19 close if that morning's script reproduces a top-3 rank in both eras, a front-contract form that handles the November roll inside the window clears 5x cost, and the USO form (+0.95% on 11-9) is reported beside it.",
+   "script": "scratch/pitch_checks/2026-09-18/kB_c9_r1.py",
+   "source": "stand_down",
+   "expires": "2026-10-20"
   }
  ],
- "expired": [
-  {
-   "title": "Long TLT into the month-end close, ungated, entered nine sessions before it",
-   "cell": "rates x month-end flow",
-   "retired": "2026-08-31",
-   "why": "window passed or cell adjudicated in the 2026-08-31 sweep"
-  },
-  {
-   "title": "Long crude through Jackson Hole, entered six sessions before the conference",
-   "cell": "energy x event (jackson_hole)",
-   "retired": "2026-08-31",
-   "why": "window passed or cell adjudicated in the 2026-08-31 sweep"
-  },
-  {
-   "title": "Long high yield across the Jackson Hole speech, entered five sessions before it",
-   "cell": "jackson_hole x credit",
-   "retired": "2026-08-31",
-   "why": "window passed or cell adjudicated in the 2026-08-31 sweep"
-  },
-  {
-   "title": "Long OIH outright, no short leg, at a 63-day services-versus-E&P extreme",
-   "cell": "energy, intra-sector dispersion",
-   "retired": "2026-08-31",
-   "why": "window passed or cell adjudicated in the 2026-08-31 sweep"
-  },
-  {
-   "title": "The single small-cap session from three sessions before month-end to two",
-   "cell": "us_small, month-position x month-of-year",
-   "retired": "2026-08-31",
-   "why": "window passed or cell adjudicated in the 2026-08-31 sweep"
-  }
- ],
- "generated": "2026-09-03",
- "asof": "2026-09-04"
+ "expired": [],
+ "generated": "2026-09-14",
+ "asof": "2026-09-16"
 }
