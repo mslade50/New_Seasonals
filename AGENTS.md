@@ -16,7 +16,7 @@ Current implementation and rollout status: [docs/operations_current.md](docs/ope
 
 ## Mandatory Workspace Hygiene
 
-- Concurrent tasks must use separate Git worktrees and branches. Create one with `scripts/new_task_worktree.ps1`; never let two agents share a working directory.
+- Concurrent tasks must use separate Git worktrees and branches. Create one with `scripts/new_task_worktree.ps1`; never let two agents share a working directory. Worktrees live ONLY under the sibling root `C:\Users\McKinley Slade\dev\New_Seasonals-worktrees\` (generically `<parent>\<repo>-worktrees\`), never under `artifacts/` or anywhere else inside the repo, and the script now refuses any `-WorktreeRoot` that resolves inside the repository.
 - Before changing a long-lived or already-dirty worktree, run `python scripts/workspace_hygiene.py start --force`. At handoff, run `check` with every intended source path declared via `--allow`.
 - Put disposable downloads, logs, screenshots, browser profiles, temporary datasets, and rendered reports under the ignored `artifacts/` root. Use `python scripts/workspace_hygiene.py artifact-dir <category>` to create a category.
 - `scratch/` is a research evidence area. New Python and Markdown files there remain visible to Git; do not use it as the default destination for machine-generated output.

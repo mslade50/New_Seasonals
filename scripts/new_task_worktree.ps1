@@ -13,12 +13,40 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoName = Split-Path $repoRoot -Leaf
 
+$requiredRoot = Join-Path (Split-Path $repoRoot -Parent) "$repoName-worktrees"
+
 if (-not $WorktreeRoot) {
-    $WorktreeRoot = Join-Path (Split-Path $repoRoot -Parent) "$repoName-worktrees"
+    $WorktreeRoot = $requiredRoot
 }
+
+function Get-FullNormalizedPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $provider = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    return [System.IO.Path]::GetFullPath($provider).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+}
+
+function Assert-OutsideRepo {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $full = Get-FullNormalizedPath $Path
+    $repoFull = Get-FullNormalizedPath $repoRoot
+    $inside = $full.Equals($repoFull, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $full.StartsWith($repoFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
+    if ($inside) {
+        throw "$Label is inside the repository: $full. Worktrees must live under the sibling root $requiredRoot, never under artifacts/ or anywhere below $repoFull."
+    }
+    return $full
+}
+
+$WorktreeRoot = Assert-OutsideRepo -Path $WorktreeRoot -Label 'Worktree root'
 
 $branchName = "codex/$Task"
 $target = Join-Path $WorktreeRoot $Task
+$target = Assert-OutsideRepo -Path $target -Label 'Worktree target'
 $safeDirectory = $repoRoot.Replace('\', '/')
 
 if (Test-Path -LiteralPath $target) {
