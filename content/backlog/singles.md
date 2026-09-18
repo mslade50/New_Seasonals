@@ -17,7 +17,7 @@ re-pitching anything in it without stating what's structurally different.
 Best week so far: 28 candidates in, 28 dead. The file is the product.
 
 ### S2. Small N is a grade, not a kill
-Status: unposted
+Status: queued 2026-09-07 (x20260907-4)
 
 "Not significant, N too small" is a banned kill reason in our shop. Markets
 produce small samples by construction: a cycle-year cell yields one
