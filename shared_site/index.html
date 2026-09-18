@@ -9,20 +9,40 @@
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="assets/common.js"></script>
 <script src="assets/seasonality.js"></script>
+<script src="assets/macro_seasonal.js"></script>
 </head>
 <body data-page="shared-seasonality">
 <header class="topbar">
   <div class="brand">Denali <span>/</span> Analytics</div>
-  <nav><a href="index.html" class="active">Seasonality</a><a href="heatmaps.html">Heatmaps</a><a href="correlations.html">Correlation Heatmaps</a></nav>
+  <nav><a href="index.html" class="active">Seasonality</a><a href="risk.html">Risk</a><details class="nav-more"><summary>More</summary><div><a href="heatmaps.html">Heatmaps</a><a href="correlations.html">Correlation Heatmaps</a></div></details></nav>
   <div class="asof">Private teammate view</div>
 </header>
 <main class="wrap">
-  <h1>Seasonality &amp; Forward Distributions</h1>
-  <p class="sub">Explore ticker seasonality, forward-return distributions, path similarity, and historical
-    analogs from the same adjusted price snapshot used by the internal dashboard. Every calculation runs
-    in your browser; this site is read-only. Historical model paths and distributions exclude the current
-    year; 2026 appears only as a separately labeled realized YTD overlay.</p>
-  <div id="seasonality-lab"><div class="spin">Loading seasonality inputs...</div></div>
+  <div class="page-tabs" role="tablist" aria-label="Seasonality tools">
+    <button class="on" id="seasonal-tab-lab" role="tab" aria-selected="true"
+      aria-controls="seasonal-panel-lab" data-seasonal-view="lab">Seasonality Lab</button>
+    <button id="seasonal-tab-macro" role="tab" aria-selected="false"
+      aria-controls="seasonal-panel-macro" data-seasonal-view="macro">Macro</button>
+  </div>
+
+  <section id="seasonal-panel-lab" role="tabpanel" aria-labelledby="seasonal-tab-lab">
+    <h1>Seasonality &amp; Forward Distributions</h1>
+    <p class="sub">Explore ticker seasonality, forward-return distributions, path similarity, and historical
+      analogs from the same adjusted price snapshot used by the internal dashboard. Every calculation runs
+      in your browser; this site is read-only. Historical model paths and distributions exclude the current
+      year; 2026 appears only as a separately labeled realized YTD overlay.</p>
+    <div id="seasonality-lab"><div class="spin">Loading seasonality inputs...</div></div>
+  </section>
+
+  <section id="seasonal-panel-macro" role="tabpanel" aria-labelledby="seasonal-tab-macro" hidden>
+    <h1>Macro Seasonality</h1>
+    <p class="sub">MA-extension percentile ranks and ATR seasonal ranks for the macro universe
+      (indices, FX, futures, crypto, bonds, vol), with per-ticker seasonal charts below. The table sorts
+      by the largest |Sznl &minus; 50| across the 5/10/21/63d windows. Charts compute in your browser
+      from the same read-only post-2000 price snapshot.</p>
+    <div id="macro-seasonality"><div class="spin">Loading macro payload...</div></div>
+  </section>
+
   <footer>Denali Asset Management &middot; Internal analytical tool &middot; Read-only</footer>
 </main>
 </body>

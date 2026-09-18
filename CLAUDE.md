@@ -1978,6 +1978,28 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
 - **Local dev**: `python scripts/build_site.py --no-signals` then
   `python -m http.server 8123 --directory dist`. `--no-mtm` skips the slow
   payloads when iterating on frontend only.
+- **Shared Denali site risk tab** (`denali-seasonality`, 2026-09-18): the
+  teammate site gets the MARKET REGIME and nothing about the book.
+  `build_risk_json.redact_for_shared` deep-copies the same computed payload
+  that writes `data/site_risk.json`, strips the `sizing_state` policy keys
+  (`banded_strategies`, `throttled`, `threshold`, `throttle_on`,
+  `gap_to_threshold`, `days_in_state`, `episodes`, `exposure`, `sleeve`) plus
+  the "Book posture" nugget, and writes `data/site_risk_shared.json` — same
+  run, same vintage, so the two sites can never disagree.
+  `assert_shared_payload_clean` is the FAIL-CLOSED gate: it raises if any
+  `STRATEGY_BOOK` name appears anywhere in the serialized payload or a banned
+  key survives, and it runs three times (writer, R2 publish, shared builder +
+  again on the bytes in `dist-shared`). Stable R2 key `shared/site_risk.json`,
+  published best-effort by `site_r2_pipeline.py publish-shared` right after
+  the private risk JSON is built; `deploy_shared_seasonals.yml` pulls it back
+  to `data/site_risk_shared.json`. Staleness only DECLINES to copy — an `asof`
+  older than 5 calendar days ships no `data/risk.json` and the tab renders its
+  no-payload state rather than a month-old dial. The Seasonality page also
+  carries a **Macro sub-tab** (`site/assets/macro_seasonal.js` ->
+  `data/seasonality/macro.json` via `macro_site_data.export_macro_snapshot`,
+  best effort off the `atr_seasonal_ranks.parquet` R2 pull) and moves
+  Heatmaps/Correlations into a right-side "More" dropdown. Frontend:
+  `shared_site/risk.html` + `site/assets/risk.js` shared-mode guards.
 
 ## Momentum Radar — staging + trail (2026-08-18)
 

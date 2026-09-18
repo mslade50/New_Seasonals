@@ -9,8 +9,13 @@ on:
       - 'site/assets/common.js'
       - 'site/assets/seasonality.js'
       - 'site/assets/heatmaps.js'
+      - 'site/assets/macro_seasonal.js'
+      - 'site/assets/risk.js'
+      - 'site/assets/shared_nav.js'
       - 'site/assets/style.css'
       - 'scripts/build_shared_seasonals.py'
+      - 'scripts/build_risk_json.py'
+      - 'scripts/macro_site_data.py'
       - 'scripts/configure_shared_access.py'
       - '.github/workflows/deploy_shared_seasonals.yml'
   workflow_call:
@@ -61,6 +66,28 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet')"
+
+      # Feeds the Seasonality page's Macro sub-tab. A missing object just
+      # means that sub-tab shows its no-data state.
+      - name: Pull ATR seasonal ranks (best effort)
+        continue-on-error: true
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python -c "from cache_io import download_to_local; print(download_to_local('atr_seasonal_ranks.parquet', 'atr_seasonal_ranks.parquet'))"
+
+      # Written by the private deploy's redaction gate. A missing key just
+      # means the risk tab renders its no-payload state.
+      - name: Pull redacted risk payload (best effort)
+        continue-on-error: true
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python -c "from cache_io import download_to_local; print(download_to_local('shared/site_risk.json', 'data/site_risk_shared.json'))"
 
       - name: Build isolated shared site
         run: python scripts/build_shared_seasonals.py

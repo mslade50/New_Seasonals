@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Market Risk Dial — Denali</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="assets/common.js"></script>
+<script src="assets/risk.js"></script>
+</head>
+<body data-page="shared-risk">
+<header class="topbar">
+  <div class="brand">Denali <span>/</span> Analytics</div>
+  <nav><a href="index.html">Seasonality</a><a href="risk.html" class="active">Risk</a><details class="nav-more"><summary>More</summary><div><a href="heatmaps.html">Heatmaps</a><a href="correlations.html">Correlation Heatmaps</a></div></details></nav>
+  <div class="asof">Private teammate view &middot; <span id="navAsof">loading…</span></div>
+</header>
+<main class="wrap">
+  <h1>Market Regime &amp; Risk Dial</h1>
+  <p class="sub">The composite market-regime dial and the fragility signals behind it, recomputed each
+    session from the same adjusted price history the rest of this site uses. Read-only and market-level
+    only: the current reading, what similar readings have historically preceded, and the conditional
+    downside tables. No sizing state and no strategy detail appear on this page.</p>
+  <div id="content"><div class="spin">Loading risk inputs…</div></div>
+  <footer>Denali Asset Management &middot; Internal analytical tool &middot; Read-only</footer>
+</main>
+</body>
+</html>

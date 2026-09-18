@@ -40,14 +40,35 @@ function currentRiskPayload(payload) {
   return result;
 }
 
+/* The shared teammate build serves this same file against a REDACTED payload:
+   sizing_state keeps only the bare dial fields (score/raw_63d/spark/asof) and
+   every desk-state key (threshold, throttle_on, gap_to_threshold,
+   days_in_state, banded_strategies, throttled, episodes, exposure, sleeve) is
+   absent. Every block below tolerates those keys being missing, so a redacted
+   payload also renders cleanly in the private build; SHARED_RISK only changes
+   wording that would otherwise read as desk state. The flag is read at render
+   time because this script loads from <head>, before document.body exists. */
+let SHARED_RISK = false;
+
+function sharedRiskMode() {
+  const body = typeof document !== "undefined" ? document.body : null;
+  return !!(body && body.dataset && body.dataset.page === "shared-risk");
+}
+
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
+  SHARED_RISK = sharedRiskMode();
   renderNav("risk.html");
   const el = document.getElementById("content");
   const payload = await fetchJSONOrNull("data/risk.json");
   if (!payload) {
-    el.innerHTML = '<p class="cap">No risk payload in this build (build_risk_json.py skipped or failed).</p>';
+    el.innerHTML = `<div class="fetchfail">
+      <b>Risk payload unavailable</b>
+      <p>This build shipped without <span class="mono">data/risk.json</span>, so the dial,
+      signals and downside tables cannot be drawn. Nothing here is stale — there is simply
+      no reading to show. The page fills in on the next successful build.</p></div>`;
+    setAsof("risk payload unavailable");
     return;
   }
   const d = currentRiskPayload(payload);
@@ -70,10 +91,14 @@ async function init() {
   // display-only). Replaces the nuggets zone; nuggets render only as a
   // fallback for older payloads (the payload key stays — ideas.js reads it).
   const tc = d.trade_console;
+  // The "Book posture" nugget is desk state (regime multiplier / core exposure);
+  // the shared redaction drops it, and the shared render drops it again.
+  const nuggets = (Array.isArray(d.nuggets) ? d.nuggets : []).filter(n =>
+    !(SHARED_RISK && /^book posture/i.test(String((n && n.title) || ""))));
   if (tc && tc.state) {
     html += tradeConsoleHtml(tc);
-  } else if (Array.isArray(d.nuggets) && d.nuggets.length) {
-    html += nuggetsHtml(d.nuggets);
+  } else if (nuggets.length) {
+    html += nuggetsHtml(nuggets);
   }
 
   // 4. signals: overlay chart + accordion (charts lazy-render on expand)
@@ -125,7 +150,8 @@ async function init() {
     sz.spark.daily.length === sz.spark.dates.length;
   if (d.spy_series) {
     const riskBasis = sizingChart
-      ? "main risk dial (saved daily decisions)"
+      ? (SHARED_RISK ? "main risk dial (point-in-time history)"
+                     : "main risk dial (saved daily decisions)")
       : `display recompute ${fragKey || ""} (legacy payload; not a sizing input)`;
     html += `<h2>SPY vs ${riskBasis}</h2>
       <div class="card">
@@ -313,33 +339,51 @@ async function init() {
   }
 }
 
+/* Desk-state blocks (throttle badge + strategy multipliers, the exposure leg,
+   the paper sleeve) render only when the payload actually carries them AND the
+   page is the private build. The redacted shared payload drops those keys, so
+   the hero degrades to the dial reading, its spark and its as-of date. */
 function sizingHeroHtml(sz) {
+  const deskState = !SHARED_RISK;
+  const hasThrottleState = deskState && sz.throttle_on != null;
   const on = !!sz.throttle_on;
-  const gap = sz.gap_to_threshold;
-  const gapTxt = gap == null ? "" :
-    on ? `${fmt.num(Math.abs(gap), 1)} above threshold` :
-    `${fmt.num(Math.abs(gap), 1)} below threshold ${fmt.num(sz.threshold, 0)}`;
-  const throttled = Array.isArray(sz.throttled) ? sz.throttled : [];
-  const bandCount = Array.isArray(sz.banded_strategies) ? sz.banded_strategies.length : 0;
-  const throttleLine = on && throttled.length
-    ? throttled.map(t => `<span class="badge on">${esc(t.strategy)} @ ${fmt.num(t.mult, 2)}x</span>`).join(" ")
-    : `<span class="cap-inline">all ${bandCount} banded strategies at full size</span>`;
-  const expo = sz.exposure;
+  const gap = deskState ? sz.gap_to_threshold : null;
+  const gapTxt = gap == null ? ""
+    : on ? `${fmt.num(Math.abs(gap), 1)} above threshold`
+    : `${fmt.num(Math.abs(gap), 1)} below threshold${sz.threshold == null ? "" : ` ${fmt.num(sz.threshold, 0)}`}`;
+  const throttled = deskState && Array.isArray(sz.throttled) ? sz.throttled : null;
+  const banded = deskState && Array.isArray(sz.banded_strategies) ? sz.banded_strategies : null;
+  let throttleBlock = "";
+  if (throttled || banded) {
+    const inner = on && throttled && throttled.length
+      ? throttled.map(t => `<span class="badge on">${esc(t.strategy)} @ ${fmt.num(t.mult, 2)}x</span>`).join(" ")
+      : `<span class="cap-inline">all ${banded ? banded.length : 0} banded strategies at full size</span>`;
+    throttleBlock = `<div class="sizing-throttle">${inner}</div>`;
+  }
+  const expo = deskState ? sz.exposure : null;
   const expoLine = expo && expo.mult != null
     ? `Exposure leg: ${fmt.num(expo.mult, 2)}x (${expo.active_rule ? esc(String(expo.active_rule)) : "no rule active"}), as of ${esc(expo.asof || "-")}`
     : "";
-  const sleeve = sz.sleeve;
+  const sleeve = deskState ? sz.sleeve : null;
   const sleeveLine = sleeve && sleeve.position
     ? `Clean-air SPY sleeve (paper): <span class="badge ${sleeve.position === "LONG" ? "off" : "warn"}">${esc(sleeve.position)}</span> since ${esc(sleeve.since || "-")} · ${sleeve.n_transitions} transition${sleeve.n_transitions === 1 ? "" : "s"} · enter dial&lt;20 near highs, exit dial&ge;25 or 2 closes outside band`
     : "";
+  const title = SHARED_RISK ? "Market Risk Dial" : "Sizing State";
+  const badge = hasThrottleState
+    ? `<span class="badge ${on ? "on" : "off"}">${on ? "THROTTLE ON" : "THROTTLE OFF"}</span>`
+    : "";
+  const capBits = [SHARED_RISK
+    ? "Main risk dial — composite market fragility, 0 (calm) to 100 (fragile)"
+    : "Main risk dial — the number that sizes live orders"];
+  if (gapTxt) capBits.push(gapTxt);
+  if (deskState && sz.days_in_state != null) capBits.push(`${sz.days_in_state}d in state`);
+  capBits.push(`as of ${esc(sz.asof || "-")} (append-only PIT series)`);
   return `<div class="card sizing-hero">
-    <div class="head"><span class="tkr">Sizing State</span>
-      <span class="badge ${on ? "on" : "off"}">${on ? "THROTTLE ON" : "THROTTLE OFF"}</span>
+    <div class="head"><span class="tkr">${title}</span>
+      ${badge}
       <span class="signal-current">${fmt.num(sz.score, 1)}</span></div>
-    <div class="cap">Main risk dial — the number that sizes live orders ·
-      ${gapTxt} · ${sz.days_in_state != null ? `${sz.days_in_state}d in state` : ""} ·
-      as of ${esc(sz.asof || "-")} (append-only PIT series)</div>
-    <div class="sizing-throttle">${throttleLine}</div>
+    <div class="cap">${capBits.join(" · ")}</div>
+    ${throttleBlock}
     ${expoLine ? `<div class="cap">${expoLine}</div>` : ""}
     ${sleeveLine ? `<div class="cap">${sleeveLine}</div>` : ""}
     <div class="chart sizing-spark" id="sizingSpark"></div>
@@ -353,12 +397,15 @@ function renderSizingSpark(sz) {
   const cut = Math.max(0, sz.spark.dates.length - 252);
   const dates = sz.spark.dates.slice(cut);
   const sparkMa = sz.spark.ma.slice(cut);
-  const shapes = [{
+  // Threshold line and throttle episodes are desk state; a redacted payload
+  // omits both and the spark is then just the dial history.
+  const shapes = [];
+  if (!SHARED_RISK && sz.threshold != null) shapes.push({
     type: "line", xref: "paper", yref: "y", x0: 0, x1: 1,
     y0: sz.threshold, y1: sz.threshold,
     line: { color: "rgba(255,107,53,.8)", width: 1, dash: "dash" },
-  }];
-  for (const ep of sz.episodes || []) {
+  });
+  for (const ep of (!SHARED_RISK && sz.episodes) || []) {
     if (!ep || !ep[0] || !ep[1]) continue;
     shapes.push({
       type: "rect", xref: "x", yref: "paper", layer: "below",
@@ -385,11 +432,15 @@ function kpiRowHtml(d) {
   let cells = `<div class="kpi"><div class="l">SPY</div><div class="v">${fmt.num(d.spy_last, 2)}</div>
       <div class="s">${esc(ctx.regime_label || "")}</div></div>`;
   if (sz && sz.score != null) {
-    const on = !!sz.throttle_on;
-    const cls = on === null ? "" : on ? "neg" : "pos";
-    cells += `<div class="kpi"><div class="l">Sizing Fragility</div>
+    // Colour and threshold text are throttle state; neutral when it is absent.
+    const known = !SHARED_RISK && sz.throttle_on != null;
+    const cls = known ? (sz.throttle_on ? "neg" : "pos") : "";
+    const label = SHARED_RISK ? "Main risk dial" : "Sizing Fragility";
+    const subBits = [`${SHARED_RISK ? "As of" : "Main dial as of"} ${esc(sz.asof || "-")}`];
+    if (!SHARED_RISK && sz.threshold != null) subBits.push(`threshold ${fmt.num(sz.threshold, 0)}`);
+    cells += `<div class="kpi"><div class="l">${label}</div>
       <div class="v ${cls}">${fmt.num(sz.score, 1)}</div>
-      <div class="s">Main dial as of ${esc(sz.asof || "-")} · threshold ${fmt.num(sz.threshold, 0)}</div></div>`;
+      <div class="s">${subBits.join(" · ")}</div></div>`;
   } else if (frag["63d"] != null) {
     cells += `<div class="kpi"><div class="l">Fragility 63d</div>
       <div class="v">${Math.round(frag["63d"])}</div>

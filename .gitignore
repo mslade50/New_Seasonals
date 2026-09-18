@@ -88,6 +88,7 @@ data/fundamental/
 dist/
 dist-shared/
 data/site_risk.json
+data/site_risk_shared.json
 data/betas.json
 data/live_fills_status.json
 

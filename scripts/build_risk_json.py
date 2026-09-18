@@ -8,8 +8,12 @@ deploy_site workflow right before build_site.py. ALWAYS exits 0 — on any
 failure it just skips the write and the site ships without a risk page
 payload (the page shows a "no data" note).
 
-Output: data/site_risk.json
+Outputs: data/site_risk.json (private site) and data/site_risk_shared.json
+(the redacted twin for the shared Denali site — see ``redact_for_shared``).
+Both are written from the SAME computed payload in one run so the two sites
+can never disagree about the regime.
 """
+import copy
 import datetime
 import json
 import math
@@ -24,6 +28,7 @@ sys.path.insert(0, _ROOT)
 from fragility_core import filter_risk_signals
 
 OUT = os.path.join(_ROOT, "data", "site_risk.json")
+SHARED_OUT = os.path.join(_ROOT, "data", "site_risk_shared.json")
 MASTER_PRICES = os.path.join(_ROOT, "data", "master_prices.parquet")
 
 # Adjusted OHLC shipped for the private risk page's bottom candlestick
@@ -798,6 +803,147 @@ def build_nuggets(p):
 
 
 # ---------------------------------------------------------------------------
+# Shared-site redaction (Denali, project ``denali-seasonality``)
+#
+# The shared site ships the MARKET REGIME read and nothing about the book.
+# What crosses: the dial score itself, the fragility series, the signal
+# roster, conditional forward returns, price context, the downside tables and
+# the trade console's market-conditional prose.  What never crosses: which
+# strategies exist, which are throttled right now, where the live gate sits,
+# how long we have been on the wrong side of it, the exposure overlay and the
+# paper sleeve.  ``assert_shared_payload_clean`` is the fail-closed gate that
+# both the writer and the shared-site builder run, so a future block that
+# starts naming strategies breaks the shared build instead of leaking.
+# ---------------------------------------------------------------------------
+
+# Policy keys inside ``sizing_state``.  Everything else there (score, raw_63d,
+# spark, asof, pit_start) describes the dial, not the book.  ``basis`` is on
+# the list because its prose has always named the live use ("sizes live
+# orders"); the shared payload is downloadable JSON, so a string nothing
+# renders is still published.
+SHARED_BANNED_SIZING_KEYS = (
+    "banded_strategies",
+    "basis",
+    "throttled",
+    "threshold",
+    "throttle_on",
+    "gap_to_threshold",
+    "days_in_state",
+    "episodes",
+    "exposure",
+    "sleeve",
+)
+
+# Nuggets that read out book posture rather than the tape.
+SHARED_BANNED_NUGGET_PREFIXES = ("Book posture",)
+
+# Vocabulary that only ever appears when a block is describing the book's own
+# machinery. Matched case-insensitively against the serialized payload.
+SHARED_BANNED_PHRASES = ("sizes live orders", "throttle", "exposure_leg", "sleeve")
+
+
+def _strategy_names():
+    from strategy_config import STRATEGY_BOOK
+
+    return [str(s.get("name")) for s in STRATEGY_BOOK if s.get("name")]
+
+
+def _names_in(value, names):
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    return sorted({n for n in names if n in text})
+
+
+def _phrases_in(value):
+    text = json.dumps(value, ensure_ascii=False, default=str).lower()
+    return sorted({p for p in SHARED_BANNED_PHRASES if p in text})
+
+
+def redact_for_shared(payload: dict) -> dict:
+    """Deep-copied, book-free twin of the risk payload. Never mutates input."""
+    shared = copy.deepcopy(payload)
+    names = _strategy_names()
+
+    sizing = shared.get("sizing_state")
+    if isinstance(sizing, dict):
+        for key in SHARED_BANNED_SIZING_KEYS:
+            sizing.pop(key, None)
+        # Anything left that still names a strategy or reads out book
+        # machinery is a block added after this contract was written: drop it
+        # loudly rather than ship it.
+        for key in [k for k in sizing if _names_in(sizing[k], names) or _phrases_in(sizing[k])]:
+            print(f"risk/shared: dropped sizing_state.{key} (book-specific)")
+            sizing.pop(key, None)
+
+    nuggets = shared.get("nuggets")
+    if isinstance(nuggets, list):
+        kept = []
+        for nugget in nuggets:
+            title = str((nugget or {}).get("title") or "")
+            if title.startswith(SHARED_BANNED_NUGGET_PREFIXES):
+                continue
+            if _names_in(nugget, names) or _phrases_in(nugget):
+                print(f"risk/shared: dropped nugget {title!r} (book-specific)")
+                continue
+            kept.append(nugget)
+        shared["nuggets"] = kept
+
+    for key in [k for k in shared if k != "sizing_state" and _names_in(shared[k], names)]:
+        print(f"risk/shared: dropped top-level block {key!r} (names strategies)")
+        shared.pop(key, None)
+
+    shared["shared_redacted"] = True
+    return shared
+
+
+def assert_shared_payload_clean(payload: dict) -> None:
+    """Fail closed on anything book-specific in a shared-site risk payload."""
+    if not isinstance(payload, dict):
+        raise ValueError("shared risk payload must be a JSON object")
+
+    hits = _names_in(payload, _strategy_names())
+    if hits:
+        raise ValueError(
+            "shared risk payload names STRATEGY_BOOK strategies: " + ", ".join(hits)
+        )
+
+    phrases = _phrases_in(payload)
+    if phrases:
+        raise ValueError(
+            "shared risk payload describes book machinery: " + ", ".join(phrases)
+        )
+
+    sizing = payload.get("sizing_state") or {}
+    if isinstance(sizing, dict):
+        banned = [k for k in SHARED_BANNED_SIZING_KEYS if k in sizing]
+        if banned:
+            raise ValueError(
+                "shared risk payload keeps sizing policy keys: " + ", ".join(banned)
+            )
+
+    for nugget in payload.get("nuggets") or []:
+        title = str((nugget or {}).get("title") or "")
+        if title.startswith(SHARED_BANNED_NUGGET_PREFIXES):
+            raise ValueError(f"shared risk payload keeps a book-posture nugget: {title}")
+
+
+def write_shared_payload(payload: dict, out_path: str = SHARED_OUT) -> bool:
+    """Redact, assert, then write. A dirty payload is never written."""
+    from scripts.json_payloads import dumps_payload
+
+    try:
+        shared = redact_for_shared(payload)
+        assert_shared_payload_clean(shared)
+    except Exception as exc:
+        print(f"risk/shared: REFUSED to write {out_path} ({exc})")
+        traceback.print_exc()
+        return False
+    with open(out_path, "w", encoding="utf-8") as handle:
+        handle.write(dumps_payload(shared))
+    print(f"risk/shared: wrote {out_path} ({os.path.getsize(out_path)/1024:.0f} KB)")
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Trade Console (spec: scratch/ultracode_research/RISK_TRADE_CONSOLE_2026-07-16.md)
 # Every rendered figure is formatted here from data/trade_console_stats.json —
 # zero hand-typed numbers, zero client-side composition. Display-only.
@@ -1273,6 +1419,9 @@ def main():
         with open(OUT, "w", encoding="utf-8") as f:
             f.write(encoded)
         print(f"risk: wrote {OUT} ({os.path.getsize(OUT)/1024:.0f} KB)")
+        # Same vintage, redacted, for the shared Denali site. Best effort:
+        # a refusal here costs the shared risk tab, never the private one.
+        write_shared_payload(payload)
     except Exception:
         print("risk: FAILED (site will ship without risk payload)")
         traceback.print_exc()

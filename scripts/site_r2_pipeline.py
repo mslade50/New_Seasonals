@@ -119,6 +119,14 @@ GENERATED_INPUTS: tuple[R2Input, ...] = (
     R2Input("betas", "betas.json", "data/betas.json", False),
 )
 
+# The shared Denali site is a SEPARATE workflow on its own cadence, so it
+# cannot read the run-pinned generated bundle above.  The redacted risk twin
+# therefore also lands on one stable key, published best-effort right after
+# the private risk payload is built.
+SHARED_OUTPUTS: tuple[R2Input, ...] = (
+    R2Input("site_risk_shared", "shared/site_risk.json", "data/site_risk_shared.json", False),
+)
+
 PUBLISH_GROUPS: dict[str, tuple[R2Input, ...]] = {
     "risk": tuple(i for i in CANONICAL_INPUTS if i.name in {"fragility", "risk_environment", "dial_sleeve"}),
     "exposure": tuple(i for i in CANONICAL_INPUTS if i.name == "exposure_state"),
@@ -512,6 +520,39 @@ def publish_group(root: Path, group: str, *, local_primary: bool = False) -> lis
     return entries
 
 
+def publish_shared(root: Path) -> list[dict]:
+    """Publish the redacted shared-site payloads to their stable keys.
+
+    Best effort by design: the shared Denali risk tab is downstream of the
+    private deploy and must never be able to fail it.  The one gate that is
+    NOT best effort is redaction — ``assert_shared_payload_clean`` runs on the
+    exact bytes about to be uploaded, and a dirty payload is refused outright
+    rather than published and cleaned up later.
+    """
+    from scripts.build_risk_json import assert_shared_payload_clean
+
+    published: list[dict] = []
+    for item in SHARED_OUTPUTS:
+        path = root / item.path
+        if not path.is_file():
+            print(f"[site-r2] shared output absent, not published: {item.path}")
+            continue
+        try:
+            assert_shared_payload_clean(json.loads(path.read_text(encoding="utf-8")))
+        except Exception as exc:
+            print(f"[site-r2] REFUSED to publish {item.key}: redaction gate failed ({exc})")
+            continue
+        try:
+            if not cache_io.upload_from_local(str(path), item.key):
+                print(f"[site-r2] WARNING failed to publish shared output: {item.key}")
+                continue
+            published.append(_entry(item, path))
+            print(f"[site-r2] published shared output {item.key}")
+        except Exception as exc:
+            print(f"[site-r2] WARNING shared output upload errored: {item.key} ({exc})")
+    return published
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -533,6 +574,8 @@ def main() -> int:
             f"{LOCAL_PRIMARY_ENV}=1 and a nonempty {LOCAL_RUN_TOKEN_ENV}"
         ),
     )
+    shared = sub.add_parser("publish-shared")
+    shared.add_argument("--root", default=".")
     promoter = sub.add_parser("promote-canonical")
     promoter.add_argument("--root", default=".")
     promoter.add_argument("--name", choices=sorted(PROMOTABLE_CANONICAL_INPUTS), required=True)
@@ -552,6 +595,8 @@ def main() -> int:
         publish_generated(root, args.run_id)
     elif args.command == "publish-group":
         publish_group(root, args.group, local_primary=args.local_primary)
+    elif args.command == "publish-shared":
+        publish_shared(root)
     else:
         promote_canonical(
             root,

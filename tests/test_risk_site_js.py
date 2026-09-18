@@ -1,3 +1,4 @@
+import copy
 import json
 import shutil
 import subprocess
@@ -8,6 +9,119 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RISK_JS = ROOT / "site" / "assets" / "risk.js"
+
+# The shared teammate build serves risk.js against a payload with these
+# sizing_state keys stripped (plus the "Book posture" nugget).  Kept here so a
+# change to the redaction contract fails this guard rather than leaking.
+REDACTED_SIZING_KEYS = (
+    "banded_strategies",
+    "throttled",
+    "threshold",
+    "throttle_on",
+    "gap_to_threshold",
+    "days_in_state",
+    "episodes",
+    "exposure",
+    "sleeve",
+)
+BANDED_STRATEGY_NAMES = (
+    "Monday Dip",
+    "Weak Close Decent Sznls",
+    "SPY QQQ MonFri Reversion",
+    "Monthly Weak Close",
+)
+
+
+def _private_risk_payload() -> dict:
+    """A full private payload shaped like data/site_risk.json."""
+    dates = [
+        "2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24",
+        "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31",
+    ]
+    ma = [44.1, 45.0, 46.2, 47.4, 48.1, 49.0, 50.3, 51.2, 52.0, 52.9]
+    horizons = ["5d", "10d", "21d", "42d", "63d"]
+
+    def table(offset):
+        return {
+            h: {"1": offset + 15, "2": offset + 5, "3": offset - 5, "5": offset - 25}
+            for h in horizons
+        }
+
+    return {
+        "asof": "2026-07-31",
+        "built_at": "2026-07-31 22:05 UTC",
+        "spy_last": 771.95,
+        "price_ctx": {"regime_label": "Extended uptrend", "drawdown": -0.012},
+        "fragility": {"63d": 52.9},
+        "regime_mult": 1.45,
+        "n_active": 1,
+        "dates": dates,
+        "spy_series": {"dates": dates, "close": [760 + i for i in range(len(dates))]},
+        "sizing_state": {
+            "asof": "2026-07-31",
+            "basis": "10d MA of 63d dial, append-only PIT parquet",
+            "score": 52.9,
+            "raw_63d": 62.2,
+            "threshold": 50.0,
+            "throttle_on": True,
+            "gap_to_threshold": -2.9,
+            "days_in_state": 4,
+            "banded_strategies": [
+                {"strategy": name, "bands": [[50.0, 999.0, 0.25]]}
+                for name in BANDED_STRATEGY_NAMES
+            ],
+            "throttled": [
+                {"strategy": name, "mult": 0.25} for name in BANDED_STRATEGY_NAMES
+            ],
+            "pit_start": "2026-07-02",
+            "spark": {"dates": dates, "ma": ma, "daily": [v + 8 for v in ma]},
+            "episodes": [["2026-07-28", "2026-07-31"]],
+            "exposure": {"mult": 1.0, "active_rule": "raw 21d > 50", "asof": "2026-07-31"},
+            "sleeve": {"position": "LONG", "since": "2026-06-02", "n_transitions": 3},
+        },
+        "signals": [
+            {"name": "Seasonal Rank Divergence", "on": True, "badge": "FIRING",
+             "detail": "risk-off leads"},
+            {"name": "Dispersion", "on": False, "badge": "OFF", "detail": ""},
+        ],
+        "signal_detail": {
+            "Seasonal Rank Divergence": {
+                "periods": [["2026-07-29", "2026-07-31"]],
+                "current": {"value": 12.0, "summary": "defensives lead"},
+                "metric": {"label": "Rank gap", "unit": "pp", "decimals": 1,
+                           "values": [1.0] * len(dates)},
+            },
+        },
+        "forward_returns": {},
+        "vol_kpi": {"vix": 15.2, "vix3m": 17.1, "term_ratio": 0.89},
+        "atr_downside": {
+            "measure": "low_touch", "atr_period": 14, "mults": [1, 2, 3, 5],
+            "horizons": horizons, "data_from": "2001-01-02",
+            "data_through": "2026-07-31", "baseline": table(45),
+            "signals": {"Seasonal Rank Divergence": {
+                "n_events": 139, "n_episodes": 55,
+                "episode": table(55), "day": table(50)}},
+            "dial": {"value": 52.9, "band": 3, "lo": 49.9, "hi": 55.9,
+                     "table": table(58), "band_from": "2017-07-25",
+                     "n_by_h": {h: 150 for h in horizons}},
+        },
+        "nuggets": [
+            {"title": "Fragility: neutral and building", "tone": "info",
+             "lines": ["The 63d dial sits at 52.9."]},
+            {"title": "Book posture: regime multiplier 1.45x", "tone": "good",
+             "lines": ["The core-exposure dial says run full size."]},
+        ],
+    }
+
+
+def _redacted_risk_payload() -> dict:
+    payload = copy.deepcopy(_private_risk_payload())
+    for key in REDACTED_SIZING_KEYS:
+        payload["sizing_state"].pop(key, None)
+    payload["nuggets"] = [
+        n for n in payload["nuggets"] if not n["title"].startswith("Book posture")
+    ]
+    return payload
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
@@ -310,6 +424,135 @@ Promise.resolve(ready()).then(() => {
   }
 }).catch(error => { console.error(error); process.exitCode = 1; });
 """.replace("__RISK_JS__", json.dumps(str(RISK_JS)))
+
+    subprocess.run(
+        [shutil.which("node"), "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_shared_risk_page_renders_redacted_payload_without_desk_state():
+    """The shared teammate build (body data-page="shared-risk") renders the dial
+    and its downside tables from a redacted payload and leaks no desk state."""
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(__RISK_JS__, "utf8");
+const FIXTURES = __FIXTURES__;
+
+function run(payload, page) {
+  const elements = new Map();
+  function element(id) {
+    if (!elements.has(id)) elements.set(id, {
+      id, innerHTML: "", textContent: "",
+      on() {}, addEventListener() {}, querySelectorAll() { return []; },
+    });
+    return elements.get(id);
+  }
+  let ready;
+  const plots = [];
+  const asof = [];
+  const sandbox = {
+    console,
+    document: {
+      addEventListener(name, fn) { if (name === "DOMContentLoaded") ready = fn; },
+      getElementById: element,
+      querySelectorAll() { return []; },
+      body: { dataset: page ? { page } : {} },
+    },
+    renderNav() {},
+    setAsof(text) { asof.push(text); },
+    fetchJSONOrNull: async () => payload,
+    fmt: {
+      num: (v, d) => v == null ? "" : Number(v).toFixed(d == null ? 2 : d),
+      pct: (v, d) => v == null ? "" : (Number(v) * 100).toFixed(d == null ? 1 : d) + "%",
+      signed: (v, d) => v == null ? "" : (v >= 0 ? "+" : "") + Number(v).toFixed(d == null ? 2 : d),
+    },
+    plotLayout: v => v, PLOT_CFG: {},
+    Plotly: {
+      newPlot(el, traces, layout) { plots.push({id: el.id, traces, layout}); },
+      relayout() {},
+    },
+    Date, Math, Number, String, Object, Array, Set, parseInt,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  return Promise.resolve(ready()).then(() => ({
+    html: element("content").innerHTML, plots, asof,
+  }));
+}
+
+const fail = m => { throw new Error(m); };
+
+Promise.all([
+  run(FIXTURES.redacted, "shared-risk"),
+  run(FIXTURES.private, "shared-risk"),
+  run(FIXTURES.redacted, null),
+  run(FIXTURES.private, null),
+  run(null, "shared-risk"),
+]).then(([shared, sharedFull, privateRedacted, privateFull, missing]) => {
+  const lower = shared.html.toLowerCase();
+
+  // (b) no desk state, no strategy names
+  for (const banned of ["throttle", "exposure", "sleeve", "book posture",
+                        "sizes live orders", "days in state", "d in state"]) {
+    if (lower.includes(banned)) fail(`shared risk page leaked "${banned}"`);
+  }
+  for (const name of FIXTURES.strategies) {
+    if (shared.html.includes(name)) fail(`shared risk page leaked strategy "${name}"`);
+  }
+
+  // (c) the dial reading and both ATR tables still render
+  if (!shared.html.includes("Market Risk Dial")) fail("shared hero title missing");
+  if (!shared.html.includes("52.9")) fail("dial score missing from shared hero");
+  if (!shared.html.includes("Main risk dial")) fail("dial KPI tile missing");
+  if (!shared.html.includes("atr-dial-card")) fail("ATR dial-band table missing");
+  if (!shared.html.includes("Downside when the dial sits here")) fail("dial table caption missing");
+  if (!shared.html.includes("fresh Seasonal Rank Divergence trigger")) {
+    fail("per-signal ATR table missing under a firing signal");
+  }
+  if (!shared.asof.length || !String(shared.asof[0]).includes("2026-07-31")) {
+    fail("shared page never received an as-of string");
+  }
+  if (!shared.plots.some(p => p.id === "sizingSpark")) fail("dial spark did not render");
+  const spark = shared.plots.find(p => p.id === "sizingSpark");
+  if ((spark.layout.shapes || []).length) fail("shared spark must carry no threshold/episode shapes");
+
+  // the SHARED flag alone suppresses desk state even on an unredacted payload
+  const fullLower = sharedFull.html.toLowerCase();
+  for (const banned of ["throttle", "exposure", "sleeve", "book posture"]) {
+    if (fullLower.includes(banned)) fail(`shared mode rendered "${banned}" from a full payload`);
+  }
+
+  // a redacted payload must also render cleanly in the PRIVATE build
+  if (!privateRedacted.html.includes("52.9")) fail("private build broke on a redacted payload");
+  if (privateRedacted.html.toLowerCase().includes("throttle on")) {
+    fail("private build invented throttle state from a redacted payload");
+  }
+
+  // regression: the private build still shows its desk state in full
+  if (!privateFull.html.includes("THROTTLE ON")) fail("private throttle badge regressed");
+  if (!privateFull.html.includes("Monday Dip @ 0.25x")) fail("private throttle badges regressed");
+  if (!privateFull.html.includes("Exposure leg")) fail("private exposure line regressed");
+  if (!privateFull.html.includes("Clean-air SPY sleeve")) fail("private sleeve line regressed");
+  if (!privateFull.html.includes("Book posture")) fail("private nuggets regressed");
+
+  // (4) missing payload renders a clear panel, not a blank page
+  if (!missing.html.includes("Risk payload unavailable")) fail("missing-payload panel absent");
+  if (!missing.html.includes("fetchfail")) fail("missing-payload panel is not styled as a failure");
+}).catch(error => { console.error(error); process.exitCode = 1; });
+""".replace("__RISK_JS__", json.dumps(str(RISK_JS))).replace(
+        "__FIXTURES__",
+        json.dumps({
+            "private": _private_risk_payload(),
+            "redacted": _redacted_risk_payload(),
+            "strategies": list(BANDED_STRATEGY_NAMES),
+        }),
+    )
 
     subprocess.run(
         [shutil.which("node"), "-e", script],
