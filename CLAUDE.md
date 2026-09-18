@@ -172,6 +172,28 @@ per-signal chart since 2026-08-05 (risk.js NO_CHART_SIGNALS — calendar
 signal, chart earned its space poorly); its windows still shade the shared
 overlay chart.
 
+**NYSE Net Highs is a DISPLAY-ONLY warning layered on the main dial**
+(`nyse_risk.py`, 2026-09-17; not in `ACTIVE_RISK_SIGNALS`, so no composite
+weight of its own). It fires when NYSE net new highs are negative while SPY
+sits within 3% of its 252-session closing high (severity 1.0 under 2%, 0.6
+from 2% through 3%), borrows Low Absorption Ratio's 63d weight, fades over 63
+sessions, and writes `main_score` into `data/rd2_fragility.parquet` as
+`max(base, expanded)`. **Since 2026-09-18 the trigger series is a 5-period EMA
+of `nyse_net`, not the raw daily print, for BOTH arming and the recovery
+reset** (`smooth_nyse_net`, `ewm(span=5, adjust=False)`; a missing breadth
+reading blanks the EMA for its whole trailing window, which is also the
+warm-up). A single non-negative print no longer wipes the state and both
+smoothing queues, which is the Aug-2026 flicker the change was made for.
+McKinley's APPETITE call, evidence flat: the study
+(`scratch/nyse_smoothing_study/`) cut 78 episodes to 34 and raised
+P(5% drawdown in 63d) from 52% to 67%, but its own conclusion was not to
+change the trigger, and against a placebo that just waits the same 4-session
+lag the gain misses 1.8 sigma. The basis string moved v1 to
+`nyse-reset-floor-v2-ema5`; the parquet is mixed-vintage on purpose and
+`append_main_scores` freezes rows saved before `BASIS_V2_START` so the AM
+`--refresh-last` correction can never rescore a v1 row. Guard:
+`tests/test_nyse_risk.py`.
+
 ### The fragility-portfolio contract (B6, 2026-07-16)
 
 - **The sizing statistic** is exactly: 10d MA of the 63d column of

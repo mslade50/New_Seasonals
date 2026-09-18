@@ -1,0 +1,327 @@
+[check] raw_1d fire set == nyse_risk.warning_severity > 0 on all 6717 SPY sessions: OK (345 fire days, full uneligible-inclusive calendar)
+[sample] eligible sessions 6440 of 6717; 2000-12-29 -> 2026-09-17
+[sample] breadth missing vs SPY calendar: [datetime.date(2020, 6, 12), datetime.date(2020, 6, 19)]
+
+=== raw_1d: 345 fire days, 78 episodes (3.03/yr), control 3249 days / 43 episodes
+
+=== sma3: 289 fire days, 58 episodes (2.26/yr), control 3305 days / 46 episodes
+
+=== sma5: 268 fire days, 44 episodes (1.71/yr), control 3326 days / 48 episodes
+
+=== sma8: 253 fire days, 34 episodes (1.32/yr), control 3341 days / 46 episodes
+
+=== sma13: 253 fire days, 30 episodes (1.17/yr), control 3341 days / 46 episodes
+
+=== sma21: 244 fire days, 25 episodes (0.97/yr), control 3350 days / 41 episodes
+
+=== ema5: 244 fire days, 34 episodes (1.32/yr), control 3350 days / 46 episodes
+
+=== ema8: 224 fire days, 30 episodes (1.17/yr), control 3370 days / 45 episodes
+
+=== ema13: 215 fire days, 27 episodes (1.05/yr), control 3379 days / 42 episodes
+
+=== ema21: 215 fire days, 22 episodes (0.86/yr), control 3379 days / 40 episodes
+
+=== persist_3of5: 273 fire days, 46 episodes (1.79/yr), control 3321 days / 48 episodes
+
+
+################ TABLE 1 -- coverage ################
+     variant  fire_days  episodes  eps_per_yr  ctrl_days  ctrl_episodes  state_on_days  pct_of_near_high
+      raw_1d        345        78       3.033       3249             43            570             9.599
+        sma3        289        58       2.255       3305             46            559             8.041
+        sma5        268        44       1.711       3326             48            581             7.457
+        sma8        253        34       1.322       3341             46            538             7.040
+       sma13        253        30       1.167       3341             46            550             7.040
+       sma21        244        25       0.972       3350             41            549             6.789
+        ema5        244        34       1.322       3350             46            619             6.789
+        ema8        224        30       1.167       3370             45            575             6.233
+       ema13        215        27       1.050       3379             42            592             5.982
+       ema21        215        22       0.855       3379             40            584             5.982
+persist_3of5        273        46       1.789       3321             48            567             7.596
+
+
+################ TABLE 2 -- forward SPY returns, ALL FIRE DAYS ################
+(mean_pct/median_pct in %, pct_neg = share negative, t_vs_control clustered by episode)
+             mean_pct                             pct_neg                             t_vs_control                            
+horizon            5      10     21     42     63      5      10     21     42     63           5      10     21     42     63
+variant                                                                                                                       
+raw_1d         -0.198 -0.192 -0.250 -0.308  0.168  47.507 48.214 46.364 46.319 44.000       -2.431 -1.837 -1.687 -1.838 -1.844
+sma3           -0.306 -0.455 -0.541 -0.689 -0.383  50.526 53.929 50.183 50.558 48.327       -2.827 -2.201 -1.840 -1.919 -2.023
+sma5           -0.336 -0.528 -0.585 -0.853 -0.510  50.000 54.826 48.207 52.419 47.581       -2.726 -2.237 -1.652 -1.824 -1.943
+sma8           -0.247 -0.396 -0.421 -0.724 -0.288  46.586 53.279 45.532 51.489 47.660       -1.902 -1.654 -1.270 -1.535 -1.696
+sma13          -0.155 -0.311 -0.255 -0.770 -0.019  44.578 52.049 44.813 53.942 46.473       -1.301 -1.319 -1.041 -1.571 -1.593
+sma21          -0.111 -0.297 -0.320 -1.068 -0.275  42.500 46.809 47.436 58.547 49.573       -0.907 -1.184 -1.037 -1.594 -1.734
+ema5           -0.411 -0.628 -0.802 -1.328 -1.254  52.083 56.596 51.982 54.464 53.571       -3.408 -2.637 -1.896 -2.042 -2.338
+ema8           -0.409 -0.634 -0.652 -1.277 -0.946  51.364 56.279 51.208 57.282 51.942       -2.694 -2.073 -1.440 -1.765 -2.019
+ema13          -0.278 -0.524 -0.526 -1.123 -0.666  45.498 53.398 48.768 58.128 53.202       -1.858 -1.697 -1.237 -1.603 -1.823
+ema21          -0.302 -0.565 -0.502 -1.099 -0.733  45.498 50.971 47.059 61.275 55.882       -2.021 -1.792 -1.216 -1.516 -1.755
+persist_3of5   -0.265 -0.471 -0.495 -0.714 -0.318  50.558 53.409 45.736 51.938 46.512       -2.406 -2.072 -1.606 -1.821 -1.933
+
+
+################ TABLE 2b -- the control cell (near high, breadth >= 0) ################
+             ctrl_mean_pct                         ctrl_pct_neg                            
+horizon                 5     10    21    42    63           5      10     21     42     63
+variant                                                                                    
+raw_1d               0.185 0.365 0.753 1.596 2.490       39.766 36.073 32.059 27.974 25.716
+sma3                 0.188 0.378 0.759 1.594 2.496       39.637 35.794 31.990 27.945 25.673
+sma5                 0.187 0.378 0.754 1.592 2.487       39.747 35.839 32.260 27.949 25.874
+sma8                 0.178 0.365 0.736 1.574 2.459       40.048 36.037 32.525 28.111 25.954
+sma13                0.171 0.359 0.726 1.581 2.445       40.198 36.127 32.553 27.890 26.001
+sma21                0.167 0.356 0.729 1.597 2.458       40.358 36.537 32.395 27.620 25.825
+ema5                 0.189 0.379 0.759 1.607 2.516       39.672 35.851 32.118 27.988 25.626
+ema8                 0.185 0.373 0.741 1.588 2.476       39.792 35.994 32.284 27.957 25.878
+ema13                0.175 0.364 0.731 1.576 2.456       40.189 36.224 32.453 27.932 25.825
+ema21                0.177 0.367 0.730 1.575 2.461       40.189 36.372 32.552 27.731 25.653
+persist_3of5         0.182 0.375 0.750 1.589 2.481       39.687 35.923 32.419 27.913 25.892
+
+Unconditional baseline (all eligible days):
+ horizon  base_mean_pct  base_pct_neg
+       5          0.198        41.523
+      10          0.393        38.554
+      21          0.816        34.772
+      42          1.638        31.557
+      63          2.503        29.732
+
+
+################ TABLE 3 -- forward SPY returns, EPISODE STARTS ################
+                  n                             mean_pct                         pct_neg                             sign_p_vs_control                        
+horizon          5      10     21     42     63       5     10    21    42    63      5      10     21     42     63                5     10    21    42    63
+variant                                                                                                                                                       
+raw_1d       78.000 78.000 78.000 76.000 75.000    0.324 0.523 0.666 1.221 2.147  38.462 37.179 35.897 34.211 32.000             0.634 0.462 0.270 0.140 0.134
+sma3         58.000 58.000 58.000 56.000 56.000   -0.008 0.217 0.211 1.197 1.911  44.828 46.552 46.552 37.500 32.143             0.249 0.060 0.014 0.077 0.169
+sma5         44.000 44.000 44.000 42.000 42.000   -0.358 0.223 0.338 0.722 1.458  52.273 45.455 45.455 40.476 30.952             0.063 0.121 0.046 0.054 0.276
+sma8         34.000 34.000 33.000 33.000 33.000    0.038 0.413 0.984 1.253 1.783  50.000 41.176 30.303 33.333 33.333             0.156 0.323 0.670 0.310 0.217
+sma13        30.000 30.000 29.000 29.000 29.000    0.456 0.758 1.726 1.787 2.571  40.000 36.667 24.138 31.034 27.586             0.578 0.544 0.880 0.421 0.493
+sma21        25.000 25.000 24.000 24.000 24.000    0.450 0.375 1.234 0.478 0.371  40.000 44.000 20.833 45.833 41.667             0.590 0.281 0.929 0.043 0.066
+ema5         34.000 34.000 34.000 32.000 32.000   -0.318 0.212 0.173 0.981 0.866  47.059 44.118 47.059 28.125 34.375             0.239 0.203 0.049 0.560 0.175
+ema8         30.000 30.000 30.000 29.000 29.000   -0.232 0.322 1.343 0.908 1.173  56.667 43.333 40.000 34.483 31.034             0.046 0.256 0.236 0.276 0.327
+ema13        27.000 27.000 26.000 26.000 26.000    0.059 0.655 1.505 0.976 1.256  44.444 44.444 30.769 34.615 34.615             0.395 0.243 0.644 0.287 0.208
+ema21        22.000 22.000 21.000 21.000 21.000    0.260 0.290 1.196 1.611 1.693  40.909 45.455 23.810 38.095 38.095             0.553 0.250 0.863 0.203 0.146
+persist_3of5 46.000 46.000 45.000 45.000 45.000   -0.250 0.216 0.413 0.588 1.304  56.522 45.652 40.000 37.778 37.778             0.015 0.112 0.176 0.098 0.053
+
+
+################ TABLE 4 -- max drawdown within horizon ################
+
+-- h = 21 sessions --
+              mean_pct|fire_days  mean_pct|episodes  median_pct|fire_days  median_pct|episodes  pct_neg|fire_days  pct_neg|episodes  ctrl_mean_pct  ctrl_pct_neg  base_mean_pct  base_pct_neg
+variant                                                                                                                                                                                      
+raw_1d                    -3.187             -2.133                -2.308               -1.197             25.152            12.821         -1.908         8.693         -2.759        17.869
+sma3                      -3.561             -2.638                -2.748               -1.821             29.670            15.517         -1.899         8.603         -2.759        17.869
+sma5                      -3.649             -2.748                -2.653               -2.310             30.279            13.636         -1.904         8.697         -2.759        17.869
+sma8                      -3.575             -2.283                -2.584               -1.766             30.638            15.152         -1.917         8.775         -2.759        17.869
+sma13                     -3.380             -1.786                -2.247               -0.859             29.461            13.793         -1.928         8.821         -2.759        17.869
+sma21                     -3.336             -1.990                -2.076               -0.844             29.060            16.667         -1.934         8.892         -2.759        17.869
+ema5                      -3.848             -2.650                -2.974               -1.882             33.480            14.706         -1.903         8.635         -2.759        17.869
+ema8                      -3.834             -2.393                -2.756               -1.805             32.850            16.667         -1.915         8.821         -2.759        17.869
+ema13                     -3.688             -2.084                -2.595               -1.784             31.527            11.538         -1.926         8.929         -2.759        17.869
+ema21                     -3.635             -2.177                -2.469               -1.325             30.882            23.810         -1.929         8.961         -2.759        17.869
+persist_3of5              -3.642             -2.809                -2.743               -1.881             28.682            17.778         -1.900         8.776         -2.759        17.869
+   (pct_neg column here = P(drawdown <= -5% within 21d); ctrl_/base_ columns are the same statistic for the control and all days)
+
+-- h = 63 sessions --
+              mean_pct|fire_days  mean_pct|episodes  median_pct|fire_days  median_pct|episodes  pct_neg|fire_days  pct_neg|episodes  ctrl_mean_pct  ctrl_pct_neg  base_mean_pct  base_pct_neg
+variant                                                                                                                                                                                      
+raw_1d                    -6.122             -3.882                -5.216               -3.081             51.692            30.667         -3.690        23.817         -5.115        34.091
+sma3                      -6.853             -4.542                -6.638               -3.441             59.480            35.714         -3.672        23.654         -5.115        34.091
+sma5                      -7.144             -4.698                -7.341               -3.473             60.887            40.476         -3.670        23.776         -5.115        34.091
+sma8                      -7.132             -4.227                -7.582               -3.156             60.000            36.364         -3.685        23.985         -5.115        34.091
+sma13                     -6.952             -3.977                -7.427               -1.978             58.091            31.034         -3.692        24.059         -5.115        34.091
+sma21                     -7.087             -5.406                -8.375               -5.222             60.256            50.000         -3.689        23.978         -5.115        34.091
+ema5                      -7.677             -4.704                -8.510               -3.733             66.518            37.500         -3.659        23.664         -5.115        34.091
+ema8                      -7.786             -4.540                -9.576               -3.533             67.476            37.931         -3.674        23.837         -5.115        34.091
+ema13                     -7.685             -4.550                -9.667               -3.304             66.010            34.615         -3.684        23.965         -5.115        34.091
+ema21                     -7.756             -4.964                -9.765               -4.988             67.647            47.619         -3.679        23.852         -5.115        34.091
+persist_3of5              -6.866             -4.710                -6.732               -4.509             57.752            44.444         -3.682        23.910         -5.115        34.091
+   (pct_neg column here = P(drawdown <= -5% within 63d); ctrl_/base_ columns are the same statistic for the control and all days)
+
+
+################ TABLE 5 -- era split (episode starts) ################
+     variant      era  n_ep  ep_mean_21d_pct  ctrl_mean_21d_pct  edge_21d_pct  ep_mean_63d_pct  ctrl_mean_63d_pct  edge_63d_pct
+      raw_1d  pre2010    18           -0.619              0.812        -1.431            0.683              2.187        -1.504
+      raw_1d 2010plus    60            1.051              1.259        -0.208            2.610              2.723        -0.113
+        sma3  pre2010    12           -1.656              0.829        -2.485            0.040              2.168        -2.128
+        sma3 2010plus    46            0.698              1.444        -0.747            2.421              3.165        -0.744
+        sma5  pre2010     7           -0.829              0.693        -1.522           -0.706              2.019        -2.725
+        sma5 2010plus    37            0.559              1.357        -0.799            1.890              2.940        -1.050
+        sma8  pre2010     5           -0.177              0.714        -0.891           -2.112              2.043        -4.156
+        sma8 2010plus    29            1.192              1.404        -0.213            2.478              3.201        -0.722
+       sma13  pre2010     6            0.222              1.416        -1.194           -0.286              3.419        -3.705
+       sma13 2010plus    24            2.118              1.492         0.626            3.317              3.370        -0.053
+       sma21  pre2010     6            1.012              0.867         0.145           -0.207              3.394        -3.601
+       sma21 2010plus    19            1.308              1.421        -0.112            0.564              3.385        -2.821
+        ema5  pre2010     5           -1.605              0.829        -2.433           -1.064              2.168        -3.231
+        ema5 2010plus    29            0.479              1.365        -0.886            1.224              3.162        -1.938
+        ema8  pre2010     5            0.107              0.693        -0.587           -1.319              2.019        -3.338
+        ema8 2010plus    25            1.590              1.349         0.240            1.693              3.329        -1.636
+       ema13  pre2010     6            0.164              1.194        -1.030           -2.361              3.294        -5.655
+       ema13 2010plus    21            1.908              1.590         0.317            2.341              3.531        -1.189
+       ema21  pre2010     5            0.699              0.734        -0.035           -0.905              3.349        -4.254
+       ema21 2010plus    17            1.351              1.546        -0.195            2.505              3.939        -1.434
+persist_3of5  pre2010     9           -0.952              0.507        -1.459           -1.114              2.087        -3.201
+persist_3of5 2010plus    37            0.755              1.407        -0.652            1.908              3.236        -1.328
+
+Spearman rank correlation of the 21d episode EDGE (episode mean - control mean) between eras: 0.691
+era           2010plus  pre2010  rank_pre2010  rank_2010plus
+variant                                                     
+raw_1d          -0.208   -1.431         5.000          6.000
+sma3            -0.747   -2.485         1.000          3.000
+sma5            -0.799   -1.522         3.000          2.000
+sma8            -0.213   -0.891         8.000          5.000
+sma13            0.626   -1.194         6.000         11.000
+sma21           -0.112    0.145        11.000          8.000
+ema5            -0.886   -2.433         2.000          1.000
+ema8             0.240   -0.587         9.000          9.000
+ema13            0.317   -1.030         7.000         10.000
+ema21           -0.195   -0.035        10.000          7.000
+persist_3of5    -0.652   -1.459         4.000          4.000
+
+
+################ TABLE 6 -- leave-one-year-out, 21d episode mean ################
+best smoothed variant by full-sample 21d episode edge (most negative): sma3 (-1.07 pp) -- SELECTED FOR DISPLAY ONLY, not an edge claim
+
+raw_1d: full 21d episode mean +0.67%  LOYO range [+0.47%, +0.88%]  (the MAX is the robustness floor for a warning signal; dropping 2007 leaves +0.88%)
+   per-year-left-out means: {2003: 0.61, 2004: 0.74, 2005: 0.77, 2006: 0.65, 2007: 0.88, 2011: 0.79, 2012: 0.71, 2013: 0.64, 2014: 0.67, 2015: 0.65, 2016: 0.63, 2017: 0.58, 2018: 0.71, 2019: 0.62, 2021: 0.54, 2022: 0.73, 2023: 0.74, 2024: 0.51, 2025: 0.47, 2026: 0.66}
+
+sma3: full 21d episode mean +0.21%  LOYO range [+0.03%, +0.47%]  (the MAX is the robustness floor for a warning signal; dropping 2007 leaves +0.47%)
+   per-year-left-out means: {2004: 0.26, 2005: 0.21, 2006: 0.31, 2007: 0.47, 2010: 0.14, 2011: 0.46, 2012: 0.24, 2013: 0.08, 2014: 0.19, 2015: 0.19, 2016: 0.13, 2017: 0.08, 2018: 0.32, 2019: 0.11, 2021: 0.03, 2022: 0.29, 2023: 0.24, 2024: 0.08, 2025: 0.23, 2026: 0.13}
+
+persist_3of5: full 21d episode mean +0.41%  LOYO range [+0.17%, +0.68%]  (the MAX is the robustness floor for a warning signal; dropping 2007 leaves +0.68%)
+   per-year-left-out means: {2004: 0.47, 2005: 0.31, 2006: 0.51, 2007: 0.68, 2011: 0.61, 2012: 0.47, 2013: 0.17, 2014: 0.45, 2015: 0.47, 2016: 0.33, 2017: 0.28, 2018: 0.52, 2019: 0.39, 2021: 0.27, 2022: 0.46, 2023: 0.38, 2024: 0.4, 2025: 0.35, 2026: 0.34}
+
+
+################ TABLE 6b -- timeliness and filtering, matched to the incumbent's 78 episodes ################
+For each incumbent (raw_1d) episode start, the variant's first fire in [-5, +21] sessions.
+CONFIRMED = the variant also fires on that deterioration; MISSED = it never does.
+dd63 is always measured from the INCUMBENT's anchor, so the two groups are on one clock:
+the question is whether the events smoothing drops are the harmless ones.
+     variant  n_confirmed  n_missed  median_lag_td  mean_lag_td  dd63_confirmed_pct  dd63_missed_pct  p5_confirmed  p5_missed  fwd21_confirmed_pct  fwd21_missed_pct  sign_p_confirmed
+        sma3           54        24          2.000        3.870              -4.708           -2.127        37.255     16.667               -0.081             2.346             0.191
+        sma5           39        39          4.000        5.513              -5.333           -2.544        47.222     15.385               -0.529             1.860             0.027
+        sma8           29        49          7.000        8.207              -5.236           -3.121        48.148     20.833               -0.585             1.406             0.043
+       sma13           21        57         10.000        9.667              -5.546           -3.277        50.000     23.636               -0.973             1.269             0.055
+       sma21           18        60          7.500        4.944              -7.586           -2.797        76.471     17.241               -1.674             1.367             0.000
+        ema5           38        40          3.500        5.789              -5.096           -2.820        42.857     20.000               -0.241             1.527             0.086
+        ema8           28        50          6.000        8.357              -5.708           -2.913        53.846     18.367               -0.697             1.428             0.012
+       ema13           21        57          8.000        8.762              -5.557           -3.273        55.000     21.818               -1.006             1.282             0.020
+       ema21           15        63          6.000        5.133              -6.274           -3.333        71.429     21.311               -1.054             1.075             0.002
+persist_3of5           42        36          3.000        4.786              -5.247           -2.322        47.500     11.429               -0.413             1.924             0.019
+
+reference -- all 75 incumbent episodes: mean dd63 -3.88%, P(dd63 <= -5%) 30.7%
+
+CAVEAT, read before using Table 6b: the CONFIRMED label is assigned with breadth
+information from up to 21 sessions AFTER the incumbent's anchor, while dd63 is measured
+FROM that anchor. A deterioration that turns into a drawdown keeps printing negative
+breadth, so part of this separation is circular. Table 6b is a diagnostic of what
+smoothing selects, NOT a tradeable edge. The non-circular numbers are Tables 3 and 4
+(measured from each variant's own fire date) and Table 6c below.
+
+
+################ TABLE 6c -- delay placebo ################
+A smoothed series fires LATER, and a later anchor sits closer to the drawdown, so some of
+the apparent gain in Table 4 is pure lag. Placebo = the INCUMBENT's episode start pushed
+forward by the variant's median lag, with no breadth information used at all. If the
+placebo matches the variant, smoothing adds nothing beyond waiting.
+     variant  median_lag_td  variant_n_ep  variant_dd63_pct  placebo_dd63_pct  variant_p5  placebo_p5  variant_fwd21_pct  placebo_fwd21_pct  dd63_gain_vs_placebo_pp  p5_gain_vs_placebo_pp  p5_gain_sigma
+        sma3              2            56            -4.542            -3.893      35.714      32.000              0.211              0.768                   -0.649                  3.714          0.596
+        sma5              4            42            -4.698            -3.894      40.476      32.000              0.338              0.759                   -0.804                  8.476          1.178
+        sma8              7            33            -4.227            -3.970      36.364      32.000              0.984              0.604                   -0.258                  4.364          0.537
+       sma13             10            29            -3.977            -4.285      31.034      30.667              1.726              0.410                    0.308                  0.368          0.043
+       sma21              8            24            -5.406            -4.194      50.000      33.333              1.234              0.460                   -1.212                 16.667          1.732
+        ema5              4            32            -4.704            -3.894      37.500      32.000              0.173              0.759                   -0.810                  5.500          0.667
+        ema8              6            29            -4.540            -4.071      37.931      33.333              1.343              0.639                   -0.469                  4.598          0.525
+       ema13              8            26            -4.550            -4.194      34.615      33.333              1.505              0.460                   -0.355                  1.282          0.139
+       ema21              6            21            -4.964            -4.071      47.619      33.333              1.196              0.639                   -0.893                 14.286          1.389
+persist_3of5              3            45            -4.710            -3.861      44.444      33.333              0.413              0.748                   -0.849                 11.111          1.581
+(negative dd63_gain / positive p5_gain = the variant beats a dumb delay of the same length;
+ p5_gain_sigma is an indicative noise yardstick, not a formal test -- the samples overlap)
+
+
+################ TABLE 7 -- last 24 months ################
+     variant  fire_days_24m  state_on_days_24m  episodes_24m
+      raw_1d             63                 94            15
+        sma3             50                 92             9
+        sma5             43                 51             6
+        sma8             42                 48             4
+       sma13             39                 45             4
+       sma21             38                 44             4
+        ema5             43                 98             7
+        ema8             38                 46             5
+       ema13             32                 38             5
+       ema21             33                 42             5
+persist_3of5             42                 69             7
+(window 2024-09-17 -> 2026-09-17, 502 sessions)
+
+
+################ TABLE 8 -- last 30 sessions, day by day ################
+               spy  dist_pct  near_high      raw     sma5     ema5    sma13    ema21  incumbent_fire  incumbent_sev  fire_sma5  on_sma5  fire_ema5  on_ema5  fire_sma13  on_sma13  fire_ema21  on_ema21  fire_persist_3of5  on_persist_3of5  on_raw_1d
+date                                                                                                                                                                                                                                                  
+2026-08-06 768.560     0.360       True   31.000   53.400   55.100   31.900   46.000           False          0.000      False    False      False    False       False     False       False     False              False            False      False
+2026-08-07 773.260     0.000       True   39.000   65.000   49.700   34.600   45.300           False          0.000      False    False      False    False       False     False       False     False              False            False      False
+2026-08-10 773.030     0.030       True    0.000   52.800   33.100   34.000   41.200           False          0.000      False    False      False    False       False     False       False     False              False            False      False
+2026-08-11 770.560     0.350       True   15.000   35.200   27.100   43.300   38.800           False          0.000      False    False      False    False       False     False       False     False              False            False      False
+2026-08-12 772.490     0.100       True   37.000   24.400   30.400   45.000   38.700           False          0.000      False    False      False    False       False     False       False     False              False            False      False
+2026-08-13 777.880     0.000       True   98.000   37.800   52.900   48.000   44.100           False          0.000      False    False      False    False       False     False       False     False              False            False      False
+2026-08-14 776.340     0.200       True   13.000   32.600   39.600   39.300   41.200           False          0.000      False    False      False    False       False     False       False     False              False            False      False
+2026-08-17 772.670     0.670       True  -61.000   20.400    6.100   32.300   31.900            True          1.000      False    False      False    False       False     False       False     False              False            False       True
+2026-08-18 767.450     1.340       True -117.000   -6.000  -34.900   22.400   18.400            True          1.000       True     True       True     True       False     False       False     False              False            False       True
+2026-08-19 769.060     1.130       True   27.000   -8.000  -14.300   25.900   19.200           False          0.000       True     True       True     True       False     False       False     False              False            False      False
+2026-08-20 762.600     1.960       True  -20.000  -31.600  -16.200   19.700   15.600            True          1.000       True     True       True     True       False     False       False     False               True             True       True
+2026-08-21 765.720     1.560       True   -8.000  -35.800  -13.500   11.200   13.500            True          1.000       True     True       True     True       False     False       False     False               True             True       True
+2026-08-24 763.470     1.850       True   -5.000  -24.600  -10.600    3.800   11.800            True          1.000       True     True       True     True       False     False       False     False               True             True       True
+2026-08-25 765.910     1.540       True   13.000    1.400   -2.800    2.400   11.900           False          0.000      False    False       True     True       False     False       False     False               True             True      False
+2026-08-26 766.080     1.520       True   14.000   -1.200    2.800    0.500   12.100           False          0.000       True     True      False    False       False     False       False     False               True             True      False
+2026-08-27 771.100     0.870       True    7.000    4.200    4.200    1.000   11.600           False          0.000      False    False      False    False       False     False       False     False              False            False      False
+2026-08-28 769.350     1.100       True    4.000    6.600    4.100    0.200   10.900           False          0.000      False    False      False    False       False     False       False     False              False            False      False
+2026-08-31 767.050     1.390       True -102.000  -12.800  -31.200  -10.500    0.700            True          1.000       True     True       True     True        True      True       False     False              False            False       True
+2026-09-01 761.780     2.070       True -133.000  -42.000  -65.200  -28.300  -11.500            True          0.600       True     True       True     True        True      True        True      True              False            False       True
+2026-09-02 765.160     1.640       True  -59.000  -56.600  -63.100  -33.800  -15.800            True          1.000       True     True       True     True        True      True        True      True               True             True       True
+2026-09-03 773.170     0.610       True  -10.000  -60.000  -45.400  -29.900  -15.300            True          1.000       True     True       True     True        True      True        True      True               True             True       True
+2026-09-04 770.190     0.990       True  -44.000  -69.600  -44.900  -24.300  -17.900            True          1.000       True     True       True     True        True      True        True      True               True             True       True
+2026-09-08 765.960     1.530       True  -50.000  -59.200  -46.600  -30.200  -20.800            True          1.000       True     True       True     True        True      True        True      True               True             True       True
+2026-09-09 762.400     1.990       True -185.000  -69.600  -92.700  -42.900  -35.700            True          1.000       True     True       True     True        True      True        True      True               True             True       True
+2026-09-10 757.830     2.580       True -307.000 -119.200 -164.200  -65.900  -60.400            True          0.600       True     True       True     True        True      True        True      True               True             True       True
+2026-09-11 764.290     1.750       True -129.000 -143.000 -152.400  -75.500  -66.600            True          1.000       True     True       True     True        True      True        True      True               True             True       True
+2026-09-14 760.880     2.190       True -212.000 -176.600 -172.300  -92.800  -79.800            True          0.600       True     True       True     True        True      True        True      True               True             True       True
+2026-09-15 757.390     2.630       True -309.000 -228.400 -217.900 -117.600 -100.700            True          0.600       True     True       True     True        True      True        True      True               True             True       True
+2026-09-16 754.050     3.060      False -161.000 -223.600 -198.900 -130.500 -106.200           False          0.000      False     True      False     True       False      True       False      True              False             True       True
+2026-09-17 762.600     1.960       True  -41.000 -170.400 -146.300 -134.000 -100.200            True          1.000       True     True       True     True        True      True        True      True               True             True       True
+
+
+################ Aug-Sep 2026 window ################
+                raw  dist_pct  incumbent_fire  fire_raw_1d  fire_sma3  fire_sma5  fire_sma8  fire_sma13  fire_sma21  fire_ema5  fire_ema8  fire_ema13  fire_ema21  fire_persist_3of5
+date                                                                                                                                                                                
+2026-08-03   61.000     0.000           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-04  103.000     0.000           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-05   91.000     0.200           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-06   31.000     0.360           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-07   39.000     0.000           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-10    0.000     0.030           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-11   15.000     0.350           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-12   37.000     0.100           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-13   98.000     0.000           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-14   13.000     0.200           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-17  -61.000     0.670            True         True      False      False      False       False       False      False      False       False       False              False
+2026-08-18 -117.000     1.340            True         True       True       True      False       False       False       True       True       False       False              False
+2026-08-19   27.000     1.130           False        False       True       True      False       False       False       True       True       False       False              False
+2026-08-20  -20.000     1.960            True         True       True       True       True       False       False       True       True       False       False               True
+2026-08-21   -8.000     1.560            True         True       True       True       True       False       False       True       True       False       False               True
+2026-08-24   -5.000     1.850            True         True       True       True       True       False       False       True       True       False       False               True
+2026-08-25   13.000     1.540           False        False      False      False       True       False       False       True       True       False       False               True
+2026-08-26   14.000     1.520           False        False      False       True       True       False       False      False      False       False       False               True
+2026-08-27    7.000     0.870           False        False      False      False       True       False       False      False      False       False       False              False
+2026-08-28    4.000     1.100           False        False      False      False      False       False       False      False      False       False       False              False
+2026-08-31 -102.000     1.390            True         True       True       True       True        True       False       True       True        True       False              False
+2026-09-01 -133.000     2.070            True         True       True       True       True        True       False       True       True        True        True              False
+2026-09-02  -59.000     1.640            True         True       True       True       True        True        True       True       True        True        True               True
+2026-09-03  -10.000     0.610            True         True       True       True       True        True        True       True       True        True        True               True
+2026-09-04  -44.000     0.990            True         True       True       True       True        True        True       True       True        True        True               True
+2026-09-08  -50.000     1.530            True         True       True       True       True        True        True       True       True        True        True               True
+2026-09-09 -185.000     1.990            True         True       True       True       True        True        True       True       True        True        True               True
+2026-09-10 -307.000     2.580            True         True       True       True       True        True        True       True       True        True        True               True
+2026-09-11 -129.000     1.750            True         True       True       True       True        True        True       True       True        True        True               True
+2026-09-14 -212.000     2.190            True         True       True       True       True        True        True       True       True        True        True               True
+2026-09-15 -309.000     2.630            True         True       True       True       True        True        True       True       True        True        True               True
+2026-09-16 -161.000     3.060           False        False      False      False      False       False       False      False      False       False       False              False
+2026-09-17  -41.000     1.960            True         True       True       True       True        True        True       True       True        True        True               True
+
+Wrote C:\Users\McKinley Slade\dev\New_Seasonals\scratch\nyse_smoothing_study\results.csv and sidecar CSVs.
