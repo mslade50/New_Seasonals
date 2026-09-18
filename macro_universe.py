@@ -15,7 +15,7 @@ SECTOR_ETFS = [
     "EURUSD=X", "JPY=X", "GBPUSD=X", "AUDUSD=X", "NZDUSD=X",
     "CAD=X", "CHF=X", "DX-Y.NYB",
     # EM FX (liquid USD crosses)
-    "USDMXN=X", "USDBRL=X", "USDZAR=X", "USDTRY=X",
+    "USDMXN=X", "USDBRL=X", "USDZAR=X",
     # Commodity futures
     "CL=F", "NG=F", "GC=F", "HG=F",
     "KC=F", "PL=F", "ZC=F", "ZW=F", "CC=F", "SB=F", "PA=F", "ZS=F",
@@ -51,7 +51,7 @@ _TICKER_GLOSSARY = {
     "NZDUSD=X": ("NZD/USD", "F"), "CAD=X": ("USD/CAD", "F"),
     "CHF=X": ("USD/CHF", "F"), "DX-Y.NYB": ("US Dollar Index", "F"),
     "USDMXN=X": ("USD/MXN", "F"), "USDBRL=X": ("USD/BRL", "F"),
-    "USDZAR=X": ("USD/ZAR", "F"), "USDTRY=X": ("USD/TRY", "N"),
+    "USDZAR=X": ("USD/ZAR", "F"),
     # US Indices
     "^GSPC": ("S&P 500", "F:ES"), "^NDX": ("Nasdaq 100", "F:NQ"),
     "^IXIC": ("Nasdaq Composite", "ETF:ONEQ"),
@@ -164,7 +164,6 @@ IBKR_EQUIVALENTS = {
     "USDMXN=X": _fx("USD", "MXN", "USD.MXN"),
     "USDBRL=X": _fut("BRE", "CME", trading_class="6L"),
     "USDZAR=X": _fx("USD", "ZAR", "USD.ZAR"),
-    "USDTRY=X": _fx("USD", "TRY", "USD.TRY"),
     # US Indices
     "^GSPC": _fut("ES", "CME"),
     "^NDX": _fut("NQ", "CME"),
