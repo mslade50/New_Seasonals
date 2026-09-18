@@ -12,9 +12,8 @@ Blocks in the payload:
     session       today's and the next sessions on the NYSE calendar
     calendar      macro events inside the horizon with signed td distance
     tape          per-ticker return ranks, z10, ATR, 52w and 200d distances
-    risk          fragility dial, P/C fear state, firing signals, exposure leg
-    book          staged scanner signals and sleeve state (live broker
-                  positions deliberately excluded per McKinley 2026-08-08)
+    risk          fragility dial, P/C fear state, firing signals
+    evaluation_basis  standalone idea quality; portfolio inputs excluded
     earnings      liquid names printing inside the horizon
     seasonality   the seasonal board's own view plus month/cycle position
     research      research-doc index and the negative-results registry
@@ -25,8 +24,8 @@ Blocks in the payload:
                   caches current (one line in the email)
 
 Every block except `tape` is best effort: a missing input adds a line to
-`warnings` and leaves the block partial, because a morning with no broker
-connection should still produce three ideas. A missing PRICE cache is fatal
+`warnings` and leaves the block partial. Missing inputs limit what the agent
+can claim; they never require padding the slate. A missing PRICE cache is fatal
 (there is nothing to reason about).
 """
 from __future__ import annotations
@@ -50,9 +49,7 @@ from macro_calendar import EVENT_TYPES, load_macro_events  # noqa: E402
 from pitch_lab import load_watchlist  # noqa: E402
 from pitch_grammar import REPEAT_BLOCK_TD, wilder_atr  # noqa: E402
 from strategy_config import (  # noqa: E402
-    ACCOUNT_VALUE,
     LIQUID_PLUS_COMMODITIES,
-    STRATEGY_BOOK,
 )
 from trading_calendar import TRADING_DAY  # noqa: E402
 
@@ -89,9 +86,6 @@ TRACKED_AUTOMATION_RECEIPTS = [
     ("cboe_am", "put/call", "today"),
     ("master_prices_am", "prices", "today"),
     ("risk_am", "risk dial", "today"),
-    ("scan_am", "scan", "today"),
-    ("verify_fills", "fills", "previous"),
-    ("portfolio_report", "portfolio", "previous"),
     ("earnings_and_grades", "earnings", "previous"),
 ]
 
@@ -255,8 +249,7 @@ def build_risk(today: pd.Timestamp, warnings: list[str]) -> dict:
     frag_path = ROOT / "data" / "rd2_fragility.parquet"
     try:
         frag = pd.read_parquet(frag_path)
-        from nyse_risk import main_dial_from_frame
-        ma10 = main_dial_from_frame(frag)
+        ma10 = frag["63d"].dropna().rolling(10, min_periods=1).mean()
         last_date = pd.Timestamp(frag.index[-1]).normalize()
         out["fragility"] = {
             "as_of": str(last_date.date()),
@@ -267,8 +260,9 @@ def build_risk(today: pd.Timestamp, warnings: list[str]) -> dict:
             "ma10_63d": round(float(ma10.iloc[-1]), 1),
             "ma10_63d_21d_ago": (round(float(ma10.iloc[-22]), 1)
                                  if len(ma10) > 22 else None),
-            "sizing_note": ("10d MA of the 63d column, threshold 50, is the "
-                            "ONLY statistic that sizes live orders"),
+            "interpretation": ("Market fragility context for assessing the idea's "
+                               "own risks. This reading is not a portfolio "
+                               "exposure observation or a sizing instruction."),
         }
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"risk: fragility parquet unavailable ({exc})")
@@ -295,71 +289,7 @@ def build_risk(today: pd.Timestamp, warnings: list[str]) -> dict:
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"risk: rd2_environment.json unavailable ({exc})")
 
-    try:
-        exposure = json.loads((ROOT / "data" / "exposure_state.json")
-                              .read_text(encoding="utf-8"))
-        out["exposure_leg"] = {"asof": exposure.get("asof"),
-                               "mult": exposure.get("mult"),
-                               "active_rule": exposure.get("active_rule"),
-                               "reason": exposure.get("reason")}
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"risk: exposure_state.json unavailable ({exc})")
 
-    return out
-
-
-# ---------------------------------------------------------------------------
-# book state
-# ---------------------------------------------------------------------------
-def _read_sheet_tab(tab: str) -> list[dict]:
-    from daily_pitch import open_sheet
-    return open_sheet().worksheet(tab).get_all_records()
-
-
-def build_book(today: pd.Timestamp, warnings: list[str],
-               offline: bool = False) -> dict:
-    out: dict = {"account_value": ACCOUNT_VALUE,
-                 "strategy_count": len(STRATEGY_BOOK),
-                 "strategy_names": sorted(s["name"] for s in STRATEGY_BOOK)}
-
-    staged: list[dict] = []
-    for tab in ([] if offline else ("Order_Staging", "Overflow")):
-        try:
-            for row in _read_sheet_tab(tab):
-                staged.append({
-                    "tab": tab,
-                    # The staging tabs are written by daily_scan's
-                    # save_staging_orders, whose columns are Symbol and
-                    # Strategy_Ref. Reading Ticker/Strategy_Name silently
-                    # returned None for every row, so the stage-C overlap
-                    # check was blind to WHICH names the book staged
-                    # (found 2026-08-21, with four gold miners staged short).
-                    "strategy": (row.get("Strategy_Ref")
-                                 or row.get("Strategy_Name")
-                                 or row.get("Strategy")),
-                    "ticker": row.get("Symbol") or row.get("Ticker"),
-                    "action": row.get("Action"),
-                    "quantity": row.get("Quantity"),
-                    "entry_type": row.get("Entry_Type") or row.get("Order_Type"),
-                    "scan_date": str(row.get("Scan_Date", "")),
-                })
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"book: {tab} tab unreadable ({exc})")
-    out["staged_signals"] = staged
-
-    for key, path in (("event_sleeve", "event_sleeve_state.json"),
-                      ("trend_sleeve", "trend_sleeve_state.json")):
-        try:
-            out[key] = json.loads((ROOT / "data" / path)
-                                  .read_text(encoding="utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"book: {path} unavailable ({exc})")
-
-    # LIVE BROKER POSITIONS ARE DELIBERATELY EXCLUDED (McKinley, 2026-08-08):
-    # the pitch must not know his holdings. Overlap in stage C is judged
-    # against the SYSTEMATIC layers only - staged signals, sleeve state and
-    # the ledger - all of which are repo-derived. Do not re-add a broker read
-    # here.
     return out
 
 
@@ -519,6 +449,8 @@ def build_watchlist(today: pd.Timestamp, warnings: list[str]) -> dict:
 
 # ---------------------------------------------------------------------------
 def build_state(asof: str | None = None, offline: bool = False) -> dict:
+    # `offline` is retained for existing callers; portfolio reads are now
+    # excluded in every mode, per the owner's standalone-quality policy.
     today = (pd.Timestamp(asof) if asof
              else pd.Timestamp.now(tz="America/New_York").tz_localize(None)
              ).normalize()
@@ -556,7 +488,7 @@ def build_state(asof: str | None = None, offline: bool = False) -> dict:
         "calendar": build_calendar(today),
         "tape": tape,
         "risk": risk,
-        "book": build_book(today, warnings, offline=offline),
+        "evaluation_basis": "standalone_idea_quality",
         "earnings": build_earnings(today, warnings),
         "seasonality": build_seasonality(today, warnings),
         "research": build_research_index(),
@@ -574,7 +506,7 @@ def main() -> int:
     ap.add_argument("--out", default=str(DEFAULT_OUT))
     ap.add_argument("--tape-out", default=str(DEFAULT_TAPE_OUT))
     ap.add_argument("--no-book", action="store_true",
-                    help="skip Sheets and broker reads (offline dev)")
+                    help="compatibility flag; portfolio inputs are always excluded")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
@@ -606,8 +538,7 @@ def main() -> int:
               f"signals on: {state['risk'].get('signals_on', [])}")
         print(f"  calendar    {len(state['calendar']['events'])} events in "
               f"[-{CALENDAR_LOOKBACK_TD}, +{CALENDAR_LOOKAHEAD_TD}] td")
-        print(f"  book        {len(state['book'].get('staged_signals', []))} "
-              f"staged (live positions excluded by design)")
+        print("  evaluation  standalone idea quality (portfolio excluded)")
         print(f"  earnings    {state['earnings'].get('count', 0)} liquid prints "
               f"in {EARNINGS_HORIZON_TD} td")
         print(f"  research    {state['research']['doc_count']} docs, "

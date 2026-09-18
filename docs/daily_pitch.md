@@ -1,6 +1,6 @@
 # Daily Pitch — runbook
 
-Three novel trade ideas every trading morning, invented from this repo's
+Up to three novel trade ideas every trading morning, invented from this repo's
 knowledge, interrogated against its data before delivery, approved one at a
 time by typing Y in a spreadsheet.
 
@@ -43,7 +43,7 @@ Process instructions for the agent: `.claude/skills/daily-pitch/SKILL.md`.
 ## Manual run
 
 ```bash
-python scripts/build_pitch_state.py            # add --no-book to skip Sheets and broker
+python scripts/build_pitch_state.py            # portfolio inputs always excluded; --no-book is a compatibility flag
 claude                                          # then: /daily-pitch
 ```
 
@@ -83,6 +83,23 @@ Dry check of a morning's approved basket, no broker contact:
 python pitch_moo.py --check
 python pitch_moo.py --pass open --check
 ```
+
+## What the research inputs mean
+
+Owner decision, 2026-09-08: Daily Pitch judges standalone idea quality only.
+It does not consider current holdings, the configured strategy mix, staged
+orders, sleeve positions, or portfolio exposure. Similarity to an existing
+algorithm is not a rejection reason. Market conditions, evidence, mechanism,
+costs, entry timing and the idea's own risks still matter. The existing
+pitch-history repetition rule remains; research rejected solely for portfolio
+redundancy is not disqualified here.
+
+State assembly no longer reads portfolio/staging/sleeve data or checks scan,
+fill-verification and portfolio-report receipts as pitch dependencies. The
+legacy payload field `overlap` remains for compatibility and is filled with
+"Not assessed: Daily Pitch evaluates standalone idea quality." No approval,
+sizing or order-placement behavior changed. This policy applies to Daily Pitch;
+the separate X/SSRN strategy-discovery pipeline still evaluates portfolio fit.
 
 ## The approval loop
 

@@ -23,11 +23,12 @@ if anything here is ambiguous. Sections 4, 5, 7 and 8 are hard requirements.
 - **Not a systematic engine.** The strategy book already is that. Do not build
   or propose an activation layer, a card library, or anything that fires on a
   rule. Every idea here is a one-off judgement call.
-- **Not a re-run of the book.** An idea that is materially a `STRATEGY_BOOK`
-  trade, an event-sleeve trade, or a seasonal-sheet ticket is dead on arrival
-  unless it adds a real twist (different instrument, different leg structure,
-  opposite side, meaningfully different window), and the write-up must name the
-  overlap. Repeating the scanner has zero value.
+- **Standalone quality only (owner decision, 2026-09-08).** Do not consult
+  current holdings, the configured strategy book, staging, sleeve positions,
+  portfolio exposure or portfolio-fit metrics to select, reject or rank ideas.
+  Similarity to an existing strategy is not a rejection reason. Judge each
+  idea on its evidence, mechanism, costs, timing, executable form and own risks.
+  This supersedes older portfolio-overlap requirements in the spec and notes.
 - **Not a place orders happen.** Nothing is ever placed without McKinley typing
   Y in the Pitch tab, and the runner that reads those cells is a separate,
   activation-gated program.
@@ -42,7 +43,7 @@ False positives are fine. He filters. Unchecked ideas are not fine.
 python scripts/build_pitch_state.py
 ```
 
-Writes `data/pitch_state.json` (calendar, risk dials, book state, earnings,
+Writes `data/pitch_state.json` (calendar, market risk dials, earnings,
 seasonality, research index, your own recent pitch history) and
 `data/pitch_tape.json` (per-ticker return ranks, z10, ATR, 52w and 200d
 distances for ~215 names). Read the state file whole.
@@ -55,6 +56,26 @@ there, rates and metals and energy and FX included.
 **Check `warnings` first.** A stale price cache or a missing dial changes what
 you can honestly claim. If the freshest bar is not the prior session, say so in
 every affected idea's evidence and consider standing down to lower grades.
+
+**Interpret the inputs before drawing conclusions.** The state excludes the
+portfolio entirely. Do not restore it with ad hoc Sheets, broker, staging,
+strategy-catalog or sleeve reads. Ignore portfolio fields in older saved state
+and portfolio-overlap arguments in research memory. Prior failed research can
+inform intrinsic quality, but a result rejected only for portfolio redundancy
+is not disqualified from Daily Pitch. Market conditions and the idea's own
+return history remain relevant. Keep the existing pitch-history repetition
+rules so the same email is not sent repeatedly without new evidence.
+
+For every decision-driving factual claim, name the input, its as-of date and
+what it actually measures. A high percentile is not a historical maximum; a
+fragility reading is not a whole-book sizing instruction. Keep candidate
+test results separate from contextual descriptions in the final rationale.
+When reporting a selected cell's permutation result, verify that the code
+compares the null statistic with that cell's observed value, not with a
+different cell or the maximum of the original search. Name the tested
+statistic explicitly. Before reusing the September 8 pitch or ETF-grid
+findings, read `docs/answer_quality_review_2026-09-08.md`; it corrects those
+saved artifacts without rewriting their history.
 
 `history.recent_fingerprints` is what you pitched inside the last 10 trading
 days. An idea matching one of those needs a `changed_since` sentence saying
@@ -106,7 +127,6 @@ The state and tape files are a summary, never the boundary. The repo holds:
 | 30d implied vol by ticker | `data/iv_history.parquet` | 2024-07+ | two years: today's state, not testable history |
 | vol term structure + chain | `data/option_surface_history.parquet`, `data/option_positioning_history.parquet` | accruing since 2026-08-05 | positioning context for flow ideas; useless for backtests so far |
 | French factors, monthly | `data/factor_returns_monthly.parquet` | 1926+ | MktRF SMB HML RMW CMA Mom RF |
-| the book's own ledger | `data/backtest_trades_full.parquet` | 23y | overlap checks and "what would the scanner do here"; overflow-tier stats carry a survivorship caveat |
 | fragility dial history | `data/rd2_fragility.parquet` | 2016+ | point-in-time append-only since 2026-07-02; earlier rows are a recompute vintage, state which you used |
 | sector map | `data/sector_map.parquet` | ~1460 names | |
 
@@ -274,8 +294,8 @@ is choosing the mask, the legs and the controls honestly, then interpreting.
 2. What is N, what is the worst window, and is it era-stable (did it die after
    2018)?
 3. Does it collide with the negative-results registry?
-4. Does the book already hold correlated exposure, and does the idea survive
-   that overlap once disclosed?
+4. Is the idea worthwhile on its own after realistic costs, entry timing and
+   failure modes? Do not compare it with existing holdings or algorithms.
 5. Cost sanity: spread, carry and roll of the vehicle against the size of the
    edge. Six basis points of edge cannot pay an ETF's drag.
 6. Tomorrow-specific tail risk: is a known volatility event inside the window?
@@ -341,10 +361,9 @@ One final agent over the whole surviving set, before compose:
 - **Basket correlation**: are the three (or five) survivors secretly one
   macro bet? Compute the correlation of their leg returns over the hold
   window; if two ideas are one trade, say so and either merge or drop one.
-- **Book overlap**: against the SYSTEMATIC layers only, which is all the
-  state carries: staged scanner signals, sleeve state and the ledger. Live
-  broker positions are deliberately absent from the pitch state and stay
-  that way; McKinley applies his own holdings when he reads the ideas.
+- **Standalone judgment**: no candidate may be penalized or favored because
+  of the existing portfolio or strategy mix. Remove such reasoning before
+  composing. McKinley decides how an idea relates to his portfolio.
 - **Cost recheck** at the developed entry form, not the round-1 assumption.
 - For each survivor, write the strongest single argument against it. If that
   argument would convince you, it is a kill, not a footnote.
@@ -571,7 +590,7 @@ House style, and McKinley reads every word:
                    "dev_script": "scratch/pitch_checks/2026-08-06/gld_slv_nfp_dev.py"},
       "survived": "the consideration that could have killed it and did not",
       "what_kills_it": "...",
-      "overlap": "what the book or sleeves already hold that correlates, or None",
+      "overlap": "Not assessed: Daily Pitch evaluates standalone idea quality.",
       "changed_since": "only when re-pitching inside 10 td"
     }
   ],

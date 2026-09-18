@@ -30,8 +30,9 @@ def test_pitch_pipeline_uses_today_am_and_previous_postclose_receipts():
     )
 
     assert result["ok"] is True
-    assert ("scan_am", today.date()) in calls
-    assert ("portfolio_report", pd.Timestamp("2026-08-26").date()) in calls
+    assert ("master_prices_am", today.date()) in calls
+    assert ("earnings_and_grades", pd.Timestamp("2026-08-26").date()) in calls
+    assert not ({job for job, day in calls} & {"scan_am", "verify_fills", "portfolio_report"})
 
 
 def test_pitch_pipeline_surfaces_a_failed_local_job():
