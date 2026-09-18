@@ -32,7 +32,8 @@ score gate, risk display, forward-return sample, daily pitch and paper sleeve.
 The separate legacy 21d exposure rule is preserved internally. Display changes
 hide the 5d/21d dials and retain all 5/10/21/42/63 forward-return windows.
 No dual-qualifier trade rule is activated. The proposed dial>=50 plus SPY<2%
-restriction needs a strategy replay before any performance claim.
+restriction was replayed on 2026-09-18 and rejected; see the section of
+that date below.
 
 ## Breadth collection
 
@@ -147,3 +148,59 @@ highs, 5d EMA" with the same zero-line thresholds object. NYSE stays
 display-only in `fragility_core.filter_risk_signals`: it is not in
 `ACTIVE_RISK_SIGNALS` and contributes no composite numerator or denominator
 weight of its own.
+
+## 2026-09-18: dual-qualifier replay, shared site, release receipt
+
+### Dual-qualifier rule: replayed and not shipped
+
+McKinley asked for the proposed dial >= 50 plus SPY-within-2%-of-high rule to
+restrict the six fragility-band carriers, and chose the narrow form (the
+dial cut applies only near highs; off the highs the dip-buys trade full size).
+The replay is `scratch/dual_qualifier_replay/` (`replay.py`, `results/`,
+`README.md`): the six carriers re-run through `process_signals_fast` with only
+`frag_band_mult_at` swapped per scheme, every other production rule intact,
+and the replayed incumbent reproduces the shipped ledger's carrier rows to the
+dollar (504 trades, $995,183 flat). Outcome, 2016+ on the flat $750k basis:
+the narrow form costs $3,977, restores 35 trades averaging -0.06R, and widens
+the worst 21-day window from -$28,862 to -$35,123; the stacked form costs
+$29,090 and moves neither maxDD nor the worst window. Near-high does not
+isolate a worse cell than dial >= 50 alone (pooled clustered t = -0.03); it is
+the worse half only inside fear OFF and the better half inside fear ON, so
+the put/call fear state already carries the separation. In the live Aug-Sep
+2026 window the stacked form is a no-op (fear OFF, so every dial >= 50 carrier
+signal is already zeroed) and the narrow form would have restored four 3x
+Bear Fade signals for +$112. Decision: keep the incumbent P/C fear tables
+unchanged. Nothing was built.
+
+### Shared Denali site
+
+The private risk tab's payload now has a redacted twin
+(`scripts/build_risk_json.redact_for_shared`, stable R2 key
+`shared/site_risk.json`) rendered as a Risk tab on the shared site
+`denali-seasonality.pages.dev`. It carries the main dial, the signal board
+including this NYSE card and its EMA5 chart, forward returns and the ATR
+downside tables; strategy names, band tables, throttle state, the exposure
+leg, the paper sleeve and the trade console are stripped and a fail-closed
+assertion refuses a payload that names a strategy. Both sites were rebuilt
+after the EMA5 change and show the same vintage.
+
+### Release receipt
+
+- main: EMA5 trigger `c4b67b2e`; put/call session guard `578ab1ad`.
+- Runtime line (`codex/local-primary-runtime-v9-20260912`, the curated branch
+  the v9 tasks execute; it is not main): PRs #57 and #58 cherry-picked, then
+  the EMA5 commit, as `d0b2bebc`, tagged
+  `automation-runtime-2026-09-18.nyse-ema5`; the v9 worktree was
+  fast-forwarded to it at 17:39 UTC and its marker records
+  `nyse_ema5_release_at_utc`. The fallback controller on main is pinned to the
+  same tag name.
+- Put/call guard: cherry-picked onto the runtime line as `e08180c0`, tagged
+  `automation-runtime-2026-09-18.cboe-guard`, fallback pin updated on main.
+  The worktree fast-forward to it is scheduled after the 2026-09-18 post-close
+  pipeline completes; the guard first matters at the 2026-09-19 04:10 ET
+  collection. The corrected put/call parquet (4,999 rows, 2025-01-09 removed)
+  was republished to the canonical R2 key ahead of that.
+- First post-close run under the EMA5 basis: 2026-09-18 17:10 ET. Expected:
+  the 2026-09-18 `main_score` row stamped `nyse-reset-floor-v2-ema5`, the
+  2026-09-17 row unchanged at 85.039406.
+
