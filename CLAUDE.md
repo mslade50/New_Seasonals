@@ -742,10 +742,26 @@ sizes as-is; a 0-share row stages as a non-order):
   `process_signals_fast(pc_fear_enabled=)`
 - `scripts/build_trade_ledger.py` — pcfear shadow pass (best effort)
 - Guards: `tests/test_pc_fear_bands.py`, `tests/test_frag_risk_bands.py`
-  (state-matched parity), `tests/test_cboe_putcall.py` (feed freshness)
+  (state-matched parity), `tests/test_cboe_putcall.py` (feed freshness +
+  the row guard below)
 - KNOWN GAP: the site risk tab's sizing_state block still serializes the
   incumbent `frag_risk_bands` only (stale-state view) — fear-conditioned
   display not yet built.
+
+**Feed row guard (2026-09-18)**: `cboe_putcall.py` validated FRESHNESS only,
+so a bad row could size the book silently. It now also validates each row,
+both on scrape and as a purge over the cache on load, so a polluted local or
+R2 copy self-heals: the date must be an NYSE session (weekend, NYSE holiday
+set built in-module because Columbus Day and Veterans Day are federal
+holidays the NYSE trades through, Good Friday, plus an explicit
+`NYSE_SPECIAL_CLOSURES` list) and `equity` must land in [0.15, 3.0], a band
+set outside the measured extremes of 0.32 and 2.40 so a real capitulation
+print still passes. Rejections print one loud line and never raise. Purged
+on ship: 2025-01-09 equity 0.00, a Carter day of mourning when the NYSE was
+closed and CBOE served a page anyway (5000 rows to 4999, nothing else
+dropped, R2 republished). LEFT AS-IS by McKinley's call: 2024-01-10's 1.55
+equity print, a one-day spike that reverted but is in band and on a real
+session.
 
 ## 3x Bear ETF Overbot Fade + Same-Day Signal De-rate (2026-07-07)
 
