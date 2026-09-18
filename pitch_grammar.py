@@ -358,7 +358,13 @@ def build_orders(idea: dict, contexts: dict[str, dict], execute_on,
       nav_pct   — notional split across legs by weight; the risk unit booked
                   for R accounting is that notional's k-ATR move.
     """
-    execute_on = pd.Timestamp(execute_on).normalize()
+    # Roll a non-session asof forward to the session the trade actually runs
+    # on. A holiday morning (first hit 2026-09-07, Labor Day) otherwise stamps
+    # Execute_On with a date that has no bar: the runner never places it and
+    # grade_pitch_journal.replay_leg returns "no_session" forever, so the whole
+    # morning is unplaceable AND ungradeable. +0 CustomBusinessDay is a no-op
+    # on a real session.
+    execute_on = (pd.Timestamp(execute_on).normalize() + 0 * TRADING_DAY).normalize()
     entry = idea["entry"]
     ex = idea["exit"]
     kind = str(entry["type"]).upper()

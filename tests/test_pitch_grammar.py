@@ -217,6 +217,32 @@ def test_limit_and_bracket_levels_come_off_the_close(payload):
     assert row["Target_Price"] == pytest.approx(103.5)   # limit + 2.0 x 2
 
 
+def test_execute_on_rolls_a_holiday_forward_to_the_next_session(payload):
+    """A holiday morning must stamp Execute_On with a real session.
+
+    2026-09-07 is Labor Day. Stamping it verbatim gives a date with no bar,
+    so the runner never places the row and grade_pitch_journal.replay_leg
+    returns "no_session" forever. Rolling +0 CustomBusinessDay lands on
+    2026-09-08 and every downstream date counts from there.
+    """
+    idea = copy.deepcopy(payload["ideas"][1])   # XLU, LIMIT @ CLOSE
+    idea["horizon_td"] = 5
+    idea["exit"]["time_td"] = 5
+    idea["entry"]["fill_window_td"] = 2
+    ctx = contexts_for("XLU", close=100.0, atr_pct=2.0)
+    row = pg.build_orders(idea, ctx, "2026-09-07", "t-holiday")[0]
+    assert row["Execute_On"] == "2026-09-08"
+    assert row["Entry_Expire_Date"] == "2026-09-09"
+    assert row["Time_Exit_Date"] == "2026-09-15"
+
+
+def test_execute_on_is_untouched_on_a_real_session(payload):
+    idea = copy.deepcopy(payload["ideas"][1])
+    ctx = contexts_for("XLU", close=100.0, atr_pct=2.0)
+    row = pg.build_orders(idea, ctx, "2026-09-04", "t-session")[0]
+    assert row["Execute_On"] == "2026-09-04"
+
+
 def test_short_leg_bracket_flips(payload):
     idea = copy.deepcopy(payload["ideas"][1])
     idea["legs"][0]["side"] = "SHORT"
