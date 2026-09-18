@@ -69,12 +69,16 @@ def test_malformed_period_history_does_not_drop_metric_detail():
 
 
 def test_nyse_zero_line_has_the_frontend_threshold_contract():
+    """The charted series is the EMA5 trigger (2026-09-18), not the raw print."""
     dates = pd.date_range("2026-09-14", periods=2, freq="B")
     signals = {"NYSE Net Highs": {
-        "net_highs": pd.Series([12, -158], index=dates),
+        "net_highs_ema5": pd.Series([12, -158], index=dates),
+        "raw_net": pd.Series([40, -307], index=dates),
         "signal_history": pd.Series([False, True], index=dates),
     }}
     metric = _build_signal_detail(signals, dates, _periods)["NYSE Net Highs"]["metric"]
+    assert metric["key"] == "net_highs_ema5"
+    assert metric["label"] == "NYSE net new highs, 5d EMA"
     assert metric["values"] == [12, -158]
     assert metric["thresholds"] == [
         {"value": 0, "label": "Negative breadth", "operator": "<"}

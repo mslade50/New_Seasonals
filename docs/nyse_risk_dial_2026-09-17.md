@@ -71,3 +71,79 @@ not equivalence of the two historical universes.
 Technical review independently reconciled all report statistics and model
 scores. Final deployment/runtime identities belong in a dated release receipt;
 this document alone is not evidence of production activation.
+
+## 2026-09-18: EMA5 trigger
+
+The trigger series changes from the raw one-day `nyse_net` print to a
+five-period EMA of it. Both halves of the rule read the EMA. Arming needs
+`EMA5 < 0` while SPY is inside the near-high zone, and a recovery reset now
+needs `EMA5 >= 0` rather than a single non-negative print. Severity tiers by
+distance to the high are unchanged, as are the ceiling, the borrowed Low
+Absorption Ratio weight, the 63-session fade, the 5-then-10 smoothing, the
+`max(base, expanded)` floor and the completeness gate. The EMA is
+`ewm(span=5, adjust=False)` on the SPY session calendar, and a missing breadth
+reading blanks it for the whole five-session trailing window, so an unknown
+session can neither arm the warning nor confirm a recovery. That blackout is
+also the warm-up, and it widens the existing 77-session influence gate by four
+sessions after any gap. The function is `nyse_risk.smooth_nyse_net`.
+
+**This is an appetite decision by McKinley, not an evidenced improvement.**
+The study is `scratch/nyse_smoothing_study/` (`study.py` plus its CSVs and
+`README.md`), and its own conclusion was "would I change the shipped 1d
+trigger? Not on this evidence." What it did find, on 6,440 eligible sessions
+from 2000-12-29 to 2026-09-17:
+
+- EMA5 fires on 244 days in 34 declustered episodes, against the raw print's
+  345 days in 78 episodes. Total time in the ON state is essentially unchanged
+  (619 sessions against 570) because the fade dominates the total, so this
+  trades many short warnings for fewer long ones rather than reducing exposure
+  to the warning state.
+- Forward SPY returns on EMA5 fire days average -0.41% / -0.63% / -0.80% at
+  5/10/21 days, against a same-rule control (near the high, breadth not
+  negative) of +0.19% / +0.38% / +0.76%.
+- P(SPY draws down 5% within 63 sessions) from a fire day is 67% for EMA5
+  against 52% for the raw print.
+- Median lag behind the raw trigger is 4 sessions. Measured from each rule's
+  own first alarm, every variant including the incumbent still shows a
+  POSITIVE 21d and 63d forward return, and against a placebo that simply waits
+  the same 4 sessions the EMA5 drawdown gain does not clear 1.8 sigma. The
+  honest summary is that this buys fewer false alarms and much less flicker,
+  and does not buy forecasting power.
+
+The flicker is what the change is actually for. In August 2026 the raw series
+printed non-negative on 08-19, 08-25, 08-26, 08-27 and 08-28, and under v1 each
+of those cleared the component's state and both smoothing queues outright, so
+the NYSE contribution rebuilt from scratch three times in eleven sessions.
+Under EMA5 the 08-19 and 08-25 blips no longer reset anything; the state clears
+once, on 08-26, when the EMA itself turns positive. EMA5 first fired in this
+episode on 2026-08-18, one session after the raw trigger's 2026-08-17.
+
+### Definitional vintage
+
+`nyse_risk.MODEL_VERSION` goes from `nyse-reset-floor-v1` to
+`nyse-reset-floor-v2-ema5`, and that string is what `daily_risk_report` stamps
+into the fragility parquet's `main_score_basis` metadata. The parquet stays
+append-only and mixed-vintage by design: the single row saved under v1
+(2026-09-17, `main_score` 85.039406) keeps the value the raw trigger minted,
+and every row from the next run carries the EMA5 basis. `append_main_scores`
+enforces that with `BASIS_V2_START = 2026-09-18`. Without it the AM correction
+(`--refresh-last`, which deliberately reopens the previous session so a
+provisional close can be corrected) would have rescored the saved v1 row under
+the new basis on any same-day rerun. The one saved v1 row happens to be
+numerically identical under both bases, because the raw series printed no
+non-negative day between 2026-08-31 and 2026-09-17, so no v1 reset survives
+inside the five- and ten-session queues that feed it. The guard is still what
+makes the append-only contract true rather than lucky. Guards:
+`tests/test_nyse_risk.py`.
+
+### Display
+
+The signal dict now carries `net_highs_ema5` (the trigger series) and
+`raw_net` (the daily print). The email and page card reads "NYSE net highs 5d
+EMA -146 (raw -41)". The site chart serializes the EMA series, so the plotted
+line and its zero threshold describe what actually arms and clears the
+component; `SIGNAL_METRICS["NYSE Net Highs"]` is relabelled "NYSE net new
+highs, 5d EMA" with the same zero-line thresholds object. NYSE stays
+display-only in `fragility_core.filter_risk_signals`: it is not in
+`ACTIVE_RISK_SIGNALS` and contributes no composite numerator or denominator
+weight of its own.

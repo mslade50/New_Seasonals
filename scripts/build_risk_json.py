@@ -122,8 +122,12 @@ def load_risk_data_from_master(master_path=MASTER_PRICES, lookback_years=10):
 # stay owned by risk_dashboard_v2; this map only describes how to serialize
 # and display the values that compute_all_signals() already returns.
 SIGNAL_METRICS = {
+    # The charted series is the TRIGGER series (2026-09-18): the five-period
+    # EMA of net new highs, not the raw daily print, so the chart and the zero
+    # line describe what actually arms and clears the component. The raw print
+    # stays available on the signal dict as ``raw_net`` for the card summary.
     "NYSE Net Highs": {
-        "key": "net_highs", "label": "NYSE new highs minus new lows",
+        "key": "net_highs_ema5", "label": "NYSE net new highs, 5d EMA",
         "unit": "issues", "decimals": 0,
         "thresholds": [{"value": 0, "label": "Negative breadth", "operator": "<"}],
     },

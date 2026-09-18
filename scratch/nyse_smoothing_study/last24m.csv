@@ -1,0 +1,12 @@
+variant,fire_days_24m,state_on_days_24m,episodes_24m
+raw_1d,63,94,15
+sma3,50,92,9
+sma5,43,51,6
+sma8,42,48,4
+sma13,39,45,4
+sma21,38,44,4
+ema5,43,98,7
+ema8,38,46,5
+ema13,32,38,5
+ema21,33,42,5
+persist_3of5,42,69,7
