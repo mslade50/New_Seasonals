@@ -196,11 +196,15 @@ after the EMA5 change and show the same vintage.
   same tag name.
 - Put/call guard: cherry-picked onto the runtime line as `e08180c0`, tagged
   `automation-runtime-2026-09-18.cboe-guard`, fallback pin updated on main.
-  The worktree fast-forward to it is scheduled after the 2026-09-18 post-close
-  pipeline completes; the guard first matters at the 2026-09-19 04:10 ET
-  collection. The corrected put/call parquet (4,999 rows, 2025-01-09 removed)
-  was republished to the canonical R2 key ahead of that.
-- First post-close run under the EMA5 basis: 2026-09-18 17:10 ET. Expected:
-  the 2026-09-18 `main_score` row stamped `nyse-reset-floor-v2-ema5`, the
-  2026-09-17 row unchanged at 85.039406.
+  The v9 worktree was fast-forwarded to it at 22:30 UTC, after the post-close
+  pipeline finished; the marker records `cboe_guard_release_at_utc`. Note:
+  that post-close run, still on the pre-guard code, re-scraped the deleted
+  2025-01-09 page and republished a 5,000-row file to R2 (the backfill asks
+  for every missing date since 2024-01-01). The clean 4,999-row parquet was
+  republished again after the fast-forward, and from the 2026-09-19 04:10 ET
+  collection the guard skips non-session dates at the source and purges any
+  polluted copy on load.
+- First post-close run under the EMA5 basis, 2026-09-18 17:10 ET, verified:
+  metadata `main_score_basis = nyse-reset-floor-v2-ema5`; 2026-09-18
+  `main_score` 80.558 (63d column 72.463); 2026-09-17 unchanged at 85.039.
 
