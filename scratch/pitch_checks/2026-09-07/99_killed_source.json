@@ -1,0 +1,77 @@
+[
+  {
+    "title": "Long HYG at the first close back after the long weekend",
+    "novelty_axis": "event_fingerprint",
+    "reason": "A filter that does not filter, in exactly the live state. With HYG within 1% of its 252-day high and in the calm realised-vol tercile, the post-closure cell pays +0.064% (n=40) against +0.075% for an ordinary 3-day weekend in the same state and +0.069% for all days in it: a closure excess of -0.012% at Welch t -0.12, while the whole +0.267% excess (t 1.93) lives in the off-the-high, higher-vol half. The accrual mechanism is falsified inside its own window, since the first session back pays -0.122% at t -2.62 against an unconditional +0.021%, so there is no make-up to buy. And of the +0.275% headline, +0.196% is IEF and SPY beta, leaving a residual of 68-62 at sign p 0.331 and 20-20 in the live bucket."
+  },
+  {
+    "title": "Long TLT on a resting limit at the level that arms the three-way investment-grade floor",
+    "novelty_axis": "interaction_cell",
+    "reason": "The entry form buys the one session the evidence excludes. The parked cell reproduces cleanly (+0.385pp excess, 83.3% hit over 18 episodes, sign p 0.0038), but it is a lag-1 cell whose whole edge is session +2 (+0.402% at an 83.3% hit); the session a limit fill adds, close D to close D+1, pays -0.302% at a 38.9% hit. Every limit variant measured is negative or inside cost: reach-down fills exit at -0.061% / -0.011% / -0.028% at D, D+1, D+2, and getting filled selects against you (the 7 fills where the state actually armed pay -0.564% at D+1 while the 4 that reversed out pay +0.957%, and the reversal is unselectable at order time). Definition fragility compounds it: holding the TLT rung at 0.5%, the IEF and LQD rung is a knife edge with both neighbours wrong-signed (0.5% -0.173pp, 1.0% +0.385pp, 1.5% -0.073pp)."
+  },
+  {
+    "title": "Long SVXY into the September VIX settle",
+    "novelty_axis": "event_fingerprint",
+    "reason": "The settle anchor is worse than the calendar slot it sits in, and it is the 2026-08-07 pre-expiry short-vol corpse rather than a neighbour of it. On the same 8 post-2018 Septembers the anchored entry loses 6 of 8 against its own non-anchor neighbours at matched trading-day-of-month, a paired excess of -0.216pp, and the pooled +1.641pp is 92% one year (2016) on the retired -1.0x security. Mask overlap with the corpse is 1.0000, 14 of 14 anchors, with September then picked rank 2 of 12 in that parent's own month scan. On the tradeable -0.5x vehicle drop-best-2 leaves +0.372% at 1.9x cost with 2020 carrying 57% of the total, holding past the settle pays more (h=7 +2.178% vs the pitched h=5 +1.335%), and the September round trip is -1.170%. The pass-through ratio (1.09x against a 0.68x baseline) and the FOMC-coincidence split (10-0 inside September) both PASSED: this died on the control, not the mechanism."
+  },
+  {
+    "title": "Long GLD out of the market closure, MOO into a five-session hold",
+    "novelty_axis": "event_fingerprint",
+    "reason": "The best economics in the whole 697-cell closure survey (+0.612% over 149 anchors, 62.4% hit, excess over an ordinary weekend +0.458% at Welch t 2.35, 12.2x cost) and September is the worst of its ten holiday slots: n=21, -0.241%, 42.9% hit, record 9-12, worst -7.44%. The effect is a December, February and January phenomenon and today is the one month it does not appear in. Not gap continuation either (corr -0.06 with the closure gap)."
+  },
+  {
+    "title": "Long silver into the September VIX expiry",
+    "novelty_axis": "event_fingerprint",
+    "reason": "The anchor does no work. September-only reads 14-6 at +1.26% with both eras positive, but the placebo ladder ranks the true expiry anchor 8 of 20 offsets, so this is first-half-September metals drift wearing an expiry label, and 50% of the total return sits in 2008 and 2009. The midterm subset is 3-2 at +0.44%."
+  },
+  {
+    "title": "Short the dollar out of the Labor Day closure",
+    "novelty_axis": "event_fingerprint",
+    "reason": "The clearest search artifact the morning produced. UUP prints 3-16 at sign p 0.0022 on n=19 at both MOC h=1 and MOO h=2, and in the 170-cell Labor-Day grid it came out of, the expected smallest p is about 0.006, so 0.0022 is roughly one draw of noise. UUP's own full-holiday cells at the same coordinates are +0.012% and +0.038%. The Labor-Day slice as a whole produced 25 sub-0.10 cells against about 34 expected by chance, i.e. it is quieter than a coin."
+  },
+  {
+    "title": "Long the gold miners against the metal on the leadership divergence",
+    "novelty_axis": "relative_value",
+    "reason": "The pair does not exist at any threshold. Beta-hedged at the live PIT beta of 1.49, long GDX against short GLD pays -0.111% at h=5 on a 37-47 record at sign p 0.885 across 84 episodes, and it is positive at no horizon on any GDX rank threshold from 70 to 90. The outright miner long carries an edge of -0.053pp against its own drift, and its single positive horizon (h=10, +0.966pp) is 29-23 with 66% of the total in two episodes. The metal gate does discriminate (+0.215% gated against -0.156% with GLD above its 200d), it just discriminates into a zero."
+  },
+  {
+    "title": "Long a washed-out sector while the index sits at its high",
+    "novelty_axis": "interaction_cell",
+    "reason": "Gate attribution runs it backwards. Pooled across the nine SPDRs with sector fixed effects the cell is negative at all five horizons against own drift (-0.074 to -0.305pp) and against SPY (-0.015 to -0.162pp) on 256 to 963 episodes, while the SAME washout WITHOUT the index-near-high gate is strongly positive (h=5 +0.222pp, t 2.13, N=1879). Broad selloffs mean-revert; an idiosyncratic sector washout under a strong index does not. XLI, the only SPDR in the cell today at a 21-day rank of 7.1, does not differ from the family: h=5 -0.002% at an edge of -0.211pp, and XLI minus SPY is 15-15."
+  },
+  {
+    "title": "Long energy at a 52-week high behind a 21-day crude thrust",
+    "novelty_axis": "interaction_cell",
+    "reason": "Every vehicle is negative against its own baseline and the repo's four prior energy kills replicate. XLE pays -0.308% at h=5 and -0.800% at h=10 (edges -0.549pp and -1.275pp), XOP -0.479% and -0.914% (edges -0.680pp and -1.300pp), and XLE minus SPY is -0.005pp at h=5. Only crude itself is nominally positive (h=5 +0.447%) on a 36-44 record with a -0.292% median. Not one of 124 cells clears cost with a record, and the sector-at-its-own-252d-high conditioner does not rescue it."
+  },
+  {
+    "title": "Long SPY or SVXY on the tail bid inside a compressed volatility range",
+    "novelty_axis": "inversion",
+    "reason": "The compression gate is a negative conditioner, not a neutral one, and today sits in the parent's weakest subset. SKEW's 21-day rank alone pays SPY +0.333% (108-58, sign p 0.0001) and SVXY +1.374% (59-36, p 0.0117); the conjunction that is live today pays SPY +0.215% on 13-11 and SVXY +0.521% on 8-9, so the conjunction subtracts 0.075pp on SPY and 0.886pp on SVXY against its own parent at h=5, and -0.410pp / -0.327pp at h=10. Compression alone carries an SVXY edge of -1.065pp. The parent form is separately midterm-dead (-1.106% against +0.536%)."
+  },
+  {
+    "title": "Long IWM into September quad witching",
+    "novelty_axis": "event_fingerprint",
+    "reason": "The anchor is decoration. September-only looks alive at 20-6 and +0.675% (p_coin 0.0047) but the placebo ladder ranks it 10 of 20, with offsets -10 to -8 scoring as well or better, so the object is the first half of September rather than the run into the expiry. The mean is dragged by 2001 (-16.50%) and 2002 (-7.02%) against a +1.482% median, and September crossed with midterm years is 5-1 at a mean of -0.318%. The same placebo scan independently reproduces the book's own T3, which shorts IWM from the Sep opex close."
+  },
+  {
+    "title": "Long LQD at the first close back after the closure, three-session hold",
+    "novelty_axis": "event_fingerprint",
+    "reason": "It clears its Bonferroni only against the wrong null. The cell's t of 3.85 over 163 anchors passes a 170-cell correction on the zero null, which is not the right null for a coupon-bearing ETF; against the correct control, the ordinary 3-day weekend, the excess is +0.143% at Welch t 2.36 and clears nothing. It is also not four independent cells: LQD, IEF and TLT post-closure returns correlate 0.78 to 0.91, so the rates and credit block is about one and a half bets, and the live Labor-Day slot is 14-10 at sign p 0.27."
+  },
+  {
+    "title": "Long volatility across or out of the extended market closure",
+    "novelty_axis": "event_fingerprint",
+    "reason": "The closure adds nothing to the ordinary weekend. ^VIX MOO h=3 after a four-day closure is -1.830% at t -2.91, but the three-day weekend control is -1.712%, an edge of -0.118% at Welch t -0.17. The whole 'vol bleeds after a closure' effect IS the weekend effect. Worse for the live instance, the runway conditioner that the parked cell requires does not exist in this lane at all: 0 of 170 runway contrasts reach a t of 2.5 and only 2 reach 2.0, against about 8 expected by chance, and the short-runway half that is live today is -0.98% at t -0.93."
+  },
+  {
+    "title": "Short GLD on a nearest-neighbour tape analogue",
+    "novelty_axis": "historical_analogue",
+    "reason": "The six neighbour constructions are two selections, and declustered to 53 independent episodes the short pays 0.8 bps, 0.2x a 4 bp round trip, on a 25-28 record with bootstrap P(mean<=0) 0.495. The apparent -0.72pp edge is relative drift only: GLD's own h=5 drift is +0.233%, so the short can lag it by seven tenths of a point and still be flat. Its only real content is a drawdown conditioner neither method names, and that parent loses - plain GLD more than 10% below its 252-day high pays the short -0.050% over 109 episodes, with a non-monotone dose response reading -0.988% one band deeper than today's -17.97% and -0.576% near the high, which is the 2026-08-10 silver U-shape reproduced on gold. Shifting the anchor five sessions reshuffles all 50 neighbours and gives +0.005%, and six of seven anchor shifts make the short negative."
+  },
+  {
+    "title": "Short XLE on a nearest-neighbour tape analogue",
+    "novelty_axis": "historical_analogue",
+    "reason": "The short loses money and the mechanism is refuted on its own sub-state. Declustered to 53 independent episodes it pays -0.262% (25-28), -5.2x cost; -0.329% in Method A's widest set and -0.340% in Method B's episodes, positive only in the N=10 and N=20 sets the lane itself disclosed as about 45% year-2018. Splitting by XLE's own 21-day rank, the 9 episodes that match today's energy leadership pay the short -1.299%, against -0.050% on the 44 that do not, so 'fade the leadership' is falsified exactly where it is named. The reference class gives permutation P 0.765 for max-of-9 sectors, and Method B's day-level +0.464% is 115% two calendar months, inverting to -1.010% at a 63-session gap. Book overlap is additive rather than distinct: 12 of 12 energy ledger signals around these episodes were SHORT at avgR +0.626."
+  }
+]

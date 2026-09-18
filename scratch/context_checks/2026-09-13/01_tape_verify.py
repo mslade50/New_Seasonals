@@ -1,0 +1,34 @@
+"""Verify Friday 2026-09-11 headline bars, screen commodity moves for roll seams,
+and list ^VIX bars that sit on non-NYSE dates (the phantom-bar fault carried from 09-08)."""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+import pandas as pd
+from pitch_lab import load_prices
+
+TK = ['SPY', '^GSPC', 'QQQ', 'IWM', 'DIA', 'TLT', 'IEF', 'LQD', 'HYG', '^TNX', '^FVX', '^IRX',
+      '^VIX', '^VIX3M', '^VVIX', '^MOVE', 'CL=F', 'GC=F', 'PA=F', 'KC=F', 'SB=F', 'CT=F',
+      'ZC=F', 'ZS=F', 'NG=F', 'JPY=X', 'EEM', 'EWJ']
+px = load_prices(TK)
+
+print(f"{'tk':10} {'date':11} {'close':>10} {'ret1d%':>8} {'gap%':>8} {'vol':>12} {'vol20med':>12} {'volratio':>8} {'52wHi%':>8}")
+for t in TK:
+    d = px.get(t)
+    if d is None or d.empty:
+        print(f"{t:10} MISSING")
+        continue
+    d = d.dropna(subset=['Close'])
+    c = d['Close']
+    ret = (c.iloc[-1] / c.iloc[-2] - 1) * 100
+    gap = (d['Open'].iloc[-1] / c.iloc[-2] - 1) * 100
+    v = d['Volume'].iloc[-1]
+    vm = d['Volume'].iloc[-21:-1].median()
+    vr = v / vm if vm and vm == vm and vm > 0 else float('nan')
+    hi = (c.iloc[-1] / c.iloc[-252:].max() - 1) * 100
+    print(f"{t:10} {str(d.index[-1].date()):11} {c.iloc[-1]:10.3f} {ret:8.2f} {gap:8.2f} {v:12.0f} {vm:12.0f} {vr:8.2f} {hi:8.2f}")
+
+spy = px['SPY']['Close'].dropna().index
+vix = px['^VIX']['Close'].dropna().index
+extra = vix.difference(spy)
+print("\n^VIX bars on non-SPY dates since 2020:", [str(x.date()) for x in extra if x.year >= 2020])
+print("last 8 ^VIX bars:", [(str(i.date()), round(v, 2)) for i, v in px['^VIX']['Close'].dropna().iloc[-8:].items()])
