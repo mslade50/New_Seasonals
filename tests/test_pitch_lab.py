@@ -326,3 +326,91 @@ def test_anchor_positions_lands_on_or_after_a_non_session(late_index):
 def test_anchor_positions_handles_an_empty_index():
     pos, kept = pl.anchor_positions(pd.DatetimeIndex([]), ["2021-08-27"])
     assert pos == [] and len(kept) == 0
+
+
+# ---------------------------------------------------------------------------
+# filter vs re-anchor: the 2026-09-11 decomposition that killed watchlist 5
+# ---------------------------------------------------------------------------
+def test_filter_vs_reanchor_pure_delay_is_all_reanchoring(dates):
+    """A child that drops NO parent anchors and only delays them must book
+    its whole edge as re-anchoring, with filtering exactly zero."""
+    ret = pd.Series(0.0, index=dates)
+    p_anchors = [dates[i] for i in (10, 50, 90, 130)]
+    c_anchors = [dates[i + 3] for i in (10, 50, 90, 130)]
+    for d in c_anchors:
+        ret[d] = 0.02                      # the payoff lives at the CHILD date
+    parent = pd.Series(dates.isin(p_anchors), index=dates)
+    child = pd.Series(dates.isin(c_anchors), index=dates)
+
+    out = pl.filter_vs_reanchor(ret, parent, child, dates, window_td=21)
+    assert out["n_deleted"] == 0
+    assert out["n_matched"] == 4
+    assert out["filtering_pp"] == pytest.approx(0.0, abs=1e-9)
+    assert out["reanchoring_pp"] == pytest.approx(2.0, abs=1e-9)
+    assert out["reanchor_share"] == pytest.approx(1.0)
+    assert out["shifts"] == [3, 3, 3, 3]
+
+
+def test_filter_vs_reanchor_pure_filter_is_all_filtering(dates):
+    """A child that deletes the losing parent anchors and moves nothing must
+    book its whole edge as filtering."""
+    ret = pd.Series(0.0, index=dates)
+    good = [dates[i] for i in (10, 50)]
+    bad = [dates[i] for i in (90, 130)]
+    for d in good:
+        ret[d] = 0.02
+    for d in bad:
+        ret[d] = -0.02
+    parent = pd.Series(dates.isin(good + bad), index=dates)
+    child = pd.Series(dates.isin(good), index=dates)
+
+    out = pl.filter_vs_reanchor(ret, parent, child, dates, window_td=21)
+    assert out["n_deleted"] == 2
+    assert out["shifts"] == [0, 0]
+    assert out["reanchoring_pp"] == pytest.approx(0.0, abs=1e-9)
+    assert out["filtering_pp"] == pytest.approx(2.0, abs=1e-9)
+    assert out["deleted_pct"] == pytest.approx(-2.0)
+
+
+def test_filter_vs_reanchor_matches_forward_only(dates):
+    """A child anchor BEFORE its parent is never matched to it: the delay is
+    directional, and a backward match would invent a lookahead entry."""
+    ret = pd.Series(0.0, index=dates)
+    parent = pd.Series(dates.isin([dates[100]]), index=dates)
+    child = pd.Series(dates.isin([dates[95]]), index=dates)
+    out = pl.filter_vs_reanchor(ret, parent, child, dates, window_td=21)
+    assert out["n_matched"] == 0
+    assert out["n_deleted"] == 1
+
+
+def test_filter_vs_reanchor_respects_the_window(dates):
+    """A child anchor beyond window_td is a deletion, not a long delay."""
+    ret = pd.Series(0.0, index=dates)
+    parent = pd.Series(dates.isin([dates[100]]), index=dates)
+    child = pd.Series(dates.isin([dates[140]]), index=dates)
+    out = pl.filter_vs_reanchor(ret, parent, child, dates, window_td=21)
+    assert out["n_matched"] == 0
+    assert out["n_deleted"] == 1
+
+
+def test_reanchor_null_large_p_when_delay_is_blind(dates):
+    """If the payoff does NOT depend on which day you shift to, a random delay
+    reproduces the child and p must be large."""
+    rng = np.random.default_rng(3)
+    ret = pd.Series(rng.normal(0.0, 0.001, len(dates)), index=dates)
+    p_anchors = [dates[i] for i in range(20, 340, 20)]
+    out = pl.reanchor_null(ret, p_anchors, shifts=[1, 2, 3, 4, 5],
+                           all_dates=dates, child_mean=0.0, n_boot=400, seed=1)
+    assert 0.2 < out["p"] < 0.8
+    assert out["n_boot"] == 400
+
+
+def test_reanchor_null_small_p_when_child_beats_any_delay(dates):
+    """A child mean far above anything the shift pool can reach must return a
+    small p — the number that says the join is more than a blind delay."""
+    rng = np.random.default_rng(4)
+    ret = pd.Series(rng.normal(0.0, 0.001, len(dates)), index=dates)
+    p_anchors = [dates[i] for i in range(20, 340, 20)]
+    out = pl.reanchor_null(ret, p_anchors, shifts=[1, 2, 3],
+                           all_dates=dates, child_mean=0.05, n_boot=400, seed=1)
+    assert out["p"] == 0.0

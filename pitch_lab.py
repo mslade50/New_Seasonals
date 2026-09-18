@@ -511,6 +511,147 @@ def episode_paths(px: pd.DataFrame, dates: pd.DatetimeIndex,
 
 
 # ---------------------------------------------------------------------------
+# gate attribution: does a conjunction FILTER, or does it just RE-ANCHOR?
+# ---------------------------------------------------------------------------
+def filter_vs_reanchor(ret: pd.Series, parent: pd.Series, child: pd.Series,
+                       all_dates: pd.DatetimeIndex, window_td: int = 21,
+                       label: str = "") -> dict:
+    """Split a conjunction's edge over its parent into FILTERING and
+    RE-ANCHORING, the decomposition that killed watchlist 5 on 2026-09-11.
+
+    A child mask built by ANDing extra price conditions onto a parent does two
+    things at once, and they are not the same claim:
+
+      FILTERING     it drops some parent anchors. Value = do the dropped ones
+                    underperform the kept ones, measured at the PARENT's own
+                    dates?
+      RE-ANCHORING  it delays the rest, because a tighter rung takes longer to
+                    satisfy. Value = do the kept episodes pay more at the
+                    CHILD's later date than at the parent's?
+
+    Only the first is a filter. The second is an entry-timing rule wearing a
+    price-state costume, and on watchlist 5 it was 98% of the edge (+0.683pp
+    of +0.699pp) while filtering was worth +0.016pp. A conjunction that only
+    re-anchors should be pitched, if at all, as the delay it actually is.
+
+    `ret` is the forward return aligned to the SIGNAL date (use ``fwd_lag`` /
+    ``vehicle_ret``). `parent` and `child` are boolean masks; `child` should be
+    a subset of `parent` in intent, though it need not be exactly. Anchors are
+    matched forward only, child date >= parent date, within `window_td`.
+
+    Returns the four means, the two decomposed values, the matched pairs and
+    the shift distribution. Caller declusters the masks first if it wants
+    episode-level anchors; this function does not decluster for you.
+    """
+    pos = pd.Series(range(len(all_dates)), index=all_dates)
+    p_anchors = [d for d in all_dates[parent.reindex(all_dates, fill_value=False)
+                                      .to_numpy(dtype=bool)]]
+    c_anchors = [d for d in all_dates[child.reindex(all_dates, fill_value=False)
+                                      .to_numpy(dtype=bool)]]
+    c_pos = np.array([pos[d] for d in c_anchors], dtype=float)
+
+    pairs, deleted = [], []
+    used = set()
+    for d in p_anchors:
+        pp = pos[d]
+        cand = [i for i, q in enumerate(c_pos)
+                if 0 <= q - pp <= window_td and i not in used]
+        if cand:
+            i = cand[0]
+            used.add(i)
+            pairs.append((d, c_anchors[i], int(c_pos[i] - pp)))
+        else:
+            deleted.append(d)
+
+    def _m(dates):
+        v = ret.reindex(pd.DatetimeIndex(dates)).to_numpy(dtype=float)
+        v = v[~np.isnan(v)]
+        return float(v.mean()) if len(v) else float("nan")
+
+    kept_parent = [a for a, _, _ in pairs]
+    kept_child = [b for _, b, _ in pairs]
+    m_all_parent = _m(p_anchors)
+    m_deleted = _m(deleted)
+    m_kept_at_parent = _m(kept_parent)
+    m_kept_at_child = _m(kept_child)
+
+    filtering = m_kept_at_parent - m_all_parent
+    reanchoring = m_kept_at_child - m_kept_at_parent
+    out = {
+        "label": label,
+        "n_parent": len(p_anchors), "n_child": len(c_anchors),
+        "n_matched": len(pairs), "n_deleted": len(deleted),
+        "parent_all_pct": 100 * m_all_parent,
+        "deleted_pct": 100 * m_deleted,
+        "kept_at_parent_pct": 100 * m_kept_at_parent,
+        "kept_at_child_pct": 100 * m_kept_at_child,
+        "filtering_pp": 100 * filtering,
+        "reanchoring_pp": 100 * reanchoring,
+        "total_pp": 100 * (filtering + reanchoring),
+        "shifts": [s for _, _, s in pairs],
+        "pairs": pairs,
+        "deleted_dates": deleted,
+    }
+    share = (abs(out["reanchoring_pp"])
+             / max(abs(out["filtering_pp"]) + abs(out["reanchoring_pp"]), 1e-12))
+    out["reanchor_share"] = share
+    if label:
+        print(f"\n--- filter vs re-anchor: {label} ---")
+        print(f"  parent anchors {out['n_parent']} -> matched "
+              f"{out['n_matched']}, deleted {out['n_deleted']}")
+        print(f"  parent all      {out['parent_all_pct']:+.3f}%")
+        print(f"  deleted         {out['deleted_pct']:+.3f}%")
+        print(f"  kept @ parent   {out['kept_at_parent_pct']:+.3f}%")
+        print(f"  kept @ child    {out['kept_at_child_pct']:+.3f}%")
+        print(f"  FILTERING       {out['filtering_pp']:+.3f}pp")
+        print(f"  RE-ANCHORING    {out['reanchoring_pp']:+.3f}pp "
+              f"({100 * share:.0f}% of the moved total)")
+    return out
+
+
+def reanchor_null(ret: pd.Series, parent_anchors, shifts, all_dates,
+                  child_mean: float, n_boot: int = 5000,
+                  seed: int = 0) -> dict:
+    """P(a RANDOM delay drawn from the observed shift pool beats the cell).
+
+    The companion to ``filter_vs_reanchor``. A large re-anchoring value says
+    the conjunction delays entry; it does not yet say the delay is BLIND. This
+    resamples each parent anchor's shift from the observed pool and returns the
+    fraction of draws whose mean matches or beats ``child_mean`` (a FRACTION,
+    matching the module convention). A LARGE p means the join is nothing but a
+    delay; a SMALL p means it picked better dates than a blind delay would,
+    which is a real if narrower claim. On watchlist 5 this returned 0.0223, and
+    that number was reported beside the kill rather than omitted.
+    """
+    rng = np.random.default_rng(seed)
+    pos = pd.Series(range(len(all_dates)), index=all_dates)
+    base = np.array([pos[d] for d in parent_anchors], dtype=int)
+    vals = ret.reindex(all_dates).to_numpy(dtype=float)
+    shifts = np.asarray(shifts, dtype=int)
+    if len(base) == 0 or len(shifts) == 0:
+        return {"p": float("nan"), "n_boot": 0}
+
+    means = np.full(n_boot, np.nan)
+    for i in range(n_boot):
+        q = np.clip(base + rng.choice(shifts, size=len(base)),
+                    0, len(all_dates) - 1)
+        v = vals[q]
+        v = v[~np.isnan(v)]
+        if len(v):
+            means[i] = v.mean()
+    ok = means[~np.isnan(means)]
+    if len(ok) == 0:
+        return {"p": float("nan"), "n_boot": 0}
+    return {
+        "p": float((ok >= child_mean).mean()),
+        "n_boot": int(len(ok)),
+        "null_mean_pct": 100 * float(ok.mean()),
+        "null_p95_pct": 100 * float(np.percentile(ok, 95)),
+        "child_mean_pct": 100 * float(child_mean),
+    }
+
+
+# ---------------------------------------------------------------------------
 # watchlist (parked near-misses that carry across mornings)
 # ---------------------------------------------------------------------------
 def load_watchlist(path: Path | None = None) -> dict:
