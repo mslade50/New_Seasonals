@@ -141,6 +141,17 @@ class CommandSpec:
     argv: tuple[str, ...]
     timeout_seconds: int = 3600
     side_effecting: bool = False
+    # Exit codes a step may return without failing its job. The step reports a
+    # known, recoverable shortfall (an upstream publisher that has not rolled
+    # forward yet, say); the pipeline continues so consumers reach their own
+    # documented fallback, and the receipt records ``health_status=degraded``
+    # so the status view and health battery still show it. Never use this for
+    # an outcome a consumer cannot detect for itself.
+    degraded_exit_codes: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        if 0 in self.degraded_exit_codes:
+            raise ValueError(f"success is not a degraded exit code: {self.label}")
 
 
 @dataclass(frozen=True)
@@ -276,12 +287,14 @@ def _py(
     *args: str,
     timeout: int = 3600,
     side_effecting: bool = False,
+    degraded_exit_codes: tuple[int, ...] = (),
 ) -> CommandSpec:
     return CommandSpec(
         label=label,
         argv=("{python}", *args),
         timeout_seconds=timeout,
         side_effecting=side_effecting,
+        degraded_exit_codes=degraded_exit_codes,
     )
 
 
@@ -355,6 +368,29 @@ def build_catalog() -> dict[str, PipelineSpec]:
         "--required",
         timeout=300,
     )
+    # The breadth observation database is canonical R2 state, exactly like the
+    # fragility series: a pinned runtime that has never collected must hydrate
+    # it or it would start an empty store and export nothing.
+    pull_breadth = (
+        _py(
+            "pull canonical breadth observation database",
+            "scripts/automation_supervisor.py",
+            "_r2-download",
+            "market_breadth.sqlite",
+            "data/market_breadth.sqlite",
+            "--required",
+            timeout=600,
+        ),
+        _py(
+            "pull canonical breadth history",
+            "scripts/automation_supervisor.py",
+            "_r2-download",
+            "market_breadth.parquet",
+            "data/market_breadth.parquet",
+            "--required",
+            timeout=300,
+        ),
+    )
 
     premarket = PipelineSpec(
         id="premarket",
@@ -395,6 +431,39 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 required_env=R2_ENV,
                 rerun_safe=True,
                 outputs=(_out("data/cboe_putcall.parquet", "cboe_putcall.parquet", minimum=512),),
+            ),
+            JobSpec(
+                id="breadth_am",
+                description="Re-collect the prior session's NYSE diary for amendments",
+                commands=(
+                    *pull_breadth,
+                    # No --wait-minutes: by 04:10 ET the diary has been up for
+                    # twelve hours, and this run exists to catch an AMENDED
+                    # count, not to wait for a first publication. --allow-stale
+                    # covers the case where the publisher has still not rolled
+                    # (nothing new is stored and the run is a clean no-op), so
+                    # exit 2 is unreachable here and no degraded code is declared.
+                    _py(
+                        "collect WSJ market breadth (amendments)",
+                        "scripts/collect_market_breadth.py",
+                        "--allow-stale",
+                        "--publish",
+                        timeout=900,
+                        side_effecting=True,
+                    ),
+                ),
+                # Local-only, like harvest_fills: the collector is a single
+                # public HTTP read whose value is being on the machine that
+                # owns the canonical store, and a GitHub runner adds a second
+                # writer for no recovery benefit.
+                required_env=R2_ENV,
+                rerun_safe=True,
+                outputs=(
+                    _out("data/market_breadth.parquet", "market_breadth.parquet",
+                         minimum=10_000, recent=False),
+                    _out("data/market_breadth.sqlite", "market_breadth.sqlite",
+                         minimum=100_000, recent=False),
+                ),
             ),
             JobSpec(
                 id="master_prices_am",
@@ -681,6 +750,44 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 required_env=R2_ENV,
                 rerun_safe=True,
                 outputs=(_out("data/master_prices.parquet", "master_prices.parquet", minimum=1_000_000),),
+            ),
+            JobSpec(
+                id="breadth_pm",
+                description="Collect today's NYSE diary before the dial is scored",
+                commands=(
+                    *pull_breadth,
+                    # Runs BEFORE risk_pm so the evening dial carries the NYSE
+                    # floor on the same day. The diary publishes around 16:15
+                    # ET, so it is normally up already; the wait covers a late
+                    # publication. Exit 2 (still the prior session) is declared
+                    # degraded rather than fatal: nyse_risk already blanks the
+                    # EMA on a missing session and risk_pm scores the base
+                    # dial, which is the behaviour this job exists to shorten,
+                    # not a state it may block the pipeline over.
+                    _py(
+                        "collect WSJ market breadth",
+                        "scripts/collect_market_breadth.py",
+                        "--wait-minutes",
+                        "20",
+                        "--publish",
+                        timeout=2400,
+                        side_effecting=True,
+                        degraded_exit_codes=(2,),
+                    ),
+                ),
+                required_env=R2_ENV,
+                rerun_safe=True,
+                outputs=(
+                    _out("data/market_breadth.parquet", "market_breadth.parquet",
+                         minimum=10_000, recent=False),
+                    _out("data/market_breadth.sqlite", "market_breadth.sqlite",
+                         minimum=100_000, recent=False),
+                ),
+                # Deliberately NOT a dependency of risk_pm and not dependent on
+                # master_prices_pm: the diary is independent of the price
+                # cache, and the store should keep advancing even on an evening
+                # when prices fail. Position in this tuple is what puts it
+                # ahead of risk_pm; depends_on is what would block it.
             ),
             JobSpec(
                 id="risk_pm",
@@ -2454,6 +2561,7 @@ class AutomationSupervisor:
         child_env.update(job.env_overrides)
         logger.line(f"start {job.id}: {job.description}; token={token}")
         indeterminate_marked = False
+        degraded_steps: list[str] = []
         try:
             self._preflight(job)
             for command in job.commands:
@@ -2504,7 +2612,15 @@ class AutomationSupervisor:
                     logger=logger,
                 )
                 if rc != 0:
-                    raise AutomationError(f"{command.label} exited {rc}")
+                    if rc not in command.degraded_exit_codes:
+                        raise AutomationError(f"{command.label} exited {rc}")
+                    # A declared shortfall, not a failure: the step reported a
+                    # recoverable gap its consumers already fall back on. The
+                    # receipt below carries it as degraded coverage.
+                    degraded_steps.append(f"{command.label} exited {rc} (declared degraded)")
+                    logger.line(
+                        f"WARNING: {command.label} exited {rc}; continuing with degraded coverage"
+                    )
             if job.outputs:
                 if self.validator is None:
                     raise ValidationError("output validator is required for producer jobs")
@@ -2526,6 +2642,9 @@ class AutomationSupervisor:
             )
             from scripts.producer_health import inspect_health
             health, health_detail = inspect_health(job.commands, self.repo_root, started)
+            if degraded_steps:
+                health = "degraded"
+                health_detail = "; ".join([*filter(None, [health_detail]), *degraded_steps])
             success = dataclasses.replace(success, health_status=health, detail=health_detail,
                 artifact_evidence=list(getattr(self.validator, "evidence", [])) if job.outputs else None)
             self.receipts.transition(success, update_latest=True)
@@ -2691,6 +2810,11 @@ def render_plan(pipeline: PipelineSpec, *, python_executable: str = "python") ->
             argv = [python_executable if v == "{python}" else v for v in command.argv]
             display = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
             lines.append(f"      {command.label}: {display}")
+            if command.degraded_exit_codes:
+                lines.append(
+                    "        non-blocking exit codes (receipt records degraded): "
+                    + ", ".join(str(code) for code in command.degraded_exit_codes)
+                )
         if job.required_env:
             lines.append("      required env names: " + ", ".join(job.required_env))
         if job.env_overrides:

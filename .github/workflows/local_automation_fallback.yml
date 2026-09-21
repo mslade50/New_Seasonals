@@ -55,7 +55,7 @@ permissions:
 # checkout, and producer workflow dispatches resolve the same immutable tag.
 # Private-site builds use current main so scheduled refreshes retain site repairs.
 env:
-  AUTOMATION_RUNTIME_REF: automation-runtime-2026-09-18.cboe-guard
+  AUTOMATION_RUNTIME_REF: automation-runtime-2026-09-21.breadth
 
 jobs:
   dispatch-missing:

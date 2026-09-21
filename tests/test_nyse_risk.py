@@ -207,6 +207,13 @@ def test_production_fire_set_replicates_the_smoothing_study():
     # the longest lookback in its grid (21 sessions).
     eligible = (distance.notna() & spy.notna()
                 & net.notna().astype(int).rolling(21, min_periods=21).min().eq(1))
+    # ... and on its own sample, which ends at the last session it scored.
+    # Breadth is now collected twice a trading day, so counting sessions the
+    # study never saw would turn a frozen replication into a moving target
+    # that goes red on every new fire day (first hit 2026-09-18, 245 vs 244).
+    study_end = pd.read_csv(STUDY / "last30_sessions.csv", parse_dates=[0],
+                            index_col=0).index.max()
+    eligible &= spy.index <= study_end
     pos = np.flatnonzero((fired & eligible).to_numpy())
     assert pos.size == 244
     episodes = 1 + sum(1 for j in range(1, pos.size) if pos[j] - pos[j - 1] >= 10)

@@ -1235,3 +1235,132 @@ def test_backup_workflow_inputs_match_master_and_cboe_dispatch_contracts():
     assert jobs["master_prices_pm"].workflow.input_dict() == {"mode": "pm"}
     assert jobs["cboe_am"].workflow.input_dict() == {}
     assert jobs["cboe_pm"].workflow.input_dict() == {}
+
+
+def _job_order(pipeline_id: str) -> list[str]:
+    return [job.id for job in sup.CATALOG[pipeline_id].jobs]
+
+
+def test_breadth_collection_runs_before_the_dial_is_scored():
+    """The whole point of the component is its position.
+
+    Post-close it must land between the price refresh and risk_pm, so the
+    evening dial carries the same day's NYSE floor. Pre-market it must land
+    after the put/call refresh and before the risk correction.
+    """
+    postclose = _job_order("postclose")
+    assert postclose.index("master_prices_pm") < postclose.index("breadth_pm")
+    assert postclose.index("breadth_pm") < postclose.index("risk_pm")
+
+    premarket = _job_order("premarket")
+    assert premarket.index("cboe_am") < premarket.index("breadth_am")
+    assert premarket.index("breadth_am") < premarket.index("risk_am")
+
+
+def test_breadth_is_ordered_ahead_of_risk_without_being_able_to_block_it():
+    jobs = {
+        job.id: job
+        for pipeline in sup.CATALOG.values()
+        for job in pipeline.jobs
+    }
+    # A dependency here would let a missing diary block the dial entirely,
+    # which is strictly worse than the unfloored score it already falls back
+    # to. Ordering sequences the jobs; depends_on is what would block them.
+    assert "breadth_pm" not in jobs["risk_pm"].depends_on
+    assert "breadth_am" not in jobs["risk_am"].depends_on
+    assert jobs["breadth_pm"].depends_on == ()
+    assert jobs["breadth_am"].depends_on == ()
+    # Local-only, like harvest_fills: no second writer for a public HTTP read.
+    assert jobs["breadth_pm"].workflow is None
+    assert jobs["breadth_am"].workflow is None
+    assert jobs["breadth_pm"].rerun_safe and jobs["breadth_am"].rerun_safe
+
+
+def test_breadth_jobs_hydrate_the_canonical_store_and_publish_it():
+    jobs = {
+        job.id: job
+        for pipeline in sup.CATALOG.values()
+        for job in pipeline.jobs
+    }
+    for job_id, expected in [("breadth_pm", ("--wait-minutes", "20")),
+                             ("breadth_am", ("--allow-stale",))]:
+        job = jobs[job_id]
+        flattened = [value for command in job.commands for value in command.argv]
+        assert "market_breadth.sqlite" in flattened
+        assert "market_breadth.parquet" in flattened
+        assert "scripts/collect_market_breadth.py" in flattened
+        assert "--publish" in flattened
+        for token in expected:
+            assert token in flattened
+        assert {spec.r2_key for spec in job.outputs} == {
+            "market_breadth.parquet", "market_breadth.sqlite"}
+        # A no-change collection legitimately re-uploads nothing, so the
+        # validator checks identity against R2 rather than upload recency.
+        assert not any(spec.require_recent_upload for spec in job.outputs)
+
+    # Only the post-close run can be short of a session it expected.
+    assert jobs["breadth_pm"].commands[-1].degraded_exit_codes == (2,)
+    assert jobs["breadth_am"].commands[-1].degraded_exit_codes == ()
+
+
+def test_declared_degraded_exit_code_continues_the_run_and_marks_the_receipt(tmp_path):
+    job = sup.JobSpec(
+        id="component",
+        description="component",
+        commands=(
+            sup.CommandSpec("shortfall", ("{python}", "tool.py"),
+                            degraded_exit_codes=(2,)),
+            sup.CommandSpec("after", ("{python}", "after.py")),
+        ),
+        rerun_safe=True,
+    )
+    dependent = sup.JobSpec(
+        id="consumer",
+        description="consumer",
+        commands=(sup.CommandSpec("consume", ("{python}", "consume.py")),),
+    )
+    pipeline = sup.PipelineSpec(
+        "test", "test", "weekdays", dt.time(1), dt.time(2), dt.time(3),
+        (job, dependent),
+    )
+    process = FakeProcess([2, 0, 0])
+    receipts = sup.InMemoryReceiptStore()
+    supervisor = _supervisor(tmp_path, pipeline, process, FakeDispatcher(),
+                             receipts=receipts)
+
+    with _logger(tmp_path) as logger:
+        outcomes = supervisor.run_pipeline(
+            "test", run_date="2026-08-27", allow_fallback=True, logger=logger)
+
+    assert [outcome.status for outcome in outcomes] == ["success", "success"]
+    # The step after the shortfall still ran, and so did the next job.
+    assert [call["argv"][-1] for call in process.stream_calls] == [
+        "tool.py", "after.py", "consume.py"]
+    latest = receipts.latest("2026-08-27", "component")
+    assert latest.status == "success" and latest.health_status == "degraded"
+    assert "exited 2" in latest.detail
+    assert sup.effective_status(
+        latest, dt.datetime(2026, 8, 27, 12, 0, tzinfo=dt.timezone.utc)) == "degraded"
+
+
+def test_an_undeclared_exit_code_still_fails_the_job(tmp_path):
+    job = sup.JobSpec(
+        id="component",
+        description="component",
+        commands=(sup.CommandSpec("shortfall", ("{python}", "tool.py"),
+                                  degraded_exit_codes=(2,)),),
+        rerun_safe=True,
+    )
+    pipeline = sup.PipelineSpec(
+        "test", "test", "weekdays", dt.time(1), dt.time(2), dt.time(3), (job,))
+    supervisor = _supervisor(tmp_path, pipeline, FakeProcess([3]), FakeDispatcher())
+
+    with _logger(tmp_path) as logger:
+        outcomes = supervisor.run_pipeline(
+            "test", run_date="2026-08-27", allow_fallback=True, logger=logger)
+    assert outcomes[0].status == "failure"
+
+
+def test_success_is_never_a_degraded_exit_code():
+    with pytest.raises(ValueError):
+        sup.CommandSpec("bad", ("{python}", "tool.py"), degraded_exit_codes=(0,))

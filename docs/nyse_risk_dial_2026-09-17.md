@@ -44,22 +44,95 @@ distinct revisions. WSJ observations supply the canonical series from
 September 17; overlapping earlier WSJ observations are retained for comparison
 without replacing the workbook's historical research inputs.
 
-Collect the rendered public WSJ Markets Diary:
-https://www.wsj.com/market-data/stocks/marketsdiary
+The source is the dated **Diaries / Latest Close** column for **NYSE** and
+**NASDAQ** on https://www.wsj.com/market-data/stocks/marketsdiary. Never
+substitute NYSE American, NYSE Arca, previous close or weekly totals.
 
-Read the dated **Diaries / Latest Close** column for **NYSE** and **NASDAQ**.
-Do not substitute NYSE American, NYSE Arca, previous close or weekly totals.
-Direct HTTP returned 403 during setup; use the supported in-app browser, which
-successfully displayed the data. Do not bypass access controls.
+### Automated collection (primary, 2026-09-21)
 
-Save JSON with `source_url`, `column: "Latest Close"`, `date` (ISO session),
+`scripts/collect_market_breadth.py` reads the public JSON document the diary
+page renders itself from, with a browser User-Agent and a short timeout. No
+cookie, login or paywall is involved. An earlier note here recorded a 403 on
+direct HTTP; that applied to the rendered HTML page, not to this endpoint,
+and nothing about this path bypasses access control. An endpoint that refuses
+us is an error to report, never something to work around.
+
+The collector requests `marketsDiaryType=diaries`, which is exactly the table
+this document already specified. `marketsDiaryType=overview` is deliberately
+NOT used: its "Issues At" block agrees with the diary on NYSE but not on
+NASDAQ (2026-09-18: overview 72/244, diary 81/246), and it timestamps its own
+publication ("4:15 PM EDT 9/18/26") rather than naming the session. The
+diaries set names the session in full ("Friday, September 18, 2026"), and
+that label is the only date the collector trusts.
+
+It builds the same observation payload a manual capture would, then imports
+through `scripts/maintain_market_breadth.py`, so every rule below applies
+unchanged: the source and column check, the trading-session check, the
+timezone-aware capture timestamp, the both-zero quarantine and the
+digest-keyed revision retention. Identical counts for a session already
+stored are a no-op; different counts insert a revision and the export takes
+the latest observation per session.
+
+Cadence is twice a trading day, inside the local-primary pipelines:
+
+| Component | Pipeline | Position | Flags |
+|---|---|---|---|
+| `breadth_pm` | postclose 17:10 ET | after `master_prices_pm`, before `risk_pm` | `--wait-minutes 20 --publish` |
+| `breadth_am` | premarket 04:10 ET | after `cboe_am`, before `risk_am` | `--allow-stale --publish` |
+
+The post-close run exists so the EVENING dial carries the same day's NYSE
+floor. Before it, `nyse_risk` blanked the EMA whenever the newest SPY session
+had no breadth row, so the 17:10 risk run always scored an unfloored dial and
+only the next morning's correction added the floor. The pre-market run exists
+for AMENDMENTS: the diary publishes around 16:15 ET and the published counts
+can be revised overnight, so the second pull re-reads the same session and
+inserts a revision if anything moved.
+
+Expected session defaults to the most recent completed NYSE session on the
+Eastern clock, which is today after 17:00 ET and the previous session before
+it, matching the importer's own rule. One flag set therefore serves both runs.
+
+Exit codes: 0 stored a new observation or a revision, or the expected session
+is already current; 2 the diary still serves an earlier session and
+`--allow-stale` was not set; 1 network, parse or validation failure. Exit 2 is
+declared non-blocking in the supervisor catalog. The job records
+`health_status=degraded` on its receipt, the run continues, and `risk_pm`
+scores the base dial exactly as it did before this work. Blocking the dial on
+a missing diary would be strictly worse than the unfloored score it already
+falls back to.
+
+Both `market_breadth.parquet` and `market_breadth.sqlite` are canonical R2
+objects. The pinned runtime has never collected by hand, so each run hydrates
+the database from R2 before importing and republishes it afterwards; the
+digest-named immutable backups are unaffected. `--publish` republishes even on
+a no-op run, which is what guarantees the canonical database key exists for a
+machine starting from nothing. One store, two machines, last write wins, with
+the export's canonical-date subset check refusing any publication that would
+lose sessions.
+
+`scripts/repo_health_check.py` carries both components and a
+`data:breadth-alignment` check: the newest breadth session must equal the
+newest SPY session. One session behind is the documented degraded window; two
+or more is a FAIL.
+
+### Manual capture (fallback)
+
+Read the same **Diaries / Latest Close** column in the in-app browser and save
+JSON with `source_url`, `column: "Latest Close"`, `date` (ISO session),
 `observed_at` (timezone-aware capture timestamp), integer `nyse_highs`,
-`nyse_lows`, `nasdaq_highs`, `nasdaq_lows`, and `visible_evidence` containing the
-visible session/exchange labels and count text. Import with
+`nyse_lows`, `nasdaq_highs`, `nasdaq_lows`, and `visible_evidence` containing
+the visible session/exchange labels and count text. Import with
 `scripts/maintain_market_breadth.py --observation PATH --db DB --export PARQUET`.
-`--publish` adds an immutable SQLite backup and verified canonical parquet to
-R2. No missing observation is filled forward. A stale or malformed capture
-fails before insertion; historical source observations remain available.
+`--publish` adds an immutable SQLite backup and the verified canonical parquet
+and database to R2. No missing observation is filled forward. A stale or
+malformed capture fails before insertion; historical source observations
+remain available.
+
+`validate_wsj` gained one opt-in relaxation, `allow_prior_session`, used only
+by the collector's `--allow-stale` path: a diary describing an EARLIER session
+than the newest completed one may be stored under the date the diary itself
+names. A diary dated ahead of the capture clock is still refused, as is every
+other rule. The default is unchanged, so the manual path behaves as before.
 
 September 16 overlap: workbook NYSE 43 highs / 204 lows (-161), WSJ 46 / 204
 (-158); Nasdaq workbook 71 / 393 (-322), WSJ 84 / 396 (-312). Both exchanges
