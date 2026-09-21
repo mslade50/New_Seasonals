@@ -277,6 +277,14 @@ after the EMA5 change and show the same vintage.
   republished again after the fast-forward, and from the 2026-09-19 04:10 ET
   collection the guard skips non-session dates at the source and purges any
   polluted copy on load.
+- Breadth automation (2026-09-21, main `52d63b21`): cherry-picked onto the
+  runtime line as `bced4ec4`, tagged `automation-runtime-2026-09-21.breadth`,
+  v9 worktree fast-forwarded at 10:45 UTC, marker `breadth_release_at_utc`,
+  fallback pin updated. First scheduled runs: `breadth_pm` 2026-09-21 17:10 ET
+  (the first evening dial expected to carry the floor the same day) and
+  `breadth_am` 2026-09-22 04:10 ET. The 2026-09-18 row went 80.558 (PM,
+  unfloored) to 84.175 after the 2026-09-21 AM correction, which is the
+  pattern the collector removes.
 - First post-close run under the EMA5 basis, 2026-09-18 17:10 ET, verified:
   metadata `main_score_basis = nyse-reset-floor-v2-ema5`; 2026-09-18
   `main_score` 80.558 (63d column 72.463); 2026-09-17 unchanged at 85.039.
