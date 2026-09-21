@@ -984,6 +984,8 @@ def _completed_github_run(token, number=77):
 @pytest.mark.parametrize("pipeline,site_id,scan_id", [
     ("premarket", "private_site_am", "scan_am"),
     ("postclose", "private_site_pm", "scan_pm"),
+    ("premarket", "shared_site_am", "scan_am"),
+    ("postclose", "shared_site_pm", "scan_pm"),
 ])
 def test_private_site_uses_main_without_moving_the_following_scan_pin(tmp_path, pipeline, site_id, scan_id):
     pin = "automation-runtime-2026-09-14.1"
@@ -997,7 +999,7 @@ def test_private_site_uses_main_without_moving_the_following_scan_pin(tmp_path, 
             dispatcher.dispatch_and_wait(jobs[job_id].workflow, automation_token=token, logger=logger)
     calls = [call for call in process.capture_calls if call[:3] == ["gh", "workflow", "run"]]
     assert len(calls) == 2
-    assert calls[0][3] == "deploy_site.yml" and calls[0][calls[0].index("--ref") + 1] == "main"
+    assert calls[0][3] == jobs[site_id].workflow.workflow and calls[0][calls[0].index("--ref") + 1] == "main"
     assert calls[1][3] == "daily_screener.yml" and calls[1][calls[1].index("--ref") + 1] == pin
     assert dispatcher.ref == pin
     assert "automation_token=site-token" in calls[0] and "automation_token=scan-token" in calls[1]
@@ -1007,7 +1009,7 @@ def test_private_site_uses_main_without_moving_the_following_scan_pin(tmp_path, 
 
 @pytest.mark.parametrize("workflow", sorted({
     job.workflow.workflow for pipeline in sup.CATALOG.values() for job in pipeline.jobs
-    if job.workflow and job.workflow.workflow != "deploy_site.yml"
+    if job.workflow and job.workflow.workflow not in sup.SITE_WORKFLOWS_ON_MAIN
 }))
 def test_every_non_private_site_workflow_retains_the_runtime_pin(tmp_path, workflow):
     pin = "automation-runtime-2026-09-14.1"

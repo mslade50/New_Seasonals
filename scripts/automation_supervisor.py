@@ -154,6 +154,12 @@ class CommandSpec:
             raise ValueError(f"success is not a degraded exit code: {self.label}")
 
 
+# Cloud site builds dispatch on main, never on the runtime pin: the shared
+# Denali site was rebuilt from the pin on 2026-09-18 and 2026-09-21 and lost
+# its Risk tab until redeployed by hand (site assets live on main only).
+SITE_WORKFLOWS_ON_MAIN = frozenset({"deploy_site.yml", "deploy_shared_seasonals.yml"})
+
+
 @dataclass(frozen=True)
 class WorkflowSpec:
     workflow: str
@@ -2107,7 +2113,7 @@ class GithubDispatcher:
             "--ref",
             # Site refreshes must retain released frontend repairs. Producer
             # and strategy workflows continue to use the tested runtime pin.
-            "main" if workflow.workflow == "deploy_site.yml" else self.ref,
+            "main" if workflow.workflow in SITE_WORKFLOWS_ON_MAIN else self.ref,
             "-f",
             f"automation_token={automation_token}",
         ]
