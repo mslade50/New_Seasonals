@@ -25,8 +25,14 @@ sys.path.insert(0, str(ROOT))
 
 from episodic_pivot.config import DEFAULT_POLICY
 from episodic_pivot.daily_prices import calculate_prior_daily_metrics
-from episodic_pivot.premarket import nominate_candidates
+from episodic_pivot.manifest import sha256_file
+from episodic_pivot.premarket import nominate_candidates, premarket_move_is_verified
 from episodic_pivot.schema import PremarketSnapshot, parse_timestamp
+from episodic_pivot.tradingview import (
+    RESULT_COUNT_IBKR_SEED,
+    import_tradingview_csv,
+    result_counts_are_verified,
+)
 
 _NY = ZoneInfo("America/New_York")
 _MARKET_DATA_STATUS = {
@@ -37,6 +43,13 @@ _MARKET_DATA_STATUS = {
 }
 _DAILY_WHAT_TO_SHOW = "ADJUSTED_LAST"
 _DAILY_PRICE_BASIS = "IBKR_ADJUSTED_LAST"
+_AUTO_PORTS = (7496, 4001, 7497, 4002)
+_IBKR_RECORD_TYPE = "EP_IBKR_PREMARKET_CAPTURE_V1"
+_TRADINGVIEW_SCREEN_BY_SESSION = {
+    "premarket": "yftOvM3e",
+    "after_hours": "Hqgnyp7Y",
+}
+_REFRESH_TARGET_RECORD_TYPE = "EP_RESEARCH_QUOTE_REFRESH_TARGETS_V1"
 
 
 def _finite(value, default=0.0):  # type: ignore[no-untyped-def]
@@ -76,6 +89,99 @@ def _exchange_key(value: str) -> str:
         "NASDAQCM": "NASDAQ",
     }
     return aliases.get(token, token)
+
+
+def _port_candidates(value: object) -> tuple[int, ...]:
+    token = str(value).strip().lower()
+    if token == "auto":
+        return _AUTO_PORTS
+    try:
+        port = int(token)
+    except ValueError as exc:
+        raise ValueError("--port must be 'auto' or a TCP port") from exc
+    if port < 1 or port > 65_535:
+        raise ValueError("--port must be between 1 and 65535")
+    return (port,)
+
+
+def _connect_read_only(
+    ib_factory,  # type: ignore[no-untyped-def]
+    *,
+    host: str,
+    ports: tuple[int, ...],
+    client_id: int,
+    attempted_ports: list[int] | None = None,
+):  # type: ignore[no-untyped-def]
+    failures: list[tuple[int, str]] = []
+    for port in ports:
+        if attempted_ports is not None:
+            attempted_ports.append(port)
+        ib = ib_factory()
+        try:
+            ib.connect(
+                host,
+                port,
+                clientId=client_id,
+                readonly=True,
+                timeout=10,
+            )
+            if not ib.isConnected():
+                raise ConnectionError("IBKR client did not enter connected state")
+            return ib, port
+        except Exception as exc:  # noqa: BLE001 - bounded local endpoint fallback.
+            failures.append((port, type(exc).__name__))
+            if ib.isConnected():
+                ib.disconnect()
+    summary = ", ".join(f"{port}:{kind}" for port, kind in failures)
+    raise ConnectionError(f"no read-only IBKR API endpoint connected ({summary})")
+
+
+def _subscribe_market_data_batch(ib, items, errors):  # type: ignore[no-untyped-def]
+    """Subscribe independently so one rejected line preserves sibling quotes."""
+
+    ticker_by_conid = {}
+    subscribed_contracts = []
+    for item in items:
+        contract = item["contract"]
+        try:
+            ticker = ib.reqMktData(
+                contract,
+                genericTickList="",
+                snapshot=False,
+                regulatorySnapshot=False,
+            )
+            subscribed_contracts.append(contract)
+            # ib_insync initializes this field to LIVE (1) before any callback.
+            # Reset it so only an explicit IBKR callback can satisfy the gate.
+            ticker.marketDataType = 0
+            ticker_by_conid[contract.conId] = ticker
+        except Exception as exc:  # noqa: BLE001 - preserve partial batch.
+            errors.append(
+                {
+                    "symbol": contract.symbol,
+                    "error": f"MARKET_DATA_SUBSCRIPTION_FAILED:{type(exc).__name__}",
+                }
+            )
+    return ticker_by_conid, subscribed_contracts
+
+
+def _cancel_market_data_batch(
+    ib,
+    contracts,
+    errors,  # type: ignore[no-untyped-def]
+) -> None:
+    """Cancel each successful subscription without masking usable siblings."""
+
+    for contract in contracts:
+        try:
+            ib.cancelMktData(contract)
+        except Exception as exc:  # noqa: BLE001 - preserve partial batch.
+            errors.append(
+                {
+                    "symbol": contract.symbol,
+                    "error": f"MARKET_DATA_CANCEL_FAILED:{type(exc).__name__}",
+                }
+            )
 
 
 def _round_robin_keys(
@@ -149,10 +255,9 @@ def _premarket_metrics(bars, session_date, previous_close: float | None = None):
     if previous_close and previous_close > 0:
         cumulative_volume = frame["volume"].cumsum()
         gap_pct = 100.0 * (frame["close"] / previous_close - 1.0)
-        move_dollars = frame["close"] - previous_close
-        triggered = (cumulative_volume >= 100_000) & (
-            (gap_pct.abs() >= 2.0) | (move_dollars.abs() >= 0.90)
-        )
+        triggered = (
+            cumulative_volume >= DEFAULT_POLICY.discovery.min_premarket_volume
+        ) & (gap_pct.abs() >= DEFAULT_POLICY.discovery.min_abs_gap_pct)
         if triggered.any():
             first_trigger_at = (
                 frame.index[triggered][0]
@@ -181,7 +286,172 @@ def _load_target_rows(path: Path) -> tuple[list[dict], str]:
     return _load_target_rows_unfiltered(path)
 
 
-def _load_target_rows_many(paths: list[Path]) -> tuple[list[dict], str, int]:
+def _load_refresh_source_manifests(paths: list[Path]) -> dict[str, dict]:
+    manifests: dict[str, dict] = {}
+    for path in paths:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise TypeError("refresh source manifest must be an object")
+        run_id = str(raw.get("run_id", "")).strip()
+        search_provider = str(raw.get("search_provider", "")).strip()
+        safety = raw.get("safety")
+        if (
+            raw.get("schema_version") != 2
+            or not run_id
+            or path.resolve().parent.name != run_id
+            or not search_provider
+            or search_provider.upper().startswith("OFFLINE")
+            or not isinstance(safety, dict)
+            or safety.get("research_only") is not True
+            or safety.get("live_actions_enabled") is not False
+            or str(safety.get("broker_route", "")).upper() != "NONE"
+            or safety.get("order_submission_allowed") is not False
+        ):
+            raise ValueError(
+                "refresh source manifest identity, network provenance, or safety is invalid"
+            )
+        if run_id in manifests:
+            raise ValueError(f"duplicate refresh source manifest: {run_id}")
+        manifests[run_id] = {"path": str(path.resolve()), "payload": raw}
+    return manifests
+
+
+def _verify_refresh_target_manifest(
+    *,
+    target_path: Path,
+    target_session_date: str,
+    source_run_id: str,
+    source_manifests: dict[str, dict],
+) -> None:
+    record = source_manifests.get(source_run_id)
+    if not record:
+        raise ValueError("refresh target requires its source run manifest")
+    manifest = record["payload"]
+    artifact = (manifest.get("artifacts") or {}).get("refresh_targets.json")
+    if not isinstance(artifact, dict):
+        raise TypeError("source manifest is missing refresh_targets.json")
+    if (
+        artifact.get("sha256") != sha256_file(target_path)
+        or int(artifact.get("size_bytes", -1)) != target_path.stat().st_size
+    ):
+        raise ValueError("refresh target digest does not match its source manifest")
+    if not source_run_id.startswith(f"EP-RUN-{target_session_date}-"):
+        raise ValueError("refresh target session date does not match source run")
+
+
+def _validated_target_wrapper(
+    path: Path,
+    raw: object,
+    *,
+    source_manifests: dict[str, dict] | None = None,
+) -> tuple[list[dict], str, dict[str, str]]:
+    """Accept only immutable TradingView imports or safe research refresh lists."""
+
+    if not isinstance(raw, dict) or not isinstance(raw.get("snapshots"), list):
+        raise TypeError("target input must be a normalized snapshot object")
+    rows = raw["snapshots"]
+    provider = str(raw.get("provider", "")).strip().upper()
+    record_type = str(raw.get("record_type", "")).strip().upper()
+    if provider == "TRADINGVIEW":
+        wrapper_session = str(raw.get("session", "")).strip().lower()
+        wrapper_screen = str(raw.get("saved_screen_id", "")).strip()
+        extracted = raw.get("extracted_row_count")
+        seed_only = raw.get("result_count_verification") == RESULT_COUNT_IBKR_SEED
+        if seed_only:
+            # Replay the retained CSV, not just a flag supplied in JSON. This
+            # verifies the digest, identities, timestamps and unverified rows.
+            replay = import_tradingview_csv(
+                raw.get("source_file", ""),
+                session=wrapper_session,
+                captured_at=raw.get("captured_at", ""),
+                saved_screen_id=wrapper_screen,
+                reported_result_count=raw.get("reported_result_count"),
+                post_download_result_count=raw.get("post_download_result_count"),
+                allow_count_mismatch_for_ibkr=True,
+            )
+            if replay.to_dict() != raw:
+                raise ValueError("IBKR seed provenance differs from retained CSV")
+        if (
+            _TRADINGVIEW_SCREEN_BY_SESSION.get(wrapper_session) != wrapper_screen
+            or (
+                not seed_only
+                and (
+                    raw.get("result_count_verified") is not True
+                    or not result_counts_are_verified(
+                        reported_result_count=raw.get("reported_result_count"),
+                        post_download_result_count=raw.get(
+                            "post_download_result_count"
+                        ),
+                        extracted_row_count=extracted,
+                        verification_status=raw.get("result_count_verification"),
+                        require_both_observations=True,
+                    )
+                )
+            )
+            or extracted != len(rows)
+        ):
+            raise ValueError("TradingView target count/provenance is not verified")
+        for row in rows:
+            if not isinstance(row, dict):
+                raise TypeError("TradingView target rows must be objects")
+            if (
+                str(row.get("provider", "")).strip().upper() != "TRADINGVIEW"
+                or str(row.get("source", "")).strip().upper()
+                != "TRADINGVIEW_BROWSER_EXPORT"
+                or str(row.get("session", "")).strip().lower() != wrapper_session
+                or str(row.get("saved_screen_id", "")).strip() != wrapper_screen
+            ):
+                raise ValueError("TradingView target row identity differs from wrapper")
+        input_type = "TRADINGVIEW_NORMALIZED_IMPORT"
+    elif record_type == _REFRESH_TARGET_RECORD_TYPE:
+        if raw.get("schema_version") != 1:
+            raise ValueError("refresh target schema_version must be 1")
+        if (
+            raw.get("research_only") is not True
+            or str(raw.get("broker_route", "")).strip().upper() != "NONE"
+            or raw.get("order_submission_allowed") is not False
+        ):
+            raise ValueError("refresh target research-only safety sentinels failed")
+        if not str(raw.get("source_run_id", "")).strip():
+            raise ValueError("refresh target is missing source_run_id")
+        generated_at = str(raw.get("generated_at", "")).strip()
+        if not generated_at:
+            raise ValueError("refresh target is missing generated_at")
+        parse_timestamp(generated_at)
+        input_type = _REFRESH_TARGET_RECORD_TYPE
+    else:
+        raise ValueError(
+            "target input must be a validated TradingView import or "
+            f"{_REFRESH_TARGET_RECORD_TYPE}"
+        )
+
+    wrapper_date = str(raw.get("target_session_date") or "").strip()
+    if not wrapper_date and rows:
+        raise ValueError("target input is missing target_session_date")
+    if record_type == _REFRESH_TARGET_RECORD_TYPE:
+        _verify_refresh_target_manifest(
+            target_path=path,
+            target_session_date=wrapper_date,
+            source_run_id=str(raw["source_run_id"]).strip(),
+            source_manifests=source_manifests or {},
+        )
+    input_record = {
+        "path": str(path.resolve()),
+        "sha256": sha256_file(path),
+        "record_type": input_type,
+    }
+    if provider == "TRADINGVIEW" and seed_only:
+        input_record["discovery_warning"] = (
+            "TRADINGVIEW_COUNT_MISMATCH_IBKR_REVERIFIED_ONLY"
+        )
+    return rows, wrapper_date, input_record
+
+
+def _load_target_rows_many_with_provenance(
+    paths: list[Path],
+    *,
+    source_manifests: dict[str, dict] | None = None,
+) -> tuple[list[dict], str, int, list[dict[str, str]]]:
     """Merge discovery files and retain only broad EP nominations.
 
     TradingView intentionally has no percentage-move filter so it cannot miss
@@ -196,23 +466,31 @@ def _load_target_rows_many(paths: list[Path]) -> tuple[list[dict], str, int]:
     raw_count = 0
     exchanges: dict[str, set[str]] = {}
     screen_ids: dict[str, set[str]] = {}
+    input_records: list[dict[str, str]] = []
     for path in paths:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        rows = raw.get("snapshots", []) if isinstance(raw, dict) else raw
-        if not isinstance(rows, list):
-            raise TypeError("target snapshot must contain a snapshots list")
-        wrapper_date = (
-            str(raw.get("target_session_date", "")).strip()
-            if isinstance(raw, dict)
-            else ""
+        rows, wrapper_date, input_record = _validated_target_wrapper(
+            path,
+            raw,
+            source_manifests=source_manifests,
         )
         if wrapper_date:
             target_dates.add(wrapper_date)
+        input_records.append(input_record)
         raw_count += len(rows)
         for row in rows:
             if not isinstance(row, dict):
                 raise TypeError("target snapshot rows must be objects")
             snapshot = PremarketSnapshot.from_dict(row)
+            if snapshot.target_session_date != wrapper_date:
+                raise ValueError("row target_session_date differs from its wrapper")
+            if (
+                input_record["record_type"] == "TRADINGVIEW_NORMALIZED_IMPORT"
+                and snapshot.provider.strip().upper() != "TRADINGVIEW"
+            ):
+                raise ValueError(
+                    "TradingView target wrapper contains a non-TradingView row"
+                )
             snapshots.append(snapshot)
             if snapshot.target_session_date:
                 target_dates.add(snapshot.target_session_date)
@@ -238,7 +516,7 @@ def _load_target_rows_many(paths: list[Path]) -> tuple[list[dict], str, int]:
             f"conflicting target exchanges: {json.dumps(exchange_conflicts, sort_keys=True)}"
         )
     if not snapshots:
-        return [], next(iter(target_dates), ""), raw_count
+        return [], next(iter(target_dates), ""), raw_count, input_records
 
     as_of = max(parse_timestamp(item.observed_at) for item in snapshots)
     candidates = nominate_candidates(
@@ -263,7 +541,73 @@ def _load_target_rows_many(paths: list[Path]) -> tuple[list[dict], str, int]:
         }
         for candidate in candidates
     ]
-    return cleaned, next(iter(target_dates), ""), raw_count
+    return cleaned, next(iter(target_dates), ""), raw_count, input_records
+
+
+def _load_target_rows_many(
+    paths: list[Path], *, source_manifests: dict[str, dict] | None = None
+) -> tuple[list[dict], str, int]:
+    rows, session_date, raw_count, _ = _load_target_rows_many_with_provenance(
+        paths,
+        source_manifests=source_manifests,
+    )
+    return rows, session_date, raw_count
+
+
+def _target_coverage_counts(
+    rows: list[dict], *, requested_count: int, captured_at: str
+) -> dict[str, int | bool]:
+    """Count usable current quotes separately from merely serialized rows."""
+
+    verified = 0
+    for row in rows:
+        try:
+            snapshot = PremarketSnapshot.from_dict(row)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if premarket_move_is_verified(
+            snapshot,
+            as_of=captured_at,
+            max_age_seconds=DEFAULT_POLICY.discovery.premarket_metrics_max_age_seconds,
+            future_tolerance_seconds=(
+                DEFAULT_POLICY.discovery.future_timestamp_tolerance_seconds
+            ),
+            require_fresh_at_as_of=True,
+        ):
+            verified += 1
+    captured = len(rows)
+    return {
+        "captured_snapshot_count": captured,
+        "verified_current_premarket_count": verified,
+        "unverified_snapshot_count": captured - verified,
+        "unresolved_target_count": max(0, requested_count - verified),
+        "input_candidate_complete": verified == requested_count,
+    }
+
+
+def _stamp_verified_premarket_rows(rows: list[dict], *, captured_at: str) -> None:
+    """Freeze only rows that remain live/current when the artifact completes."""
+
+    for row in rows:
+        try:
+            snapshot = PremarketSnapshot.from_dict(row)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not premarket_move_is_verified(
+            snapshot,
+            as_of=captured_at,
+            max_age_seconds=DEFAULT_POLICY.discovery.premarket_metrics_max_age_seconds,
+            future_tolerance_seconds=(
+                DEFAULT_POLICY.discovery.future_timestamp_tolerance_seconds
+            ),
+            require_fresh_at_as_of=True,
+        ):
+            continue
+        row.update(
+            premarket_move_verification_status="VERIFIED",
+            premarket_move_verification_source="IBKR_TARGETED_READ_ONLY",
+            premarket_move_verified_at=captured_at,
+        )
 
 
 def _load_target_rows_unfiltered(path: Path) -> tuple[list[dict], str]:
@@ -307,7 +651,9 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Read-only IBKR EP premarket capture")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument(
-        "--port", type=int, default=7497, help="paper TWS default is 7497"
+        "--port",
+        default="auto",
+        help="IBKR API port or 'auto' (tries 7496, 4001, 7497, then 4002)",
     )
     parser.add_argument("--client-id", type=int, default=91)
     parser.add_argument(
@@ -320,6 +666,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--request-delay", type=float, default=0.25)
     parser.add_argument("--quote-wait-seconds", type=float, default=4.0)
+    parser.add_argument(
+        "--quote-batch-size",
+        type=int,
+        default=40,
+        help="maximum concurrent streaming quote subscriptions",
+    )
     parser.add_argument(
         "--scanner-code",
         action="append",
@@ -337,6 +689,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--source-manifest",
+        type=Path,
+        action="append",
+        help=(
+            "manifest.json for each EP_RESEARCH_QUOTE_REFRESH_TARGETS_V1 input; "
+            "required to bind final targets to their network research run"
+        ),
+    )
+    parser.add_argument(
         "--capture",
         action="store_true",
         help="connect read-only and write a local snapshot; default is a no-network dry run",
@@ -350,16 +711,35 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--max-captured must be between 1 and 150")
     if args.quote_wait_seconds <= 0 or args.quote_wait_seconds > 15:
         raise SystemExit("--quote-wait-seconds must be in (0, 15]")
+    if args.quote_batch_size < 1 or args.quote_batch_size > 75:
+        raise SystemExit("--quote-batch-size must be between 1 and 75")
+    try:
+        port_candidates = _port_candidates(args.port)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     target_mode = bool(args.symbols_from)
     if target_mode and args.scanner_codes:
         raise SystemExit("--symbols-from cannot be combined with --scanner-code")
     target_rows: list[dict] = []
     target_session = ""
     target_input_rows = 0
+    target_inputs: list[dict[str, str]] = []
+    try:
+        source_manifests = _load_refresh_source_manifests(
+            [path.resolve() for path in (args.source_manifest or [])]
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"invalid --source-manifest: {exc}") from exc
     if target_mode:
         try:
-            target_rows, target_session, target_input_rows = _load_target_rows_many(
-                [path.resolve() for path in args.symbols_from]
+            (
+                target_rows,
+                target_session,
+                target_input_rows,
+                target_inputs,
+            ) = _load_target_rows_many_with_provenance(
+                [path.resolve() for path in args.symbols_from],
+                source_manifests=source_manifests,
             )
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise SystemExit(f"invalid --symbols-from snapshot: {exc}") from exc
@@ -410,7 +790,9 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"refusing to overwrite existing capture: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    ib = IB()
+    ib = None
+    connected_port = None
+    attempted_ports: list[int] = []
     rows: list[dict] = []
     prepared: list[dict] = []
     errors: list[dict] = []
@@ -424,8 +806,12 @@ def main(argv: list[str] | None = None) -> int:
         else args.scanner_codes or ["TOP_PERC_GAIN", "HOT_BY_VOLUME", "MOST_ACTIVE"]
     )
     try:
-        ib.connect(
-            args.host, args.port, clientId=args.client_id, readonly=True, timeout=10
+        ib, connected_port = _connect_read_only(
+            IB,
+            host=args.host,
+            ports=port_candidates,
+            client_id=args.client_id,
+            attempted_ports=attempted_ports,
         )
         if target_mode:
             selected_records = [
@@ -607,177 +993,182 @@ def main(argv: list[str] | None = None) -> int:
                     {"symbol": contract.symbol, "error": f"{type(exc).__name__}: {exc}"}
                 )
 
-        if prepared:
+        for batch_start in range(0, len(prepared), args.quote_batch_size):
+            quote_batch = prepared[batch_start : batch_start + args.quote_batch_size]
             if datetime.now(timezone.utc).astimezone(_NY).time().replace(
                 tzinfo=None
             ) >= time(9, 25):
                 errors.append(
                     {"error": "CAPTURE_WINDOW_CLOSED_BEFORE_BATCH_QUOTE_REFRESH"}
                 )
-            else:
-                # Streaming watchlist requests are deliberate: IBKR documents
-                # output tick 49 (halted) as available only for watchlist data.
-                # A one-shot reqTickers snapshot can leave Ticker.halted as NaN.
-                ticker_by_conid = {}
-                subscribed_contracts = []
-                try:
-                    for item in prepared:
-                        contract = item["contract"]
-                        ticker_by_conid[contract.conId] = ib.reqMktData(
-                            contract,
-                            genericTickList="",
-                            snapshot=False,
-                            regulatorySnapshot=False,
-                        )
-                        # ib_insync initializes this field to LIVE (1) before
-                        # any IBKR callback.  Reset it so only an explicit
-                        # marketDataType callback can satisfy the live-data gate.
-                        ticker_by_conid[contract.conId].marketDataType = 0
-                        subscribed_contracts.append(contract)
-                    deadline = datetime.now(timezone.utc) + timedelta(
-                        seconds=args.quote_wait_seconds
+                break
+            # Streaming watchlist requests are deliberate: IBKR documents
+            # output tick 49 (halted) as available only for watchlist data.
+            # Batching stays below account market-data line limits.
+            ticker_by_conid, subscribed_contracts = _subscribe_market_data_batch(
+                ib, quote_batch, errors
+            )
+            try:
+                deadline = datetime.now(timezone.utc) + timedelta(
+                    seconds=args.quote_wait_seconds
+                )
+                while datetime.now(timezone.utc) < deadline:
+                    statuses = [
+                        _halt_status(getattr(ticker, "halted", None))[0]
+                        for ticker in ticker_by_conid.values()
+                    ]
+                    quotes_ready = all(
+                        _finite(getattr(ticker, "bid", 0)) > 0
+                        and _finite(getattr(ticker, "ask", 0)) > 0
+                        for ticker in ticker_by_conid.values()
                     )
-                    while datetime.now(timezone.utc) < deadline:
-                        statuses = [
-                            _halt_status(getattr(ticker, "halted", None))[0]
-                            for ticker in ticker_by_conid.values()
-                        ]
-                        quotes_ready = all(
-                            _finite(getattr(ticker, "bid", 0)) > 0
-                            and _finite(getattr(ticker, "ask", 0)) > 0
-                            for ticker in ticker_by_conid.values()
-                        )
-                        data_types_ready = all(
-                            int(_finite(getattr(ticker, "marketDataType", 0), 0))
-                            in _MARKET_DATA_STATUS
-                            for ticker in ticker_by_conid.values()
-                        )
-                        if (
-                            quotes_ready
-                            and data_types_ready
-                            and all(status != "UNKNOWN" for status in statuses)
-                        ):
-                            break
-                        ib.sleep(0.1)
-                finally:
-                    # Values remain on the Ticker objects after cancellation.
-                    for contract in subscribed_contracts:
-                        ib.cancelMktData(contract)
-                batch_finished = datetime.now(timezone.utc)
-                if batch_finished.astimezone(_NY).time().replace(tzinfo=None) >= time(
-                    9, 29
-                ):
+                    data_types_ready = all(
+                        int(_finite(getattr(ticker, "marketDataType", 0), 0))
+                        in _MARKET_DATA_STATUS
+                        for ticker in ticker_by_conid.values()
+                    )
+                    if (
+                        quotes_ready
+                        and data_types_ready
+                        and all(status != "UNKNOWN" for status in statuses)
+                    ):
+                        break
+                    ib.sleep(0.1)
+            except Exception as exc:  # noqa: BLE001 - retain any sibling ticker state.
+                errors.append(
+                    {
+                        "error": f"BATCH_QUOTE_WAIT_FAILED:{type(exc).__name__}",
+                        "batch_start": batch_start,
+                    }
+                )
+            finally:
+                # Values remain on the Ticker objects after cancellation.
+                _cancel_market_data_batch(ib, subscribed_contracts, errors)
+            batch_finished = datetime.now(timezone.utc)
+            if batch_finished.astimezone(_NY).time().replace(tzinfo=None) >= time(
+                9, 29
+            ):
+                errors.append(
+                    {"error": "BATCH_QUOTE_REFRESH_FINISHED_TOO_LATE; rows discarded"}
+                )
+                break
+            for item in quote_batch:
+                contract = item["contract"]
+                ticker = ticker_by_conid.get(contract.conId)
+                if ticker is None:
                     errors.append(
                         {
-                            "error": "BATCH_QUOTE_REFRESH_FINISHED_TOO_LATE; rows discarded"
+                            "symbol": contract.symbol,
+                            "error": "MISSING_BATCH_QUOTE",
                         }
                     )
+                    continue
+                premarket = item["premarket"]
+                halt_status, halt_raw = _halt_status(getattr(ticker, "halted", None))
+                quote_time = getattr(ticker, "time", None)
+                if isinstance(quote_time, datetime):
+                    if quote_time.tzinfo is None:
+                        quote_time = quote_time.replace(tzinfo=timezone.utc)
+                    observed_at = quote_time.astimezone(timezone.utc)
+                    quote_timestamp_source = "IBKR_TICKER_TIME"
                 else:
-                    for item in prepared:
-                        contract = item["contract"]
-                        ticker = ticker_by_conid.get(contract.conId)
-                        if ticker is None:
-                            errors.append(
-                                {
-                                    "symbol": contract.symbol,
-                                    "error": "MISSING_BATCH_QUOTE",
-                                }
-                            )
-                            continue
-                        premarket = item["premarket"]
-                        halt_status, halt_raw = _halt_status(
-                            getattr(ticker, "halted", None)
-                        )
-                        quote_time = getattr(ticker, "time", None)
-                        if isinstance(quote_time, datetime):
-                            if quote_time.tzinfo is None:
-                                quote_time = quote_time.replace(tzinfo=timezone.utc)
-                            observed_at = quote_time.astimezone(timezone.utc)
-                            quote_timestamp_source = "IBKR_TICKER_TIME"
-                        else:
-                            observed_at = datetime.fromisoformat(
-                                premarket["premarket_metrics_at"].replace("Z", "+00:00")
-                            )
-                            quote_timestamp_source = "PREMARKET_BAR_FALLBACK"
-                        market_data_status = _MARKET_DATA_STATUS.get(
-                            int(_finite(ticker.marketDataType, 0)), "UNKNOWN"
-                        )
-                        if quote_timestamp_source != "IBKR_TICKER_TIME":
-                            market_data_status = "UNKNOWN_TIMESTAMP"
-                        rows.append(
-                            {
-                                "symbol": contract.symbol.upper(),
-                                "company_name": item["company_name"],
-                                "observed_at": observed_at.isoformat().replace(
-                                    "+00:00", "Z"
-                                ),
-                                "last": _finite(
-                                    ticker.last, premarket["premarket_last"]
-                                ),
-                                "quote_previous_close": _finite(
-                                    getattr(ticker, "close", None), None
-                                ),
-                                "bid": _finite(ticker.bid),
-                                "ask": _finite(ticker.ask),
-                                "bid_size": int(_finite(ticker.bidSize)),
-                                "ask_size": int(_finite(ticker.askSize)),
-                                "market_data_status": market_data_status,
-                                "quote_timestamp_source": quote_timestamp_source,
-                                "halted": halt_status
-                                in {"GENERAL_HALT", "VOLATILITY_HALT"},
-                                "halt_status": halt_status,
-                                "halt_raw": halt_raw,
-                                "tradeable": item["tradeable"],
-                                "source": (
-                                    "IBKR_TARGETED_READ_ONLY"
-                                    if item["selection_origin"]
-                                    == "TRADINGVIEW_TARGETED"
-                                    else "IBKR_SCANNER_SAMPLE_READ_ONLY"
-                                ),
-                                "provider": "IBKR",
-                                "session": "premarket",
-                                "target_session_date": session_date.isoformat(),
-                                "saved_screen_id": item["source_screen_id"],
-                                "scanner_sources": sorted(item["scanner_ranks"]),
-                                "scanner_ranks": item["scanner_ranks"],
-                                "price_basis": (
-                                    "IBKR_ADJUSTED_LAST_DAILY_WITH_LIVE_TRADES_QUOTE"
-                                ),
-                                "daily_price_basis": _DAILY_PRICE_BASIS,
-                                "atr_reference_close": item["daily"][
-                                    "previous_close"
-                                ],
-                                "daily_data_status": "VERIFIED",
-                                "daily_data_observed_at": batch_finished.isoformat().replace(
-                                    "+00:00", "Z"
-                                ),
-                                "daily_source_symbol": contract.symbol.upper(),
-                                "contract_con_id": contract.conId,
-                                "primary_exchange": item["primary_exchange"],
-                                "contract_identity_status": item[
-                                    "contract_identity_status"
-                                ],
-                                "resolved_symbol": item["resolved_symbol"],
-                                "contract_sec_type": item["contract_sec_type"],
-                                "contract_currency": item["contract_currency"],
-                                "valid_exchanges": item["valid_exchanges"],
-                                "allowed_order_types": item["allowed_order_types"],
-                                **item["daily"],
-                                **{
-                                    k: v
-                                    for k, v in premarket.items()
-                                    if k != "premarket_last"
-                                },
-                            }
-                        )
+                    observed_at = datetime.fromisoformat(
+                        premarket["premarket_metrics_at"].replace("Z", "+00:00")
+                    )
+                    quote_timestamp_source = "PREMARKET_BAR_FALLBACK"
+                market_data_status = _MARKET_DATA_STATUS.get(
+                    int(_finite(ticker.marketDataType, 0)), "UNKNOWN"
+                )
+                if quote_timestamp_source != "IBKR_TICKER_TIME":
+                    market_data_status = "UNKNOWN_TIMESTAMP"
+                rows.append(
+                    {
+                        "symbol": contract.symbol.upper(),
+                        "company_name": item["company_name"],
+                        "observed_at": observed_at.isoformat().replace("+00:00", "Z"),
+                        "last": _finite(ticker.last, premarket["premarket_last"]),
+                        "quote_previous_close": _finite(
+                            getattr(ticker, "close", None), None
+                        ),
+                        "bid": _finite(ticker.bid),
+                        "ask": _finite(ticker.ask),
+                        "bid_size": int(_finite(ticker.bidSize)),
+                        "ask_size": int(_finite(ticker.askSize)),
+                        "market_data_status": market_data_status,
+                        "quote_timestamp_source": quote_timestamp_source,
+                        "halted": halt_status in {"GENERAL_HALT", "VOLATILITY_HALT"},
+                        "halt_status": halt_status,
+                        "halt_raw": halt_raw,
+                        "tradeable": item["tradeable"],
+                        "source": (
+                            "IBKR_TARGETED_READ_ONLY"
+                            if item["selection_origin"] == "TRADINGVIEW_TARGETED"
+                            else "IBKR_SCANNER_SAMPLE_READ_ONLY"
+                        ),
+                        "provider": "IBKR",
+                        "session": "premarket",
+                        "target_session_date": session_date.isoformat(),
+                        "saved_screen_id": item["source_screen_id"],
+                        "scanner_sources": sorted(item["scanner_ranks"]),
+                        "scanner_ranks": item["scanner_ranks"],
+                        "price_basis": (
+                            "IBKR_ADJUSTED_LAST_DAILY_WITH_LIVE_TRADES_QUOTE"
+                        ),
+                        "daily_price_basis": _DAILY_PRICE_BASIS,
+                        "atr_reference_close": item["daily"]["previous_close"],
+                        "daily_data_status": "VERIFIED",
+                        "daily_data_observed_at": batch_finished.isoformat().replace(
+                            "+00:00", "Z"
+                        ),
+                        "daily_source_symbol": contract.symbol.upper(),
+                        "contract_con_id": contract.conId,
+                        "primary_exchange": item["primary_exchange"],
+                        "contract_identity_status": item["contract_identity_status"],
+                        "resolved_symbol": item["resolved_symbol"],
+                        "contract_sec_type": item["contract_sec_type"],
+                        "contract_currency": item["contract_currency"],
+                        "valid_exchanges": item["valid_exchanges"],
+                        "allowed_order_types": item["allowed_order_types"],
+                        **item["daily"],
+                        **{k: v for k, v in premarket.items() if k != "premarket_last"},
+                    }
+                )
     finally:
-        if ib.isConnected():
+        if ib is not None and ib.isConnected():
             ib.disconnect()
 
+    captured_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    _stamp_verified_premarket_rows(rows, captured_at=captured_at)
+    target_coverage = _target_coverage_counts(
+        rows,
+        requested_count=len(target_rows),
+        captured_at=captured_at,
+    )
     payload = {
         "schema_version": 1,
-        "captured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "record_type": _IBKR_RECORD_TYPE,
+        "provider": "IBKR",
+        "captured_at": captured_at,
+        "target_session_date": session_date.isoformat(),
         "mode": "IBKR_READ_ONLY_SHADOW",
+        "connection": {
+            "host": args.host,
+            "port": connected_port,
+            "attempted_ports": attempted_ports,
+            "selected_port": connected_port,
+            "readonly": True,
+            "readonly_requested": True,
+            "connected": connected_port is not None,
+        },
+        "inputs": target_inputs,
+        "source_manifests": [
+            {
+                "run_id": run_id,
+                "path": record["path"],
+                "sha256": sha256_file(record["path"]),
+            }
+            for run_id, record in sorted(source_manifests.items())
+        ],
         "scanner_codes": scanner_codes,
         "coverage": {
             "mode": (
@@ -786,8 +1177,13 @@ def main(argv: list[str] | None = None) -> int:
                 else "NON_EXHAUSTIVE_IBKR_SCANNER_SAMPLE"
             ),
             "exchange_complete": False,
-            "input_candidate_complete": (
-                len(rows) == len(target_rows) if target_mode else False
+            **(
+                target_coverage
+                if target_mode
+                else {
+                    **target_coverage,
+                    "input_candidate_complete": False,
+                }
             ),
             "input_discovery_row_count": target_input_rows,
             "requested_target_count": len(target_rows),
@@ -819,8 +1215,16 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8"
     )
     print(f"Captured {len(rows)} snapshot(s); {len(errors)} error(s): {output}")
+    if target_mode and not target_coverage["input_candidate_complete"]:
+        print(
+            "Warning: targeted IBKR coverage is partial; only verified current "
+            "premarket rows may continue."
+        )
     print("Safety: connected read-only and exposed no order-submission path.")
-    return 0 if rows or (target_mode and not target_rows) else 2
+    # A completed targeted capture is a valid degraded artifact even when no
+    # target produced a usable live row. The morning flow excludes those rows,
+    # carries the coverage warning, and continues with verified TV candidates.
+    return 0 if target_mode or rows else 2
 
 
 if __name__ == "__main__":

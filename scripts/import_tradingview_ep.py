@@ -7,11 +7,10 @@ import json
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from episodic_pivot.tradingview import (  # noqa: E402
+from episodic_pivot.tradingview import (
     TradingViewImportError,
     import_tradingview_csv,
 )
@@ -22,15 +21,31 @@ def _parser() -> argparse.ArgumentParser:
         description="Validate a full TradingView export for EP research (dry-run by default)"
     )
     parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--session", required=True, choices=("premarket", "after_hours"))
-    parser.add_argument("--captured-at", required=True, help="timezone-aware capture timestamp")
-    parser.add_argument("--screen-id", required=True, help="TradingView saved-screen identifier")
+    parser.add_argument(
+        "--session", required=True, choices=("premarket", "after_hours")
+    )
+    parser.add_argument(
+        "--captured-at", required=True, help="timezone-aware capture timestamp"
+    )
+    parser.add_argument(
+        "--screen-id", required=True, help="TradingView saved-screen identifier"
+    )
     parser.add_argument(
         "--reported-count",
         type=int,
-        help="result count shown by TradingView; mismatch fails closed",
+        help="result count shown by TradingView immediately before download",
+    )
+    parser.add_argument(
+        "--post-download-count",
+        type=int,
+        help="result count shown by TradingView immediately after download",
     )
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--allow-count-mismatch-for-ibkr",
+        action="store_true",
+        help="retain a non-short premarket count mismatch only as IBKR ticker seeds; never verified market data",
+    )
     parser.add_argument(
         "--write-artifact",
         action="store_true",
@@ -48,18 +63,36 @@ def main(argv: list[str] | None = None) -> int:
             captured_at=args.captured_at,
             saved_screen_id=args.screen_id,
             reported_result_count=args.reported_count,
+            post_download_result_count=args.post_download_count,
+            allow_count_mismatch_for_ibkr=args.allow_count_mismatch_for_ibkr,
         )
     except (OSError, TradingViewImportError) as exc:
         raise SystemExit(f"TradingView import rejected: {exc}") from exc
 
-    verification = "verified" if result.result_count_verified else "not independently verified"
+    verification = (
+        result.result_count_verification.lower().replace("_", " ")
+        if result.result_count_verified
+        else "not independently verified"
+    )
     print(
         f"Validated {result.extracted_row_count} row(s) for "
         f"{result.target_session_date}; displayed count {verification}."
     )
+    if result.result_count_verification == "COUNT_MISMATCH_IBKR_SEED_ONLY":
+        print(
+            "Discovery coverage unverified. IBKR ticker seeds only; fresh IBKR premarket verification is mandatory before ATR/news."
+        )
     if not args.write_artifact:
-        print("Dry run only: no file was written. Add --write-artifact to create a local snapshot JSON.")
+        print(
+            "Dry run only: no file was written. Add --write-artifact to create a local snapshot JSON."
+        )
         return 0
+
+    if args.reported_count is None or args.post_download_count is None:
+        raise SystemExit(
+            "--write-artifact requires both --reported-count and "
+            "--post-download-count observations"
+        )
 
     if args.output is None:
         short_hash = result.source_file_sha256[:12]

@@ -14,13 +14,17 @@ from episodic_pivot.daily_prices import (
     enrich_snapshots_from_yfinance,
     extract_yfinance_symbol_frame,
 )
-from episodic_pivot.pipeline import run_shadow_pipeline
 from episodic_pivot.email_delivery import morning_payload
 from episodic_pivot.manifest import write_run_artifacts
+from episodic_pivot.pipeline import run_shadow_pipeline
 from episodic_pivot.schema import NewsDocument, PremarketSnapshot
-from scripts.capture_ep_daily_yfinance import main as yfinance_main
+from scripts.capture_ep_daily_yfinance import (
+    _load_discovery_inputs,
+)
+from scripts.capture_ep_daily_yfinance import (
+    main as yfinance_main,
+)
 from trading_calendar import TRADING_DAY
-
 
 TARGET_DATE = date(2026, 8, 25)
 AS_OF = "2026-08-25T08:20:00-04:00"
@@ -68,9 +72,7 @@ def _daily_raw(symbols: list[str], *, include_target: bool = False) -> pd.DataFr
     if include_target:
         dates = dates.append(pd.DatetimeIndex([pd.Timestamp(TARGET_DATE)]))
     fields = ["Open", "High", "Low", "Close", "Volume"]
-    columns = pd.MultiIndex.from_product(
-        [fields, symbols], names=["Price", "Ticker"]
-    )
+    columns = pd.MultiIndex.from_product([fields, symbols], names=["Price", "Ticker"])
     raw = pd.DataFrame(index=dates, columns=columns, dtype=float)
     for symbol in symbols:
         raw[("Open", symbol)] = 10.0
@@ -92,7 +94,8 @@ def _document() -> NewsDocument:
         publisher="SEC",
         published_at="2026-08-25T11:00:00Z",
         retrieved_at="2026-08-25T12:21:00Z",
-        text_excerpt="Company reported quarterly results and raised full-year guidance. " * 8,
+        text_excerpt="Company reported quarterly results and raised full-year guidance. "
+        * 8,
         text_sha256="b" * 64,
         source_tier="REGULATOR_PRIMARY",
         fetch_status="FETCHED",
@@ -128,6 +131,32 @@ def test_multiindex_dot_symbol_and_adjusted_atr_enrichment_preserve_tape_time():
     assert by_symbol["ABC"].atr_14 == pytest.approx(0.5)
     assert by_symbol["ABC"].prior_atr_pct == pytest.approx(5.0)
     assert by_symbol["ABC"].previous_close == pytest.approx(10.0)
+
+
+def test_ibkr_premarket_move_keeps_yfinance_as_atr_owner():
+    snapshot = _snapshot(
+        "ABC",
+        provider="IBKR",
+        source="IBKR_TARGETED_READ_ONLY",
+        session="premarket",
+        premarket_metrics_at="2026-08-25T12:20:00Z",
+        market_data_status="LIVE",
+        daily_price_basis="IBKR_ADJUSTED_LAST",
+    )
+
+    result = enrich_snapshots_from_yfinance(
+        [snapshot],
+        session_date=TARGET_DATE,
+        download=lambda **_kwargs: _daily_raw(["ABC"]),
+        fetched_at="2026-08-25T12:21:00Z",
+    )
+
+    enriched = result.snapshots[0]
+    assert enriched.provider == "IBKR"
+    assert enriched.source == "IBKR_TARGETED_READ_ONLY"
+    assert enriched.premarket_metrics_at == "2026-08-25T12:20:00Z"
+    assert enriched.daily_price_basis == YFINANCE_DAILY_PRICE_BASIS
+    assert enriched.prior_atr_pct == pytest.approx(5.0)
 
 
 def test_yfinance_repaired_source_bar_is_explicitly_stamped():
@@ -201,7 +230,9 @@ def test_yfinance_atr_qualifies_news_without_enabling_sizing():
         offline_documents={"HIGH": [_document()], "LOW": [_document()]},
         offline_documents_verified=True,
     )
-    candidates = {candidate.snapshot.symbol: candidate for candidate in result.candidates}
+    candidates = {
+        candidate.snapshot.symbol: candidate for candidate in result.candidates
+    }
     decisions = {decision.symbol: decision for decision in result.decisions}
     assert result.documents_by_candidate[candidates["HIGH"].candidate_id]
     assert result.documents_by_candidate[candidates["LOW"].candidate_id] == []
@@ -244,10 +275,68 @@ def test_yfinance_research_run_renders_normal_focused_morning_email(tmp_path: Pa
     assert manifest["counts"]["execution_data_verified"] == 0
     html = (run_dir / "report.html").read_text(encoding="utf-8")
     assert "Execution data unavailable or unverified" in html
-    assert "5.00%" in html
+    # The fixture has an invalid source hash and post-decision retrieval.
+    # ATR qualification must not cause that mover to appear in the email.
+    assert "5.00%" not in html
+    assert "No news-qualified EP candidates" in html
     payload = morning_payload(run_dir)
-    assert "1 researched, 1 ATR-qualified" in payload.subject
+    assert "0 news-qualified" in payload.subject
     assert payload.metadata["research_sizing_previews"] == 0
+
+
+def test_partial_ibkr_coverage_is_a_normal_report_warning(tmp_path: Path):
+    result = run_shadow_pipeline(
+        [_snapshot("ABC")],
+        as_of=AS_OF,
+        target_session_date=TARGET_DATE,
+        policy=DEFAULT_POLICY,
+        offline_documents={"ABC": []},
+        offline_documents_verified=True,
+        run_warnings=("IBKR_PARTIAL_CARRYOVER_COVERAGE",),
+    )
+    output = write_run_artifacts(
+        result,
+        policy=DEFAULT_POLICY,
+        output_dir=tmp_path / result.run_id,
+    )
+
+    assert "Degraded coverage" in (output / "report.html").read_text(encoding="utf-8")
+    assert "IBKR_PARTIAL_CARRYOVER_COVERAGE" in (output / "report.md").read_text(
+        encoding="utf-8"
+    )
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["warnings"] == ["IBKR_PARTIAL_CARRYOVER_COVERAGE"]
+
+
+def test_raw_ibkr_atr_is_not_counted_as_atr_qualified_in_report(tmp_path: Path):
+    snapshot = _snapshot(
+        "ABC",
+        provider="IBKR",
+        source="IBKR_TARGETED_READ_ONLY",
+        market_data_status="LIVE",
+        premarket_metrics_at=AS_OF,
+        atr_14=0.5,
+        atr_reference_close=10.0,
+        daily_price_basis="IBKR_ADJUSTED_LAST",
+        daily_data_status="VERIFIED",
+        daily_source_session="2026-08-24",
+    )
+    result = run_shadow_pipeline(
+        [snapshot],
+        as_of=AS_OF,
+        target_session_date=TARGET_DATE,
+        policy=DEFAULT_POLICY,
+        offline_documents={"ABC": []},
+        offline_documents_verified=True,
+    )
+    output = write_run_artifacts(
+        result,
+        policy=DEFAULT_POLICY,
+        output_dir=tmp_path / result.run_id,
+    )
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["counts"]["atr_qualified"] == 0
+    assert manifest["counts"]["news_research_selected"] == 0
 
 
 def test_yfinance_capture_cli_is_no_network_no_write_by_default(
@@ -259,11 +348,15 @@ def test_yfinance_capture_cli_is_no_network_no_write_by_default(
         json.dumps(
             {
                 "provider": "TRADINGVIEW",
+                "session": "premarket",
+                "saved_screen_id": "yftOvM3e",
                 "captured_at": snapshot.observed_at,
                 "target_session_date": TARGET_DATE.isoformat(),
                 "reported_result_count": 1,
+                "post_download_result_count": 1,
                 "extracted_row_count": 1,
                 "result_count_verified": True,
+                "result_count_verification": "EXACT_MATCH",
                 "snapshots": [snapshot.to_dict()],
             }
         ),
@@ -275,10 +368,246 @@ def test_yfinance_capture_cli_is_no_network_no_write_by_default(
         raise AssertionError("dry run must not contact yfinance")
 
     monkeypatch.setattr("yfinance.download", unexpected_download)
-    assert (
-        yfinance_main(
-            ["--snapshot", str(source), "--output", str(output)]
-        )
-        == 0
-    )
+    assert yfinance_main(["--snapshot", str(source), "--output", str(output)]) == 0
     assert not output.exists()
+
+
+def test_yfinance_capture_rejects_forged_dynamic_count_growth(tmp_path: Path):
+    source = tmp_path / "forged-premarket.json"
+    snapshots = [
+        _snapshot(
+            symbol,
+            reported_result_count=1,
+            extracted_row_count=3,
+        )
+        for symbol in ("ABC", "DEF", "GHI")
+    ]
+    source.write_text(
+        json.dumps(
+            {
+                "provider": "TRADINGVIEW",
+                "session": "premarket",
+                "saved_screen_id": "yftOvM3e",
+                "captured_at": AS_OF,
+                "target_session_date": TARGET_DATE.isoformat(),
+                "reported_result_count": 1,
+                "post_download_result_count": 1,
+                "extracted_row_count": 3,
+                "result_count_verified": True,
+                "result_count_verification": "DYNAMIC_EXPORT_GROWTH",
+                "snapshots": [snapshot.to_dict() for snapshot in snapshots],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="count/provenance is not verified"):
+        yfinance_main(["--snapshot", str(source)])
+
+
+def test_yfinance_capture_accepts_only_live_rows_from_targeted_ibkr_refresh(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    source = tmp_path / "ibkr-refresh.json"
+    snapshot = _snapshot(
+        "ABC",
+        provider="IBKR",
+        source="IBKR_TARGETED_READ_ONLY",
+        session="premarket",
+        premarket_metrics_at="2026-08-25T12:20:00Z",
+        market_data_status="LIVE",
+    )
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "record_type": "EP_IBKR_PREMARKET_CAPTURE_V1",
+                "provider": "IBKR",
+                "mode": "IBKR_READ_ONLY_SHADOW",
+                "captured_at": "2026-08-25T12:21:00Z",
+                "target_session_date": TARGET_DATE.isoformat(),
+                "connection": {"readonly": True},
+                "coverage": {"mode": "TARGETED_TRADINGVIEW_CANDIDATES"},
+                "snapshots": [
+                    snapshot.to_dict(),
+                    _snapshot(
+                        "FROZEN",
+                        provider="IBKR",
+                        source="IBKR_TARGETED_READ_ONLY",
+                        session="premarket",
+                        premarket_metrics_at="2026-08-25T12:20:00Z",
+                        market_data_status="FROZEN",
+                    ).to_dict(),
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert yfinance_main(["--snapshot", str(source)]) == 0
+    assert "1 broad nomination(s) from 2" in capsys.readouterr().out
+
+
+def test_yfinance_capture_rejects_ibkr_row_stale_at_wrapper_completion(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    source = tmp_path / "stale-ibkr-refresh.json"
+    stale = _snapshot(
+        "STALE",
+        provider="IBKR",
+        source="IBKR_TARGETED_READ_ONLY",
+        session="premarket",
+        premarket_metrics_at="2026-08-25T12:00:00Z",
+        market_data_status="LIVE",
+        premarket_move_verification_status="VERIFIED",
+        premarket_move_verification_source="IBKR_TARGETED_READ_ONLY",
+        premarket_move_verified_at="2026-08-25T12:00:00Z",
+    )
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "record_type": "EP_IBKR_PREMARKET_CAPTURE_V1",
+                "provider": "IBKR",
+                "mode": "IBKR_READ_ONLY_SHADOW",
+                "captured_at": "2026-08-25T12:21:00Z",
+                "target_session_date": TARGET_DATE.isoformat(),
+                "connection": {"readonly": True},
+                "coverage": {
+                    "mode": "TARGETED_TRADINGVIEW_CANDIDATES",
+                    "input_candidate_complete": False,
+                },
+                "snapshots": [stale.to_dict()],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert yfinance_main(["--snapshot", str(source)]) == 0
+    assert "0 broad nomination(s) from 1" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("record_type", "connection"),
+    [
+        (None, {"readonly": True}),
+        ("EP_IBKR_PREMARKET_CAPTURE_V1", {"readonly": False}),
+        ("EP_IBKR_PREMARKET_CAPTURE_V1", None),
+    ],
+)
+def test_yfinance_capture_rejects_unrecognized_or_non_readonly_ibkr(
+    tmp_path: Path, record_type: str | None, connection: dict | None
+):
+    source = tmp_path / "unsafe-ibkr.json"
+    payload = {
+        "schema_version": 1,
+        "provider": "IBKR",
+        "mode": "IBKR_READ_ONLY_SHADOW",
+        "captured_at": "2026-08-25T12:21:00Z",
+        "target_session_date": TARGET_DATE.isoformat(),
+        "coverage": {"mode": "TARGETED_TRADINGVIEW_CANDIDATES"},
+        "snapshots": [
+            _snapshot(
+                "ABC",
+                provider="IBKR",
+                source="IBKR_TARGETED_READ_ONLY",
+                session="premarket",
+                premarket_metrics_at="2026-08-25T12:20:00Z",
+                market_data_status="LIVE",
+            ).to_dict()
+        ],
+    }
+    if record_type is not None:
+        payload["record_type"] = record_type
+    if connection is not None:
+        payload["connection"] = connection
+    source.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="targeted read-only refresh"):
+        yfinance_main(["--snapshot", str(source)])
+
+
+def test_yfinance_capture_rejects_unrefreshed_after_hours_rows(tmp_path: Path):
+    source = tmp_path / "night.json"
+    snapshot = _snapshot(
+        "NIGHT",
+        session="after_hours",
+        saved_screen_id="Hqgnyp7Y",
+        observed_at="2026-08-24T23:20:00Z",
+    )
+    source.write_text(
+        json.dumps(
+            {
+                "provider": "TRADINGVIEW",
+                "session": "after_hours",
+                "saved_screen_id": "Hqgnyp7Y",
+                "captured_at": snapshot.observed_at,
+                "target_session_date": TARGET_DATE.isoformat(),
+                "reported_result_count": 1,
+                "post_download_result_count": 1,
+                "extracted_row_count": 1,
+                "result_count_verified": True,
+                "result_count_verification": "EXACT_MATCH",
+                "snapshots": [snapshot.to_dict()],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="rejects unrefreshed after-hours rows"):
+        yfinance_main(["--snapshot", str(source)])
+
+
+@pytest.mark.parametrize("count_recovery", [False, True])
+def test_yfinance_capture_marks_ibkr_only_discovery_as_degraded(
+    tmp_path: Path, count_recovery
+):
+    source = tmp_path / "ibkr-only.json"
+    snapshot = _snapshot(
+        "IBKR",
+        provider="IBKR",
+        source="IBKR_TARGETED_READ_ONLY",
+        session="premarket",
+        premarket_metrics_at="2026-08-25T12:20:00Z",
+        market_data_status="LIVE",
+    )
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "record_type": "EP_IBKR_PREMARKET_CAPTURE_V1",
+                "provider": "IBKR",
+                "mode": "IBKR_READ_ONLY_SHADOW",
+                "captured_at": "2026-08-25T12:21:00Z",
+                "target_session_date": TARGET_DATE.isoformat(),
+                "connection": {"readonly": True},
+                "inputs": (
+                    [
+                        {
+                            "discovery_warning": "TRADINGVIEW_COUNT_MISMATCH_IBKR_REVERIFIED_ONLY"
+                        }
+                    ]
+                    if count_recovery
+                    else []
+                ),
+                "coverage": {
+                    "mode": "TARGETED_TRADINGVIEW_CANDIDATES",
+                    "input_candidate_complete": True,
+                },
+                "snapshots": [snapshot.to_dict()],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    snapshots, _, _, _, warnings = _load_discovery_inputs([source])
+
+    assert [item.symbol for item in snapshots] == ["IBKR"]
+    assert warnings == (
+        (
+            "TRADINGVIEW_COUNT_MISMATCH_IBKR_REVERIFIED_ONLY",
+            "TRADINGVIEW_PREMARKET_NOT_INCLUDED",
+        )
+        if count_recovery
+        else ("TRADINGVIEW_PREMARKET_NOT_INCLUDED",)
+    )
