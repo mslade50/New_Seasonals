@@ -9,6 +9,15 @@ Repo Health Check task re-registration. Log:
 `artifacts/recon_2026-09-17/cleanup_log.md`; recovery bundle
 `pre_cleanup_all_refs.bundle` (keep 30 days).
 
+**STATUS 2026-09-21:** section 8 CLOSED. 26 leftover branches removed (8 kept
+as `archive/*` tags), pitch "standalone" killed (tag), 8 PRs #59-#66 landed the
+real work (+ #67 test-fixture fix; CI green), 45 merged origin branches
+deleted, PR #1 closed. Local branches ~7, origin ~18. Deferred on purpose:
+CSVs to R2 (silent-failure risk). Retired by design, not broken: the disabled
+`Repo Health Check` task (v9 health pipeline replaced it). Open policy call:
+PR #63's PA futures notional exemption vs the site's "$30k PA ceiling" text.
+Triage evidence: `artifacts/recon_2026-09-17/branch_triage_recommendations.md`.
+
 Deliverable for a cleanup agent. Read all of section 0 and 1 before running a
 single mutating command. Evidence tables are in `artifacts/recon_2026-09-17/`
 (gitignored, local only):
