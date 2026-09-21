@@ -50,6 +50,11 @@ CANONICAL_INPUTS: tuple[R2Input, ...] = (
     R2Input("analyst_grades", "analyst_grades.parquet", "data/analyst_grades.parquet"),
     R2Input("fragility", "rd2_fragility.parquet", "data/rd2_fragility.parquet"),
     R2Input("market_breadth", "market_breadth.parquet", "data/market_breadth.parquet", False),
+    # The observation database behind that export. Both machines read and
+    # write one canonical store, so a pinned runtime that has never collected
+    # can bootstrap instead of appending to an empty table. Optional: a site
+    # build only ever reads the parquet.
+    R2Input("market_breadth_db", "market_breadth.sqlite", "data/market_breadth.sqlite", False),
     R2Input("risk_environment", "rd2_environment.json", "data/rd2_environment.json"),
     R2Input("exposure_state", "exposure_state.json", "data/exposure_state.json"),
     R2Input("dial_sleeve", "dial_sleeve_paper.json", "data/dial_sleeve_paper.json"),
@@ -123,8 +128,16 @@ PUBLISH_GROUPS: dict[str, tuple[R2Input, ...]] = {
     "risk": tuple(i for i in CANONICAL_INPUTS if i.name in {"fragility", "risk_environment", "dial_sleeve"}),
     "exposure": tuple(i for i in CANONICAL_INPUTS if i.name == "exposure_state"),
     "cboe": tuple(i for i in CANONICAL_INPUTS if i.name == "cboe_putcall"),
+    # scripts/collect_market_breadth.py --publish is the production writer (it
+    # adds the digest-named immutable database backup and the export's
+    # canonical-date subset check). This group is the plain republish path for
+    # a manual import or a recovery.
+    "breadth": tuple(i for i in CANONICAL_INPUTS if i.name in {"market_breadth", "market_breadth_db"}),
     "reference": tuple(i for i in CANONICAL_INPUTS if i.name in {"sector_map", "trade_console_stats"}),
 }
+# "breadth" is deliberately OUT of bootstrap: neither breadth file is tracked
+# in git, so a checkout-based seed run has nothing to publish for it. The
+# collector (or a manual maintain_market_breadth --publish) is its only writer.
 PUBLISH_GROUPS["bootstrap"] = tuple(
     item
     for group in ("risk", "exposure", "cboe", "reference")

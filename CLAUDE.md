@@ -194,6 +194,27 @@ lag the gain misses 1.8 sigma. The basis string moved v1 to
 `--refresh-last` correction can never rescore a v1 row. Guard:
 `tests/test_nyse_risk.py`.
 
+**Breadth collection is AUTOMATED twice a trading day since 2026-09-21**
+(`scripts/collect_market_breadth.py`). It reads the public WSJ Markets Diary
+JSON with a browser User-Agent (`marketsDiaryType=diaries`, Latest Close,
+NYSE + NASDAQ) and imports through `scripts/maintain_market_breadth.py`, so
+all existing validation and the digest-keyed revision logic apply unchanged.
+Do NOT switch it to `marketsDiaryType=overview`: that set disagrees with the
+diary on NASDAQ (2026-09-18: 72/244 vs 81/246) and timestamps its publication
+rather than its session. `breadth_pm` runs in postclose AFTER
+`master_prices_pm` and BEFORE `risk_pm`, which is the whole point: the evening
+dial now carries the same day's NYSE floor instead of scoring unfloored until
+the AM correction. `breadth_am` runs in premarket after `cboe_am` and before
+`risk_am`, purely for overnight AMENDMENTS. Exit 2 (the diary has not
+published the expected session) is declared non-blocking in the supervisor
+catalog: the receipt records `health_status=degraded`, the pipeline continues
+and the dial keeps its documented unfloored fallback. Both
+`market_breadth.parquet` and `market_breadth.sqlite` are canonical R2 objects
+so the pinned runtime bootstraps the store instead of starting empty. Manual
+in-app-browser capture (`--observation`) is now the FALLBACK. Guards:
+`tests/test_collect_market_breadth.py`, `tests/test_market_breadth_store.py`;
+runbook: `docs/nyse_risk_dial_2026-09-17.md` "Breadth collection".
+
 ### The fragility-portfolio contract (B6, 2026-07-16)
 
 - **The sizing statistic** is exactly: 10d MA of the 63d column of
@@ -1723,15 +1744,17 @@ The production data, scan, sleeve, report, and weekly jobs run on this machine t
 
 | Task pipeline | Eastern schedule | Scope |
 |---|---|---|
-| `premarket` | Weekdays 04:10 | CBOE, settled prices, risk correction, event sleeve, AM scan, cloud site handoffs |
+| `premarket` | Weekdays 04:10 | CBOE, NYSE breadth amendments (`breadth_am`, after `cboe_am`), settled prices, risk correction, event sleeve, AM scan, cloud site handoffs |
 | `discretionary` | Weekdays 08:35 | Research-only Discretionary Focus |
 | `execution` | Weekdays 16:30 | Live-position execution email |
-| `postclose` | Weekdays 17:10 | PM prices/risk/fills (verify + broker harvest)/earnings/portfolio/CBOE/trend/intraday/scan/macro/sites |
+| `postclose` | Weekdays 17:10 | PM prices, NYSE breadth (`breadth_pm`, between `master_prices_pm` and `risk_pm` so the evening dial is floored), risk/fills (verify + broker harvest)/earnings/portfolio/CBOE/trend/intraday/scan/macro/sites |
 | `indicator` | Monday 03:00 | Backtester indicator cache |
 | `weekly-rundown` | Sunday 08:00 | Weekly PDF email |
 | `health` | Weekdays 07:30 | R2 receipts, data, delivery, and runtime logs |
 
 `scripts/automation_supervisor.py` owns component-level R2 receipts, leases, strict producer validation, and GitHub fallback. Successful and indeterminate receipts block duplicates. Non-rerun-safe commands are durably marked `indeterminate` immediately before external side effects; crashes and ambiguous outcomes require explicit operator resolution and never blind-dispatch a second copy.
+
+A command may declare `degraded_exit_codes` (2026-09-21, first carrier `breadth_pm`). Such an exit does not fail its job: the run continues and the receipt is written `status=success, health_status=degraded`, which `effective_status` reports as `degraded` and `repo_health_check` reports as WARN. Use it only for a shortfall the consumer already falls back on by itself, never for an outcome nothing downstream can detect.
 
 Migrated child workflows are `workflow_dispatch`-only backups. `.github/workflows/local_automation_fallback.yml` is their sole cron and dispatches only missing/retryable receipt components during bounded ET windows. Production private/shared site builds remain cloud-only; local pipelines publish bounded canonical inputs to R2 and dispatch the site workflows. See `docs/local_automation_task_scheduler.md` for install, cutover, status, and rollback.
 

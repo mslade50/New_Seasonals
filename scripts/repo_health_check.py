@@ -13,7 +13,8 @@ Checks:
   1. Automation       - latest verified R2 supervisor receipt + age for each
                         weekday-critical local-primary / GitHub-backup job
   2. Local data       - master_prices / rd2_fragility / cboe_putcall recency,
-                        stray partial-write temp files in data/
+                        market_breadth vs the newest SPY session (an unfloored
+                        NYSE dial), stray partial-write temp files in data/
   3. Fragility PIT    - tripwire: frozen rows of rd2_fragility.parquet must
                         never change between runs (rewrite = the drifted
                         recompute vintage reaching live sizing)
@@ -61,6 +62,7 @@ AUTOMATION_RECEIPT_SCHEMA = "automation-receipt.v1"
 # Supervisor job id -> max business days the latest success may be old.
 CRITICAL_AUTOMATION_JOBS: dict[str, int] = {
     "cboe_am": 1,
+    "breadth_am": 1,
     "master_prices_am": 1,
     "risk_am": 1,
     "event_sleeve_am": 1,
@@ -70,6 +72,7 @@ CRITICAL_AUTOMATION_JOBS: dict[str, int] = {
     "discretionary_focus": 1,
     "execution_report": 2,
     "master_prices_pm": 1,
+    "breadth_pm": 1,
     "risk_pm": 1,
     "verify_fills": 2,
     "earnings_and_grades": 2,
@@ -192,6 +195,13 @@ def check_gha(fetch=None, today: dt.date | None = None) -> None:
             report("FAIL", check,
                    f"latest success via {source} is {age_bd} bd old "
                    f"(max {max_bd})")
+        elif receipt.get("health_status") == "degraded":
+            # The job completed and its dependents were free to run, but it
+            # declared a coverage shortfall. Loud, never fatal: that is the
+            # whole point of the degraded receipt.
+            report("WARN", check,
+                   f"success via {source} with DEGRADED coverage, {age_bd} bd old: "
+                   f"{receipt.get('detail') or 'no detail recorded'}")
         else:
             report("OK", check,
                    f"success via {source}, {age_bd} bd old ({updated})")
@@ -218,6 +228,56 @@ def _last_index_date(path: Path) -> dt.date | None:
     raise ValueError("no datetime index or Date column found")
 
 
+def _spy_last_session(path: Path) -> dt.date | None:
+    """Newest SPY bar, which is the session the NYSE floor must cover."""
+    if not path.exists():
+        return None
+    try:
+        frame = pd.read_parquet(path, columns=["date"],
+                                filters=[("ticker", "==", "SPY")])
+    except (TypeError, ValueError, NotImplementedError):
+        frame = pd.read_parquet(path, columns=["date", "ticker"])
+        frame = frame.loc[frame["ticker"] == "SPY", ["date"]]
+    if frame.empty:
+        return None
+    return pd.to_datetime(frame["date"]).max().date()
+
+
+def check_breadth_alignment() -> None:
+    """The collected NYSE diary must cover the newest SPY session.
+
+    ``nyse_risk.smooth_nyse_net`` blanks the EMA for a whole five-session
+    window when one reading is missing, so a breadth series that trails the
+    price series scores an UNFLOORED dial. Post-close collection is what
+    closes the gap on the same day; a lag of one session is the documented
+    degraded window (PM collection missed, AM correction still owed), and two
+    or more means the floor has been off for a full cycle.
+    """
+    breadth_path = ROOT / "data" / "market_breadth.parquet"
+    try:
+        breadth = _last_index_date(breadth_path)
+    except Exception as exc:
+        report("FAIL", "data:breadth-alignment", f"market_breadth unreadable: {exc}")
+        return
+    spy = _spy_last_session(ROOT / "data" / "master_prices.parquet")
+    if breadth is None or spy is None:
+        missing = "market_breadth.parquet" if breadth is None else "SPY in master_prices.parquet"
+        report("WARN", "data:breadth-alignment", f"cannot compare: {missing} unavailable")
+        return
+    behind = bdays_behind(breadth, spy)
+    if behind <= 0:
+        report("OK", "data:breadth-alignment",
+               f"breadth covers the newest SPY session ({breadth})")
+    elif behind == 1:
+        report("WARN", "data:breadth-alignment",
+               f"breadth last {breadth}, SPY last {spy} - the dial is scoring "
+               f"unfloored for one session; the next collection should close it")
+    else:
+        report("FAIL", "data:breadth-alignment",
+               f"breadth last {breadth}, SPY last {spy} ({behind} bd behind) - "
+               f"the NYSE floor has been absent for a full cycle")
+
+
 def check_local_data() -> None:
     today = dt.date.today()
     for name, warn_bd, fail_bd in [
@@ -238,6 +298,8 @@ def check_local_data() -> None:
         tier = "FAIL" if behind >= fail_bd else "WARN" if behind >= warn_bd else "OK"
         note = "" if tier == "OK" else " (the pinned runtime may need a canonical R2 pull)"
         report(tier, f"data:{name}", f"last row {last}, {behind} bd behind{note}")
+
+    check_breadth_alignment()
 
     strays = [p for p in (ROOT / "data").glob("*.parquet.*")
               if p.is_file() and not p.name.endswith(".parquet.status.json")]

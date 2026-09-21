@@ -1,7 +1,10 @@
 """Append observed WSJ diary counts; export a dated history for the risk producer.
 
-Collection uses the public, rendered Markets Diary via the in-app browser.
-Direct HTTP currently returns 403. This importer never circumvents that block.
+Primary collection is `scripts/collect_market_breadth.py`, which reads the
+public Markets Diary JSON the page itself fetches and imports through the
+functions here, so every rule below applies unchanged. Capturing the rendered
+diary in the in-app browser and importing the JSON by hand with
+`--observation` remains the fallback. Neither path circumvents access control.
 SQLite retains every distinct source observation; workbook history stays frozen.
 """
 from __future__ import annotations
@@ -23,6 +26,11 @@ URL = "https://www.wsj.com/market-data/stocks/marketsdiary"
 DEFAULT_DB = ROOT / "data/market_breadth.sqlite"
 CUTOVER = "2026-09-17"
 COUNT_COLUMNS = ["nyse_highs", "nyse_lows", "nasdaq_highs", "nasdaq_lows"]
+EXPORT_KEY = "market_breadth.parquet"
+# Canonical observation store. Both machines read and write one database, so a
+# pinned runtime that has never collected can bootstrap instead of starting an
+# empty table. Immutable digest-named backups below are unaffected.
+DB_KEY = "market_breadth.sqlite"
 
 
 def connect(path):
@@ -36,7 +44,18 @@ def connect(path):
     return db
 
 
-def validate_wsj(payload, now=None):
+def validate_wsj(payload, now=None, *, allow_prior_session=False):
+    """Reject anything that is not a completed diary for a real NYSE session.
+
+    ``allow_prior_session`` relaxes exactly one rule: the diary may describe a
+    session EARLIER than the most recent completed one. It exists for the
+    documented recovery case where the publisher has not yet rolled forward
+    (or a collection was missed) and the counts are stored under the session
+    the diary itself names. Everything else -- the source, the Latest Close
+    column, the trading-session check, the timezone-aware capture timestamp,
+    the no-future rule, the integer range and the both-zero quarantine --
+    still applies, and a diary dated AHEAD of the clock is always refused.
+    """
     if payload.get("source_url") != URL or payload.get("column") != "Latest Close":
         raise ValueError("Use the WSJ Markets Diary Latest Close column only")
     day = pd.Timestamp(payload["date"])
@@ -54,7 +73,7 @@ def validate_wsj(payload, now=None):
     latest = pd.Timestamp(local.date())
     if local.hour < 17 or not TRADING_DAY.is_on_offset(latest):
         latest = latest - TRADING_DAY
-    if day != latest:
+    if day > latest or (day < latest and not allow_prior_session):
         raise ValueError(f"Stale diary date {day.date()}; expected {latest.date()}")
     for key in COUNT_COLUMNS:
         value = payload.get(key)
@@ -76,8 +95,8 @@ def insert_observation(db, date, source, observed_at, counts, payload):
                (date, source, observed_at, digest, *[counts[k] for k in COUNT_COLUMNS], raw))
 
 
-def import_wsj(db, payload, now=None):
-    day, observed = validate_wsj(payload, now)
+def import_wsj(db, payload, now=None, *, allow_prior_session=False):
+    day, observed = validate_wsj(payload, now, allow_prior_session=allow_prior_session)
     with db:
         insert_observation(db, day, "wsj", observed, {k: payload[k] for k in COUNT_COLUMNS}, payload)
 
@@ -112,6 +131,9 @@ def export_history(db, path):
     # only supplies the canonical series from the explicitly dated cutover.
     chosen = records.loc[((records.date < CUTOVER) & (records.source == "workbook")) |
                          ((records.date >= CUTOVER) & (records.source == "wsj"))]
+    # Rows arrive ordered by observed_at, so the LATEST revision of a session
+    # wins the export. A re-pull that returns different counts supersedes the
+    # earlier reading; the superseded observation stays in the database.
     chosen = chosen.drop_duplicates("date", keep="last").set_index("date").sort_index()
     chosen.index = pd.to_datetime(chosen.index)
     chosen["nyse_net"] = chosen.nyse_highs - chosen.nyse_lows
@@ -157,26 +179,34 @@ def publish_history(database, export):
         raise RuntimeError("R2 credentials unavailable; local database retained")
     destination = Path(export)
     current = pd.read_parquet(destination)
-    key = "market_breadth.parquet"
+    key = EXPORT_KEY
     remote_meta = cache_io.head(key)
     if remote_meta:
         prior_path = destination.parent / ("breadth_previous_" + uuid.uuid4().hex + ".parquet")
-        if not cache_io.download_to_local(key, str(prior_path)):
-            raise RuntimeError("Unable to validate existing canonical history")
-        prior = pd.read_parquet(prior_path)
-        if not prior.index.isin(current.index).all():
-            raise RuntimeError("Publication would lose canonical dates; reconcile the database first")
-        historical = prior.index[prior.index < pd.Timestamp(CUTOVER)]
-        pd.testing.assert_frame_equal(prior.loc[historical], current.loc[historical])
+        try:
+            if not cache_io.download_to_local(key, str(prior_path)):
+                raise RuntimeError("Unable to validate existing canonical history")
+            prior = pd.read_parquet(prior_path)
+            if not prior.index.isin(current.index).all():
+                raise RuntimeError("Publication would lose canonical dates; reconcile the database first")
+            historical = prior.index[prior.index < pd.Timestamp(CUTOVER)]
+            pd.testing.assert_frame_equal(prior.loc[historical], current.loc[historical])
+        finally:
+            # Twice-daily automated publication would otherwise litter data/
+            # with one comparison copy per run.
+            prior_path.unlink(missing_ok=True)
     digest = hashlib.sha256(Path(database).read_bytes()).hexdigest()
     backup_key = f"market_breadth/history/{digest}.sqlite"
-    for local, target in [(database, backup_key), (export, key)]:
+    # The immutable backup is written first, so the canonical database key can
+    # never be the only copy of a generation.
+    for local, target in [(database, backup_key), (database, DB_KEY), (export, key)]:
         if not cache_io.upload_from_local(str(local), target):
             raise RuntimeError(f"R2 publication failed: {target}")
         meta = cache_io.head(target)
         if not meta or meta.get("ContentLength") != Path(local).stat().st_size:
             raise RuntimeError(f"R2 verification failed: {target}")
-    print(json.dumps({"published": key, "database_backup": backup_key, "asof": str(current.index.max().date())}))
+    print(json.dumps({"published": key, "database": DB_KEY, "database_backup": backup_key,
+                      "asof": str(current.index.max().date())}))
 
 
 if __name__ == "__main__":
