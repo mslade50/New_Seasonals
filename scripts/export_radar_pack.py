@@ -18,9 +18,9 @@ Universe = radar momentum universe (SP500 + NDX from Wikipedia + the radar
 checkout's config/universe_midcap_momentum.txt) union any live/pending book
 tickers in radar's data/momentum_book.json.
 
-HARD-FAILS (refuses to write/push) when the requested forward window runs
-past atr-rank coverage — this makes the annual rank-rebuild cliff loud
-instead of shipping a silently truncated seasonal file.
+When the forward window crosses New Year, compute the next year's radar-only
+projection from prices available as of the export. Never extend or overwrite
+the canonical scanner rank file with a partial-year training vintage.
 
 Failure is otherwise consequence-free for the radar: it degrades to yfinance
 earnings + neutral seasonal with a printed reason (this box is never on the
@@ -162,7 +162,7 @@ def build_atr_sznl_csv(universe: list[str], asof: pd.Timestamp
                        ) -> tuple[pd.DataFrame, list[str], pd.DatetimeIndex]:
     """atr_sznl_21d/63d for the next ATR_FORWARD_SESSIONS NYSE sessions.
 
-    Hard-fails when the window outruns rank coverage (the annual rebuild cliff).
+    Future-year projections are computed in memory, only for this radar pack.
     """
     if not ATR_RANKS_PARQUET.exists():
         raise SystemExit(f"atr rank source missing: {ATR_RANKS_PARQUET}")
@@ -170,16 +170,22 @@ def build_atr_sznl_csv(universe: list[str], asof: pd.Timestamp
                              periods=ATR_FORWARD_SESSIONS, freq=TRADING_DAY)
     df = pd.read_parquet(ATR_RANKS_PARQUET,
                          columns=["ticker", "Date", "atr_sznl_21d", "atr_sznl_63d"])
+    projected_years = []
     max_date = df["Date"].max()
     if sessions[-1] > max_date:
-        raise SystemExit(
-            f"ABORT: atr-rank coverage ends {max_date.date()} but the "
-            f"{ATR_FORWARD_SESSIONS}-session window needs {sessions[-1].date()}. "
-            f"Rebuild atr_seasonal_ranks.parquet for the new year "
-            f"(build_atr_seasonal_ranks.py) before exporting. Refusing to push."
-        )
+        if pd.isna(max_date) or max_date.year < asof.year:
+            raise SystemExit("ABORT: canonical seasonal ranks lack the current year.")
+        future = sessions[(sessions > max_date) & (sessions.year > asof.year)]
+        if len(future) != len(sessions[sessions > max_date]):
+            raise SystemExit("ABORT: canonical seasonal ranks are incomplete within the current year.")
+        projection = build_future_year_projection(universe, asof, future)
+        projected_years = sorted({int(year) for year in future.year})
+        df = pd.concat([df, projection], ignore_index=True)
     df["ticker"] = df["ticker"].astype(str).map(_norm)
     df = df[df["ticker"].isin(universe) & df["Date"].isin(sessions)]
+    df = df.dropna(subset=["atr_sznl_21d", "atr_sznl_63d"])
+    counts = df.groupby("ticker")["Date"].nunique()
+    df = df[df["ticker"].isin(counts[counts == len(sessions)].index)]
     df = df.sort_values(["ticker", "Date"]).reset_index(drop=True)
     out = pd.DataFrame({
         "ticker": df["ticker"],
@@ -187,11 +193,49 @@ def build_atr_sznl_csv(universe: list[str], asof: pd.Timestamp
         "atr_sznl_21d": df["atr_sznl_21d"],
         "atr_sznl_63d": df["atr_sznl_63d"],
     })
+    out.attrs["projected_years"] = projected_years
     missing = sorted(set(universe) - set(df["ticker"]))
     print(f"[atr_sznl] {len(out)} rows, {df['ticker'].nunique()} tickers over "
           f"{len(sessions)} sessions ({sessions[0].date()} -> {sessions[-1].date()}); "
           f"{len(missing)} missing")
     return out, missing, sessions
+
+
+def build_future_year_projection(universe: list[str], asof: pd.Timestamp,
+                                 sessions: pd.DatetimeIndex) -> pd.DataFrame:
+    """Use the shared rank formula with outcomes known by asof; no downloads/writes."""
+    import build_atr_seasonal_ranks as ranks
+
+    wanted = set(universe)
+    prices = ranks._read_price_parquet(PROJECT_DIR / "data/master_prices.parquet", wanted)
+    for ticker, frame in ranks._read_price_parquet(
+        PROJECT_DIR / "data/overflow_prices.parquet", wanted - set(prices)
+    ).items():
+        prices.setdefault(ticker, frame)
+    blocks = []
+    covered = set()
+    for ticker, frame in prices.items():
+        prepared = ranks.prepare_ticker_data(frame.loc[frame.index <= asof])
+        if prepared is None:
+            continue
+        for year in sorted(set(sessions.year)):
+            values = ranks.compute_ranks_for_year(prepared, int(year))
+            if values is None:
+                continue
+            dates = ranks.generate_trading_dates(int(year))
+            dates = dates[dates["Date"].isin(sessions)].copy()
+            for column in ("atr_sznl_21d", "atr_sznl_63d"):
+                dates[column] = dates["day_count"].map(values[column])
+            dates["ticker"] = ticker
+            blocks.append(dates.drop(columns="day_count"))
+            covered.add(ticker)
+    if not blocks:
+        raise SystemExit("ABORT: no price history available for the radar future-year projection.")
+    # A ticker must cover the whole requested window or be explicitly missing.
+    missing = wanted - covered
+    if missing:
+        print(f"[atr_sznl] {len(missing)} tickers lack future-year training history")
+    return pd.concat(blocks, ignore_index=True)
 
 
 def source_git_sha() -> str:
@@ -223,6 +267,10 @@ def build_meta(universe: list[str], asof: pd.Timestamp,
         "atr_sznl_sessions": len(sessions),
         "atr_sznl_window": [sessions[0].strftime("%Y-%m-%d"),
                             sessions[-1].strftime("%Y-%m-%d")],
+        "atr_sznl_future_years": atr.attrs.get("projected_years", []),
+        "atr_sznl_projection_price_cutoff": (
+            asof.strftime("%Y-%m-%d") if atr.attrs.get("projected_years") else None
+        ),
     }
 
 
@@ -255,9 +303,11 @@ def _git(radar_repo: Path, *args: str, check: bool = True) -> subprocess.Complet
 def push_pack(radar_repo: Path, earnings: pd.DataFrame, atr: pd.DataFrame, meta: dict) -> None:
     rels = [str(EXTERNAL_REL / n).replace("\\", "/")
             for n in ("earnings.csv", "atr_sznl.csv", "meta.json")]
-    # The exporter owns data/external — a crashed prior run's leftover edits
-    # are stale pack data, safe to drop so pull --rebase cannot trip on them.
-    _git(radar_repo, "checkout", "--", str(EXTERNAL_REL), check=False)
+    # Preserve any interrupted run or unrelated staged work for review.
+    if _git(radar_repo, "status", "--porcelain", "--", *rels).stdout.strip():
+        raise SystemExit("ABORT: radar pack has local edits; preserve and review them before publishing.")
+    if _git(radar_repo, "diff", "--cached", "--quiet", check=False).returncode != 0:
+        raise SystemExit("ABORT: radar checkout has staged changes; refusing to mix them into the pack commit.")
     _git(radar_repo, "pull", "--rebase")
     write_pack(radar_repo / EXTERNAL_REL, earnings, atr, meta)
     _git(radar_repo, "add", *rels)

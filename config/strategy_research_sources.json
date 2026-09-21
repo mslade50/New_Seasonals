@@ -1,6 +1,6 @@
 {
   "crossref_contact_email_env": "STRATEGY_RESEARCH_CONTACT_EMAIL",
-  "item_budget": 250,
+  "item_budget": 500,
   "report_title": "Daily strategy research discovery",
   "request_budget": 12,
   "run_mode": "LIVE",
@@ -9,8 +9,8 @@
     {
       "enabled": true,
       "kind": "SSRN_QUERY",
-      "max_items": 75,
-      "max_pages": 2,
+      "max_items": 250,
+      "max_pages": 4,
       "platform": "SSRN",
       "source_id": "ssrn:systematic-liquid-strategies",
       "value": "systematic liquid trading momentum reversal seasonality volatility portfolio"
@@ -18,8 +18,8 @@
     {
       "enabled": true,
       "kind": "SSRN_QUERY",
-      "max_items": 75,
-      "max_pages": 2,
+      "max_items": 250,
+      "max_pages": 4,
       "platform": "SSRN",
       "source_id": "ssrn:portfolio-complements",
       "value": "portfolio diversification anomaly transaction costs capital efficiency trading strategy"

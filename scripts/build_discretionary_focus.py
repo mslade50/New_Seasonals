@@ -77,6 +77,9 @@ MAX_FUNDAMENTAL_AGE_DAYS = 45
 MAX_NEWS_AGE_DAYS = 14
 MAX_ANNUAL_STATEMENT_AGE_DAYS = 550
 MAX_SEC_FILING_AGE_DAYS = 200
+# Foreign private issuers file annual reports on 20-F/40-F instead of 10-K.
+# Current reports (8-K/6-K) are not necessarily financial statements.
+SEC_FINANCIAL_REPORT_FORMS = {"10-K", "10-Q", "20-F", "40-F"}
 MIN_PRODUCTION_UNIVERSE = 500
 MIN_SYMBOL_PRICE_OVERLAP = 0.85
 MIN_PRODUCTION_EARNINGS_COVERAGE = 500
@@ -1135,7 +1138,7 @@ class FMPNewsClient:
             form = str(
                 row.get("formType") or row.get("form") or row.get("type") or ""
             ).strip().upper()
-            if form not in {"10-K", "10-Q", "10-K/A", "10-Q/A"}:
+            if form.removesuffix("/A") not in SEC_FINANCIAL_REPORT_FORMS:
                 continue
             filed = _date(
                 row.get("acceptedDate")
@@ -1151,13 +1154,14 @@ class FMPNewsClient:
             usable.append((filed, row, form, url))
         if not usable:
             raise FocusBuildError(
-                f"FMP SEC filing search for {ticker} has no direct current 10-Q/10-K link"
+                f"FMP SEC filing search for {ticker} has no direct current "
+                "10-Q/10-K/20-F/40-F link"
             )
         filed, row, form, url = max(usable, key=lambda item: item[0])
         age = (as_of - filed).days
         if age > MAX_SEC_FILING_AGE_DAYS:
             raise FocusBuildError(
-                f"latest 10-Q/10-K for {ticker} is {age} days old; max is "
+                f"latest {form} for {ticker} is {age} days old; max is "
                 f"{MAX_SEC_FILING_AGE_DAYS}"
             )
         cik_text = str(row.get("cik") or row.get("cikNumber") or "").strip()
@@ -1697,7 +1701,7 @@ def build_payload(
             "tradingview_manifest_digest": _json_digest(manifest),
             "fundamental_source": (
                 "Current bounded Financial Modeling Prep annual statements plus "
-                "direct SEC 10-Q/10-K filing links"
+                "direct SEC 10-Q/10-K/20-F/40-F filing links"
             ),
             "fundamental_as_of": fundamental_as_of,
             "research_control_snapshot_as_of": control_snapshot_as_of,

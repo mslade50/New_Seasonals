@@ -151,6 +151,30 @@ def test_ssrn_crossref_collection_binds_doi_version_and_revision_window():
     assert telemetry["requests_used"] == 1
 
 
+@pytest.mark.parametrize("count,limit,status", [(164, 250, "OK"), (270, 250, "PARTIAL")])
+def test_ssrn_pagination_keeps_rows_constant_and_never_skips_truncated_page(count, limit, status):
+    works = [{
+        "DOI": f"10.2139/ssrn.{1000000 + n}",
+        "title": [f"Research paper {n}"],
+        "author": [{"family": "Researcher"}],
+        "created": {"date-time": "2026-09-06T10:00:00Z"},
+        "published": {"date-parts": [[2026, 9, 6]]},
+        "deposited": {"date-time": "2026-09-07T09:30:00Z"},
+        "type": "posted-content",
+    } for n in range(count)]
+    session = Session([Response({"message": {
+        "items": works[n:n + 100], "next-cursor": f"page-{n}",
+    }}) for n in range(0, count, 100)])
+    source = {**ssrn_source(), "max_items": limit, "max_pages": 4}
+    manifest, items, _, _ = collect_bundle(
+        source_config(source, item_budget=500), empty_state(),
+        environment={"CONTACT": "ops@example.com"}, now=NOW, session=session,
+    )
+    assert len(items) == min(count, limit)
+    assert manifest["sources"][0]["provider_status"] == status
+    assert {call[1]["params"]["rows"] for call in session.calls} == {100}
+
+
 def test_ssrn_revision_uses_deposit_as_window_availability_time():
     work = {
         "DOI": "10.2139/ssrn.7654321",
