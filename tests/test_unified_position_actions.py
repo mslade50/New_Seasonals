@@ -42,6 +42,7 @@ class Broker:
         if self.fail_lookup: raise TimeoutError("fixture lookup")
     def openTrades(self): return [t for t in self.orders if t.orderStatus.status not in actions.TERMINAL]
     def reqCompletedOrders(self, apiOnly=False): return [t for t in self.orders if t.orderStatus.status in actions.TERMINAL]
+    def reqExecutions(self): return []
     def sleep(self, _): pass
     def qualifyContracts(self, c): return [c]
     def place(self, ib, c, o, **kwargs):

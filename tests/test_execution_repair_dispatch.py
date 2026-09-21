@@ -170,7 +170,11 @@ def edit_fixture(tmp_path):
     ns = namespace(tmp_path, broker)
     ns.update(LIVE_MAX_QTY=1000, LIVE_MAX_FUT_CONTRACTS=20,
               _uncapped_futures=lambda _: False,
-              _px=lambda p: p if 0 < p < 1e10 else 0)
+              _px=lambda p: p if 0 < p < 1e10 else 0,
+              # The reviewed runtime exposes a raw open-order reader, and the
+              # reconciliation sweep that now precedes every position action
+              # needs it to read broker evidence at all.
+              _fresh_open_trades=lambda ib: ib.openTrades())
     reader = ns["_orders_for_contract"]
     ns["_orders_for_contract"] = lambda *a: copy.deepcopy(reader(*a))
     p = dict(request(), client_id=7, order_id=1, perm_id=101, mutation_kind="exit")
