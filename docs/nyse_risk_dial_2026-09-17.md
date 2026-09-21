@@ -285,6 +285,12 @@ after the EMA5 change and show the same vintage.
   `breadth_am` 2026-09-22 04:10 ET. The 2026-09-18 row went 80.558 (PM,
   unfloored) to 84.175 after the 2026-09-21 AM correction, which is the
   pattern the collector removes.
+- Shared-site dispatch fix (2026-09-21, main `b1325ac9`, runtime `9a598966`,
+  tag `automation-runtime-2026-09-21.site-ref`): the scheduled shared_site
+  dispatches had used the runtime pin, whose line carries no site assets, so
+  the 2026-09-18 PM and 2026-09-21 AM refreshes rebuilt the old three-tab
+  Denali site. Both cloud site workflows now dispatch on main
+  (`SITE_WORKFLOWS_ON_MAIN`); the site was redeployed from main at 10:57 UTC.
 - First post-close run under the EMA5 basis, 2026-09-18 17:10 ET, verified:
   metadata `main_score_basis = nyse-reset-floor-v2-ema5`; 2026-09-18
   `main_score` 80.558 (63d column 72.463); 2026-09-17 unchanged at 85.039.
