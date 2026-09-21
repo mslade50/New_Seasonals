@@ -1,0 +1,26 @@
+{
+  "recipient": "mckinleyslade@gmail.com",
+  "subject": "Denali Risk Dial report v3e: 55 warning line, near-high validation section",
+  "message_id": "<179001692187.49248.6745319120442023875@DESKTOP-2KI41V6.mynetworksettings.com>",
+  "status": "accepted_by_smtp",
+  "supersedes_email_receipt": "email_receipt_v3c.json",
+  "attachments": {
+    "Denali_Risk_Dial_Detailed_v3e.docx": {
+      "sha256": "34dc16ccf2ac300a6366b434e6bfd50960a24862b33847c13a8e08b6634f3870",
+      "bytes": 42277
+    },
+    "Denali_Risk_Dial_Detailed_v3e_Final.pdf": {
+      "sha256": "9d09dd7f298e3cefee276f50bd59cbb2dcfdad195890a31478dbdfa2fda65628",
+      "bytes": 160099
+    },
+    "Denali_Risk_Dial_One_Page_v3e.docx": {
+      "sha256": "b2886a95f59c8f964dae52d8363c0e8174b6f39de6831138670ee63aea54340b",
+      "bytes": 39893
+    },
+    "Denali_Risk_Dial_One_Page_v3e_Final.pdf": {
+      "sha256": "d35997b811b2640781776606ac374dd6703a4960614f1a94824327fe8ee60b75",
+      "bytes": 124673
+    }
+  },
+  "accepted_at_utc": "2026-09-21T18:55:25.814813+00:00"
+}

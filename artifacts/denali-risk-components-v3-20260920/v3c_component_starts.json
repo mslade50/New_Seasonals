@@ -1,0 +1,64 @@
+{
+  "Distribution Dominance": {
+    "history_first": "2000-01-03",
+    "driver": "da_ratio",
+    "driver_first": "2000-03-31",
+    "ready": "2000-03-31",
+    "first_fire": "2005-11-02",
+    "fires_full_history": 267
+  },
+  "Defensive Leadership": {
+    "history_first": "1999-01-04",
+    "driver": "spread",
+    "driver_first": "1999-01-04",
+    "ready": "1999-01-04",
+    "first_fire": "2000-08-21",
+    "fires_full_history": 598
+  },
+  "VIX Range Compression": {
+    "history_first": "2000-01-03",
+    "driver": "compression_pctile",
+    "driver_first": "2002-01-08",
+    "ready": "2002-01-08",
+    "first_fire": "2002-01-16",
+    "fires_full_history": 374
+  },
+  "Low Absorption Ratio": {
+    "history_first": "2000-01-03",
+    "driver": "ar_pctile",
+    "driver_first": "2002-02-08",
+    "ready": "2002-02-08",
+    "first_fire": "2003-09-05",
+    "fires_full_history": 702
+  },
+  "Seasonal Rank Divergence": {
+    "history_first": "2001-01-02",
+    "driver": "spread",
+    "driver_first": "2001-01-02",
+    "ready": "2001-01-02",
+    "first_fire": "2004-04-08",
+    "fires_full_history": 141
+  },
+  "Dispersion": {
+    "history_first": "2000-01-03",
+    "driver": "composite_pctile",
+    "driver_first": "2002-01-23",
+    "ready": "2002-01-23",
+    "first_fire": "2013-02-01",
+    "fires_full_history": 36
+  },
+  "_meta": {
+    "spy_first": "2000-01-03",
+    "spy_last": "2026-09-18",
+    "all_components_formed": "2002-02-08",
+    "base_recon_first": "2000-01-03",
+    "stored_record_first": "2016-07-05",
+    "stored_record_gaps_inside_span": 69,
+    "stored_record_continuous_from": "2017-07-03",
+    "breadth_first_on_spy_calendar": "2000-01-03",
+    "breadth_missing_sessions": [
+      "2020-06-12",
+      "2020-06-19"
+    ]
+  }
+}

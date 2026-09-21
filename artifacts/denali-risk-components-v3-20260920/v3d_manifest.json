@@ -1,0 +1,87 @@
+{
+  "rows": 6129,
+  "start": "2002-02-08",
+  "end": "2026-06-18",
+  "prices_through": "2026-09-18",
+  "display_windows": [
+    5,
+    10,
+    21
+  ],
+  "cutoff": 55.0,
+  "cutoff_percentile": 85.07,
+  "dial_85th_percentile": 54.92,
+  "share_at_or_above_cutoff": 14.93,
+  "episodes_at_or_above_cutoff": 38,
+  "band_edges": [
+    0,
+    20,
+    40,
+    55,
+    65,
+    80
+  ],
+  "bands_under_min": [],
+  "window_rule": "from the first session on which all six price components have their full trailing windows, to the last session with a complete 63-session outcome",
+  "components_formed_from": "2002-02-08",
+  "component_starts": {
+    "Distribution Dominance": "2000-03-31",
+    "Defensive Leadership": "1999-01-04",
+    "VIX Range Compression": "2002-01-08",
+    "Low Absorption Ratio": "2002-02-08",
+    "Seasonal Rank Divergence": "2001-01-02",
+    "Dispersion": "2002-01-23"
+  },
+  "component_first_fire": {
+    "Distribution Dominance": "2005-11-02",
+    "Defensive Leadership": "2000-08-21",
+    "VIX Range Compression": "2002-01-16",
+    "Low Absorption Ratio": "2003-09-05",
+    "Seasonal Rank Divergence": "2004-04-08",
+    "Dispersion": "2013-02-01"
+  },
+  "nyse_breadth_first": "2000-01-03",
+  "nyse_breadth_missing": [
+    "2020-06-12",
+    "2020-06-19"
+  ],
+  "nyse_sample_rows": 6043,
+  "nyse_sample_start": "2002-02-08",
+  "nyse_baseline": {
+    "mean5": 0.00212400546297431,
+    "mean10": 0.004239970818161964,
+    "mean21": 0.00887789111584425
+  },
+  "dial_floored_sessions": 6043,
+  "dial_unfloored_sessions": 86,
+  "dial_basis": "the current rules applied to the full price cache, with the stored point-in-time record taking precedence from 2018-08-03 (the stored file begins 2016-07-05; its first 525 sessions are its own warm-up), and the shipped EMA5 NYSE recovery-reset floor applied on top",
+  "stored_record_first": "2016-07-05",
+  "stored_usable_from": "2018-08-03",
+  "warmup_sessions": 525,
+  "nyse_model_version": "nyse-reset-floor-v2-ema5",
+  "baseline": {
+    "mean5": 0.00219493405893445,
+    "mean10": 0.00437176926061511,
+    "mean21": 0.00912263710051775
+  },
+  "below_cutoff": {
+    "n": 5214,
+    "mean5": 0.0026260947342962027,
+    "mean10": 0.005126854870468378,
+    "mean21": 0.01019808929413557
+  },
+  "at_or_above_cutoff": {
+    "n": 915,
+    "mean5": -0.0002619755105115473,
+    "mean10": 6.901827146066353e-05,
+    "mean21": 0.002994321519508958
+  },
+  "under20_mean21": 0.013287287205457687,
+  "sources": {
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals-automation-runtime-v9\\data\\rd2_fragility.parquet": "1d964f4bf8a88a6eb206e686bf8ebc3d362146617276ab7661059c523373a011",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\market_breadth.parquet": "3e8cac0742468b54af253ea920aa015adbfca2aed74556a9b2060332d249c31f",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\master_prices.parquet": "90c51304dce3a9d3e1bc1d06491b72b60c017f8e46c5dd258510279ec4422f2a",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\signal_horizon_stats.json": "248d1916a62c3b36b180d4a4d41ca8872df0e1b1501dfb46f35197b609a01781",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\denali-risk-components-v3-20260920\\v3c_reconstruction.parquet": "5da719fbbea0cb86f509f66c23d28a56884eaff4dd7ec6c1768ccee9aa589f07"
+  }
+}

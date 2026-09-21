@@ -1,0 +1,26 @@
+{
+  "recipient": "mckinleyslade@gmail.com",
+  "subject": "Denali risk dial report v3b: rebuilt on the Sep 17 team introduction (5/10/21d), NYSE EMA5, dual filter outcome",
+  "message_id": "<178998658165.20900.7050730879534621028@DESKTOP-2KI41V6.mynetworksettings.com>",
+  "status": "accepted_by_smtp",
+  "supersedes_email_receipt": "email_receipt.json",
+  "attachments": {
+    "Denali_Risk_Dial_Detailed_v3b.docx": {
+      "sha256": "fc4c9e1dc7427ff6b9f00448723bc34b9de2546558cc6a8130c470ec0ecb688b",
+      "bytes": 42753
+    },
+    "Denali_Risk_Dial_Detailed_v3b_Final.pdf": {
+      "sha256": "7e973fe93a16e6a311a5112415f3a02c0023f45b537bccef3a8f3b4f3d25a11e",
+      "bytes": 162360
+    },
+    "Denali_Risk_Dial_One_Page_v3b.docx": {
+      "sha256": "5fd307b1536deb9c4eea0407d0d0fc13d2de9ef21875efe9eb56f20d8980ef67",
+      "bytes": 39386
+    },
+    "Denali_Risk_Dial_One_Page_v3b_Final.pdf": {
+      "sha256": "05d0fc75f7fa9b00774bc003da61bd517ead78202c3b8ab5ba33df5c3060a237",
+      "bytes": 120942
+    }
+  },
+  "accepted_at_utc": "2026-09-21T10:29:43.592318+00:00"
+}

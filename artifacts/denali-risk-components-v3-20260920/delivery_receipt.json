@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-20",
+  "version": 3,
+  "supersedes": "artifacts/denali-risk-components-v2-20260917 (detailed report) and artifacts/denali-risk-components-20260917 (one-page brief)",
+  "detailed_pages": 5,
+  "one_page_pages": 1,
+  "verification": "All rendered pages inspected as images: no overflowing tables, no empty sections, every table cell populated. Automated text check confirms no 5-day or 21-day dial heading, no Pre FOMC heading, the NYSE section present, and no strategy, sizing or exposure vocabulary anywhere in the PDF.",
+  "changes_vs_v2": [
+    "Single main dial; 5-day and 21-day dial sections and their forward-return tables removed.",
+    "Pre FOMC Rally component section removed after its 17 September 2026 retirement.",
+    "Equity Put Call Complacency retained on the board with an explicit note that it contributes to no displayed dial.",
+    "New NYSE Net New Highs section covering the 18 September 2026 EMA5 recovery-reset form.",
+    "Forward-return tables recomputed on the production main dial series at 5/10/21/42/63 sessions.",
+    "Component tables re-priced from data/master_prices.parquet so every table shares one baseline."
+  ],
+  "files": {
+    "Denali_Risk_Dial_and_Forward_Returns_v3.docx": "8402433210bb71767ee750f44e8a83553807776463ea59422cb51e907b8ab869",
+    "Denali_Risk_Dial_and_Forward_Returns_v3_Final.pdf": "4e90f21a306df064080880ff2a31cd717b47bb1669fea788ffba8c715b1f9551",
+    "Denali_Risk_Dial_One_Page_v3.docx": "75fe2c2c661492d51f345a05fd77fb31ce82af8ddef79e3d50a0128f4c0adbe0",
+    "Denali_Risk_Dial_One_Page_v3_Final.pdf": "15c0b8e75ecc4ca967450f4272e3423d106f6337177e5d31d9621f198d372f46"
+  },
+  "email_status": "Accepted by Gmail SMTP for mckinleyslade@gmail.com",
+  "email_receipt": "email_receipt.json"
+}

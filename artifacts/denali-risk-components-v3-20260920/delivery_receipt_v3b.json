@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-21",
+  "version": "3b",
+  "base": "artifacts/denali-risk-introduction-20260917 \u2014 the newest EMAILED Denali report (accepted by SMTP 2026-09-17T20:51:28Z, subject \"Denali risk dial: team introduction with 5/10/21-day returns\"). The later -v2 folder carries no email or delivery receipt and differs only by one deleted sentence.",
+  "supersedes": "the v3 files in this folder, which were rebuilt from the earlier denali-risk-components-v2-20260917 base; see SUPERSEDED.md",
+  "detailed_pages": 4,
+  "one_page_pages": 1,
+  "study": {
+    "cohort": "2019-01-02 to 2026-06-18",
+    "dates": 1790,
+    "prices_through": "2026-09-18",
+    "display_windows": [
+      5,
+      10,
+      21
+    ],
+    "dial_basis": "production point-in-time composite (runtime rd2_fragility.parquet, explicit main_score where written, else the ten-session mean of the 63d column) with the shipped EMA5 NYSE recovery-reset floor applied",
+    "nyse_model_version": "nyse-reset-floor-v2-ema5"
+  },
+  "verification": "All rendered pages inspected as images: no overflowing tables, no empty sections, every table cell populated, band labels free of mojibake. Automated scan confirms 4 + 1 pages, the NYSE and dual-filter headings present, no retired 5-day/21-day/Pre-FOMC/put-call wording, and no strategy, sizing, exposure or dollar vocabulary in either PDF.",
+  "changes_vs_base": [
+    "NYSE Net Highs now arms and resets on the five-session EMA shipped 2026-09-18; its component description, strength note and one-pager row were edited in place, and a single evidence-and-caveat note was added rather than a second NYSE section.",
+    "Every table recomputed on the production point-in-time dial through 2026-09-18 with the current NYSE floor; cohort moves from 1,792 dates ending 2026-06-16 to 1,790 ending 2026-06-18 (the EMA warm-up drops 4 dates, 2 new dates qualify at the end).",
+    "New book-free section \"Proposed dual filter: evaluated, not adopted\" reporting the replay outcome; the proposal document is NOT re-sent.",
+    "Closing note on the dial vintage and the stored main_score basis.",
+    "The 5/10/21-day framing, the component set, the band structure and the 50 threshold are unchanged from the base."
+  ],
+  "files": {
+    "Denali_Risk_Dial_Detailed_v3b.docx": "fc4c9e1dc7427ff6b9f00448723bc34b9de2546558cc6a8130c470ec0ecb688b",
+    "Denali_Risk_Dial_Detailed_v3b_Final.pdf": "7e973fe93a16e6a311a5112415f3a02c0023f45b537bccef3a8f3b4f3d25a11e",
+    "Denali_Risk_Dial_One_Page_v3b.docx": "5fd307b1536deb9c4eea0407d0d0fc13d2de9ef21875efe9eb56f20d8980ef67",
+    "Denali_Risk_Dial_One_Page_v3b_Final.pdf": "05d0fc75f7fa9b00774bc003da61bd517ead78202c3b8ab5ba33df5c3060a237"
+  },
+  "email_status": "Accepted by Gmail SMTP for mckinleyslade@gmail.com",
+  "email_receipt": "email_receipt_v3b.json"
+}

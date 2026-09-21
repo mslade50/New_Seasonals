@@ -1,0 +1,186 @@
+{
+  "date": "2026-09-21",
+  "version": "3d",
+  "base": "v3c in this folder. Window, dial basis, component histories, display windows and wording are v3c's; the warning threshold and the band edges are the only changes.",
+  "sent": false,
+  "email_receipt": null,
+  "note": "Built and verified only. Nothing was emailed and no send script exists for v3d.",
+  "detailed_pages": 3,
+  "one_page_pages": 1,
+  "cutoff": {
+    "value": 55.0,
+    "rationale": "the 85th percentile of the dial over the study window, so the warning covers the top 15% of readings, about one day in seven",
+    "percentile_of_cutoff": 85.07,
+    "dial_85th_percentile": 54.92,
+    "share_at_or_above_pct": 14.93,
+    "dates_at_or_above": 915,
+    "episodes_at_or_above": 38,
+    "previous_cutoff": 50
+  },
+  "bands": {
+    "edges": [
+      0,
+      20,
+      40,
+      55,
+      65,
+      80
+    ],
+    "straddles_cutoff": false,
+    "min_band_dates": 149,
+    "bands_merged_for_thin_counts": "none; every band cleared 100 dates",
+    "rows": [
+      {
+        "range": "0\u2013<20",
+        "dates": 2594,
+        "mean5": 0.0031422058,
+        "mean10": 0.0065906616,
+        "mean21": 0.013287287
+      },
+      {
+        "range": "20\u2013<40",
+        "dates": 1533,
+        "mean5": 0.0028891617,
+        "mean10": 0.004547496,
+        "mean21": 0.008010142
+      },
+      {
+        "range": "40\u2013<55",
+        "dates": 1087,
+        "mean5": 0.001023452,
+        "mean10": 0.0024507218,
+        "mean21": 0.0059117437
+      },
+      {
+        "range": "55\u2013<65",
+        "dates": 448,
+        "mean5": 0.0012809971,
+        "mean10": 0.0030647959,
+        "mean21": 0.008564296
+      },
+      {
+        "range": "65\u2013<80",
+        "dates": 318,
+        "mean5": -0.0016974724,
+        "mean10": -0.0023373521,
+        "mean21": -0.0019489895
+      },
+      {
+        "range": "80+",
+        "dates": 149,
+        "mean5": -0.0018375708,
+        "mean10": -0.0038026762,
+        "mean21": -0.0032028328
+      }
+    ]
+  },
+  "split": {
+    "below": {
+      "n": 5214,
+      "mean5": 0.0026260947342962027,
+      "mean10": 0.005126854870468378,
+      "mean21": 0.01019808929413557
+    },
+    "at_or_above": {
+      "n": 915,
+      "mean5": -0.0002619755105115473,
+      "mean10": 6.901827146066353e-05,
+      "mean21": 0.002994321519508958
+    }
+  },
+  "study": {
+    "cohort": "2002-02-08 to 2026-06-18",
+    "dates": 6129,
+    "window_rule": "from the first session on which all six price components have their full trailing windows, to the last session with a complete 63-session outcome",
+    "prices_through": "2026-09-18",
+    "display_windows": [
+      5,
+      10,
+      21
+    ],
+    "dial_basis": "the current rules applied to the full price cache, with the stored point-in-time record taking precedence from 2018-08-03 (the stored file begins 2016-07-05; its first 525 sessions are its own warm-up), and the shipped EMA5 NYSE recovery-reset floor applied on top",
+    "stored_record_first": "2016-07-05",
+    "stored_usable_from": "2018-08-03",
+    "warmup_sessions": 525,
+    "nyse_model_version": "nyse-reset-floor-v2-ema5",
+    "nyse_sample_rows": 6043,
+    "nyse_sample_start": "2002-02-08",
+    "dial_floored_sessions": 6043,
+    "dial_unfloored_sessions": 86,
+    "baseline": {
+      "mean5": 0.00219493405893445,
+      "mean10": 0.00437176926061511,
+      "mean21": 0.00912263710051775
+    }
+  },
+  "component_start_dates": {
+    "Distribution Dominance": {
+      "earliest_measurable": "2000-03-31",
+      "driver_series": "da_ratio",
+      "first_warning": "2005-11-02",
+      "warnings_in_full_history": 267
+    },
+    "Defensive Leadership": {
+      "earliest_measurable": "1999-01-04",
+      "driver_series": "spread",
+      "first_warning": "2000-08-21",
+      "warnings_in_full_history": 598
+    },
+    "VIX Range Compression": {
+      "earliest_measurable": "2002-01-08",
+      "driver_series": "compression_pctile",
+      "first_warning": "2002-01-16",
+      "warnings_in_full_history": 374
+    },
+    "Low Absorption Ratio": {
+      "earliest_measurable": "2002-02-08",
+      "driver_series": "ar_pctile",
+      "first_warning": "2003-09-05",
+      "warnings_in_full_history": 702
+    },
+    "Seasonal Rank Divergence": {
+      "earliest_measurable": "2001-01-02",
+      "driver_series": "spread",
+      "first_warning": "2004-04-08",
+      "warnings_in_full_history": 141
+    },
+    "Dispersion": {
+      "earliest_measurable": "2002-01-23",
+      "driver_series": "composite_pctile",
+      "first_warning": "2013-02-01",
+      "warnings_in_full_history": 36
+    }
+  },
+  "nyse_net_highs_start": {
+    "breadth_first_on_spy_calendar": "2000-01-03",
+    "breadth_missing_sessions": [
+      "2020-06-12",
+      "2020-06-19"
+    ],
+    "table_sample_start": "2002-02-08",
+    "table_sample_rows": 6043
+  },
+  "source_hashes": {
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals-automation-runtime-v9\\data\\rd2_fragility.parquet": "1d964f4bf8a88a6eb206e686bf8ebc3d362146617276ab7661059c523373a011",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\market_breadth.parquet": "3e8cac0742468b54af253ea920aa015adbfca2aed74556a9b2060332d249c31f",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\master_prices.parquet": "90c51304dce3a9d3e1bc1d06491b72b60c017f8e46c5dd258510279ec4422f2a",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\signal_horizon_stats.json": "248d1916a62c3b36b180d4a4d41ca8872df0e1b1501dfb46f35197b609a01781",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\denali-risk-components-v3-20260920\\v3c_reconstruction.parquet": "5da719fbbea0cb86f509f66c23d28a56884eaff4dd7ec6c1768ccee9aa589f07"
+  },
+  "changes_vs_v3c": [
+    "Warning threshold moved from 50 to 55, the 54.92 reading that sits at the 85th percentile of the dial over this window. 915 dates (14.93%) in 38 episodes sit at or above it.",
+    "Band edges moved to 0, 20, 40, 55, 65, 80 so that no band straddles the line. Every band cleared 100 dates, so nothing was merged.",
+    "The band table, the split table and the \"What the ranges mean\" paragraph recomputed at the new edges.",
+    "\"Why 50 matters\" became \"Why 55 matters\" and now explains the threshold as the 85th percentile of readings. It keeps the v3c framing that the deterioration builds with the reading rather than flipping sign at the line: the 55 to 65 band still carried positive averages across all three windows, all three turned negative from 65 to 80, and they were weaker still at 80 and above.",
+    "The one-pager now carries the full band table instead of the two-row split, with the split figures folded into its reading note so it stays on one page.",
+    "The sample, the dial values and every component table are byte-identical to v3c; only the cutoff and the band edges moved.",
+    "The report stays descriptive and makes no reference to any live threshold or its use."
+  ],
+  "verification": "verify_v3d.py passes: 3 + 1 pages, the NYSE and \"Why 55 matters\" headings present, exact title on both documents, \"Below 55\" and \"55 or above\" present, and none of \"Why 50 matters\", \"50 or above\", \"Below 50\" or \"Fifty is our\" anywhere in the rendered text. Every v3c check retained: no retired 5-day/21-day/Pre-FOMC/put-call wording, no dual-filter, change-history or SPY explainer wording, no em dashes, no empty table cells, no mojibake and no strategy, sizing, exposure or dollar vocabulary. All four rendered pages inspected as images.",
+  "files": {
+    "Denali_Risk_Dial_Detailed_v3d.docx": "d998cbce6ef196fa3c6102ce01f70063d6f5f0e09ffb09cd0fd0eb8385a44b30",
+    "Denali_Risk_Dial_Detailed_v3d_Final.pdf": "e66c71ea9eb5fdcecfc030f26ab0935008137a77ebec3c97d711411f1d83e284",
+    "Denali_Risk_Dial_One_Page_v3d.docx": "1965b09f91a99b2631364d92ca8d077230c027122f975fc06511141dc81bb750",
+    "Denali_Risk_Dial_One_Page_v3d_Final.pdf": "2a2d7736a65704b1675965e2a65e5c9d95f57af60e81d8b52cbc5df88e9b83a3"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "recipient": "mckinleyslade@gmail.com",
+  "subject": "Denali Risk Dial report v3c: full 2002-2026 study window, cosmetic edits",
+  "message_id": "<179001564159.21000.16554138483126908113@DESKTOP-2KI41V6.mynetworksettings.com>",
+  "status": "accepted_by_smtp",
+  "supersedes_email_receipt": "email_receipt_v3b.json",
+  "attachments": {
+    "Denali_Risk_Dial_Detailed_v3c.docx": {
+      "sha256": "57d2c602bcf4e5eb1531e7c3c0ce3e97c6909dfd23600748bb6029bf8731b038",
+      "bytes": 41257
+    },
+    "Denali_Risk_Dial_Detailed_v3c_Final.pdf": {
+      "sha256": "d4488279b78974746894dcda8987188134744e0e490d75e60ec649bdb75f7299",
+      "bytes": 147721
+    },
+    "Denali_Risk_Dial_One_Page_v3c.docx": {
+      "sha256": "262e8ee3af24c13f99a43ea62439dfd0ee9331cae0fd8df8ce24ffd86119fd65",
+      "bytes": 39558
+    },
+    "Denali_Risk_Dial_One_Page_v3c_Final.pdf": {
+      "sha256": "2eb6b52dfbcb0fba45b3c91c84ebd1f1f911b554f94696a13bc87a816c2263d7",
+      "bytes": 121063
+    }
+  },
+  "accepted_at_utc": "2026-09-21T18:34:05.325285+00:00"
+}

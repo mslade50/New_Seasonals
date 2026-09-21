@@ -1,0 +1,25 @@
+{
+  "recipient": "mckinleyslade@gmail.com",
+  "subject": "Denali risk dial report v3: single main dial, NYSE breadth component",
+  "message_id": "<178995559062.40716.1986421004658699122@DESKTOP-2KI41V6.mynetworksettings.com>",
+  "status": "accepted_by_smtp",
+  "attachments": {
+    "Denali_Risk_Dial_and_Forward_Returns_v3.docx": {
+      "sha256": "8402433210bb71767ee750f44e8a83553807776463ea59422cb51e907b8ab869",
+      "bytes": 44332
+    },
+    "Denali_Risk_Dial_and_Forward_Returns_v3_Final.pdf": {
+      "sha256": "4e90f21a306df064080880ff2a31cd717b47bb1669fea788ffba8c715b1f9551",
+      "bytes": 177492
+    },
+    "Denali_Risk_Dial_One_Page_v3.docx": {
+      "sha256": "75fe2c2c661492d51f345a05fd77fb31ce82af8ddef79e3d50a0128f4c0adbe0",
+      "bytes": 39528
+    },
+    "Denali_Risk_Dial_One_Page_v3_Final.pdf": {
+      "sha256": "15c0b8e75ecc4ca967450f4272e3423d106f6337177e5d31d9621f198d372f46",
+      "bytes": 120321
+    }
+  },
+  "accepted_at_utc": "2026-09-21T01:53:12.679564+00:00"
+}

@@ -1,0 +1,18 @@
+# Denali Risk Dial · Version 3
+
+Our risk dial combines warning signs associated with **weaker future S&P 500 (SPX) returns**. One dial is published, and it looks roughly one quarter ahead. Stored return studies use SPY as an index proxy. Higher scores mean more warning evidence, not a probability of a market decline.
+
+| Component | What it measures and why we watch it | Stored forward returns* |
+| --- | --- | --- |
+| Distribution / Dominance | Unusually busy selling sessions outnumber buying sessions near market highs. **Why:** selling pressure may weaken support before the index visibly turns. | 63d: +1.76% vs +3.85% / 92 flagged days, which cluster. |
+| Defensive / Leadership | Defensive stocks (relatively resilient to a slowdown) lead economically sensitive stocks in the share trending upward. **Why:** cautious leadership near market highs may reveal weakening confidence in growth. | 63d: -1.09% vs +3.85% / Largest gap in the set. |
+| VIX Range / Compression | Expected market volatility sits in a narrow range but above its recent average. **Why:** apparent stability may conceal rising concern before larger market moves. | 63d: +2.91% vs +3.85% / Evidence is uneven. |
+| Low Absorption / Ratio | Sectors move unusually independently near index highs. **Why:** offsetting sector moves can keep the index calm, and that cushion can disappear if sectors fall together. | 63d: +0.14% vs +3.85% / Clearer over one month. |
+| Seasonal Rank / Divergence | Calendar patterns favor defensive over economically sensitive stocks near market highs. **Why:** seasonal support may be shifting away from the stocks that benefit most from growth. | 21d: -0.87% vs +1.28% / Mainly a short-term clue. |
+| Dispersion | Individual stocks swing much more than the index after a long period without a correction. **Why:** a steady headline index may hide instability among its members. | 63d: +2.18% vs +3.85% / Only 15 flagged days. |
+| NYSE Net New / Highs | Fewer NYSE stocks make new 52-week highs than new lows, on a five-session average, while the index is still near its high. **Why:** a narrowing advance is more fragile than a broad one. | 21d: -0.80% vs +0.76% on its matched comparison / Enters as a floor, not a weight. |
+| Equity Put Call / Complacency | Put trading is unusually low relative to call trading. **Why:** enthusiasm with little apparent demand for protection may leave investors exposed to bad news. | No weight on the published dial. Monitored only. |
+
+**How they combine:** six components feed a weighted average, which is then adjusted for the market backdrop and smoothed over five and then ten sessions. NYSE net new highs enters separately, as a floor that can raise the finished score and never lower it. Equity put/call carries weight only on a shorter horizon that is no longer published, so it currently contributes to no displayed dial and stays on the board as a monitored signal. Older warnings fade rather than switching off.
+
+*Average return after the signal versus its study comparison average, over the stated horizon, across dates from 1 March 2018 to 2 June 2026. NYSE net new highs is measured on its own longer sample against near-high days whose breadth was not negative. These are recorded historical associations, not independently verified forecasts. Samples differ and signals can overlap, so flagged-day counts are not independent tests. Below-average returns can still be positive. Pre FOMC Rally was retired on 17 September 2026 and carries no weight. The companion report explains each component and the limits of the evidence; the same dial and the same component board are published on the shared site Risk tab.

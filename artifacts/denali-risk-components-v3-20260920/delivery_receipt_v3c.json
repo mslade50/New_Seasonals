@@ -1,0 +1,121 @@
+{
+  "date": "2026-09-21",
+  "version": "3c",
+  "base": "artifacts/denali-risk-components-v3-20260920 v3b, which was itself rebuilt on the emailed 17 September team introduction. v3c keeps v3b's windows, band edges, SPY total-return basis and averaging conventions and changes the study span and the wording only.",
+  "sent": true,
+  "email_receipt": "email_receipt_v3c.json",
+  "note": "Built and verified only. Nothing was emailed and no send script exists for v3c.",
+  "detailed_pages": 3,
+  "one_page_pages": 1,
+  "study": {
+    "cohort": "2002-02-08 to 2026-06-18",
+    "dates": 6129,
+    "window_rule": "from the first session on which all six price components have their full trailing windows, to the last session with a complete 63-session outcome",
+    "prices_through": "2026-09-18",
+    "display_windows": [
+      5,
+      10,
+      21
+    ],
+    "dial_basis": "the current rules applied to the full price cache, with the stored point-in-time record taking precedence from 2018-08-03 (the stored file begins 2016-07-05; its first 525 sessions are its own warm-up), and the shipped EMA5 NYSE recovery-reset floor applied on top",
+    "stored_record_first": "2016-07-05",
+    "stored_usable_from": "2018-08-03",
+    "warmup_sessions": 525,
+    "nyse_model_version": "nyse-reset-floor-v2-ema5",
+    "nyse_sample_rows": 6043,
+    "nyse_sample_start": "2002-02-08",
+    "dial_floored_sessions": 6043,
+    "dial_unfloored_sessions": 86,
+    "baseline": {
+      "mean5": 0.00219493405893445,
+      "mean10": 0.00437176926061511,
+      "mean21": 0.00912263710051775
+    },
+    "below50": {
+      "n": 4854,
+      "mean5": 0.0027836852241307497,
+      "mean10": 0.005354634020477533,
+      "mean21": 0.010430821217596531
+    },
+    "atleast50": {
+      "n": 1275,
+      "mean5": -4.6475775889120996e-05,
+      "mean10": 0.0006299460073933005,
+      "mean21": 0.004142303951084614
+    }
+  },
+  "component_start_dates": {
+    "Distribution Dominance": {
+      "earliest_measurable": "2000-03-31",
+      "driver_series": "da_ratio",
+      "first_warning": "2005-11-02",
+      "warnings_in_full_history": 267
+    },
+    "Defensive Leadership": {
+      "earliest_measurable": "1999-01-04",
+      "driver_series": "spread",
+      "first_warning": "2000-08-21",
+      "warnings_in_full_history": 598
+    },
+    "VIX Range Compression": {
+      "earliest_measurable": "2002-01-08",
+      "driver_series": "compression_pctile",
+      "first_warning": "2002-01-16",
+      "warnings_in_full_history": 374
+    },
+    "Low Absorption Ratio": {
+      "earliest_measurable": "2002-02-08",
+      "driver_series": "ar_pctile",
+      "first_warning": "2003-09-05",
+      "warnings_in_full_history": 702
+    },
+    "Seasonal Rank Divergence": {
+      "earliest_measurable": "2001-01-02",
+      "driver_series": "spread",
+      "first_warning": "2004-04-08",
+      "warnings_in_full_history": 141
+    },
+    "Dispersion": {
+      "earliest_measurable": "2002-01-23",
+      "driver_series": "composite_pctile",
+      "first_warning": "2013-02-01",
+      "warnings_in_full_history": 36
+    }
+  },
+  "nyse_net_highs_start": {
+    "breadth_first_on_spy_calendar": "2000-01-03",
+    "breadth_missing_sessions": [
+      "2020-06-12",
+      "2020-06-19"
+    ],
+    "table_sample_start": "2002-02-08",
+    "table_sample_rows": 6043
+  },
+  "source_hashes": {
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals-automation-runtime-v9\\data\\rd2_fragility.parquet": "1d964f4bf8a88a6eb206e686bf8ebc3d362146617276ab7661059c523373a011",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\market_breadth.parquet": "3e8cac0742468b54af253ea920aa015adbfca2aed74556a9b2060332d249c31f",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\master_prices.parquet": "90c51304dce3a9d3e1bc1d06491b72b60c017f8e46c5dd258510279ec4422f2a",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\data\\signal_horizon_stats.json": "248d1916a62c3b36b180d4a4d41ca8872df0e1b1501dfb46f35197b609a01781",
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\artifacts\\denali-risk-components-v3-20260920\\v3c_reconstruction.parquet": "5da719fbbea0cb86f509f66c23d28a56884eaff4dd7ec6c1768ccee9aa589f07"
+  },
+  "changes_vs_v3b": [
+    "Study window extended from 2 January 2019 to 18 June 2026 (1,790 dates) to 2002-02-08 to 2026-06-18 (6,129 dates), the full span over which all seven components can be measured. The binding start is Low Absorption Ratio, whose 21-session absorption window plus 504-session percentile lookback first complete on 2002-02-08.",
+    "Component histories and the composite are now reconstructed over the whole price cache through the production compute_* functions (the path scripts/build_atr_downside_stats.py validates) instead of the 2016-onward frozen pickle the v3b study read.",
+    "The stored point-in-time record still takes precedence, but only from 2018-08-03: the stored file begins 2016-07-05 and its first 525 sessions are its own warm-up, reading 0 for all of 2016. Over the 1,790 dates v3b covered, the v3c dial is identical to v3b to the printed precision.",
+    "Title is now exactly \"Denali Risk Dial\" on both documents.",
+    "Removed the SPY explainer paragraph and the revision note that sat with it.",
+    "NYSE Net Highs is one explainer paragraph plus its table, like every other component; the change-history sentence, the strength-and-fade note and the five-session-average evidence note are gone from the detailed report, and the one-pager row no longer dates the change.",
+    "Removed the \"Proposed dual filter: evaluated, not adopted\" section and its table.",
+    "Band commentary and the 50-threshold paragraph rewritten against the long-window numbers: at 50 and above the week-ahead average is flat rather than negative, and the clear deterioration sits above 60.",
+    "Closing vintage note rewritten for the new window. Em dashes removed from prose.",
+    "Detailed report is 3 pages (was 4); the one-pager stays 1 page."
+  ],
+  "verification": "verify_v3c.py passes: 3 + 1 pages, the NYSE heading present, exact title on both documents, no retired 5-day/21-day/Pre-FOMC/put-call wording, no \"dual filter\", \"since 18 September\", \"Why the five-session average\" or SPY explainer wording, no em dashes, no empty table cells, no mojibake and no strategy, sizing, exposure or dollar vocabulary. All four rendered pages inspected as images: tables intact, no overflow, no near-empty page.",
+  "files": {
+    "Denali_Risk_Dial_Detailed_v3c.docx": "57d2c602bcf4e5eb1531e7c3c0ce3e97c6909dfd23600748bb6029bf8731b038",
+    "Denali_Risk_Dial_Detailed_v3c_Final.pdf": "d4488279b78974746894dcda8987188134744e0e490d75e60ec649bdb75f7299",
+    "Denali_Risk_Dial_One_Page_v3c.docx": "262e8ee3af24c13f99a43ea62439dfd0ee9331cae0fd8df8ce24ffd86119fd65",
+    "Denali_Risk_Dial_One_Page_v3c_Final.pdf": "2eb6b52dfbcb0fba45b3c91c84ebd1f1f911b554f94696a13bc87a816c2263d7"
+  },
+  "email_status": "Accepted by Gmail SMTP for mckinleyslade@gmail.com"
+}
