@@ -19,8 +19,7 @@ except Exception:  # noqa: BLE001 - keep research imports usable in isolation.
 @dataclass(frozen=True)
 class DiscoveryPolicy:
     min_price: float = 1.0
-    min_abs_gap_pct: float = 2.0
-    min_abs_move_dollars: float = 0.90
+    min_abs_gap_pct: float = 5.0
     min_premarket_volume: int = 100_000
     quote_max_age_seconds: int = 90
     premarket_metrics_max_age_seconds: int = 900
@@ -101,8 +100,8 @@ class HistoricalPolicy:
 
 @dataclass(frozen=True)
 class EPPolicy:
-    policy_id: str = "ep-shadow-v0.4.0"
-    policy_date: str = "2026-09-02"
+    policy_id: str = "ep-shadow-v0.6.0-five-percent-vetted"
+    policy_date: str = "2026-09-15"
     mode: str = "SHADOW_RESEARCH"
     live_actions_enabled: bool = False
     discovery: DiscoveryPolicy = field(default_factory=DiscoveryPolicy)

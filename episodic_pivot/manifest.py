@@ -11,11 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from .config import EPPolicy
+from .daily_prices import YFINANCE_DAILY_PRICE_BASIS
 from .qualify import prior_atr_blocker
 from .schema import ResearchSizingPreview, RunResult
 
-
 _RESEARCH_SKIP_BLOCKERS = {
+    "NEWS_RESEARCH_OUTSIDE_LONG_ELIGIBILITY",
     "NEWS_RESEARCH_SKIPPED_PRIOR_ATR",
     "NEWS_RESEARCH_NOT_SELECTED_BY_CAP",
 }
@@ -130,13 +131,14 @@ def _research_counts(result: RunResult, policy: EPPolicy) -> dict[str, int]:
     decisions = {item.candidate_id: item for item in result.decisions}
     atr_qualified = sum(
         prior_atr_blocker(candidate.snapshot, policy=policy) is None
+        and candidate.snapshot.daily_price_basis == YFINANCE_DAILY_PRICE_BASIS
+        and candidate.snapshot.daily_data_status
+        in {"VERIFIED", "VERIFIED_WITH_YFINANCE_REPAIR"}
+        and bool(candidate.snapshot.daily_source_session)
         for candidate in result.candidates
     )
     selected = sum(
-        not (
-            _RESEARCH_SKIP_BLOCKERS
-            & set(decisions[candidate.candidate_id].blockers)
-        )
+        not (_RESEARCH_SKIP_BLOCKERS & set(decisions[candidate.candidate_id].blockers))
         for candidate in result.candidates
         if candidate.candidate_id in decisions
     )
@@ -148,11 +150,53 @@ def _research_counts(result: RunResult, policy: EPPolicy) -> dict[str, int]:
         and candidate.snapshot.ask > 0
         for candidate in result.candidates
     )
-    return {
+    counts = {
         "atr_qualified": int(atr_qualified),
         "news_research_selected": int(selected),
         "execution_data_verified": int(execution_verified),
+        "news_qualified": len(_news_qualified(result, policy)),
+        "news_coverage_unresolved": sum(
+            not (_RESEARCH_SKIP_BLOCKERS & set(item.blockers))
+            and (
+                "NO_ACTUAL_SOURCE_EVIDENCE" in item.catalyst.reason_codes
+                or "AGENT_REVIEW_UNRESOLVED" in item.catalyst.reason_codes
+            )
+            for item in result.decisions
+        ),
     }
+    if result.review_packet is not None:
+        counts["news_review_rejected"] = sum(
+            bool(
+                {"AGENT_REVIEW_REJECTED", "AGENT_REVIEW_NO_VERIFIED_CATALYST"}
+                & set(item.catalyst.reason_codes)
+            )
+            for item in result.decisions
+        )
+        counts["news_unresearched_by_cap"] = result.review_packet["queue"][
+            "unresearched_by_cap"
+        ]
+    return counts
+
+
+def _news_qualified(result: RunResult, policy: EPPolicy):
+    """The single inclusion rule for every delivered surface; no list padding."""
+    snapshots = {item.candidate_id: item.snapshot for item in result.candidates}
+    return [
+        decision
+        for decision in result.decisions
+        if decision.candidate_id in snapshots
+        and decision.catalyst.research_news_qualified
+        and decision.catalyst.publication_time_verified
+        and decision.catalyst.trajectory_change_verified
+        and not decision.catalyst.adverse_flags
+        and decision.decision != "REJECT"
+        and not (_RESEARCH_SKIP_BLOCKERS & set(decision.blockers))
+        and prior_atr_blocker(snapshots[decision.candidate_id], policy=policy) is None
+        and snapshots[decision.candidate_id].discovery_gap_pct
+        >= policy.discovery.min_abs_gap_pct
+        and snapshots[decision.candidate_id].premarket_volume
+        >= policy.discovery.min_premarket_volume
+    ]
 
 
 def _report(result: RunResult, policy: EPPolicy) -> str:
@@ -172,15 +216,27 @@ def _report(result: RunResult, policy: EPPolicy) -> str:
         f"- Broad mover nominations: {len(result.candidates)}",
         f"- Verified prior ATR(14)% above 4%: {research_counts['atr_qualified']}",
         f"- Selected for news research: {research_counts['news_research_selected']}",
+        f"- News-qualified EP candidates: {research_counts['news_qualified']}",
+        f"- News coverage unresolved: {research_counts['news_coverage_unresolved']}",
         f"- Fresh IBKR execution-data verification: {research_counts['execution_data_verified']}",
         f"- Research sizing previews: {len(result.previews)}",
     ]
     for label in sorted(by_decision):
         lines.append(f"- {label}: {by_decision[label]}")
-    lines.extend(["", "## Candidate decisions", ""])
-    if not result.decisions:
-        lines.append("No nominations passed the broad premarket discovery screen.")
-    for decision in result.decisions:
+    if result.warnings:
+        lines.extend(["", "## Coverage warnings", ""])
+        lines.extend(f"- {warning}" for warning in result.warnings)
+    lines.extend(["", "## News-qualified EP candidates", ""])
+    focused = _news_qualified(result, policy)
+    if not focused:
+        lines.append(
+            "No news-qualified EP candidates verified in the researched set today. This is not a claim that none exist market-wide."
+        )
+    if research_counts["news_coverage_unresolved"]:
+        lines.append(
+            "News coverage is incomplete: actual timely source evidence could not be verified for some researched movers. They are not candidates."
+        )
+    for decision in focused:
         blockers = ", ".join(decision.blockers) or "none"
         warnings = ", ".join(decision.warnings) or "none"
         lines.append(
@@ -188,6 +244,28 @@ def _report(result: RunResult, policy: EPPolicy) -> str:
             f"catalyst={decision.catalyst.catalyst_type}; "
             f"materiality={decision.catalyst.materiality_score}/5; "
             f"blockers={blockers}; warnings={warnings}."
+        )
+        lines.extend(
+            [
+                f"  News: {decision.catalyst.summary}",
+                f"  Evidence basis: {decision.catalyst.research_news_basis}",
+                f"  Business-change evidence: {decision.catalyst.research_news_excerpt}",
+                f"  Sources: {', '.join(decision.catalyst.evidence_urls)}",
+            ]
+        )
+    if result.review_packet is not None:
+        lines.extend(
+            [
+                "",
+                (
+                    "Research method: agent Google search and opened-source reading; "
+                    "semantic judgments are agent-reviewed, not independently proven by hashes."
+                ),
+                (
+                    f"Reviewed and excluded: {research_counts['news_review_rejected']}; "
+                    f"not researched due to cap: {research_counts['news_unresearched_by_cap']}."
+                ),
+            ]
         )
     lines.extend(
         [
@@ -232,21 +310,16 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
         ),
     )
     research_counts = _research_counts(result, policy)
+    qualified_ids = {item.candidate_id for item in _news_qualified(result, policy)}
     focused = [
-        candidate
-        for candidate in ordered
-        if candidate.candidate_id in decisions
-        and not (
-            _RESEARCH_SKIP_BLOCKERS
-            & set(decisions[candidate.candidate_id].blockers)
-        )
+        candidate for candidate in ordered if candidate.candidate_id in qualified_ids
     ]
 
     cards = [
         ("Broad movers", len(result.candidates)),
         ("ATR > 4%", research_counts["atr_qualified"]),
         ("News researched", research_counts["news_research_selected"]),
-        ("IBKR verified", research_counts["execution_data_verified"]),
+        ("News-qualified EPs", research_counts["news_qualified"]),
     ]
     card_html = "".join(
         f'<div class="metric"><span>{html.escape(label)}</span><strong>{value}</strong></div>'
@@ -258,6 +331,29 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
         snap = candidate.snapshot
         decision = decisions.get(candidate.candidate_id)
         if decision is None:
+            continue
+        if result.review_packet is not None:
+            review = next(
+                r
+                for r in result.review_packet["reviews"]
+                if r["candidate_id"] == candidate.candidate_id
+            )
+            links = "".join(
+                f'<li><a href="{_safe_link(s["url"])}" rel="noreferrer">{html.escape(s["title"])}</a>'
+                f" — announced {html.escape(s['announced_at'])}; {html.escape(s['source_kind'])}</li>"
+                for s in review["sources"]
+            )
+            candidate_html.append(
+                f'<article class="candidate"><h2>{html.escape(snap.symbol)} — {html.escape(snap.company_name)}</h2>'
+                f'<div class="tape"><span><b>{snap.discovery_gap_pct:+.2f}%</b> premarket move</span>'
+                f"<span><b>{snap.premarket_volume:,}</b> premarket shares</span>"
+                f"<span><b>{snap.prior_atr_pct:.2f}%</b> prior ATR</span>"
+                f"<span>Market data as of {html.escape(snap.observed_at)}</span></div>"
+                f"<h3>Catalyst</h3><p>{html.escape(review['business_change'])}</p>"
+                f"<h3>Why it matters</h3><p>{html.escape(review['materiality_reason'])}</p>"
+                f"<h3>Verification</h3><p>{html.escape(review['reason'])}</p><ul>{links}</ul>"
+                "<small>Source read and assessed by the research agent. Research only; no execution approval.</small></article>"
+            )
             continue
         docs = result.documents_by_candidate.get(candidate.candidate_id, [])
         preview = previews.get(candidate.candidate_id)
@@ -291,7 +387,9 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
             evidence_links.append("<li>No fetched source document.</li>")
 
         if decision.decision == "RESEARCH_PREVIEW_ELIGIBLE":
-            actionability = "Cleared deterministic research gates; human review still required."
+            actionability = (
+                "Cleared deterministic research gates; human review still required."
+            )
             next_step = "Review the causal source and recapture a fresh IBKR snapshot before considering any separate approval design."
         elif decision.decision == "WATCH":
             actionability = "Research only; one or more hard gates remain unresolved."
@@ -300,7 +398,9 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
             actionability = "Rejected by the current shadow policy."
             next_step = "Archive the episode unless materially new evidence changes the event classification."
         what_changes = (
-            f"Resolve: {', '.join(blockers[:4])}" if blockers else "No deterministic blocker; requires human causal-news judgment."
+            f"Resolve: {', '.join(blockers[:4])}"
+            if blockers
+            else "No deterministic blocker; requires human causal-news judgment."
         )
         kill = ", ".join(decision.catalyst.adverse_flags) or (
             "Stale/recycled news, an unresolved corporate action, or failed liquidity revalidation."
@@ -309,11 +409,11 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
         if preview:
             preview_html = (
                 '<div class="preview"><strong>Hypothetical sizing only</strong>'
-                f'<span>Reference entry ${preview.reference_entry_price:,.2f}</span>'
-                f'<span>Hypothetical stop ${preview.hypothetical_stop_price:,.2f}</span>'
-                f'<span>Maximum preview shares {preview.max_preview_shares:,}</span>'
-                f'<span>Modeled risk ${preview.modeled_risk_dollars:,.0f}</span>'
-                '<span>Executable: false · Broker route: NONE</span></div>'
+                f"<span>Reference entry ${preview.reference_entry_price:,.2f}</span>"
+                f"<span>Hypothetical stop ${preview.hypothetical_stop_price:,.2f}</span>"
+                f"<span>Maximum preview shares {preview.max_preview_shares:,}</span>"
+                f"<span>Modeled risk ${preview.modeled_risk_dollars:,.0f}</span>"
+                "<span>Executable: false · Broker route: NONE</span></div>"
             )
         candidate_html.append(
             f"""
@@ -321,7 +421,7 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
               <header>
                 <div><span class="rank">{index:02d}</span><h2>{html.escape(snap.symbol)}</h2>
                 <p>{html.escape(snap.company_name or "Company name unavailable")}</p></div>
-                <span class="badge {html.escape(decision.decision.lower())}">{html.escape(decision.decision.replace('_', ' '))}</span>
+                <span class="badge {html.escape(decision.decision.lower())}">{html.escape(decision.decision.replace("_", " "))}</span>
               </header>
               <div class="tape">
                 <span><b>{snap.discovery_gap_pct:+.2f}%</b> session move</span>
@@ -329,23 +429,25 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
                 <span><b>{snap.premarket_volume:,}</b> session volume</span>
                 <span><b>${snap.premarket_dollar_volume:,.0f}</b> est. dollar volume</span>
                 <span><b>{html.escape(atr_label)}</b> prior ATR(14)%</span>
-                <span><b>{html.escape(daily_basis)}</b> through {html.escape(snap.daily_source_session or 'unknown')}</span>
+                <span><b>{html.escape(daily_basis)}</b> through {html.escape(snap.daily_source_session or "unknown")}</span>
                 <span><b>{html.escape(snap.session)}</b> capture</span>
               </div>
               <div class="grid">
+                <section><h3>What changed in the business</h3><p>{html.escape(decision.catalyst.research_news_excerpt)}</p></section>
+                <section><h3>News verification</h3><p>{html.escape(decision.catalyst.research_news_basis)}</p></section>
                 <section><h3>Actionability</h3><p>{html.escape(actionability)}</p></section>
-                <section><h3>Why now</h3><p>{html.escape(decision.catalyst.summary or 'Price/volume nomination; catalyst not yet verified.')}</p></section>
+                <section><h3>Why now</h3><p>{html.escape(decision.catalyst.summary or "Price/volume nomination; catalyst not yet verified.")}</p></section>
                 <section><h3>First rejection</h3><p>{html.escape(first_rejection)}</p></section>
                 <section><h3>What would advance it</h3><p>{html.escape(what_changes)}</p></section>
                 <section><h3>Kill criteria</h3><p>{html.escape(kill)}</p></section>
                 <section><h3>Next workflow</h3><p>{html.escape(next_step)}</p></section>
               </div>
               {preview_html}
-              <details><summary>Evidence ledger ({len(docs)})</summary><ul class="sources">{''.join(evidence_links)}</ul></details>
+              <details><summary>Evidence ledger ({len(docs)})</summary><ul class="sources">{"".join(evidence_links)}</ul></details>
               <details><summary>Rules and flags</summary>
                 <p><b>Setup:</b> {html.escape(decision.setup_type)} · <b>Catalyst:</b> {html.escape(decision.catalyst.catalyst_type)} · <b>Materiality:</b> {decision.catalyst.materiality_score}/5</p>
-                <p><b>Blockers:</b> {html.escape(', '.join(blockers) or 'none')}</p>
-                <p><b>Warnings:</b> {html.escape(', '.join(warnings) or 'none')}</p>
+                <p><b>Blockers:</b> {html.escape(", ".join(blockers) or "none")}</p>
+                <p><b>Warnings:</b> {html.escape(", ".join(warnings) or "none")}</p>
               </details>
             </article>
             """
@@ -354,22 +456,11 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
     empty = (
         ""
         if candidate_html
-        else '<div class="empty">No mover had verified prior ATR above 4% and a place in today\'s bounded news-research queue.</div>'
+        else '<div class="empty">No news-qualified EP candidates verified in the researched set today. This is not a claim that none exist market-wide.</div>'
     )
     audit_count = len(result.candidates) - len(focused)
-    focused_ids = {candidate.candidate_id for candidate in focused}
-    audit_examples = [
-        candidate
-        for candidate in ordered
-        if candidate.candidate_id not in focused_ids
-    ][:10]
-    audit_examples_html = "".join(
-        f"<li><b>{html.escape(candidate.snapshot.symbol)}</b> — "
-        f"{html.escape(candidate.snapshot.company_name or 'Company name unavailable')}</li>"
-        for candidate in audit_examples
-    )
     audit_html = (
-        f'<div class="audit"><b>{audit_count}</b> additional broad mover(s) were retained in the hashed audit files but omitted from this focused email because ATR was low/unresolved or the 25-name research cap was reached.<ul>{audit_examples_html}</ul></div>'
+        f'<div class="audit"><b>{audit_count}</b> other movers remain in local audit files only. Movement, liquidity, ATR qualification, or a place in the research queue is not qualifying news. No unverified watchlist is attached.</div>'
         if audit_count
         else ""
     )
@@ -378,6 +469,27 @@ def _html_report(result: RunResult, policy: EPPolicy) -> str:
         if research_counts["execution_data_verified"]
         else '<div class="coverage"><b>Execution data unavailable or unverified.</b> IBKR is not required for candidate research. Spread, depth, halt, contract, entry, and sizing fields are suppressed until a fresh read-only verification succeeds.</div>'
     )
+    if result.review_packet is not None:
+        execution_banner = (
+            '<div class="coverage"><b>Google search and source reading.</b> '
+            "Catalyst judgments are agent-reviewed; record hashes check integrity, not factual correctness. "
+            f"Reviewed and excluded: {research_counts['news_review_rejected']}. "
+            f"Not researched due to cap: {research_counts['news_unresearched_by_cap']}. "
+            "No execution review or sizing is performed.</div>"
+        )
+    run_warning_banner = (
+        '<div class="coverage"><b>Degraded coverage.</b> '
+        + html.escape(", ".join(result.warnings))
+        + ". Valid candidates from independently verified sources are still shown; unverified carryovers are excluded.</div>"
+        if result.warnings
+        else ""
+    )
+    if research_counts["news_coverage_unresolved"]:
+        run_warning_banner += (
+            '<div class="coverage"><b>News coverage incomplete.</b> Timely actual-source evidence '
+            f"could not be verified for {research_counts['news_coverage_unresolved']} researched mover(s). "
+            "These are unresolved research, not EP candidates. A zero shortlist does not establish that no qualifying events occurred.</div>"
+        )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EP research triage · {html.escape(result.run_id)}</title>
@@ -401,7 +513,7 @@ footer{{color:var(--muted);font-size:12px;margin-top:30px}} @media(max-width:800
 <div class="eyebrow">Episodic Pivot · Shadow Research</div><h1>Morning EP candidates</h1>
 <p class="dek">TradingView finds the movers; fresh adjusted yfinance bars verify prior ATR; actual-source news research narrows the focused list. This is research prioritization, not an investment recommendation.</p>
 <div class="safety"><b>Research only.</b> This artifact cannot submit, stage, approve, route, publish, or deploy an order. Every hypothetical sizing object is non-executable and requires a separate future design plus explicit approval.</div>
-{execution_banner}<div class="metrics">{card_html}</div>{empty}{''.join(candidate_html)}{audit_html}
+{run_warning_banner}{execution_banner}<div class="metrics">{card_html}</div>{empty}{"".join(candidate_html)}{audit_html}
 <footer>Run {html.escape(result.run_id)} · generated {html.escape(result.generated_at)} · policy {html.escape(policy.policy_id)} · broker route NONE</footer>
 </main></body></html>"""
 
@@ -436,6 +548,10 @@ def write_run_artifacts(
         "generated_at": result.generated_at,
         "policy": policy.to_dict(),
         "search_provider": search_provider,
+        "research_mode": "AGENT_GOOGLE_SEARCH_AND_READ"
+        if result.review_packet is not None
+        else "LEGACY_AUTOMATED",
+        "warnings": list(result.warnings),
         "inputs": input_manifest,
         "counts": {
             "candidates": len(result.candidates),
@@ -469,12 +585,18 @@ def write_run_artifacts(
         {
             candidate.snapshot.symbol: [
                 document.to_dict()
-                for document in result.documents_by_candidate.get(candidate.candidate_id, [])
+                for document in result.documents_by_candidate.get(
+                    candidate.candidate_id, []
+                )
             ]
             for candidate in result.candidates
         },
     )
     _json_dump(root / "decisions.json", [item.to_dict() for item in result.decisions])
+    _json_dump(
+        root / "news_qualified.json",
+        [item.to_dict() for item in _news_qualified(result, policy)],
+    )
     refresh_targets = _refresh_targets(result)
     _json_dump(root / "refresh_targets.json", refresh_targets)
     preview_rows = [item.to_dict() for item in result.previews]
@@ -499,20 +621,22 @@ def write_run_artifacts(
             writer.writerow({key: _csv_safe(value) for key, value in row.items()})
 
     (root / "report.md").write_text(_report(result, policy), encoding="utf-8")
-    (root / "report.html").write_text(
-        _html_report(result, policy), encoding="utf-8"
-    )
+    (root / "report.html").write_text(_html_report(result, policy), encoding="utf-8")
     artifact_names = (
         "candidates.json",
         "evidence.json",
         "evidence_by_symbol.json",
         "decisions.json",
+        "news_qualified.json",
         "refresh_targets.json",
         "research_sizing_preview.json",
         "research_sizing_preview.csv",
         "report.md",
         "report.html",
     )
+    if result.review_packet is not None:
+        _json_dump(root / "agent_reviews.json", result.review_packet)
+        artifact_names += ("agent_reviews.json",)
     manifest["artifacts"] = {
         name: {
             "sha256": sha256_file(root / name),

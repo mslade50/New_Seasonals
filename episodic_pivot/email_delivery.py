@@ -24,9 +24,24 @@ from typing import Any, Literal
 from research_io import append_jsonl, file_lock
 
 from .config import DEFAULT_POLICY
+from .news import assess_catalyst
 from .premarket import nominate_candidates
-from .schema import PremarketSnapshot, parse_timestamp
-from .tradingview import target_session_date as tradingview_target_session_date
+from .qualify import prior_atr_blocker
+from .schema import (
+    Candidate,
+    CatalystAssessment,
+    NewsDocument,
+    PremarketSnapshot,
+    QualificationDecision,
+    RunResult,
+    parse_timestamp,
+)
+from .tradingview import (
+    result_counts_are_verified,
+)
+from .tradingview import (
+    target_session_date as tradingview_target_session_date,
+)
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
@@ -163,15 +178,23 @@ def night_payload(import_path: Path) -> EmailPayload:
     if raw.get("schema_version") != 1:
         raise EmailDeliveryError("unsupported TradingView import schema")
     if raw.get("provider") != "TRADINGVIEW" or raw.get("session") != "after_hours":
-        raise EmailDeliveryError("night email requires a validated TradingView after-hours import")
+        raise EmailDeliveryError(
+            "night email requires a validated TradingView after-hours import"
+        )
     if raw.get("result_count_verified") is not True:
         raise EmailDeliveryError("TradingView displayed count was not verified")
     rows = raw.get("snapshots")
     if not isinstance(rows, list):
         raise EmailDeliveryError("TradingView import is missing snapshots")
     extracted = int(raw.get("extracted_row_count", -1))
-    reported = int(raw.get("reported_result_count", -1))
-    if extracted != len(rows) or extracted != reported:
+    reported = raw.get("reported_result_count")
+    if extracted != len(rows) or not result_counts_are_verified(
+        reported_result_count=reported,
+        post_download_result_count=raw.get("post_download_result_count"),
+        extracted_row_count=extracted,
+        verification_status=raw.get("result_count_verification"),
+        require_both_observations=True,
+    ):
         raise EmailDeliveryError("TradingView import count mismatch")
     target_date = str(raw.get("target_session_date") or "").strip()
     captured_at = str(raw.get("captured_at") or "").strip()
@@ -181,8 +204,16 @@ def night_payload(import_path: Path) -> EmailPayload:
     valid_hash = len(source_file_hash) == 64 and all(
         character in "0123456789abcdef" for character in source_file_hash
     )
-    if not target_date or not captured_at or not screen_id or not source_file or not valid_hash:
+    if (
+        not target_date
+        or not captured_at
+        or not screen_id
+        or not source_file
+        or not valid_hash
+    ):
         raise EmailDeliveryError("TradingView import identity is incomplete")
+    if screen_id != "Hqgnyp7Y":
+        raise EmailDeliveryError("TradingView after-hours screen identity is invalid")
     try:
         derived_target = tradingview_target_session_date(
             captured_at, session="after_hours"
@@ -190,7 +221,9 @@ def night_payload(import_path: Path) -> EmailPayload:
     except (TypeError, ValueError) as exc:
         raise EmailDeliveryError("TradingView capture time is invalid") from exc
     if derived_target.isoformat() != target_date:
-        raise EmailDeliveryError("TradingView target session date does not match capture time")
+        raise EmailDeliveryError(
+            "TradingView target session date does not match capture time"
+        )
 
     snapshots = [PremarketSnapshot.from_dict(item) for item in rows]
     captured_timestamp = parse_timestamp(captured_at)
@@ -204,7 +237,9 @@ def night_payload(import_path: Path) -> EmailPayload:
             or snapshot.extracted_row_count != extracted
             or parse_timestamp(snapshot.observed_at) != captured_timestamp
         ):
-            raise EmailDeliveryError("TradingView row identity does not match its import")
+            raise EmailDeliveryError(
+                "TradingView row identity does not match its import"
+            )
     as_of = max(
         (parse_timestamp(item.observed_at) for item in snapshots),
         default=parse_timestamp(captured_at),
@@ -239,7 +274,7 @@ def night_payload(import_path: Path) -> EmailPayload:
 </div>
 <p><b>Target session:</b> {html.escape(target_date)}<br><b>Captured:</b> {html.escape(captured_at)}<br><b>Saved screen:</b> {html.escape(screen_id)}</p>
 {empty}
-<table style="width:100%;border-collapse:collapse;background:#fff"><thead><tr><th style="text-align:left;padding:7px">Symbol</th><th style="text-align:right;padding:7px">Price</th><th style="text-align:right;padding:7px">Move</th><th style="text-align:right;padding:7px">$ move</th><th style="text-align:right;padding:7px">AH volume</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table>
+<table style="width:100%;border-collapse:collapse;background:#fff"><thead><tr><th style="text-align:left;padding:7px">Symbol</th><th style="text-align:right;padding:7px">Price</th><th style="text-align:right;padding:7px">Move</th><th style="text-align:right;padding:7px">$ move</th><th style="text-align:right;padding:7px">AH volume</th></tr></thead><tbody>{"".join(table_rows)}</tbody></table>
 <p style="color:#64748b;font-size:12px">Showing up to 50 broad nominees. The validated normalized import is attached.</p>"""
     source_hash = sha256_file(import_path)
     return EmailPayload(
@@ -272,7 +307,9 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
     manifest_path = run_dir / "manifest.json"
     manifest = _json_object(manifest_path)
     if manifest.get("schema_version") != 2 or manifest.get("run_id") != run_dir.name:
-        raise EmailDeliveryError("EP manifest identity does not match its run directory")
+        raise EmailDeliveryError(
+            "EP manifest identity does not match its run directory"
+        )
     safety = manifest.get("safety")
     if not isinstance(safety, dict):
         raise EmailDeliveryError("EP manifest is missing its safety record")
@@ -297,6 +334,8 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
         "research_sizing_preview.csv",
         "report.html",
         "report.md",
+        "news_qualified.json",
+        "evidence.json",
     }
     if not required.issubset(artifacts):
         raise EmailDeliveryError("EP manifest is missing email deliverables")
@@ -317,11 +356,173 @@ def _validate_run_manifest(run_dir: Path) -> dict[str, Any]:
         "candidates": "candidates.json",
         "decisions": "decisions.json",
         "research_sizing_previews": "research_sizing_preview.json",
+        "news_qualified": "news_qualified.json",
     }
     for count_name, artifact_name in count_sources.items():
         actual = len(_json_list(run_dir / artifact_name))
         if counts.get(count_name) != actual:
             raise EmailDeliveryError(f"EP manifest count mismatch: {count_name}")
+    decisions_by_id = {
+        item.get("candidate_id"): item
+        for item in _json_list(run_dir / "decisions.json")
+        if isinstance(item, dict)
+    }
+    seen_ids = set()
+    candidates_by_id = {
+        item.get("candidate_id"): item
+        for item in _json_list(run_dir / "candidates.json")
+        if isinstance(item, dict)
+    }
+    evidence = _json_object(run_dir / "evidence.json")
+    reviewed_assessments = None
+    if manifest.get("research_mode") == "AGENT_GOOGLE_SEARCH_AND_READ":
+        from .manifest import _html_report, _report, _research_counts
+        from .reviewed_news import require_complete_research, validate_packet
+
+        if "agent_reviews.json" not in artifacts:
+            raise EmailDeliveryError("EP agent review artifact is missing")
+        try:
+            packet = _json_object(run_dir / "agent_reviews.json")
+            candidates = [
+                Candidate(
+                    candidate_id=c["candidate_id"],
+                    snapshot=PremarketSnapshot.from_dict(c["snapshot"]),
+                    discovery_reasons=tuple(c["discovery_reasons"]),
+                    discovery_warnings=tuple(c.get("discovery_warnings", [])),
+                )
+                for c in candidates_by_id.values()
+            ]
+            reviewed_assessments = validate_packet(
+                packet,
+                candidates,
+                decision_at=manifest["generated_at"],
+                policy=DEFAULT_POLICY,
+            )
+            require_complete_research(packet)
+            expected_ids = {
+                cid
+                for cid, a in reviewed_assessments.items()
+                if a.research_news_qualified
+            }
+            if {
+                d.get("candidate_id")
+                for d in _json_list(run_dir / "news_qualified.json")
+            } != expected_ids:
+                raise ValueError("email shortlist differs from source reviews")
+            for cid, assessment in reviewed_assessments.items():
+                expected = json.loads(json.dumps(assessment.to_dict()))
+                if (
+                    decisions_by_id[cid]["catalyst"] != expected
+                    or decisions_by_id[cid]["decision"] != "WATCH"
+                ):
+                    raise ValueError("saved assessment differs from source review")
+            # Re-render the delivered surfaces from validated records. Rehashed
+            # HTML cannot insert an unreviewed name or change the catalyst text.
+            restored = RunResult(
+                run_id=manifest["run_id"],
+                generated_at=manifest["generated_at"],
+                candidates=candidates,
+                decisions=[
+                    QualificationDecision(
+                        **{**d, "catalyst": CatalystAssessment(**d["catalyst"])}
+                    )
+                    for d in decisions_by_id.values()
+                ],
+                review_packet=packet,
+                warnings=tuple(manifest.get("warnings", [])),
+            )
+            if counts.get("research_sizing_previews") != 0:
+                raise ValueError("agent research cannot produce sizing previews")
+            for key, expected in _research_counts(restored, DEFAULT_POLICY).items():
+                if counts.get(key) != expected:
+                    raise ValueError("review coverage count differs from evidence")
+            for name, render in (("report.html", _html_report), ("report.md", _report)):
+                if (run_dir / name).read_text(encoding="utf-8") != render(
+                    restored, DEFAULT_POLICY
+                ):
+                    raise ValueError("delivered report differs from validated reviews")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EmailDeliveryError(
+                "EP search-and-read review validation failed"
+            ) from exc
+    for item in _json_list(run_dir / "news_qualified.json"):
+        if not isinstance(item, dict):
+            raise EmailDeliveryError("EP news-qualified record is invalid")
+        candidate_id = item.get("candidate_id")
+        catalyst = item.get("catalyst") or {}
+        if (
+            not candidate_id
+            or candidate_id in seen_ids
+            or decisions_by_id.get(candidate_id) != item
+            or catalyst.get("research_news_qualified") is not True
+            or catalyst.get("publication_time_verified") is not True
+            or catalyst.get("trajectory_change_verified") is not True
+            or not catalyst.get("research_news_excerpt")
+            or not catalyst.get("evidence_urls")
+            or catalyst.get("adverse_flags")
+            or item.get("decision") == "REJECT"
+        ):
+            raise EmailDeliveryError("EP news-qualified record failed evidence gate")
+        seen_ids.add(candidate_id)
+        # Do not trust a stored 'qualified' boolean. Re-vet the actual hashed
+        # source documents and current tape/ATR policy immediately before mail.
+        try:
+            snapshot = PremarketSnapshot.from_dict(
+                candidates_by_id[candidate_id]["snapshot"]
+            )
+            if (
+                snapshot.symbol != item.get("symbol")
+                or snapshot.last < DEFAULT_POLICY.discovery.min_price
+                or snapshot.discovery_gap_pct < DEFAULT_POLICY.discovery.min_abs_gap_pct
+                or snapshot.premarket_volume
+                < DEFAULT_POLICY.discovery.min_premarket_volume
+                or prior_atr_blocker(snapshot, policy=DEFAULT_POLICY) is not None
+            ):
+                raise ValueError("candidate fails delivery thresholds")
+            if not nominate_candidates(
+                [snapshot],
+                as_of=manifest["generated_at"],
+                policy=DEFAULT_POLICY,
+                apply_candidate_limit=False,
+                require_verified_premarket_move=True,
+            ):
+                raise ValueError("candidate has no verified premarket move")
+            assessment = (
+                reviewed_assessments[candidate_id]
+                if reviewed_assessments is not None
+                else assess_catalyst(
+                    [NewsDocument.from_dict(doc) for doc in evidence[candidate_id]],
+                    decision_at=manifest["generated_at"],
+                    policy=DEFAULT_POLICY.news,
+                    symbol=snapshot.symbol,
+                    company_name=snapshot.company_name,
+                    first_trigger_at=(
+                        snapshot.first_trigger_at
+                        or (
+                            snapshot.observed_at
+                            if snapshot.source.upper().startswith("IBKR")
+                            else None
+                        )
+                    ),
+                    target_session_date=snapshot.target_session_date,
+                )
+            )
+            if not assessment.research_news_qualified or assessment.adverse_flags:
+                raise ValueError("catalyst failed source re-vetting")
+            for field in (
+                "research_news_excerpt",
+                "research_news_basis",
+                "evidence_urls",
+                "evidence_published_at",
+            ):
+                actual = getattr(assessment, field)
+                expected = catalyst.get(field)
+                if (list(actual) if isinstance(actual, tuple) else actual) != expected:
+                    raise ValueError("delivered catalyst differs from vetted source")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EmailDeliveryError(
+                "EP candidate failed independent pre-email vetting"
+            ) from exc
     return manifest
 
 
@@ -349,20 +550,27 @@ def morning_payload(run_dir: Path) -> EmailPayload:
     manifest = _validate_run_manifest(run_dir)
     counts = manifest.get("counts") if isinstance(manifest.get("counts"), dict) else {}
     target_date = _target_date_from_candidates(run_dir)
+    if manifest.get("research_mode") == "AGENT_GOOGLE_SEARCH_AND_READ":
+        target_date = _json_object(run_dir / "agent_reviews.json")["queue"][
+            "target_session_date"
+        ]
     candidates = int(counts.get("candidates", 0))
     decisions = int(counts.get("decisions", 0))
     previews = int(counts.get("research_sizing_previews", 0))
     atr_qualified = int(counts.get("atr_qualified", candidates))
     news_researched = int(counts.get("news_research_selected", candidates))
     execution_verified = int(counts.get("execution_data_verified", 0))
+    news_qualified = int(counts["news_qualified"])
+    unresolved = int(counts.get("news_coverage_unresolved", 0))
     report_path = run_dir / "report.html"
     report_html = report_path.read_text(encoding="utf-8")
     if "Research only" not in report_html or "broker route NONE" not in report_html:
-        raise EmailDeliveryError("EP HTML report is missing its research-only sentinels")
+        raise EmailDeliveryError(
+            "EP HTML report is missing its research-only sentinels"
+        )
     attachments = (
         report_path,
         run_dir / "report.md",
-        run_dir / "research_sizing_preview.csv",
         run_dir / "manifest.json",
     )
     source_hash = sha256_file(run_dir / "manifest.json")
@@ -370,21 +578,25 @@ def morning_payload(run_dir: Path) -> EmailPayload:
         kind="morning",
         subject=(
             f"[EP Shadow] Morning Candidates | {target_date} | "
-            f"{news_researched} researched, {atr_qualified} ATR-qualified"
+            f"{news_qualified} news-qualified"
+            + (" | news coverage incomplete" if unresolved else "")
         ),
         html_body=report_html,
         plain_body=(
-            f"EP morning shadow report for {target_date}: {candidates} broad movers, "
+            f"EP morning shadow report for {target_date}: {news_qualified} news-qualified candidates. "
+            f"News coverage unresolved for {unresolved} researched movers. {candidates} broad movers, "
             f"{atr_qualified} ATR-qualified, {news_researched} news-researched, "
             f"{execution_verified} with fresh execution verification, and "
             f"{previews} non-executable previews across {decisions} decisions. "
-            "The complete HTML report and audit files are attached."
+            "Only the news-qualified report is attached; all other movers remain in local audit files."
         ),
         attachments=attachments,
         receipt_path=run_dir / "email_delivery.json",
         source_sha256=source_hash,
         metadata={
             "run_id": manifest.get("run_id"),
+            "research_mode": manifest.get("research_mode", "LEGACY_AUTOMATED"),
+            "generated_at": manifest.get("generated_at"),
             "target_session_date": target_date,
             "candidates": candidates,
             "decisions": decisions,
@@ -392,6 +604,7 @@ def morning_payload(run_dir: Path) -> EmailPayload:
             "atr_qualified": atr_qualified,
             "news_research_selected": news_researched,
             "execution_data_verified": execution_verified,
+            "news_qualified": news_qualified,
         },
     )
 
@@ -414,7 +627,9 @@ def failure_payload(
         try:
             target = date.fromisoformat(target).isoformat()
         except ValueError as exc:
-            raise EmailDeliveryError("failure target session date must use YYYY-MM-DD") from exc
+            raise EmailDeliveryError(
+                "failure target session date must use YYYY-MM-DD"
+            ) from exc
     else:
         target = "unknown-session"
     canonical = json.dumps(
@@ -492,7 +707,9 @@ def _existing_delivery(
     try:
         receipt = _json_object(receipt_path)
     except (OSError, ValueError, json.JSONDecodeError, EmailDeliveryError) as exc:
-        raise EmailDeliveryError(f"invalid existing email receipt: {receipt_path}") from exc
+        raise EmailDeliveryError(
+            f"invalid existing email receipt: {receipt_path}"
+        ) from exc
     if receipt.get("status") != "SENT":
         raise EmailDeliveryError(
             f"existing email delivery is pending or ambiguous; reconcile it before retrying: {receipt_path}"

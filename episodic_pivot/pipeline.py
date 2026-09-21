@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import date, datetime
 
 from .config import EPPolicy
+from .daily_prices import YFINANCE_DAILY_PRICE_BASIS
 from .news import (
     ArticleFetcher,
     SearchProvider,
@@ -26,6 +27,84 @@ from .schema import (
 )
 from .sizing import apply_daily_preview_caps, build_research_sizing_preview
 
+_YFINANCE_DAILY_STATUSES = {"VERIFIED", "VERIFIED_WITH_YFINANCE_REPAIR"}
+_YFINANCE_DAILY_FIELDS = (
+    "atr_14",
+    "atr_reference_close",
+    "prior_two_day_low",
+    "avg_volume_20",
+    "addv_63",
+    "prior_63d_return_pct",
+    "sessions_since_prior_ep",
+    "daily_price_basis",
+    "daily_data_status",
+    "daily_data_observed_at",
+    "daily_source_session",
+    "daily_source_symbol",
+    "daily_repaired_bar_count",
+)
+
+
+def _has_verified_yfinance_daily_provenance(snapshot: PremarketSnapshot) -> bool:
+    return (
+        snapshot.daily_price_basis == YFINANCE_DAILY_PRICE_BASIS
+        and snapshot.daily_data_status in _YFINANCE_DAILY_STATUSES
+        and bool(snapshot.daily_source_session)
+    )
+
+
+def _daily_observation_key(snapshot: PremarketSnapshot) -> datetime:
+    return parse_timestamp(snapshot.daily_data_observed_at or snapshot.observed_at)
+
+
+def _overlay_yfinance_daily_fields(
+    snapshots: list[PremarketSnapshot],
+) -> list[PremarketSnapshot]:
+    """Pair the freshest market observation with yfinance-owned daily metrics.
+
+    A final IBKR quote refresh is usually newer than the yfinance-enriched
+    discovery row. Market-source deduplication must not therefore replace the
+    required yfinance ATR provenance with IBKR's redundant daily cross-check.
+    """
+
+    daily_by_identity: dict[tuple[str, str], PremarketSnapshot] = {}
+    for snapshot in snapshots:
+        if not _has_verified_yfinance_daily_provenance(snapshot):
+            continue
+        identity = (snapshot.symbol, snapshot.target_session_date)
+        existing = daily_by_identity.get(identity)
+        if existing is None or _daily_observation_key(
+            snapshot
+        ) > _daily_observation_key(existing):
+            daily_by_identity[identity] = snapshot
+
+    overlaid: list[PremarketSnapshot] = []
+    for snapshot in snapshots:
+        daily = daily_by_identity.get((snapshot.symbol, snapshot.target_session_date))
+        if daily is None or daily is snapshot:
+            overlaid.append(snapshot)
+            continue
+        overlaid.append(
+            replace(
+                snapshot,
+                **{field: getattr(daily, field) for field in _YFINANCE_DAILY_FIELDS},
+            )
+        )
+    return overlaid
+
+
+def _research_prior_atr_blocker(
+    snapshot: PremarketSnapshot, *, policy: EPPolicy
+) -> str | None:
+    blocker = prior_atr_blocker(snapshot, policy=policy)
+    if blocker is not None:
+        return blocker
+    if snapshot.daily_price_basis != YFINANCE_DAILY_PRICE_BASIS:
+        return "PRIOR_ATR_SOURCE_NOT_YFINANCE"
+    if not _has_verified_yfinance_daily_provenance(snapshot):
+        return "PRIOR_ATR_YFINANCE_PROVENANCE_UNVERIFIED"
+    return None
+
 
 def _run_id(
     snapshots: list[PremarketSnapshot],
@@ -33,6 +112,7 @@ def _run_id(
     as_of: str | datetime,
     policy: EPPolicy,
     documents_by_candidate: dict[str, list[NewsDocument]],
+    run_warnings: tuple[str, ...] = (),
 ) -> str:
     normalized_inputs = json.dumps(
         {
@@ -45,6 +125,7 @@ def _run_id(
                 for candidate_id, documents in sorted(documents_by_candidate.items())
             },
             "policy": policy.to_dict(),
+            "warnings": sorted(set(run_warnings)),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -65,6 +146,7 @@ def run_shadow_pipeline(
     offline_documents_verified: bool = False,
     search_provider: SearchProvider | None = None,
     article_fetcher: ArticleFetcher | None = None,
+    run_warnings: tuple[str, ...] = (),
 ) -> RunResult:
     """Run the research pipeline without any external write or broker action."""
 
@@ -73,17 +155,19 @@ def run_shadow_pipeline(
     if search_provider is not None and offline_documents:
         raise ValueError("choose offline evidence or a search provider, not both")
 
+    snapshots = _overlay_yfinance_daily_fields(snapshots)
     scan_at = iso_utc(as_of)
     initial_candidates = nominate_candidates(
         snapshots,
         as_of=scan_at,
         policy=policy,
         apply_candidate_limit=False,
+        require_verified_premarket_move=True,
     )
     atr_eligible = [
         candidate
         for candidate in initial_candidates
-        if prior_atr_blocker(candidate.snapshot, policy=policy) is None
+        if _research_prior_atr_blocker(candidate.snapshot, policy=policy) is None
     ]
     research_candidates = atr_eligible[: policy.discovery.max_candidates]
     research_candidate_ids = {
@@ -142,8 +226,12 @@ def run_shadow_pipeline(
     # is used to recheck quote freshness; a slow run correctly produces WATCH
     # decisions until the user captures a fresh snapshot and replays the evidence.
     decision_at = iso_utc(utc_now()) if search_provider is not None else scan_at
+    # Re-evaluate quote-age warnings after research using only the exact market
+    # observations that passed the current-move gate before any news request.
+    # This prevents a newer partial IBKR row from replacing a valid TV row while
+    # still letting slow research turn the accepted row stale for sizing.
     candidates = nominate_candidates(
-        snapshots,
+        [candidate.snapshot for candidate in initial_candidates],
         as_of=decision_at,
         policy=policy,
         apply_candidate_limit=False,
@@ -177,7 +265,9 @@ def run_shadow_pipeline(
             target_session_date=target_session_date,
         )
         if candidate.candidate_id not in research_candidate_ids:
-            skipped_for_atr = prior_atr_blocker(candidate.snapshot, policy=policy)
+            skipped_for_atr = _research_prior_atr_blocker(
+                candidate.snapshot, policy=policy
+            )
             research_blocker = (
                 "NEWS_RESEARCH_SKIPPED_PRIOR_ATR"
                 if skipped_for_atr
@@ -186,7 +276,13 @@ def run_shadow_pipeline(
             decision = replace(
                 decision,
                 decision="WATCH",
-                blockers=tuple(sorted(set(decision.blockers) | {research_blocker})),
+                blockers=tuple(
+                    sorted(
+                        set(decision.blockers)
+                        | {research_blocker}
+                        | ({skipped_for_atr} if skipped_for_atr else set())
+                    )
+                ),
             )
         outcome = build_research_sizing_preview(
             candidate,
@@ -233,10 +329,12 @@ def run_shadow_pipeline(
             as_of=decision_at,
             policy=policy,
             documents_by_candidate=documents_by_candidate,
+            run_warnings=run_warnings,
         ),
         generated_at=decision_at,
         candidates=candidates,
         documents_by_candidate=documents_by_candidate,
         decisions=decisions,
         previews=previews,
+        warnings=tuple(sorted(set(run_warnings))),
     )

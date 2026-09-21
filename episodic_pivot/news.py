@@ -38,7 +38,6 @@ from .schema import (
     utc_now,
 )
 
-
 _UA = "NewSeasonals-EP-Research/0.1 (+shadow-only actual-source verification)"
 _TRACKING_PARAMS = {"gclid", "fbclid", "mc_cid", "mc_eid", "ref", "source"}
 _REGULATOR_DOMAINS = {
@@ -65,7 +64,16 @@ _MAX_ARTICLE_BYTES = 2_000_000
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
 
 _CATALYST_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("EARNINGS_GUIDANCE", ("raises guidance", "raised guidance", "boosts outlook", "increased its outlook", "higher full-year outlook")),
+    (
+        "EARNINGS_GUIDANCE",
+        (
+            "raises guidance",
+            "raised guidance",
+            "boosts outlook",
+            "increased its outlook",
+            "higher full-year outlook",
+        ),
+    ),
     (
         "REGULATORY_APPROVAL",
         (
@@ -99,60 +107,132 @@ _CATALYST_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "clinical trial enrollment",
         ),
     ),
-    ("M_AND_A", ("to acquire", "will acquire", "merger agreement", "acquisition of", "strategic alternatives")),
-    ("MATERIAL_CONTRACT", ("material contract", "multi-year contract", "purchase order", "contract award", "awarded a contract")),
-    ("PRODUCT_TECHNOLOGY", ("launches", "new product", "commercial launch", "breakthrough technology", "patent granted")),
-    ("MANAGEMENT_CHANGE", ("appoints chief executive", "new chief executive", "ceo resigns", "chief executive officer")),
-    ("EARNINGS", ("reports earnings", "financial results", "quarterly results", "quarterly earnings", "earnings per share")),
-    ("ANALYST_ACTION", ("price target", "upgraded to", "downgraded to", "initiates coverage")),
+    (
+        "M_AND_A",
+        (
+            "to acquire",
+            "will acquire",
+            "merger agreement",
+            "acquisition of",
+            "strategic alternatives",
+        ),
+    ),
+    (
+        "MATERIAL_CONTRACT",
+        (
+            "material contract",
+            "multi-year contract",
+            "purchase order",
+            "contract award",
+            "awarded a contract",
+        ),
+    ),
+    (
+        "PRODUCT_TECHNOLOGY",
+        (
+            "launches",
+            "new product",
+            "commercial launch",
+            "breakthrough technology",
+            "patent granted",
+        ),
+    ),
+    (
+        "MANAGEMENT_CHANGE",
+        (
+            "appoints chief executive",
+            "new chief executive",
+            "ceo resigns",
+            "chief executive officer",
+        ),
+    ),
+    (
+        "EARNINGS",
+        (
+            "reports earnings",
+            "financial results",
+            "quarterly results",
+            "quarterly earnings",
+            "earnings per share",
+        ),
+    ),
+    (
+        "ANALYST_ACTION",
+        ("price target", "upgraded to", "downgraded to", "initiates coverage"),
+    ),
 )
 _ADVERSE_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("DILUTION_OR_OFFERING", ("public offering", "registered direct", "at-the-market offering", "secondary offering", "convertible notes", "dilution")),
-    ("FIXED_PRICE_TAKEOVER", ("all-cash transaction", "per share in cash", "fixed price", "tender offer")),
+    (
+        "DILUTION_OR_OFFERING",
+        (
+            "public offering",
+            "registered direct",
+            "at-the-market offering",
+            "secondary offering",
+            "convertible notes",
+            "dilution",
+        ),
+    ),
+    (
+        "FIXED_PRICE_TAKEOVER",
+        ("all-cash transaction", "per share in cash", "fixed price", "tender offer"),
+    ),
     ("BANKRUPTCY_OR_GOING_CONCERN", ("chapter 11", "bankruptcy", "going concern")),
     ("REVERSE_SPLIT", ("reverse stock split",)),
-    ("INVESTIGATION", ("securities investigation", "fraud investigation", "sec investigation")),
-    ("CLINICAL_OR_REGULATORY_FAILURE", (
-        "failed the primary endpoint",
-        "failed to meet the primary endpoint",
-        "failed to achieve the primary endpoint",
-        "did not meet the primary endpoint",
-        "missed the primary endpoint",
-        "discontinue the program",
-        "discontinued the program",
-        "terminated the trial",
-        "clinical hold",
-        "complete response letter",
-        "fda rejected",
-        "fda rejects",
-        "not approved by the fda",
-        "did not receive fda approval",
-        "has not received fda approval",
-        "did not receive regulatory approval",
-        "has not received regulatory approval",
-        "no regulatory approval was granted",
-        "without regulatory approval",
-        "did not demonstrate efficacy",
-        "not statistically significant",
-        "no statistically significant improvement",
-        "no statistically significant difference",
-        "no statistically significant benefit",
-    )),
-    ("GUIDANCE_CUT_OR_WITHDRAWAL", (
-        "lowers guidance",
-        "lowered guidance",
-        "cuts guidance",
-        "cut its forecast",
-        "reduces its outlook",
-        "withdrew guidance",
-        "withdraws guidance",
-    )),
-    ("RESTATEMENT_OR_RECALL", (
-        "financial restatement",
-        "restate its financial",
-        "product recall",
-        "recalls its product",
-    )),
+    (
+        "INVESTIGATION",
+        ("securities investigation", "fraud investigation", "sec investigation"),
+    ),
+    (
+        "CLINICAL_OR_REGULATORY_FAILURE",
+        (
+            "failed the primary endpoint",
+            "failed to meet the primary endpoint",
+            "failed to achieve the primary endpoint",
+            "did not meet the primary endpoint",
+            "missed the primary endpoint",
+            "discontinue the program",
+            "discontinued the program",
+            "terminated the trial",
+            "clinical hold",
+            "complete response letter",
+            "fda rejected",
+            "fda rejects",
+            "not approved by the fda",
+            "did not receive fda approval",
+            "has not received fda approval",
+            "did not receive regulatory approval",
+            "has not received regulatory approval",
+            "no regulatory approval was granted",
+            "without regulatory approval",
+            "did not demonstrate efficacy",
+            "not statistically significant",
+            "no statistically significant improvement",
+            "no statistically significant difference",
+            "no statistically significant benefit",
+        ),
+    ),
+    (
+        "GUIDANCE_CUT_OR_WITHDRAWAL",
+        (
+            "lowers guidance",
+            "lowered guidance",
+            "cuts guidance",
+            "cut its forecast",
+            "reduces its outlook",
+            "withdrew guidance",
+            "withdraws guidance",
+        ),
+    ),
+    (
+        "RESTATEMENT_OR_RECALL",
+        (
+            "financial restatement",
+            "restate its financial",
+            "product recall",
+            "recalls its product",
+        ),
+    ),
 )
 
 _MATERIALITY_BASE = {
@@ -182,8 +262,7 @@ class SearchProvider(Protocol):
 def normalize_url(url: str) -> str:
     parts = urlsplit(str(url).strip())
     host = (parts.hostname or "").lower()
-    if host.startswith("www."):
-        host = host[4:]
+    host = host.removeprefix("www.")
     port = f":{parts.port}" if parts.port else ""
     kept = []
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
@@ -192,12 +271,14 @@ def normalize_url(url: str) -> str:
             continue
         kept.append((key, value))
     path = parts.path.rstrip("/") or "/"
-    return urlunsplit((parts.scheme.lower() or "https", host + port, path, urlencode(kept), ""))
+    return urlunsplit(
+        (parts.scheme.lower() or "https", host + port, path, urlencode(kept), "")
+    )
 
 
 def _domain(url: str) -> str:
     host = (urlsplit(url).hostname or "").lower()
-    return host[4:] if host.startswith("www.") else host
+    return host.removeprefix("www.")
 
 
 def _domain_in(domain: str, roots: set[str]) -> bool:
@@ -321,6 +402,63 @@ class GoogleNewsRssProvider:
         return out
 
 
+class DirectArticleSearchProvider:
+    """Google first, with bounded Yahoo URL discovery when Google has wrappers.
+
+    Neither provider's titles, summaries, nor timestamps are source proof. Every
+    returned URL still passes ArticleFetcher and the normal evidence gates.
+    """
+
+    def __init__(self, primary: SearchProvider, *, metadata_cache: str):
+        self.primary = primary
+        self.metadata_cache = metadata_cache
+        self.name = f"{primary.name}_WITH_YAHOO_URL_FALLBACK"
+
+    def search(
+        self, *, symbol: str, company_name: str, as_of: datetime, limit: int
+    ) -> list[NewsHit]:
+        try:
+            hits = self.primary.search(
+                symbol=symbol, company_name=company_name, as_of=as_of, limit=limit
+            )
+        except Exception:  # noqa: BLE001 - provider outage falls back, never confirms evidence.
+            hits = []
+        direct = [hit for hit in hits if source_tier(hit.url) != "SEARCH_WRAPPER"]
+        if len(direct) >= limit:
+            return direct[:limit]
+        try:
+            import yfinance as yf
+
+            yf.set_tz_cache_location(self.metadata_cache)
+            records = yf.Ticker(symbol.replace(".", "-")).get_news(
+                count=limit, tab="all"
+            )
+            seen = {normalize_url(hit.url) for hit in direct}
+            for record in records[:limit]:
+                content = record.get("content") or {}
+                url = (content.get("canonicalUrl") or {}).get("url", "")
+                if not url.startswith("https://") or normalize_url(url) in seen:
+                    continue
+                seen.add(normalize_url(url))
+                direct.append(
+                    NewsHit(
+                        title=str(content.get("title") or ""),
+                        url=url,
+                        published_at=content.get("pubDate"),
+                        publisher=str(
+                            (content.get("provider") or {}).get("displayName") or ""
+                        ),
+                        search_provider="YAHOO_URL_DISCOVERY",
+                    )
+                )
+        except Exception:  # noqa: BLE001, S110 - failed discovery is unresolved, never confirmation.
+            # Keep Google's failed-wrapper evidence visible if fallback fails.
+            pass
+        return (
+            direct + [hit for hit in hits if source_tier(hit.url) == "SEARCH_WRAPPER"]
+        )[:limit]
+
+
 class _VisibleTextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -334,7 +472,9 @@ class _VisibleTextParser(HTMLParser):
         self.article_parts: list[str] = []
 
     def handle_starttag(self, tag: str, attrs) -> None:  # type: ignore[no-untyped-def]
-        attributes = {str(key).lower(): str(value) for key, value in attrs if value is not None}
+        attributes = {
+            str(key).lower(): str(value) for key, value in attrs if value is not None
+        }
         if tag in {"script", "style", "noscript", "svg"}:
             self.hidden_depth += 1
         if tag == "article":
@@ -377,7 +517,9 @@ class _VisibleTextParser(HTMLParser):
             self.title_parts.append(cleaned)
 
 
-def _match_labels(text: str, patterns: tuple[tuple[str, tuple[str, ...]], ...]) -> tuple[str, ...]:
+def _match_labels(
+    text: str, patterns: tuple[tuple[str, tuple[str, ...]], ...]
+) -> tuple[str, ...]:
     lower = text.lower()
     return tuple(
         label
@@ -405,7 +547,9 @@ def normalize_evidence_document(document: NewsDocument) -> NewsDocument:
     """Recompute all decision-bearing labels and verify the archived excerpt hash."""
 
     excerpt = document.text_excerpt or ""
-    calculated_hash = hashlib.sha256(excerpt.encode("utf-8")).hexdigest() if excerpt else ""
+    calculated_hash = (
+        hashlib.sha256(excerpt.encode("utf-8")).hexdigest() if excerpt else ""
+    )
     status = document.fetch_status
     if status == "FETCHED" and calculated_hash != document.text_sha256:
         status = "INVALID_EVIDENCE_HASH"
@@ -438,12 +582,64 @@ def _materiality(
     score = _MATERIALITY_BASE.get(lead_type, 0)
     signals: list[str] = []
     rules = (
-        ("RAISED_GUIDANCE", 2, ("raises guidance", "raised guidance", "boosts outlook", "increased its outlook")),
-        ("EXPECTATIONS_SURPRISE", 1, ("above expectations", "above consensus", "beat estimates", "beats estimates", "surprise")),
-        ("PERSISTENCE_EVIDENCE", 1, ("multi-year", "backlog", "recurring revenue", "full-year outlook", "signed customer demand")),
-        ("ACCELERATING_GROWTH", 1, ("accelerated", "revenue grew", "sales grew", "record revenue", "record sales")),
-        ("COMMERCIAL_OR_REGULATORY_MILESTONE", 1, ("commercial launch", "primary endpoint", "fda approval", "contract award")),
-        ("GUIDANCE_IMPACT", 1, ("expected to contribute to revenue", "increases revenue guidance", "raises revenue outlook", "material to revenue")),
+        (
+            "RAISED_GUIDANCE",
+            2,
+            (
+                "raises guidance",
+                "raised guidance",
+                "boosts outlook",
+                "increased its outlook",
+            ),
+        ),
+        (
+            "EXPECTATIONS_SURPRISE",
+            1,
+            (
+                "above expectations",
+                "above consensus",
+                "beat estimates",
+                "beats estimates",
+                "surprise",
+            ),
+        ),
+        (
+            "PERSISTENCE_EVIDENCE",
+            1,
+            (
+                "multi-year",
+                "backlog",
+                "recurring revenue",
+                "full-year outlook",
+                "signed customer demand",
+            ),
+        ),
+        (
+            "ACCELERATING_GROWTH",
+            1,
+            (
+                "accelerated",
+                "revenue grew",
+                "sales grew",
+                "record revenue",
+                "record sales",
+            ),
+        ),
+        (
+            "COMMERCIAL_OR_REGULATORY_MILESTONE",
+            1,
+            ("commercial launch", "primary endpoint", "fda approval", "contract award"),
+        ),
+        (
+            "GUIDANCE_IMPACT",
+            1,
+            (
+                "expected to contribute to revenue",
+                "increases revenue guidance",
+                "raises revenue outlook",
+                "material to revenue",
+            ),
+        ),
     )
     for label, points, needles in rules:
         if any(_contains_non_negated_phrase(text, needle) for needle in needles):
@@ -465,6 +661,17 @@ def _candidate_event_context(
         sentence.strip()
         for sentence in re.split(r"(?<=[.!?])\s+|[\r\n]+", combined)
         if sentence.strip()
+    ]
+    # Do not assign a peer's announcement to the issuer whose stock reacted.
+    sentences = [
+        clause.strip()
+        for sentence in sentences
+        for clause in re.split(
+            r"\s+(?:after\s+(?:a\s+)?reports?\s+(?:of|that)|on\s+news\s+that|while|whereas)\s+|;",
+            sentence,
+            flags=re.IGNORECASE,
+        )
+        if clause.strip()
     ]
     windows: list[str] = []
     for index, sentence in enumerate(sentences):
@@ -513,7 +720,9 @@ def _document_mentions_candidate(
         " ",
         company_name.lower(),
     )
-    meaningful = [token for token in re.findall(r"[a-z0-9]+", company) if len(token) >= 4]
+    meaningful = [
+        token for token in re.findall(r"[a-z0-9]+", company) if len(token) >= 4
+    ]
     normalized_text = " ".join(re.findall(r"[a-z0-9]+", text))
     # Multi-token issuer cores ("Test Systems") are distinctive enough for
     # relevance.  One-word companies require the full legal name or structured
@@ -634,7 +843,9 @@ def _pinned_https_request(
             decode_content=True,
             retries=False,
         )
-        headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
+        headers = {
+            str(key).lower(): str(value) for key, value in response.headers.items()
+        }
         declared = headers.get("content-length")
         if declared:
             try:
@@ -659,7 +870,10 @@ def _pinned_https_request(
 
 
 def _read_response_body(
-    response, *, max_bytes: int, deadline_monotonic: float  # type: ignore[no-untyped-def]
+    response,
+    *,
+    max_bytes: int,
+    deadline_monotonic: float,  # type: ignore[no-untyped-def]
 ) -> bytes:
     """Read at most one socket operation per loop under an absolute deadline."""
 
@@ -709,7 +923,7 @@ def _fetch_public_html(
                     deadline_monotonic=deadline_monotonic,
                 )
                 break
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - retry vetted IPs under one deadline.
                 last_error = exc
         else:
             raise ValueError("all vetted article endpoints failed") from last_error
@@ -733,7 +947,9 @@ class ArticleFetcher:
     def __init__(self, *, timeout_seconds: int = 15):
         self.timeout_seconds = timeout_seconds
 
-    def fetch(self, hit: NewsHit, *, retrieved_at: datetime | None = None) -> NewsDocument:
+    def fetch(
+        self, hit: NewsHit, *, retrieved_at: datetime | None = None
+    ) -> NewsDocument:
         requested_url = normalize_url(hit.url)
         try:
             fetched_url, _, response_text = _fetch_public_html(
@@ -748,10 +964,14 @@ class ArticleFetcher:
             text = article_text if len(article_text) >= 350 else " ".join(parser.parts)
             title = " ".join(parser.title_parts).strip() or hit.title
             excerpt = text[:4_000]
-            digest = hashlib.sha256(excerpt.encode("utf-8")).hexdigest() if excerpt else ""
+            digest = (
+                hashlib.sha256(excerpt.encode("utf-8")).hexdigest() if excerpt else ""
+            )
             combined = f"{title} {text}"
             proposed_canonical = normalize_url(
-                urljoin(fetched_url, parser.canonical_url) if parser.canonical_url else fetched_url
+                urljoin(fetched_url, parser.canonical_url)
+                if parser.canonical_url
+                else fetched_url
             )
             _validate_public_http_url(proposed_canonical)
             canonical_url = (
@@ -780,7 +1000,7 @@ class ArticleFetcher:
                 adverse_flags=_match_labels(combined, _ADVERSE_PATTERNS),
                 published_at_provenance=published_at_provenance,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - archive sanitized per-document failures.
             fetched_at = retrieved_at or utc_now()
             return NewsDocument(
                 title=hit.title,
@@ -837,8 +1057,7 @@ def _trajectory_change_verified(
         return "RAISED_GUIDANCE" in signals
     if catalyst_type == "EARNINGS":
         return "EXPECTATIONS_SURPRISE" in signals and bool(
-            signals
-            & {"RAISED_GUIDANCE", "PERSISTENCE_EVIDENCE", "ACCELERATING_GROWTH"}
+            signals & {"RAISED_GUIDANCE", "PERSISTENCE_EVIDENCE", "ACCELERATING_GROWTH"}
         )
     if catalyst_type == "MATERIAL_CONTRACT":
         return {"QUANTIFIED_IMPACT", "GUIDANCE_IMPACT"} <= signals
@@ -847,6 +1066,198 @@ def _trajectory_change_verified(
             signals & {"QUANTIFIED_IMPACT", "PERSISTENCE_EVIDENCE"}
         )
     return False
+
+
+def _ambiguous_research_event(
+    context: str, *, window_start: datetime, target_date: date
+) -> bool:
+    """Conservative exclusions: a fresh page is not necessarily a fresh event.
+
+    Do not infer a new issuer event from retrospective language or a related
+    company's action. Ambiguous mixed contexts need human research, not email
+    promotion. Fiscal period comparisons alone (e.g. fiscal 2025) are not dates
+    of the announcement.
+    """
+    if "?" in context or re.search(
+        r"\b(?:rumou?rs?|unconfirmed|unsubstantiated|denied|denies|denial|"
+        r"speculat(?:ion|ive)|not\s+confirmed|will\s+(?:report|announce|receive))\b",
+        context,
+        re.IGNORECASE,
+    ):
+        return True
+    if re.search(
+        r"\b(?:last\s+(?:week|month|quarter|year)|previously|formerly|historically|"
+        r"(?:days?|weeks?|months?|quarters?|years?)\s+ago|"
+        r"earlier\s+(?:this|that|last)\s+(?:week|month|quarter|year))\b",
+        context,
+        re.IGNORECASE,
+    ):
+        return True
+    # Explicit retrospective dates, on either side of the catalyst verb.
+    for match in re.finditer(
+        r"\b(?:in|during|since|on)\s+(20\d{2})(?:-(\d{2})-(\d{2}))?\b",
+        context,
+        re.IGNORECASE,
+    ):
+        year, month, day = match.groups()
+        if month is None:
+            # A year-only event reference cannot establish session freshness.
+            return True
+        else:
+            try:
+                if (
+                    not window_start.date()
+                    <= date(int(year), int(month), int(day))
+                    <= target_date
+                ):
+                    return True
+            except ValueError:
+                return True
+    months = {
+        name.lower(): number
+        for number, name in enumerate(
+            (
+                "",
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            )
+        )
+        if name
+    }
+    month_pattern = "|".join(months)
+    for match in re.finditer(
+        rf"\b(?:on|in|since|during)\s+({month_pattern})\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(20\d{{2}}))?\b",
+        context,
+        re.IGNORECASE,
+    ):
+        month_name, day, year = match.groups()
+        try:
+            event_date = date(
+                int(year or target_date.year), months[month_name.lower()], int(day)
+            )
+        except ValueError:
+            return True
+        if not window_start.date() <= event_date <= target_date:
+            return True
+    # "Test Systems supplier Other Holdings raised ..." names the candidate
+    # but the subject of the business action is the supplier, not the candidate.
+    return bool(
+        re.search(
+            r"\b(?:supplier|customer|competitor|partner|rival|peer|affiliate|subsidiary)\b"
+            r"[^.!?;]{0,90}\b(?:rais(?:ed|es)|boosts?|announc(?:ed|es)|report(?:ed|s)|"
+            r"receiv(?:ed|es)|won|wins|met|beats?|beat|increas(?:ed|es))\b",
+            context,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _research_news_proof(
+    documents: list[NewsDocument],
+    *,
+    symbol: str,
+    company_name: str,
+    target_date: date,
+    policy: NewsPolicy,
+) -> dict[str, object]:
+    """Material new business facts for the email, NOT permission to size.
+
+    Require body-level issuer/event binding and a page timestamp since the prior
+    NYSE close. One regulator or issuer wire, or two independent reputable
+    publishers, can support a research candidate. Wire authorship and precise
+    causal timing remain separate, stricter execution blockers.
+    """
+    import exchange_calendars as xcals
+    import pandas as pd
+
+    calendar = xcals.get_calendar("XNYS")
+    session = pd.Timestamp(target_date)
+    if not calendar.is_session(session):
+        return {}
+    start = calendar.session_close(calendar.previous_session(session)).to_pydatetime()
+    eligible: list[tuple[NewsDocument, str, str]] = []
+    for doc in documents:
+        if doc.published_at_provenance not in {"PAGE_METADATA", "SEC_ACCEPTED_AT"}:
+            continue
+        if parse_timestamp(doc.published_at) < start:
+            continue
+        # A promising headline cannot supply the event missing from the body.
+        body = replace(doc, title="")
+        kinds, adverse, context = _candidate_event_context(
+            body, symbol=symbol, company_name=company_name
+        )
+        if (
+            not kinds
+            or adverse
+            or _ambiguous_research_event(
+                context, window_start=start, target_date=target_date
+            )
+        ):
+            continue
+        if re.search(
+            r"\b(?:if|could|might|would|expected\s+to|plans?\s+to|last\s+week|previously)\b"
+            r"[^.!?]{0,70}\b(?:rais(?:e|es|ed)\s+guidance|fda\s+approval|primary\s+endpoint)",
+            context,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        body = replace(body, catalyst_types=kinds)
+        score, signals = _materiality(body, context_text=context)
+        kind = kinds[0]
+        if score < 3 or not _trajectory_change_verified(kind, signals):
+            continue
+        if kind == "EARNINGS_GUIDANCE" and not (
+            "EXPECTATIONS_SURPRISE" in signals
+            or {"QUANTIFIED_IMPACT", "ACCELERATING_GROWTH"} <= set(signals)
+        ):
+            # A bare guidance-raise phrase gives no scale or expectations context.
+            continue
+        eligible.append((doc, kind, context))
+    for doc, kind, context in eligible:
+        if doc.source_tier == "PRIMARY_REGULATOR":
+            basis = (
+                "Fetched regulator disclosure; material issuer-specific business event."
+            )
+        elif doc.source_tier == "ISSUER_WIRE_UNVERIFIED":
+            # Wire is evidence for human research only, never automatic primary.
+            basis = "Fetched issuer-wire report; issuer authorship still requires human verification."
+        elif doc.source_tier == "REPUTABLE_SECONDARY":
+            corroboration = [
+                other
+                for other, other_kind, _ in eligible
+                if other_kind == kind and other.source_tier == "REPUTABLE_SECONDARY"
+            ]
+            if (
+                len({_source_identity(other.canonical_url) for other in corroboration})
+                < policy.min_independent_secondary_sources
+            ):
+                continue
+            if not _secondary_corroboration_group(
+                corroboration,
+                catalyst_type=kind,
+                min_domains=policy.min_independent_secondary_sources,
+                max_window_hours=policy.secondary_corroboration_window_hours,
+            ):
+                continue
+            basis = "Material event corroborated by independent reputable publishers; primary disclosure still required for sizing."
+        else:
+            continue
+        return {
+            "research_news_qualified": True,
+            "research_news_basis": basis,
+            "research_news_excerpt": context[:900],
+        }
+    return {}
 
 
 def assess_catalyst(
@@ -890,7 +1301,10 @@ def assess_catalyst(
 
     for raw_document in documents:
         doc = normalize_evidence_document(raw_document)
-        if not doc.is_actual_document or len(doc.text_excerpt) < policy.min_article_characters:
+        if (
+            not doc.is_actual_document
+            or len(doc.text_excerpt) < policy.min_article_characters
+        ):
             continue
         if doc.canonical_url in seen_urls or doc.text_sha256 in seen_hashes:
             continue
@@ -934,7 +1348,9 @@ def assess_catalyst(
             catalyst_type="NONE",
             summary="No timely, fetched source document confirmed a causal catalyst.",
             confidence="LOW",
-            reason_codes=tuple(sorted(set(reason_codes + ["NO_ACTUAL_SOURCE_EVIDENCE"]))),
+            reason_codes=tuple(
+                sorted(set(reason_codes + ["NO_ACTUAL_SOURCE_EVIDENCE"]))
+            ),
         )
 
     authority_rank = {
@@ -1036,11 +1452,20 @@ def assess_catalyst(
             materiality_score=materiality_score,
             materiality_signals=materiality_signals,
             evidence_urls=tuple(doc.canonical_url for doc in selected_documents),
-            evidence_published_at=tuple(doc.published_at or "" for doc in selected_documents),
+            evidence_published_at=tuple(
+                doc.published_at or "" for doc in selected_documents
+            ),
             reason_codes=tuple(sorted(confirmation_blockers)),
             primary_source_confirmed=primary_confirmed,
             publication_time_verified=publication_verified,
             trajectory_change_verified=trajectory_verified,
+            **_research_news_proof(
+                selected_documents,
+                symbol=symbol,
+                company_name=company_name,
+                target_date=target_date,
+                policy=policy,
+            ),
         )
 
     return CatalystAssessment(
@@ -1051,9 +1476,18 @@ def assess_catalyst(
         materiality_score=materiality_score,
         materiality_signals=materiality_signals,
         evidence_urls=tuple(doc.canonical_url for doc in selected_documents),
-        evidence_published_at=tuple(doc.published_at or "" for doc in selected_documents),
+        evidence_published_at=tuple(
+            doc.published_at or "" for doc in selected_documents
+        ),
         reason_codes=("ACTUAL_PRIMARY_SOURCE_CONFIRMED",),
         primary_source_confirmed=True,
         publication_time_verified=True,
         trajectory_change_verified=True,
+        **_research_news_proof(
+            selected_documents,
+            symbol=symbol,
+            company_name=company_name,
+            target_date=target_date,
+            policy=policy,
+        ),
     )

@@ -12,6 +12,7 @@ import pytest
 
 import episodic_pivot.schema as ep_schema
 from episodic_pivot.config import DEFAULT_POLICY
+from episodic_pivot.daily_prices import YFINANCE_DAILY_PRICE_BASIS
 from episodic_pivot.historical import (
     attach_benchmark_outcomes,
     clustered_outcome_summary,
@@ -42,7 +43,10 @@ from episodic_pivot.news import (
     source_tier,
 )
 from episodic_pivot.pipeline import run_shadow_pipeline
-from episodic_pivot.premarket import nominate_candidates
+from episodic_pivot.premarket import (
+    nominate_candidates,
+    premarket_move_is_verified,
+)
 from episodic_pivot.qualify import qualify_candidate
 from episodic_pivot.schema import (
     NewsDocument,
@@ -54,12 +58,20 @@ from episodic_pivot.schema import (
 from scripts.capture_ep_premarket_ibkr import (
     _DAILY_PRICE_BASIS,
     _DAILY_WHAT_TO_SHOW,
+    _cancel_market_data_batch,
+    _connect_read_only,
     _daily_metrics,
     _halt_status,
+    _load_refresh_source_manifests,
     _load_target_rows,
     _load_target_rows_many,
+    _load_target_rows_many_with_provenance,
+    _port_candidates,
     _premarket_metrics,
     _round_robin_keys,
+    _stamp_verified_premarket_rows,
+    _subscribe_market_data_batch,
+    _target_coverage_counts,
 )
 from scripts.run_episodic_pivot_shadow import _verify_evidence_manifest
 from trading_calendar import TRADING_DAY
@@ -101,7 +113,10 @@ def _snapshot(**overrides) -> PremarketSnapshot:
         "premarket_metrics_at": "2026-08-24T12:30:00Z",
         "halt_status": "NOT_HALTED",
         "tradeable": True,
-        "daily_price_basis": "IBKR_ADJUSTED_LAST",
+        "daily_price_basis": YFINANCE_DAILY_PRICE_BASIS,
+        "daily_data_status": "VERIFIED",
+        "daily_source_session": "2026-08-21",
+        "daily_source_symbol": overrides.get("symbol", "TEST"),
         "contract_con_id": 123456,
         "primary_exchange": "NASDAQ",
         "contract_identity_status": "UNIQUE_IBKR_MATCH",
@@ -110,9 +125,378 @@ def _snapshot(**overrides) -> PremarketSnapshot:
         "contract_currency": "USD",
         "valid_exchanges": "SMART,NASDAQ",
         "allowed_order_types": "LMT,MKT,STP",
+        "provider": "IBKR",
+        "source": "IBKR_TARGETED_READ_ONLY",
+        "session": "premarket",
+        "target_session_date": "2026-08-24",
     }
     values.update(overrides)
     return PremarketSnapshot(**values)
+
+
+def _refresh_target_wrapper(
+    snapshots: list[PremarketSnapshot],
+    *,
+    target_session_date: str = "2026-08-24",
+    source_run_id: str = "EP-RUN-2026-08-24-test",
+) -> dict:
+    return {
+        "schema_version": 1,
+        "record_type": "EP_RESEARCH_QUOTE_REFRESH_TARGETS_V1",
+        "source_run_id": source_run_id,
+        "generated_at": AS_OF,
+        "target_session_date": target_session_date,
+        "research_only": True,
+        "broker_route": "NONE",
+        "order_submission_allowed": False,
+        "snapshots": [snapshot.to_dict() for snapshot in snapshots],
+    }
+
+
+def _write_refresh_target_run(
+    tmp_path,
+    *,
+    run_id: str,
+    snapshots: list[PremarketSnapshot],
+    target_session_date: str = "2026-08-24",
+):
+    run_dir = tmp_path / run_id
+    run_dir.mkdir()
+    target_path = run_dir / "refresh_targets.json"
+    target_path.write_text(
+        json.dumps(
+            _refresh_target_wrapper(
+                snapshots,
+                target_session_date=target_session_date,
+                source_run_id=run_id,
+            )
+        ),
+        encoding="utf-8",
+    )
+    digest = hashlib.sha256(target_path.read_bytes()).hexdigest()
+    manifest_path = run_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "run_id": run_id,
+                "search_provider": "GOOGLE_NEWS",
+                "safety": {
+                    "research_only": True,
+                    "live_actions_enabled": False,
+                    "broker_route": "NONE",
+                    "order_submission_allowed": False,
+                },
+                "artifacts": {
+                    "refresh_targets.json": {
+                        "sha256": digest,
+                        "size_bytes": target_path.stat().st_size,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return target_path, manifest_path
+
+
+def test_premarket_move_gate_accepts_current_tv_or_ibkr_but_not_night_queue():
+    tv = _snapshot(
+        symbol="TV",
+        provider="TRADINGVIEW",
+        source="TRADINGVIEW_BROWSER_EXPORT",
+        saved_screen_id="yftOvM3e",
+        observed_at="2026-08-24T12:20:00Z",
+        premarket_metrics_at=None,
+        reported_change_pct=10.0,
+        reported_move_dollars=1.0,
+    )
+    ibkr = _snapshot(symbol="IBKR")
+    night = _snapshot(
+        symbol="NIGHT",
+        provider="TRADINGVIEW",
+        source="TRADINGVIEW_BROWSER_EXPORT",
+        session="after_hours",
+        observed_at="2026-08-23T23:20:00Z",
+        premarket_metrics_at=None,
+        saved_screen_id="Hqgnyp7Y",
+        reported_change_pct=10.0,
+        reported_move_dollars=1.0,
+    )
+
+    assert premarket_move_is_verified(tv) is True
+    assert premarket_move_is_verified(ibkr) is True
+    assert premarket_move_is_verified(night) is False
+    candidates = nominate_candidates(
+        [tv, ibkr, night],
+        as_of=AS_OF,
+        policy=DEFAULT_POLICY,
+        require_verified_premarket_move=True,
+    )
+    assert {item.snapshot.symbol for item in candidates} == {"TV", "IBKR"}
+
+
+def test_premarket_move_gate_rejects_wrong_screen_stale_or_non_live_rows():
+    wrong_screen = _snapshot(
+        provider="TRADINGVIEW",
+        source="TRADINGVIEW_BROWSER_EXPORT",
+        saved_screen_id="Hqgnyp7Y",
+        premarket_metrics_at=None,
+        reported_change_pct=10.0,
+    )
+    stale_ibkr = _snapshot(premarket_metrics_at="2026-08-24T11:00:00Z")
+    frozen_ibkr = _snapshot(market_data_status="FROZEN")
+
+    assert premarket_move_is_verified(wrong_screen, as_of=AS_OF) is False
+    assert premarket_move_is_verified(stale_ibkr, as_of=AS_OF) is False
+    assert premarket_move_is_verified(frozen_ibkr, as_of=AS_OF) is False
+
+
+def test_frozen_tradingview_move_survives_slow_research_and_replay():
+    snapshot = _snapshot(
+        symbol="TV",
+        provider="TRADINGVIEW",
+        source="TRADINGVIEW_BROWSER_EXPORT",
+        saved_screen_id="yftOvM3e",
+        observed_at="2026-08-24T12:20:00Z",
+        premarket_metrics_at=None,
+        market_data_status="BROWSER_EXPORT",
+        reported_change_pct=10.0,
+        reported_move_dollars=1.0,
+        premarket_move_verification_status="VERIFIED",
+        premarket_move_verification_source="TRADINGVIEW_BROWSER_EXPORT",
+        premarket_move_verified_at="2026-08-24T12:20:00Z",
+    )
+    much_later = "2026-08-24T15:00:00Z"
+
+    assert premarket_move_is_verified(snapshot, as_of=much_later) is True
+    candidates = nominate_candidates(
+        [snapshot],
+        as_of=much_later,
+        policy=DEFAULT_POLICY,
+        require_verified_premarket_move=True,
+    )
+
+    assert [candidate.snapshot.symbol for candidate in candidates] == ["TV"]
+
+
+def test_frozen_move_requires_matching_source_and_fresh_verification_time():
+    wrong_source = _snapshot(
+        premarket_move_verification_status="VERIFIED",
+        premarket_move_verification_source="TRADINGVIEW_BROWSER_EXPORT",
+        premarket_move_verified_at="2026-08-24T12:30:00Z",
+    )
+    stale_when_verified = _snapshot(
+        premarket_metrics_at="2026-08-24T11:00:00Z",
+        premarket_move_verification_status="VERIFIED",
+        premarket_move_verification_source="IBKR_TARGETED_READ_ONLY",
+        premarket_move_verified_at="2026-08-24T12:30:00Z",
+    )
+
+    assert premarket_move_is_verified(wrong_source, as_of=AS_OF) is False
+    assert premarket_move_is_verified(stale_when_verified, as_of=AS_OF) is False
+
+
+def test_newer_partial_ibkr_row_cannot_erase_verified_tradingview_move():
+    tv = _snapshot(
+        provider="TRADINGVIEW",
+        source="TRADINGVIEW_BROWSER_EXPORT",
+        saved_screen_id="yftOvM3e",
+        observed_at="2026-08-24T12:20:00Z",
+        premarket_metrics_at=None,
+        market_data_status="BROWSER_EXPORT",
+        reported_change_pct=10.0,
+        reported_move_dollars=1.0,
+    )
+    partial_ibkr = _snapshot(
+        observed_at="2026-08-24T12:30:30Z",
+        premarket_metrics_at="2026-08-24T12:30:00Z",
+        market_data_status="FROZEN",
+        daily_price_basis="IBKR_ADJUSTED_LAST",
+    )
+
+    candidates = nominate_candidates(
+        [tv, partial_ibkr],
+        as_of=AS_OF,
+        policy=DEFAULT_POLICY,
+        require_verified_premarket_move=True,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].snapshot.provider == "TRADINGVIEW"
+
+
+def test_raw_ibkr_atr_cannot_trigger_news_until_yfinance_enriched():
+    calls: list[str] = []
+
+    class CountingSearch:
+        name = "COUNTING"
+
+        def search(self, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(kwargs["symbol"])
+            return []
+
+    result = run_shadow_pipeline(
+        [
+            _snapshot(
+                daily_price_basis="IBKR_ADJUSTED_LAST",
+                daily_data_status="VERIFIED",
+                daily_source_session="2026-08-21",
+            )
+        ],
+        as_of=AS_OF,
+        target_session_date="2026-08-24",
+        policy=DEFAULT_POLICY,
+        search_provider=CountingSearch(),
+    )
+
+    assert calls == []
+    assert len(result.candidates) == 1
+    assert result.documents_by_candidate[result.candidates[0].candidate_id] == []
+    assert {
+        "PRIOR_ATR_SOURCE_NOT_YFINANCE",
+        "NEWS_RESEARCH_SKIPPED_PRIOR_ATR",
+    } <= set(result.decisions[0].blockers)
+
+
+def test_fresh_ibkr_market_row_inherits_yfinance_atr_before_news():
+    calls: list[str] = []
+
+    class CountingSearch:
+        name = "COUNTING"
+
+        def search(self, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(kwargs["symbol"])
+            return []
+
+    yfinance_tv = _snapshot(
+        provider="TRADINGVIEW",
+        source="TRADINGVIEW_BROWSER_EXPORT",
+        saved_screen_id="yftOvM3e",
+        observed_at="2026-08-24T12:20:00Z",
+        premarket_metrics_at=None,
+        market_data_status="BROWSER_EXPORT",
+        reported_change_pct=10.0,
+        reported_move_dollars=1.0,
+    )
+    fresh_ibkr = _snapshot(
+        observed_at="2026-08-24T12:30:30Z",
+        premarket_metrics_at="2026-08-24T12:30:00Z",
+        daily_price_basis="IBKR_ADJUSTED_LAST",
+        daily_data_status="VERIFIED",
+    )
+
+    result = run_shadow_pipeline(
+        [yfinance_tv, fresh_ibkr],
+        as_of=AS_OF,
+        target_session_date="2026-08-24",
+        policy=DEFAULT_POLICY,
+        search_provider=CountingSearch(),
+    )
+
+    assert calls == ["TEST"]
+    assert len(result.candidates) == 1
+    assert result.candidates[0].snapshot.provider == "IBKR"
+    assert result.candidates[0].snapshot.daily_price_basis == YFINANCE_DAILY_PRICE_BASIS
+
+
+def test_ibkr_auto_port_fallback_is_read_only():
+    attempts = []
+
+    class FakeIB:
+        def __init__(self):
+            self.connected = False
+
+        def connect(self, host, port, **kwargs):  # type: ignore[no-untyped-def]
+            attempts.append((host, port, kwargs))
+            if port == 7496:
+                raise ConnectionRefusedError("closed")
+            self.connected = True
+
+        def isConnected(self):  # type: ignore[no-untyped-def]
+            return self.connected
+
+        def disconnect(self):
+            self.connected = False
+
+    ib, port = _connect_read_only(
+        FakeIB,
+        host="127.0.0.1",
+        ports=_port_candidates("auto"),
+        client_id=91,
+    )
+
+    assert port == 4001
+    assert ib.isConnected() is True
+    assert [attempt[1] for attempt in attempts] == [7496, 4001]
+    assert all(attempt[2]["readonly"] is True for attempt in attempts)
+
+
+def test_ibkr_port_connection_rejects_false_connected_state():
+    class NeverConnected:
+        def connect(self, *_args, **_kwargs):
+            return None
+
+        def isConnected(self):  # type: ignore[no-untyped-def]
+            return False
+
+        def disconnect(self):
+            raise AssertionError("an unconnected client should not disconnect")
+
+    with pytest.raises(ConnectionError, match="no read-only IBKR API endpoint"):
+        _connect_read_only(
+            NeverConnected,
+            host="127.0.0.1",
+            ports=(7497, 4002),
+            client_id=91,
+        )
+
+
+def test_ibkr_quote_subscription_and_cancel_failures_preserve_siblings():
+    good = SimpleNamespace(symbol="GOOD", conId=1)
+    request_bad = SimpleNamespace(symbol="REQBAD", conId=2)
+    cancel_bad = SimpleNamespace(symbol="CANBAD", conId=3)
+    tickers = {
+        1: SimpleNamespace(marketDataType=1),
+        3: SimpleNamespace(marketDataType=1),
+    }
+    cancelled: list[str] = []
+
+    class FakeIB:
+        def reqMktData(self, contract, **_kwargs):  # type: ignore[no-untyped-def]
+            if contract is request_bad:
+                raise RuntimeError("subscription rejected")
+            return tickers[contract.conId]
+
+        def cancelMktData(self, contract):  # type: ignore[no-untyped-def]
+            cancelled.append(contract.symbol)
+            if contract is cancel_bad:
+                raise RuntimeError("cancel rejected")
+
+    errors: list[dict[str, str]] = []
+    by_conid, subscribed = _subscribe_market_data_batch(
+        FakeIB(),
+        [{"contract": good}, {"contract": request_bad}, {"contract": cancel_bad}],
+        errors,
+    )
+
+    assert set(by_conid) == {1, 3}
+    assert all(ticker.marketDataType == 0 for ticker in by_conid.values())
+    assert [contract.symbol for contract in subscribed] == ["GOOD", "CANBAD"]
+    assert errors == [
+        {
+            "symbol": "REQBAD",
+            "error": "MARKET_DATA_SUBSCRIPTION_FAILED:RuntimeError",
+        }
+    ]
+
+    _cancel_market_data_batch(FakeIB(), subscribed, errors)
+
+    assert cancelled == ["GOOD", "CANBAD"]
+    assert errors[-1] == {
+        "symbol": "CANBAD",
+        "error": "MARKET_DATA_CANCEL_FAILED:RuntimeError",
+    }
 
 
 def _document(**overrides) -> NewsDocument:
@@ -141,8 +525,8 @@ def _document(**overrides) -> NewsDocument:
     return NewsDocument(**values)
 
 
-def test_discovery_uses_move_or_dollar_branch_but_always_requires_volume_and_price():
-    pct_branch = _snapshot(symbol="PCT", last=10.25, bid=10.23, ask=10.25)
+def test_discovery_requires_five_percent_volume_and_price_without_dollar_bypass():
+    pct_branch = _snapshot(symbol="PCT", last=10.50, bid=10.48, ask=10.50)
     dollar_branch = _snapshot(
         symbol="DOLLAR",
         previous_close=100,
@@ -159,7 +543,24 @@ def test_discovery_uses_move_or_dollar_branch_but_always_requires_volume_and_pri
         as_of=AS_OF,
         policy=DEFAULT_POLICY,
     )
-    assert [item.snapshot.symbol for item in candidates] == ["DOLLAR", "PCT"]
+    assert [item.snapshot.symbol for item in candidates] == ["PCT"]
+
+
+@pytest.mark.parametrize(
+    "gap,volume,expected",
+    [
+        (4.999, 100000, False),
+        (5.0, 100000, True),
+        (5.0, 99999, False),
+        (-5.0, 100000, True),
+    ],
+)
+def test_discovery_five_percent_and_volume_boundaries(gap, volume, expected):
+    snapshot = _snapshot(reported_change_pct=gap, premarket_volume=volume)
+    assert (
+        bool(nominate_candidates([snapshot], as_of=AS_OF, policy=DEFAULT_POLICY))
+        is expected
+    )
 
 
 def test_stale_or_delayed_snapshot_is_visible_but_not_stageable():
@@ -555,7 +956,12 @@ def test_network_research_rechecks_quote_age_after_fetch(monkeypatch):
 def test_entry_window_is_enforced_not_just_written_to_preview():
     late_as_of = "2026-08-24T13:36:00Z"  # 09:36 America/New_York
     result = run_shadow_pipeline(
-        [_snapshot(observed_at="2026-08-24T13:35:30Z")],
+        [
+            _snapshot(
+                observed_at="2026-08-24T13:35:30Z",
+                premarket_metrics_at="2026-08-24T13:29:00Z",
+            )
+        ],
         as_of=late_as_of,
         target_session_date="2026-08-24",
         policy=DEFAULT_POLICY,
@@ -806,8 +1212,8 @@ def test_stale_premarket_bar_timestamp_blocks_stageability():
         offline_documents={"TEST": [_document()]},
         offline_documents_verified=True,
     )
-    assert result.decisions[0].decision == "WATCH"
-    assert "STALE_PREMARKET_METRICS" in result.decisions[0].blockers
+    assert result.candidates == []
+    assert result.decisions == []
 
 
 def test_previous_close_basis_mismatch_blocks_phantom_gap():
@@ -1221,8 +1627,25 @@ def test_ibkr_five_minute_bars_record_first_actual_trigger_timestamp():
             barCount=120,
         ),
     ]
+    assert (
+        _premarket_metrics(bars, date(2026, 8, 24), previous_close=10.0)[
+            "first_trigger_at"
+        ]
+        is None
+    )
+    bars.append(
+        SimpleNamespace(
+            date=pd.Timestamp("2026-08-24T04:10:00", tz="America/New_York"),
+            open=10.20,
+            high=10.55,
+            low=10.20,
+            close=10.50,
+            volume=10000,
+            barCount=30,
+        )
+    )
     metrics = _premarket_metrics(bars, date(2026, 8, 24), previous_close=10.0)
-    assert metrics["first_trigger_at"] == "2026-08-24T08:05:00Z"
+    assert metrics["first_trigger_at"] == "2026-08-24T08:10:00Z"
 
 
 def _normalized_field(value: str) -> str:
@@ -1485,23 +1908,21 @@ def test_targeted_ibkr_merge_dedupes_latest_and_filters_before_capture(tmp_path)
         previous_close=10.0,
         premarket_volume=250_000,
     )
-    after_path = tmp_path / "after.json"
-    pre_path = tmp_path / "pre.json"
-    after_path.write_text(
-        json.dumps({"target_session_date": "2026-08-24", "snapshots": [after.to_dict()]}),
-        encoding="utf-8",
+    after_path, after_manifest = _write_refresh_target_run(
+        tmp_path,
+        run_id="EP-RUN-2026-08-24-after",
+        snapshots=[after],
     )
-    pre_path.write_text(
-        json.dumps(
-            {
-                "target_session_date": "2026-08-24",
-                "snapshots": [pre.to_dict(), low_move.to_dict()],
-            }
-        ),
-        encoding="utf-8",
+    pre_path, pre_manifest = _write_refresh_target_run(
+        tmp_path,
+        run_id="EP-RUN-2026-08-24-pre",
+        snapshots=[pre, low_move],
     )
+    manifests = _load_refresh_source_manifests([after_manifest, pre_manifest])
 
-    rows, session, raw_count = _load_target_rows_many([after_path, pre_path])
+    rows, session, raw_count = _load_target_rows_many(
+        [after_path, pre_path], source_manifests=manifests
+    )
 
     assert session == "2026-08-24"
     assert raw_count == 3
@@ -1512,6 +1933,18 @@ def test_targeted_ibkr_merge_dedupes_latest_and_filters_before_capture(tmp_path)
             "source_screen_id": "after-screen|pre-screen",
         }
     ]
+
+    _, _, _, inputs = _load_target_rows_many_with_provenance(
+        [after_path, pre_path], source_manifests=manifests
+    )
+    assert [item["path"] for item in inputs] == [
+        str(after_path.resolve()),
+        str(pre_path.resolve()),
+    ]
+    assert all(len(item["sha256"]) == 64 for item in inputs)
+    assert all(
+        item["record_type"] == "EP_RESEARCH_QUOTE_REFRESH_TARGETS_V1" for item in inputs
+    )
 
 
 def test_targeted_ibkr_merge_rejects_mixed_target_sessions(tmp_path):
@@ -1525,13 +1958,113 @@ def test_targeted_ibkr_merge_rejects_mixed_target_sessions(tmp_path):
         target_session_date="2026-08-25",
         saved_screen_id="two",
     )
-    first_path = tmp_path / "first.json"
-    second_path = tmp_path / "second.json"
-    first_path.write_text(json.dumps({"snapshots": [first.to_dict()]}), encoding="utf-8")
-    second_path.write_text(json.dumps({"snapshots": [second.to_dict()]}), encoding="utf-8")
+    first_path, first_manifest = _write_refresh_target_run(
+        tmp_path,
+        run_id="EP-RUN-2026-08-24-first",
+        snapshots=[first],
+    )
+    second_path, second_manifest = _write_refresh_target_run(
+        tmp_path,
+        run_id="EP-RUN-2026-08-25-second",
+        snapshots=[second],
+        target_session_date="2026-08-25",
+    )
+    manifests = _load_refresh_source_manifests([first_manifest, second_manifest])
 
     with pytest.raises(ValueError, match="multiple session dates"):
-        _load_target_rows_many([first_path, second_path])
+        _load_target_rows_many([first_path, second_path], source_manifests=manifests)
+
+
+def test_targeted_ibkr_rejects_unrecognized_or_unsafe_wrappers(tmp_path):
+    snapshot = _snapshot()
+    unrecognized = tmp_path / "unrecognized.json"
+    unrecognized.write_text(
+        json.dumps(
+            {
+                "target_session_date": "2026-08-24",
+                "snapshots": [snapshot.to_dict()],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="validated TradingView import"):
+        _load_target_rows_many([unrecognized])
+
+    unsafe = tmp_path / "unsafe.json"
+    payload = _refresh_target_wrapper([snapshot])
+    payload["order_submission_allowed"] = True
+    unsafe.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="safety sentinels"):
+        _load_target_rows_many([unsafe])
+
+
+def test_refresh_targets_require_matching_source_manifest(tmp_path):
+    target_path, manifest_path = _write_refresh_target_run(
+        tmp_path,
+        run_id="EP-RUN-2026-08-24-bound",
+        snapshots=[_snapshot()],
+    )
+
+    with pytest.raises(ValueError, match="requires its source run manifest"):
+        _load_target_rows_many([target_path])
+
+    manifests = _load_refresh_source_manifests([manifest_path])
+    payload = json.loads(target_path.read_text(encoding="utf-8"))
+    payload["generated_at"] = "2026-08-24T12:32:00Z"
+    target_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="digest does not match"):
+        _load_target_rows_many([target_path], source_manifests=manifests)
+
+
+def test_refresh_targets_reject_offline_source_manifest(tmp_path):
+    _, manifest_path = _write_refresh_target_run(
+        tmp_path,
+        run_id="EP-RUN-2026-08-24-offline",
+        snapshots=[_snapshot()],
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["search_provider"] = "OFFLINE_UNVERIFIED"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="network provenance"):
+        _load_refresh_source_manifests([manifest_path])
+
+
+def test_targeted_ibkr_coverage_counts_only_verified_current_quotes():
+    live = _snapshot(symbol="LIVE")
+    frozen = _snapshot(symbol="FROZEN", market_data_status="FROZEN")
+
+    coverage = _target_coverage_counts(
+        [live.to_dict(), frozen.to_dict()],
+        requested_count=3,
+        captured_at=AS_OF,
+    )
+
+    assert coverage == {
+        "captured_snapshot_count": 2,
+        "verified_current_premarket_count": 1,
+        "unverified_snapshot_count": 1,
+        "unresolved_target_count": 2,
+        "input_candidate_complete": False,
+    }
+
+
+def test_ibkr_artifact_stamps_only_rows_fresh_at_completion():
+    live = _snapshot(symbol="LIVE").to_dict()
+    stale = _snapshot(
+        symbol="STALE",
+        observed_at="2026-08-24T12:00:00Z",
+        premarket_metrics_at="2026-08-24T12:00:00Z",
+    ).to_dict()
+    rows = [live, stale]
+
+    _stamp_verified_premarket_rows(rows, captured_at=AS_OF)
+
+    assert live["premarket_move_verification_status"] == "VERIFIED"
+    assert live["premarket_move_verification_source"] == "IBKR_TARGETED_READ_ONLY"
+    assert live["premarket_move_verified_at"] == AS_OF
+    assert stale.get("premarket_move_verification_status") != "VERIFIED"
 
 
 def test_low_atr_confirmed_gap_still_resets_first_event_clock():
@@ -2459,12 +2992,10 @@ def test_horizon_comparison_reports_available_and_balanced_cohorts():
     result = horizon_comparison_summary(events)
     all_rows = result[result["sample_period"].eq("ALL")]
     available_5 = all_rows[
-        all_rows["cohort"].eq("AVAILABLE")
-        & all_rows["horizon_sessions"].eq(5)
+        all_rows["cohort"].eq("AVAILABLE") & all_rows["horizon_sessions"].eq(5)
     ].iloc[0]
     balanced_5 = all_rows[
-        all_rows["cohort"].eq("BALANCED")
-        & all_rows["horizon_sessions"].eq(5)
+        all_rows["cohort"].eq("BALANCED") & all_rows["horizon_sessions"].eq(5)
     ].iloc[0]
     assert available_5["n"] == 3
     assert balanced_5["n"] == 2

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import math
-from datetime import datetime
+from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 from .config import EPPolicy
 from .schema import Candidate, PremarketSnapshot, parse_timestamp
 
 _NY = ZoneInfo("America/New_York")
+_TRADINGVIEW_PREMARKET_SCREEN_IDS = {"yftOvM3e"}
+PREMARKET_MOVE_VERIFIED = "VERIFIED"
+PREMARKET_MOVE_UNVERIFIED = "UNVERIFIED"
 
 
 def _candidate_id(snapshot: PremarketSnapshot, policy_id: str) -> str:
@@ -31,12 +34,125 @@ def _positive_number(value: object) -> bool:
     return math.isfinite(number) and number > 0
 
 
+def premarket_move_is_verified(
+    snapshot: PremarketSnapshot,
+    *,
+    as_of: str | datetime | None = None,
+    max_age_seconds: int = 900,
+    future_tolerance_seconds: int = 2,
+    require_fresh_at_as_of: bool = False,
+) -> bool:
+    """Return whether TV or IBKR verified the move in the target premarket.
+
+    A successful verification may be frozen on the snapshot.  Frozen evidence
+    is checked against the source observation at ``premarket_move_verified_at``
+    and does not expire merely because ATR/news work finishes later.  Boundary
+    ingestion can set ``require_fresh_at_as_of`` to independently prove that a
+    row was still fresh when its enclosing artifact finished capture.
+    """
+
+    if snapshot.session.lower() != "premarket" or not snapshot.target_session_date:
+        return False
+    try:
+        target_date = datetime.fromisoformat(snapshot.target_session_date).date()
+    except ValueError:
+        return False
+    provider = snapshot.provider.strip().upper()
+    source = snapshot.source.strip().upper()
+    if provider == "TRADINGVIEW":
+        if (
+            source != "TRADINGVIEW_BROWSER_EXPORT"
+            or (snapshot.saved_screen_id not in _TRADINGVIEW_PREMARKET_SCREEN_IDS)
+            or (
+                snapshot.reported_change_pct is None
+                and snapshot.reported_move_dollars is None
+            )
+        ):
+            return False
+        observed_value = snapshot.observed_at
+        expected_verification_source = "TRADINGVIEW_BROWSER_EXPORT"
+    elif provider == "IBKR":
+        if source != "IBKR_TARGETED_READ_ONLY":
+            return False
+        if snapshot.market_data_status.strip().upper() != "LIVE":
+            return False
+        if not snapshot.premarket_metrics_at:
+            return False
+        observed_value = snapshot.premarket_metrics_at
+        expected_verification_source = "IBKR_TARGETED_READ_ONLY"
+    else:
+        return False
+    try:
+        observed_utc = parse_timestamp(observed_value)
+    except (TypeError, ValueError):
+        return False
+    observed = observed_utc.astimezone(_NY)
+    session_matches = observed.date() == target_date and time(
+        4, 0
+    ) <= observed.time().replace(tzinfo=None) < time(9, 30)
+    if not session_matches:
+        return False
+
+    def fresh_at(value: str | datetime) -> bool:
+        try:
+            checked_at = parse_timestamp(value)
+        except (TypeError, ValueError):
+            return False
+        age_seconds = (checked_at - observed_utc).total_seconds()
+        return (
+            age_seconds >= -future_tolerance_seconds and age_seconds <= max_age_seconds
+        )
+
+    status = snapshot.premarket_move_verification_status.strip().upper()
+    verification_source = snapshot.premarket_move_verification_source.strip().upper()
+    verified_at = snapshot.premarket_move_verified_at
+    has_persisted_verification = (
+        status not in {"", PREMARKET_MOVE_UNVERIFIED}
+        or bool(verification_source)
+        or verified_at is not None
+    )
+    if has_persisted_verification:
+        if (
+            status != PREMARKET_MOVE_VERIFIED
+            or verification_source != expected_verification_source
+            or not verified_at
+        ):
+            return False
+        try:
+            verified_local = parse_timestamp(verified_at).astimezone(_NY)
+        except (TypeError, ValueError):
+            return False
+        if not (
+            verified_local.date() == target_date
+            and time(4, 0) <= verified_local.time().replace(tzinfo=None) < time(9, 30)
+            and fresh_at(verified_at)
+        ):
+            return False
+        if not require_fresh_at_as_of:
+            return True
+
+    if as_of is None:
+        return not require_fresh_at_as_of and not has_persisted_verification
+    if require_fresh_at_as_of:
+        try:
+            as_of_local = parse_timestamp(as_of).astimezone(_NY)
+        except (TypeError, ValueError):
+            return False
+        if not (
+            as_of_local.date() == target_date
+            and time(4, 0) <= as_of_local.time().replace(tzinfo=None) < time(9, 30)
+        ):
+            return False
+    return fresh_at(as_of)
+
+
 def nominate_candidates(
     snapshots: list[PremarketSnapshot],
     *,
     as_of: str | datetime,
     policy: EPPolicy,
     apply_candidate_limit: bool = True,
+    require_verified_premarket_move: bool = False,
 ) -> list[Candidate]:
     """Return broad EP research nominations, newest snapshot per symbol.
 
@@ -46,8 +162,19 @@ def nominate_candidates(
     """
 
     decision_at = parse_timestamp(as_of)
+    rules = policy.discovery
     latest: dict[str, PremarketSnapshot] = {}
     for snapshot in snapshots:
+        # The gate is an OR across independently verified morning sources.
+        # Filter first so a newer partial/frozen IBKR row cannot erase a valid
+        # TradingView observation for the same symbol during deduplication.
+        if require_verified_premarket_move and not premarket_move_is_verified(
+            snapshot,
+            as_of=decision_at,
+            max_age_seconds=rules.premarket_metrics_max_age_seconds,
+            future_tolerance_seconds=rules.future_timestamp_tolerance_seconds,
+        ):
+            continue
         existing = latest.get(snapshot.symbol)
         if existing is None or parse_timestamp(snapshot.observed_at) > parse_timestamp(
             existing.observed_at
@@ -55,7 +182,6 @@ def nominate_candidates(
             latest[snapshot.symbol] = snapshot
 
     out: list[Candidate] = []
-    rules = policy.discovery
     for symbol in sorted(latest):
         snapshot = latest[symbol]
         if not all(
@@ -79,18 +205,13 @@ def nominate_candidates(
             if rules.long_only
             else (discovery_gap_pct != 0 or discovery_move_dollars != 0)
         )
-        move_ok = (
-            abs(discovery_gap_pct) >= rules.min_abs_gap_pct
-            or abs(discovery_move_dollars) >= rules.min_abs_move_dollars
-        )
+        move_ok = abs(discovery_gap_pct) >= rules.min_abs_gap_pct
         if not (direction_ok and move_ok):
             continue
 
         reasons = ["PREMARKET_VOLUME_THRESHOLD", "PRICE_THRESHOLD"]
         if abs(discovery_gap_pct) >= rules.min_abs_gap_pct:
             reasons.append("SESSION_PERCENT_MOVE_THRESHOLD")
-        if abs(discovery_move_dollars) >= rules.min_abs_move_dollars:
-            reasons.append("SESSION_DOLLAR_MOVE_THRESHOLD")
         if snapshot.premarket_volume >= 8_900_000:
             reasons.append("EP9M_VOLUME_DISCOVERY")
 
