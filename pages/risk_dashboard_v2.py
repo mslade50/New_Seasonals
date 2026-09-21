@@ -470,6 +470,7 @@ def compute_da_signal(spy_df: pd.DataFrame) -> dict:
         'summary': summary,
         'da_ratio': da_ratio,
         'signal_history': signal | elevated,
+        'elevated_history': elevated,
     }
 
 
