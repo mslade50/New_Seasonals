@@ -139,6 +139,28 @@ stays a durable artifact and may be added to
 `data/strategy_research/dead_ends.json` only with its exact structural
 fingerprint, substantive reason, and decision time.
 
+Before writing a conclusion, verify that each decisive number retains its
+basis: absolute strategy return versus incremental return over a named
+control, gross versus net, committed capital versus account capital, and
+individual deployments versus independent episodes. Underperforming a
+benchmark does not by itself mean an absolute loss. A comparator weight or
+parameter fitted using the full evaluation sample is an in-sample diagnostic,
+even when it is held constant afterward; never call it hindsight-free or
+out-of-sample. Disclose present-day instrument selection without asserting a
+known direction or bound for its effect on the strategy-minus-control result.
+Do not turn a resampling frequency into proof of a mechanism. Tie every
+decision-driving prose claim to the artifact field and calculation that
+supports it, and distinguish reproduced arithmetic from an independently
+validated execution model. These explanation rules do not change email gates.
+
+Capacity must cover the largest order, including initial entry, and overlapping
+deployments in the same instrument. A sleeve normalized by full-sample average
+concurrency is a retrospective scale, not an enforced capital budget; report
+peak committed capital separately and do not describe that replay as capped.
+Before reusing the September 8 ETF-grid result, read
+`docs/answer_quality_review_2026-09-08.md` for corrected interpretation,
+capacity arithmetic, and remaining model limits. Preserve the original artifact.
+
 ## 5. Validate in a later journal run
 
 Set the working discovery config `as_of` to a UTC time at or after every

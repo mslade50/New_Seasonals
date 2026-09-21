@@ -7,10 +7,14 @@
 - `book_snapshot.py` now publishes exact contract identity plus OCA/owner fields;
   `exec_agent.py` validates and previews both new command types; and
   `execute_order.py` contains independently gated live handlers.
-- The private-site controls and payload tests are implemented on branch
-  `codex/execution-fast-actions-local`, but the site has **not** been deployed.
-- The new command types are **not** in `LIVE_TYPES`; the agent has not been
-  restarted for them; no live or dry-run relay command has been sent.
+- The private-site controls and payload tests were **deployed to production on
+  2026-07-22** from commit `2f7f241`, through GitHub Actions run `#72`.
+- `trim_readd` and `add_to_position` are **armed** for the `pa` and `primary`
+  accounts, and `ExecAgent` was restarted for them at 13:38 ET on 2026-07-22.
+  `LIVE_MAX_QTY=0` explicitly disables the share-count ceiling; the per-account
+  notional gates remain at $30,000 (`pa`) and $250,000 (`primary`), and the
+  futures-contract cap is separate and unchanged. No live or dry-run relay
+  command was sent during the rollout itself.
 - Broker-free new-action tests and the existing bracket, flatten/cancel, modify,
   option-spread, JavaScript, and full static-site build checks pass.
 

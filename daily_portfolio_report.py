@@ -1048,6 +1048,8 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
         'summary': summary,
         'recommendations': recommendations if recommendations else ['[OK] No specific actions needed - continue monitoring'],
         'metrics': {
+            'model_asof': (daily_pnl_series.index[-1].strftime('%Y-%m-%d')
+                           if len(daily_pnl_series) else 'unavailable'),
             'current_equity': current_equity,
             'total_return_pct': total_return_pct,
             'current_vs_sma': ((current_equity - sma_20) / sma_20) * 100,
@@ -1161,7 +1163,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 </div>
             </div>
             <div>
-                <div style="color: #aaa; font-size: 12px;">Today P&L</div>
+                <div style="color: #aaa; font-size: 12px;">Latest modeled session P&amp;L</div>
                 <div style="color: {'#00CC00' if metrics['today_pnl'] >= 0 else '#CC0000'}; font-size: 20px; font-weight: bold;">
                     ${metrics['today_pnl']:+,.0f}
                 </div>
@@ -1302,7 +1304,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         
         positions_html = pos_table.to_html(index=False, escape=False, classes='positions-table')
     else:
-        positions_summary = "<div style='color: #aaa; padding: 20px; text-align: center;'>No open positions</div>"
+        positions_summary = "<div style='color: #aaa; padding: 20px; text-align: center;'>No modeled open positions</div>"
         positions_html = ""
 
     # Build today's activity section
@@ -1413,7 +1415,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         """
 
     # Assemble email
-    subject = f"[STATS] Portfolio Health Report - {date_str}"
+    subject = f"[STATS] Theoretical Portfolio Report - {date_str}"
     
     html_content = f"""
     <html>
@@ -1457,20 +1459,23 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         <body>
             <div class="container">
                 <div class="header">
-                    <h1 style="margin: 0; font-size: 28px;">[STATS] Portfolio Health Report</h1>
+                    <h1 style="margin: 0; font-size: 28px;">[STATS] Theoretical Portfolio Report</h1>
                     <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
+                    <p>Strategy replay through {metrics.get('model_asof', 'unavailable')}:
+                    modeled positions, fills and P&amp;L, not broker holdings or account returns.
+                    Actual sizes and executions may differ.</p>
                 </div>
 
                 <div class="section">
                     <h2>[UP] 12-Month Equity Curve</h2>
-                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Implied Starting Equity: ${metrics.get('implied_start', ACCOUNT_VALUE):,.0f} | Current: ${ACCOUNT_VALUE:,} | Data from 2000 for percentiles</p>
+                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Implied Starting Equity: ${metrics.get('implied_start', ACCOUNT_VALUE):,.0f} | Configured model end equity: ${ACCOUNT_VALUE:,} | Data from 2000 for percentiles</p>
                     <img src="cid:equity_chart" style="max-width: 100%; border-radius: 8px;">
                 </div>
 
                 {metrics_html}
 
                 <div class="section">
-                    <h2>[PORTFOLIO] Open Positions</h2>
+                    <h2>[PORTFOLIO] Modeled Open Positions</h2>
                     {positions_summary}
                     {positions_html}
                 </div>
