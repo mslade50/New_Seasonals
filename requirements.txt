@@ -22,3 +22,5 @@ kaleido
 fpdf2
 boto3==1.43.23
 python-dotenv
+databento==0.85.0
+keyring>=25.7.0
