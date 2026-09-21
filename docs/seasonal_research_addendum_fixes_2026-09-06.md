@@ -16,11 +16,16 @@ root, cannot equal the input, and uses exclusive creation. Existing evidence is
 read only with `--reuse` or a new output path must be selected.
 
 The original main checkout's **untracked** `scripts/databento_futures.py` was
-not edited. A reviewed source patch is supplied at
+not edited. A reviewed source patch was supplied at
 `docs/patches/databento_futures_cost_guards.patch`. It rejects nonfinite, negative,
 boolean, or unknown quotes/caps and nonintegral/invalid byte estimates before
 the billable submit boundary. Finite zero-cost requests and finite quotes at or
 below the explicit cap remain supported; the confirmation token is unchanged.
+
+**Superseded 2026-09-21.** `scripts/databento_futures.py` is now tracked in the
+repo, the patch applied to it cleanly, and those guards live in the file itself.
+The patch file was deleted with that landing. The two paragraphs below describe
+the pre-landing arrangement and are kept for archaeology only.
 
 The patch was applied only to a copy under
 `artifacts/research-fixes/databento-cost-patch/scripts/databento_futures.py`.

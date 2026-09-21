@@ -1,0 +1,21 @@
+# Research-only dependencies.
+#
+# These packages are NOT installed in production runtimes. Nothing in the
+# scheduled pipelines (daily_scan, daily_risk_report, daily_portfolio_report,
+# the site build, the agent products) imports them, and requirements.txt --
+# which is what the production venv and the GitHub Actions runners install --
+# deliberately does not carry them.
+#
+# Install by hand in a scratch environment when you want to run the scripts
+# that need them:
+#
+#     python -m pip install -r requirements-research.txt
+#
+# databento  -- futures market data client, used by scripts/databento_futures.py
+#               and the legend EMA futures research scripts. Metered API: the
+#               script quotes cost before every submit and refuses without an
+#               explicit --max-cost-usd.
+# keyring    -- OS credential store for the databento API key, so the key is
+#               never written into a repo file.
+databento==0.85.0
+keyring>=25.7.0
