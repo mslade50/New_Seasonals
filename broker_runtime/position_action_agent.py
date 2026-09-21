@@ -60,8 +60,12 @@ def preview(cmd):
 async def loop(ns, ws):
     root = Path(ns["_DIR"]) / "data" / "position_actions"
     delivered = {}
+    last_observation = 0
     while True:
         try:
+            if time.monotonic() - last_observation >= 30:
+                await observe_stopped(ns, root)
+                last_observation = time.monotonic()
             for record in actions.records(root):
                 command = {"id": record["id"], "type": "close_resize",
                            "account": record["account_key"],
@@ -75,7 +79,8 @@ async def loop(ns, ws):
                     result = await ns["_execute_live"](command)
                 else:
                     result = {"ok": False, "state": "unknown",
-                              "detail": "Position action needs broker reconciliation; do not retry: " + record.get("error", record.get("mutation", ""))}
+                              "detail": (record.get("observation") or {}).get("detail") or
+                              "Position action needs broker reconciliation; do not retry: " + record.get("error", record.get("mutation", ""))}
                 signature = json.dumps(result, sort_keys=True)
                 if delivered.get(record["id"]) != signature:
                     await ws.send(json.dumps(dict(result, type="result", id=record["id"], at=time.time())))
@@ -86,6 +91,27 @@ async def loop(ns, ws):
         except Exception as exc:
             ns["log"](f"position-action reconciliation unavailable: {type(exc).__name__}: {exc}")
         await asyncio.sleep(5)
+
+
+async def observe_stopped(ns, root):
+    """One read-only broker check per affected account/contract, including edits."""
+    book = (ns.get("_BOOK") or {}).get("book") or {}
+    mapping = {a["broker_account"]: a["key"] for a in book.get("accounts", [])
+               if a.get("broker_account") and a.get("key") in {"primary", "pa"}}
+    targets = {}
+    for folder in (root, root / "order_edits"):
+        for record in actions.records(folder):
+            if record["phase"] == "done" or (folder == root and record["phase"] == "pending" and record.get("wire")):
+                continue
+            p = record["payload"]
+            account = record.get("account_key") or mapping.get(p["_broker_account"])
+            if account:
+                targets[(account, p["con_id"])] = dict(id=record["id"], type="close_resize", account=account,
+                    payload=dict(p, observe_only=True))
+    for command in targets.values():
+        eligible, _ = ns["_live_eligible"](command)
+        if eligible:
+            await ns["_execute_live"](command)
 
 
 async def report_completed_edits(root, ws, delivered):

@@ -313,6 +313,7 @@ def stage_add(ns, ib, context, quantity, record, root, *, market):
     error = validate_topology(context["legs"])
     if error:
         raise ValueError(error)
+    record["addition_requested"] = quantity
     mark_mutating(root, record, "stage addition and attached exits")
     results = []
     adapter = dict(ns)
@@ -337,7 +338,13 @@ def stage_add(ns, ib, context, quantity, record, root, *, market):
 
 def reconcile(ns, ib, record, root, host, port, cid, close=None):
     if record["phase"] in {"attention", "mutating"}:
-        raise ValueError("previous broker mutation needs reconciliation; no automatic repeat")
+        try:
+            from . import broker_reconciliation as observation
+        except ImportError:
+            import broker_reconciliation as observation
+        results = observation.refresh_target(ib, root, record["payload"]["_broker_account"],
+                                             record["payload"]["con_id"], open_reader=ns.get("_fresh_open_trades"))
+        return results[record["id"]]
     position = current_position(ns, ib, record["payload"], permit_flat=True)
     # A stored, qualified contract is recovered from the actual close order
     # when the position has become flat.
@@ -406,6 +413,15 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
         if not payload.get("_broker_account") or not payload.get("con_id"):
             raise ValueError("exact account and contract are required")
         with operation_lock(root):
+            try:
+                from . import broker_reconciliation as observation
+            except ImportError:
+                import broker_reconciliation as observation
+            if payload.get("observe_only"):
+                results = observation.refresh_target(ib, root, payload["_broker_account"], payload["con_id"],
+                                                     open_reader=ns.get("_fresh_open_trades"))
+                return results.get(str(payload.get("_command_id")),
+                                   dict(ok=True, state="executed", detail="Broker journal check complete", fill=None))
             command_id = str(payload.get("_command_id") or "")
             target = record_path(root, command_id)
             if target.exists():
@@ -418,6 +434,8 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                 return reconcile(ns, ib, record, root, host, port, cid)
             if payload.get("reconcile_only"):
                 raise ValueError("no original operation to reconcile")
+            observation.refresh_target(ib, root, payload["_broker_account"], payload["con_id"],
+                                       open_reader=ns.get("_fresh_open_trades"))
             for previous in records(root):
                 if previous["phase"] != "done" and previous["payload"]["_broker_account"] == payload["_broker_account"] and previous["payload"]["con_id"] == payload["con_id"]:
                     raise ValueError("An earlier position action is unresolved; reconcile it before another")
@@ -521,6 +539,7 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
             order.outsideRth = bool(payload.get("outside_rth"))
             order.orderId = ib.client.getReqId()
             order.orderRef = ns["_command_signal"](payload, "unified-close")
+            record["close_order_ref"] = order.orderRef
             record["wire"] = [payload["_broker_account"], int(contract.conId), cid, order.orderId, 0]
             mark_mutating(root, record, "submit close")
             trade = ns["guarded_place_order"](ib, contract, order, mutation_kind="exit",
