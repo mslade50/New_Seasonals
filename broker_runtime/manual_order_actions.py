@@ -180,6 +180,15 @@ def run(ns, ib, payload, host, port, cid, *, modify=False):
                     raise ValueError("command id belongs to a different edit")
                 if previous["phase"] == "done":
                     return ns["_out"](**previous["result"])
+                record = previous
+                try:
+                    from . import broker_reconciliation as observation
+                except ImportError:
+                    import broker_reconciliation as observation
+                results = observation.refresh_target(ib, root, wanted[0], wanted[1],
+                                                     open_reader=ns.get("_fresh_open_trades"))
+                if command_id in results:
+                    return ns["_out"](**results[command_id])
                 return ns["_out"](ok=False, state="unknown",
                                   detail="This command was already attempted; delivery needs reconciliation", fill=None)
             # A new manual instruction is allowed despite old uncertain edits.
