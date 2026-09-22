@@ -343,7 +343,8 @@ function renderPanels() {
   // an open inline Modify must survive the 4s poll — don't redraw under the inputs
   if (!orderEdit.key) set("orders", renderOrders());
   set("closers", renderClosers());
-  set("activity", renderActivity());
+  // an open clear-lock note must survive the 4s poll — same rule as Modify
+  if (!lockResolve.id) set("activity", renderActivity());
   syncMutationControls();
 }
 function set(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
@@ -376,9 +377,12 @@ function deriveExecMode(book, status, now = Date.now()) {
   return "unknown";
 }
 function execMode() { return deriveExecMode(state.book, state.status); }
+// `trim_readd` was RETIRED from this vocabulary 2026-09-21 — see finding A2 in
+// artifacts/recon_2026-09-17/site_execution_audit.md (every layer rejected it).
 const MUTATING_COMMANDS = new Set([
-  "entry_bracket", "close_only", "close_resize", "flatten", "cancel", "modify", "trim_readd",
+  "entry_bracket", "close_only", "close_resize", "flatten", "cancel", "modify",
   "add_to_position", "exit_attach", "scheduled_option", "scheduled_option_cancel", "reconcile_exits",
+  "position_action_resolve",
 ]);
 // Every close ticket shares one set of fields (shares / percent / MKT|LMT /
 // outside RTH / TIF); only what happens to the WORKING orders differs.
@@ -1066,9 +1070,8 @@ function positionIdentity(p) {
   if (p.currency) out.currency = String(p.currency).toUpperCase();
   return out;
 }
-function trimReaddPayload(p, fraction = 0.5) {
-  return { ...positionIdentity(p), fraction, close_order_type: "MKT", readd: true, readd_tif: "DAY" };
-}
+// The Trim payload builder lived here until 2026-09-21 — control retired, see
+// finding A2 in artifacts/recon_2026-09-17/site_execution_audit.md.
 function addPositionPayload(p, fraction) {
   return { ...positionIdentity(p), fraction, order_type: "MKT" };
 }
@@ -1160,15 +1163,11 @@ function renderPositions() {
       ? '<span class="cap">combo — close via TWS</span>'
       : p.sec_type === "STK"
         ? `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
-          <button class="btn xs ghost" data-mutation${readdOn && !hasProtection ? noProtection : ""} onclick='execTrim(${posJson(p)},0.25)'>Trim&frac14;</button>
-          <button class="btn xs ghost" data-mutation${readdOn && !hasProtection ? noProtection : ""} onclick='execTrim(${posJson(p)},0.5)'>Trim&frac12;</button>
           <button class="btn xs ${readdOn ? "" : "ghost"}"${hasProtection ? "" : noProtection} onclick='execToggleReadd(${posJson(p)})'>Re-add ${readdOn ? "on" : "off"}</button>
           <button class="btn xs ghost" data-mutation${hasProtection ? "" : noProtection} onclick='execAddToPosition(${posJson(p)},0.5)'>Add&frac12;</button>
           <button class="btn xs ghost" data-mutation${hasProtection ? "" : noProtection} onclick='execAddToPosition(${posJson(p)},1)'>Add 1x</button>
           ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`
         : `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
-          <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.25)'>Trim&frac14;</button>
-          <button class="btn xs ghost" data-mutation onclick='execPartialClose(${posJson(p)},0.5)'>Trim&frac12;</button>
           ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
     const reconcileBtn = exitCoverage(p).mismatch
       ? `<button class="btn xs ghost" data-mutation onclick='execReconcileExits(${posJson(p)})' title="Resize existing exit groups proportionally to the live position; preserve prices and dates">Reconcile</button>` : "";
@@ -1552,29 +1551,12 @@ function execPartialClose(pos, fraction) {
 }
 window.execPartialClose = execPartialClose;
 
-function execTrim(pos, fraction = 0.5) {
-  if (readdRows.get(positionKey(pos)) !== true) {
-    execPartialClose(pos, fraction);
-    return;
-  }
-  if (rejectUnknownMutation()) return;
-  if (!hasVisibleProtectiveExit(pos)) {
-    alert("Re-add requires a visible price stop or scheduled time stop. Refresh the book or manage the position in TWS.");
-    return;
-  }
-  const held = Math.abs(Number(pos.position));
-  const qty = fastActionQty(pos.position, fraction);
-  if (!(qty > 0 && qty < held)) { alert("This position is too small for a partial trim/re-add."); return; }
-  const close = Number(pos.position) > 0 ? "SELL" : "BUY";
-  const add = Number(pos.position) > 0 ? "BUY" : "SELL";
-  const post = Number(pos.position) > 0 ? Number(pos.position) - qty : Number(pos.position) + qty;
-  const avg = Number(pos.avg_cost);
-  const summary = `${actionLead("trim + re-add")} ${close} ${qty} ${pos.symbol} MKT on ${state.account}; `
-    + `expected post-trim position ${post}. Then stage ${add} ${qty} LMT at Avg ${fmt.num(avg, 2)} (DAY) `
-    + "with the same stop, target, time-stop, and proportional OCA bracket?";
-  if (!confirm(summary)) return;
-  sendCommand("trim_readd", trimReaddPayload(pos, fraction));
-}
+/* The Trim¼ · Trim½ handler was RETIRED 2026-09-21: its command was rejected by
+   the agent, by _live_eligible and by the executor alike, so the control could
+   only ever produce a failed command — finding A2 in
+   artifacts/recon_2026-09-17/site_execution_audit.md. Partial closes go through
+   execPartialClose / the Close… ticket, which route to close_resize on a
+   protected position and close_only on a bare one. */
 function execAddToPosition(pos, fraction) {
   if (rejectUnknownMutation()) return;
   if (!hasVisibleProtectiveExit(pos)) {
@@ -1602,7 +1584,6 @@ function execCancel(permId, orderId, symbol, conId = null, clientId = null) {
 }
 window.execFlatten = execFlatten;
 window.execToggleReadd = execToggleReadd;
-window.execTrim = execTrim;
 window.execAddToPosition = execAddToPosition;
 window.execCancel = execCancel;
 
@@ -2528,11 +2509,16 @@ async function sendCommand(type, payload, msgId, context = {}) {
   return sentId;
 }
 
-/* ---------- unprotected-entry secondary approval (RISK_ACK) ----------
+/* ---------- unprotected-entry confirmation step (RISK_ACK) ----------
    A stop-less entry whose 2×ATR risk estimate exceeds 50 bps of NLV is BOUNCED
    by the executor with fill.needs_risk_ack (an approval gate, not a cap). When
    that rejection lands in the commands feed, re-prompt with the machine's own
-   numbers and resend the identical payload + risk_ack:true on approval. */
+   numbers and resend the identical payload + risk_ack:true on approval.
+   The wording is deliberately a CONFIRMATION, not an error: every one of the 17
+   RISK_ACK bounces in the 2026-08-25..09-21 window was confirmed and filled, so
+   reading them as failures was the defect, not the gate
+   (artifacts/recon_2026-09-17/site_execution_audit.md, cause table row 1).
+   Same mechanics, same 50 bps threshold — only the prose changed. */
 const riskAckPending = new Map();   // command id -> immutable account, mode and payload
 function checkRiskAck() {
   for (const c of state.commands || []) {
@@ -2545,14 +2531,15 @@ function checkRiskAck() {
       if (!f.needs_risk_ack) continue;             // rejected for some other reason
       const p = intent.payload;
       const basis = p.stop == null ? "2xATR basis" : "defined stop basis";
+      const lead = p.stop == null ? "This entry has no stop and risks" : "This entry risks";
       const detail = f.est_bps != null
-        ? `The agent estimates risk ${fmt.money(f.est_risk)} = ${f.est_bps} bps of NLV (${basis}).`
-        : `The agent could not compare risk with NLV (${basis}; NLV unavailable).`;
+        ? `${lead} ${fmt.money(f.est_risk)} = ${f.est_bps} bps of NLV (${basis}).`
+        : `${lead} an amount the agent could not compare with NLV (${basis}; NLV unavailable).`;
       const approve = confirm(
-        `[WARN] SECONDARY RISK APPROVAL\n\n${detail}\n\n` +
-        `Approve and resend ${p.action} ${p.quantity} ${p.symbol} @ ${p.entry}${p.stop == null ? " with NO STOP" : ` with stop ${p.stop}`} on ${intent.account}?`);
+        `CONFIRM ENTRY — RISK CHECK\n\n${detail}\n\n` +
+        `Confirm to place ${p.action} ${p.quantity} ${p.symbol} @ ${p.entry}${p.stop == null ? " with NO STOP" : ` with stop ${p.stop}`} on ${intent.account}.`);
       if (approve) sendCommand(intent.type, { ...p, risk_ack: true }, "cmdMsg", intent);
-      else { const m = document.getElementById("cmdMsg"); if (m) m.textContent = "secondary risk approval declined — nothing sent"; }
+      else { const m = document.getElementById("cmdMsg"); if (m) m.textContent = "confirmation declined — nothing sent"; }
     } else if (st && st !== "pushed" && st !== "queued" && st !== "pending") {
       riskAckPending.delete(c.id);                 // resolved without needing an ack
     }
@@ -2687,10 +2674,108 @@ function stateBadge(state) {
   const [c, t] = map[state] || ["#9aa3b2", state || ""];
   return `<span style="color:${c};font-weight:600">${esc(t)}</span>`;
 }
+/* ---------- position-action lock (audit finding C2) ----------
+   A position-lifecycle command refused because an EARLIER position action was
+   never reconciled comes back state="rejected" carrying a structured lock block
+   (symbol / action_type / action_id / created_at / discrepancy) instead of the
+   old bare "An earlier position action is unresolved" string. Name the blocker
+   and offer a one-click clear, so the operator never has to walk to the trading
+   machine. artifacts/recon_2026-09-17/site_execution_audit.md §4.2, C2. */
+const lockResolve = { id: null, note: "", msg: "" };
+const LOCK_NOTE_MIN = 8;                 // an operator note shorter than this explains nothing
+
+function lockRejection(c) {
+  if (!c || String(c.state || "") !== "rejected") return null;
+  const res = c.result || {};
+  const raw = res.lock || (res.reason && typeof res.reason === "object" ? res.reason : null);
+  if (!raw || typeof raw !== "object") return null;
+  const symbol = String(raw.symbol || "");
+  const actionType = String(raw.action_type || "");
+  const actionId = String(raw.action_id || "");
+  // Without symbol + action type + action id there is nothing resolvable to
+  // point at; fall back to the plain detail string rather than guess.
+  if (!symbol || !actionType || !actionId) return null;
+  return {
+    symbol, action_type: actionType, action_id: actionId,
+    created_at: String(raw.created_at || ""), discrepancy: String(raw.discrepancy || ""),
+    account: String(raw.account || c.account || ""),
+  };
+}
+function lockRejectionText(lock) {
+  return `Blocked by unresolved ${lock.action_type} on ${lock.symbol}`
+    + (lock.created_at ? ` from ${lock.created_at}` : "")
+    + (lock.discrepancy ? `: ${lock.discrepancy}` : "");
+}
+function lockJson(lock) { return JSON.stringify(lock).replace(/'/g, "&#39;"); }
+function openLockResolve(lock) {
+  lockResolve.id = lock.action_id; lockResolve.note = ""; lockResolve.msg = "";
+  set("activity", renderActivity());
+  const f = document.getElementById("lock_note");
+  if (f) f.focus();
+}
+function cancelLockResolve() {
+  lockResolve.id = null; lockResolve.note = ""; lockResolve.msg = "";
+  set("activity", renderActivity());
+}
+function submitLockResolve(lock) {
+  const field = document.getElementById("lock_note");
+  const note = String((field && field.value) || "").trim();
+  lockResolve.note = note;
+  if (note.length < LOCK_NOTE_MIN) {
+    lockResolve.msg = `An operator note of at least ${LOCK_NOTE_MIN} characters is required — say what you verified.`;
+    set("activity", renderActivity());
+    const again = document.getElementById("lock_note");
+    if (again) again.focus();
+    return;
+  }
+  const account = lock.account || state.account;
+  if (!confirm(`${actionLead("resolve")} the unresolved ${lock.action_type} on ${lock.symbol} (${account})? `
+    + "This records the live positions and open orders against the action and clears the lock. No order is placed.")) return;
+  lockResolve.id = null; lockResolve.msg = "";
+  sendCommand("position_action_resolve",
+    { account, symbol: lock.symbol, action_id: lock.action_id, operator_note: note },
+    "cmdMsg", { account, dryRun: execMode() === "dry-run" });
+}
+window.openLockResolve = openLockResolve;
+window.cancelLockResolve = cancelLockResolve;
+window.submitLockResolve = submitLockResolve;
+
+function lockCellHtml(lock) {
+  let html = `<div class="exec-legs" style="color:#ffc14d;font-weight:600">${esc(lockRejectionText(lock))}</div>`;
+  if (lockResolve.id !== lock.action_id) {
+    return html + `<div style="margin-top:6px"><button class="btn xs ghost" data-mutation `
+      + `onclick='openLockResolve(${lockJson(lock)})' `
+      + `title="Record the live book against this action and clear the lock — places no order">Clear lock&hellip;</button></div>`;
+  }
+  return html + `<div style="margin-top:6px">
+      <label class="cap" for="lock_note">Operator note (required, ${LOCK_NOTE_MIN}+ characters) — what you verified in TWS</label>
+      <input id="lock_note" type="text" style="width:100%;margin:4px 0" value="${esc(lockResolve.note)}"
+        placeholder="e.g. checked TWS: exits cover the full 625, nothing half-placed">
+      <button class="btn xs" data-mutation onclick='submitLockResolve(${lockJson(lock)})'>Resolve</button>
+      <button class="btn xs ghost" onclick="cancelLockResolve()">Cancel</button>
+      ${lockResolve.msg ? `<div class="cap" style="color:#ff6b6b;margin-top:4px">${esc(lockResolve.msg)}</div>` : ""}
+    </div>`;
+}
+// The resolve response carries the book it recorded; show its shape so the
+// operator can see WHAT was reconciled, not just that something was.
+function lockSnapshotHtml(res) {
+  const snap = res && res.snapshot;
+  if (!snap || typeof snap !== "object") return "";
+  const bits = [];
+  if (Array.isArray(snap.positions)) bits.push(`${snap.positions.length} position${snap.positions.length === 1 ? "" : "s"}`);
+  if (Array.isArray(snap.open_orders)) bits.push(`${snap.open_orders.length} open order${snap.open_orders.length === 1 ? "" : "s"}`);
+  if (!bits.length) return "";
+  return `<div class="exec-legs">snapshot recorded: ${esc(bits.join(" · "))}</div>`;
+}
+
 function resultCell(c) {
   const res = c.result || {};
   const tone = res.ok === true ? "pos" : res.ok === false ? "neg" : "neu";
-  let html = `<span class="${tone}">${esc(res.detail || c.state || "pending")}</span>`;
+  const reasonText = typeof res.reason === "string" ? res.reason : "";
+  let html = `<span class="${tone}">${esc(res.detail || reasonText || c.state || "pending")}</span>`;
+  const lock = lockRejection(c);
+  if (lock) html += lockCellHtml(lock);
+  if (c.type === "position_action_resolve") html += lockSnapshotHtml(res);
   const pv = res.preview || {};
   if (pv.legs && pv.legs.length) {
     html += `<div class="exec-legs">${pv.legs.map((l) => esc(l)).join("<br>")}` +

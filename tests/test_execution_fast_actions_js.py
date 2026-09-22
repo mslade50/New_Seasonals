@@ -55,3 +55,30 @@ def test_execution_manual_orders_javascript_contract():
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_execution_reconcile_button_contract():
     _run_js("test_execution_reconcile.js")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_execution_lock_resolve_and_risk_prompt_contract():
+    """Structured lock rejection, the clear-lock note gate, the
+    position_action_resolve payload, the snapshot summary, and the RISK_ACK
+    confirmation wording (audit findings C2 + the RISK_ACK cause row)."""
+    _run_js("test_execution_lock_resolve.js")
+
+
+def test_trim_control_is_retired_from_the_site_vocabulary():
+    """Finding A2: every layer rejected `trim_readd`, so the control is gone.
+
+    Guarded here as well as in Node so the retirement holds even where Node is
+    unavailable (CI skips the JS contracts).
+    """
+    js = (ROOT / "site" / "assets" / "execution.js").read_text(encoding="utf-8")
+    assert "trimReaddPayload" not in js
+    assert "function execTrim" not in js
+    assert "window.execTrim" not in js
+    assert 'sendCommand("trim_readd"' not in js
+    assert '"trim_readd"' not in js
+    assert "execTrim(" not in js
+    assert '"position_action_resolve"' in js
+    schema = (ROOT / "docs" / "site_execution_schema.md").read_text(encoding="utf-8")
+    assert "position_action_resolve" in schema
+    assert "RETIRED 2026-09-21" in schema
