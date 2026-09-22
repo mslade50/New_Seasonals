@@ -231,3 +231,12 @@ def test_production_fire_set_replicates_the_smoothing_study():
     np.testing.assert_allclose(
         smooth_nyse_net(net).reindex(last30.index).round(1).to_numpy(),
         last30["ema5"].to_numpy())
+
+
+def test_refuses_to_publish_main_score_when_spy_lags_latest_risk_row():
+    dates = pd.bdate_range("2025-01-01", "2026-09-21")
+    frame = pd.DataFrame({"63d": 60.}, index=dates)
+    spy = pd.Series(100., index=dates[:-1])  # stale Friday Yahoo response
+    net = pd.Series(-100., index=dates)
+    with pytest.raises(ValueError, match="SPY.*latest risk session"):
+        append_main_scores(frame, None, spy, net, STATS, pd.Timestamp("2026-09-21"))
