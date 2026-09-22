@@ -1,8 +1,10 @@
 # Morning ATR Extended Gap Up watchlist
 
 The morning EP email includes a separate parabolic-short watchlist, requested on
-2026-09-22. It uses the existing **ATR Extended Gap Up** strategy, with setup
-metrics, researched news context and a reversal level to watch. This section is
+2026-09-22. It uses the existing **ATR Extended Gap Up** daily setup criteria,
+with large-gain/extension metrics and researched news context. The user explicitly
+removed reversal and entry levels and requested discovery beyond the traded universe.
+This section is
 research only: it does not stage orders, size trades, query borrow or change the
 strategy. The night phase remains unchanged.
 
@@ -24,10 +26,27 @@ queue or restrict it to the EP positive movers.
 python scripts/build_ep_short_watchlist.py --capture --run-dir <new-absolute-short-run-directory>
 ```
 
-The command freshly downloads 400 calendar days of Yahoo daily OHLCV and adjusted
-closes for the strategy's native liquid universe plus static `CSV_UNIVERSE`
-overflow. This is explicitly labelled static coverage; it is not a claim to cover
-the live scanner's dynamic overflow universe. No stored price database is used.
+The command refreshes **both official Nasdaq Trader listing directories** each
+morning, covering Nasdaq and other U.S. exchanges independently of the strategy's
+native or CSV ticker lists. Common/ordinary shares, ADRs and class shares are
+included. Test issues and ETFs/NextShares are excluded by explicit directory flags;
+warrants, rights, units, preferreds and debt are excluded by security-name rules.
+Unsupported symbol formats are counted as exclusions. Ambiguous non-ETF securities
+remain eligible for source review rather than claiming a perfect common-stock taxonomy.
+There is no market-cap or traded-universe restriction and no top-N discovery cutoff.
+
+`universe.json` retains each source URL, raw directory content and actual fetch time.
+Both timestamp footers must be no older than the prior NYSE session, with plausible
+row counts. Class symbols are mapped explicitly for Yahoo (`BRK.B` to `BRK-B`);
+conflicting identities/mappings fail validation. Missing/stale directories make the
+section unavailable; never silently fall back to a static list. See the official
+[Nasdaq directory definitions](https://www.nasdaqtrader.com/Trader.aspx?id=SymbolDirDefs).
+
+It freshly downloads 400 calendar days of Yahoo daily OHLCV and adjusted closes for
+every eligible listing in batches. No stored price database is used. Price/volume
+necessary gates are checked first for efficiency, then every survivor is evaluated
+by the full shared indicators and live filters. Missing prices remain explicit
+coverage failures rather than disappearing from the universe.
 The latest usable bar must be the prior NYSE session, with at least 63 consecutive
 NYSE sessions. Today's incomplete candle never participates. Invalid/stale symbols
 are excluded and counted; a complete download failure is unavailable, never empty.
@@ -40,11 +59,12 @@ shared indicator/filter functions apply the configured daily setup, including:
 - Volume strictly above 2 times the 63-session average, including the signal bar.
 - The strategy's price, average-volume, listing-age and ATR-percentage filters.
 
-The next regular-session opening condition, `Open > prior Close + 0.5 ATR`, remains
-pending before the open. A premarket quote does not confirm that condition.
-The prior-session low is a reversal **observation** level, not the strategy's limit
-entry rule. Displayed price levels use raw bars and ATR converted to the same
-basis; relative signal calculations use adjusted bars. Borrow and fees are unchecked.
+This is a potential-short discovery list, not an execution checklist. Show prior
+close, 1/5/21-session gains, percentage above SMA50, extension score, relative volume,
+ATR percentage and news context. Do not show prior highs/lows, reversal levels,
+opening-gap confirmation levels, entries, stops or trade triggers. No reversal or
+next-session gap is required to appear. Relative calculations use adjusted bars;
+the displayed prior close is raw. Borrow and fees are unchecked.
 
 ## 2. Research context for every short candidate
 
@@ -116,7 +136,8 @@ python scripts/build_ep_short_watchlist.py --seal --run-dir <absolute-short-run-
 ```
 
 This creates `watchlist.json`, `watchlist.html` and `watchlist.md`. It replays every
-symbol from `prices.json`, checks configuration, coverage and source hashes, and
+symbol from `prices.json`, replays membership from `universe.json`, checks
+configuration, coverage and source hashes, and
 requires complete research. Inspect the output locally. Hashes establish record
 integrity, not factual truth of the agent's judgment.
 

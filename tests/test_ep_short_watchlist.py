@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from episodic_pivot import short_watchlist as sw
+from episodic_pivot import listed_universe as lu
 from episodic_pivot.email_delivery import EmailPayload, EmailDeliveryError, with_short_watchlist
 from trading_calendar import TRADING_DAY
 
@@ -24,11 +25,22 @@ class Clock(datetime):
 
 @pytest.fixture
 def screen(monkeypatch):
-    policy = sw.configured_screen()
-    policy.update(universe=["TEST"], liquid=["TEST"], aliases={})
-    monkeypatch.setattr(sw, "configured_screen", lambda: deepcopy(policy))
+    monkeypatch.setattr(lu, "MIN_DIRECTORY_ROWS", 1)
     monkeypatch.setattr(sw, "datetime", Clock)
+    monkeypatch.setattr(sw, "capture_universe", lambda _target: universe())
+    policy = sw.screen_from_universe(universe(), TARGET)
+    monkeypatch.setattr(sw, "configured_screen", lambda: deepcopy(policy))
     return policy
+
+
+def universe():
+    bodies = {
+        "nasdaqlisted.txt": "Symbol|Security Name|Test Issue|ETF\nTEST|Test Company Common Stock|N|N\nFile Creation Time: 0922202608:00|||",
+        "otherlisted.txt": "ACT Symbol|Security Name|Exchange|NASDAQ Symbol|Test Issue|ETF\nFUND|Test ETF|N|FUND|N|Y\nFile Creation Time: 0922202608:00|||||",
+    }
+    return {"schema": lu.SCHEMA, "session_date": TARGET, "sources": {
+        name: {"url": url, "content": bodies[name], "captured_at": "2026-09-22T12:15:00Z"}
+        for name, url in lu.URLS.items()}}
 
 
 def bars():
@@ -65,7 +77,9 @@ def write_queue(run_dir, screen, *, source=None):
     candidates, coverage = sw.replay_prices(source, screen, TARGET)
     queue = {"schema": sw.SCHEMA, "session_date": TARGET, "captured_at": "2026-09-22T12:20:00Z",
              "source": "YFINANCE_AUTO_ADJUST_FALSE_REPAIR_TRUE_WITH_ADJ_CLOSE",
-             "screen": screen, "prices_sha256": sw.digest(source), "candidates": candidates, "coverage": coverage}
+             "screen": screen, "prices_sha256": sw.digest(source), "universe_sha256": sw.digest(universe()),
+             "candidates": candidates, "coverage": coverage}
+    (run_dir / "universe.json").write_text(json.dumps(universe()))
     (run_dir / "prices.json").write_text(json.dumps(source))
     (run_dir / "queue.json").write_text(json.dumps(queue))
     return queue
@@ -85,15 +99,15 @@ def base_payload(tmp_path):
                         source_sha256="a" * 64, metadata={"target_session_date": TARGET, "research_mode": "AGENT_GOOGLE_SEARCH_AND_READ"})
 
 
-def test_exact_shared_strategy_metrics_and_open_pending(screen):
+def test_exact_shared_strategy_metrics_without_trade_levels(screen):
     row = sw.analyze_bars("TEST", bars(), TARGET, screen)
     assert row["extension_score"] > 10
     assert row["relative_volume_63"] > 2
-    assert row["status"] == "WATCH_OPEN_CONFIRMATION_PENDING"
-    assert row["open_confirmation_above"] == pytest.approx(row["close_raw"] + 0.5 * row["atr_raw_equivalent"])
-    assert row["reversal_watch_below_raw"] == bars()[-1]["Low"]
+    assert row["status"] == "EXTENDED_SHORT_RESEARCH_WATCH"
+    assert row["return_1d_pct"] > 0 and row["above_sma50_pct"] > 0
     assert row["borrow_status"] == "NOT_CHECKED"
-    assert set(row).isdisjoint({"quantity", "order_type", "stop_price", "entry_price"})
+    assert set(row).isdisjoint({"quantity", "order_type", "stop_price", "entry_price",
+                               "open_confirmation_above", "reversal_watch_below_raw", "prior_high_raw"})
 
 
 @pytest.mark.parametrize("field,metric", [("dist_min", "extension_score"), ("vol_thresh", "relative_volume_63")])
@@ -110,7 +124,7 @@ def test_split_dividend_basis_and_current_candle_do_not_change_setup(screen):
         row["Adj Close"] *= 0.9
     source.append({**source[-1], "date": TARGET, "Close": 999_999, "High": 999_999})
     adjusted = sw.analyze_bars("TEST", source, TARGET, screen)
-    for field in ("extension_score", "atr_pct", "open_confirmation_above", "reversal_watch_below_raw"):
+    for field in ("extension_score", "atr_pct", "close_raw", "above_sma50_pct", "return_5d_pct"):
         assert adjusted[field] == pytest.approx(original[field])
 
 
@@ -155,8 +169,8 @@ def test_seal_replay_and_combined_mail(tmp_path, screen):
     combined = with_short_watchlist(base_payload(tmp_path), watchlist=path)
     assert "Validated EP" in combined.html_body
     assert "1 ATR short watch" in combined.subject
-    assert "Opening-gap condition" in combined.html_body
-    assert "not this strategy&#x27;s entry rule" in combined.html_body
+    assert "above SMA50" in combined.html_body and "1d" in combined.html_body
+    assert "Opening-gap" not in combined.html_body and "Reversal level" not in combined.html_body
     assert combined.receipt_path == base_payload(tmp_path).receipt_path
     assert combined.source_sha256 != base_payload(tmp_path).source_sha256
     assert combined.metadata["short_watchlist"]["status"] == "REVIEWED"
@@ -180,13 +194,14 @@ def test_incomplete_or_unverified_news_blocked(tmp_path, screen, kind):
         packet(tmp_path, screen, reviews)
 
 
-@pytest.mark.parametrize("file", ["prices.json", "queue.json", "watchlist.json", "watchlist.html", "watchlist.md"])
+@pytest.mark.parametrize("file", ["universe.json", "prices.json", "queue.json", "watchlist.json", "watchlist.html", "watchlist.md"])
 def test_tampering_fails_before_delivery(tmp_path, screen, file):
     path = packet(tmp_path, screen)
     target = path.parent / file
     if file.endswith(".json"):
         content = json.loads(target.read_text())
-        if file == "prices.json": content["TEST"]["bars"][-1]["Close"] += 1
+        if file == "universe.json": content["sources"].pop("otherlisted.txt")
+        elif file == "prices.json": content["TEST"]["bars"][-1]["Close"] += 1
         elif file == "queue.json": content["candidates"] = []
         else: content["reviews"][0]["news_context"] = "Tampered unsupported claim about this company."
         target.write_text(json.dumps(content))
