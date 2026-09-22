@@ -849,6 +849,12 @@ def main():
             md = dict(table.schema.metadata or {})
             md[b"fragility_basis"] = b"5d_smoothed"
             md[b"main_score_basis"] = MODEL_VERSION.encode()
+            # Generation provenance only: frozen rows retain their original
+            # vintages under the existing append/last-session correction policy.
+            vix_rule = computed.get('signals_ordered', {}).get(
+                'VIX Range Compression', {}).get('rule_version')
+            if vix_rule:
+                md[b"vix_compression_rule"] = vix_rule.encode()
             md[b"fragility_generated"] = datetime.datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S").encode()
             md[b"fragility_last_date"] = str(frag_out.index.max()).encode()
