@@ -11,6 +11,7 @@ import pytest
 
 from broker_runtime import manual_order_actions as manual
 from broker_runtime import prepare_manual_order_actions as prepare
+from tests.spent_preparers import retired_manual_order_actions
 
 
 def trade(account="PRIMARY", **overrides):
@@ -177,6 +178,7 @@ def test_agent_checks_only_address_and_encoding(setup, account):
     assert manual.validate(dict(type="cancel", account=account, payload=payload)) == (True, [])
 
 
+@retired_manual_order_actions
 def test_candidate_patches_real_runtime_without_importing_broker(tmp_path):
     source = Path(os.environ.get("MANUAL_ORDER_TEST_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
     if not source.exists(): pytest.skip("runtime source unavailable")

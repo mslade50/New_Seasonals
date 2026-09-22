@@ -1,4 +1,29 @@
-"""Prepare exact-source execution repairs in a new directory; never install/run."""
+"""Prepare exact-source execution repairs in a new directory; never install/run.
+
+RETIRED 2026-09-21 -- SPENT ONE-SHOT INSTALLER, kept as the record of what was
+installed. Every transform below is already in the live runtime (installs of
+2026-09-14 18:32, 2026-09-16 13:28 and 2026-09-17 12:34), so the anchors no
+longer match and `prepare()` could not build a candidate even if it were run.
+Re-applying it would be worse than useless:
+
+* `patch_options` looks for `_do_dynamic_option_market`, which became
+  `_do_dynamic_option_limit` when scheduled options moved to capped-limit
+  pricing; the transform also injects the `option_limit_pricing` import and a
+  live-quote block that live already carries, so it would DOUBLE-INJECT.
+* `patch_executor` rewrites `_do_cancel` / `_do_modify` onto `order_mutations`.
+  Live routes both to `manual_order_actions` (2026-09-17), which is stricter --
+  applying this would REGRESS the live cancel/modify path.
+* `patch_agent`'s first fragment and the `SUPPORTED` / `DISABLED_UNSAFE_MUTATIONS`
+  swaps are present in live verbatim.
+* `patch_front` is the `select_front_details` + `con_id` change that shipped
+  with the 2026-09-14 `futures_front.py` install.
+
+Evidence: `artifacts/recon_2026-09-17/reviewed_runtime_drift_review.md`
+("Preparer fragments -- reviewed, NOT refreshed") and
+`site_execution_audit.md` section 3.2. The house convention for a fragment that
+reached live by another route is to retire it (see `prepare_entry_controls`'s
+own docstring); this is that follow-up.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -8,6 +33,11 @@ from pathlib import Path
 from broker_runtime.prepare import change_function, replace_once
 
 HERE = Path(__file__).resolve().parent
+
+SPENT = ("prepare_execution_repairs is a retired one-shot installer: its patches are "
+         "already in the live runtime (2026-09-14/16/17). Re-applying would double-inject "
+         "the capped-limit option block and regress cancel/modify from manual_order_actions "
+         "back to order_mutations. See artifacts/recon_2026-09-17/reviewed_runtime_drift_review.md.")
 
 
 def patch_executor(source):
@@ -323,6 +353,11 @@ def patch_options(source):
 
 
 def prepare(source_root, output):
+    # Fail on the reason, not 25 frames deep on a vanished anchor.
+    raise ValueError(SPENT)
+
+
+def _prepare_retired(source_root, output):
     if output.exists():
         raise ValueError("candidate directory must be new")
     expected = json.loads((HERE / "execution_repair_source_hashes.json").read_text())

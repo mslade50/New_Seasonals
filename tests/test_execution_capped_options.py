@@ -13,6 +13,7 @@ import pytest
 from broker_runtime import option_limit_pricing as pricing
 from broker_runtime import prepare_execution_repairs as prepare
 from broker_runtime.execution_contracts import select_front_details
+from tests.spent_preparers import skip_execution_repairs
 
 
 @pytest.mark.parametrize("budget,ask,tick", [(1000,2.03,.05),(1000,3.333,.01),(100,1,.01),
@@ -99,6 +100,7 @@ def test_mcl_delivery_month_is_not_last_trade_month():
 
 @pytest.fixture
 def dynamic(monkeypatch):
+    skip_execution_repairs()
     path=Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))/"execute_order.py"
     if not path.exists():
         pytest.skip("reviewed runtime required")

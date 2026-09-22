@@ -16,12 +16,14 @@ from broker_runtime import order_mutations
 from broker_runtime import execution_lifecycle as life
 from broker_runtime.execution_contracts import qualify_held, qualify_position
 from tests.test_unified_position_actions import Broker, exit_order, namespace, request
+from tests.spent_preparers import retired_execution_repairs, skip_execution_repairs
 
 SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
 
 
 @pytest.fixture
 def patched():
+    skip_execution_repairs()
     if not (SOURCE / "execute_order.py").exists():
         pytest.skip("reviewed runtime source is required")
     return prepare.patch_executor((SOURCE / "execute_order.py").read_text(encoding="utf-8-sig"))
@@ -234,6 +236,7 @@ def test_ambiguous_edit_blocks_position_action(tmp_path):
 
 @pytest.mark.parametrize("account", ["primary", "pa"])
 @pytest.mark.parametrize("typ", ["cancel", "modify", "add_to_position", "scheduled_option"])
+@retired_execution_repairs
 def test_agent_gate_dispatch_and_legacy_intent_rejection(account, typ):
     path = SOURCE / "exec_agent.py"
     if not path.exists():
