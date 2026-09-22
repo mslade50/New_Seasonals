@@ -25,19 +25,16 @@ vm.runInContext(source, context, { filename: "execution.js" });
 
 const position = { symbol: "SMH", sec_type: "STK", expiry: "", con_id: 12345,
   position: 100, avg_cost: 250.25 };
-const trim = JSON.parse(vm.runInContext(`JSON.stringify(trimReaddPayload(${JSON.stringify(position)}, 0.5))`, context));
-assert.deepStrictEqual(trim, {
-  symbol: "SMH", sec_type: "STK", expiry: null, con_id: 12345,
-  expected_position: 100, fraction: 0.5, close_order_type: "MKT",
-  readd: true, readd_tif: "DAY",
-});
-
-const quarterTrim = JSON.parse(vm.runInContext(`JSON.stringify(trimReaddPayload(${JSON.stringify(position)}, 0.25))`, context));
-assert.deepStrictEqual(quarterTrim, {
-  symbol: "SMH", sec_type: "STK", expiry: null, con_id: 12345,
-  expected_position: 100, fraction: 0.25, close_order_type: "MKT",
-  readd: true, readd_tif: "DAY",
-});
+// Trim is RETIRED (audit finding A2): the handler, its payload builder, the
+// window export and the command type are all gone. `trim_readd` was rejected by
+// the agent, by _live_eligible and by the executor, so the control could only
+// ever produce a failed command.
+assert.strictEqual(vm.runInContext("typeof trimReaddPayload", context), "undefined");
+assert.strictEqual(vm.runInContext("typeof execTrim", context), "undefined");
+assert.strictEqual(vm.runInContext("typeof window.execTrim", context), "undefined");
+assert.strictEqual(vm.runInContext(`MUTATING_COMMANDS.has("trim_readd")`, context), false);
+// The safe partial-close router stays.
+assert.strictEqual(vm.runInContext("typeof execPartialClose", context), "function");
 
 const add = JSON.parse(vm.runInContext(`JSON.stringify(addPositionPayload(${JSON.stringify(position)}, 1))`, context));
 assert.deepStrictEqual(add, {
@@ -108,33 +105,18 @@ assert.match(paPositions, /Add&hellip;/);
 assert.doesNotMatch(paPositions, />Trim&frac/);
 vm.runInContext('state.account = "primary"; state.book.accounts[0].key = "primary";', context);
 
+// A Re-add-enabled row no longer changes what a partial close sends: with Trim
+// retired, the ONLY partial-close path is execPartialClose, which routes to the
+// safe command for the position's shape. This position carries working exits,
+// so it goes to close_resize, which shrinks them to the remainder before
+// selling and cancels nothing. (Before 2026-09-03 this sent `flatten`, whose
+// cancel-first order leaves the remainder unprotected between cancel and fill.)
 vm.runInContext(`
   readdRows.set(positionKey(${JSON.stringify(position)}), true);
-  execTrim(${JSON.stringify(position)}, 0.25);
-`, context);
-const readdQuarter = JSON.parse(vm.runInContext("JSON.stringify({ lastConfirm, lastCommand })", context));
-assert.match(readdQuarter.lastConfirm, /SELL 25 SMH MKT/);
-assert.match(readdQuarter.lastConfirm, /expected post-trim position 75/);
-assert.deepStrictEqual(readdQuarter.lastCommand, {
-  type: "trim_readd",
-  payload: {
-    symbol: "SMH", sec_type: "STK", expiry: null, con_id: 12345,
-    expected_position: 100, fraction: 0.25, close_order_type: "MKT",
-    readd: true, readd_tif: "DAY",
-  },
-});
-
-vm.runInContext(`
-  readdRows.set(positionKey(${JSON.stringify(position)}), false);
   lastConfirm = "";
   lastCommand = null;
-  execTrim(${JSON.stringify(position)}, 0.25);
+  execPartialClose(${JSON.stringify(position)}, 0.25);
 `, context);
-// Re-add off: the trim buttons take the SAFE partial close, not flatten.
-// This position carries working exits, so it routes to close_resize, which
-// shrinks them to the remainder before selling and cancels nothing. (Before
-// 2026-09-03 this sent `flatten`, whose cancel-first order leaves the
-// remainder unprotected between the cancel and the fill.)
 const plainQuarter = JSON.parse(vm.runInContext("JSON.stringify({ lastConfirm, lastCommand })", context));
 assert.match(plainQuarter.lastConfirm, /SELL 25 of 100 SMH MKT/);
 assert.match(plainQuarter.lastConfirm, /shrink to 75 BEFORE the close/);
@@ -145,7 +127,7 @@ assert.strictEqual(plainQuarter.lastCommand.payload.con_id, 12345);
 assert.strictEqual(plainQuarter.lastCommand.payload.fraction, undefined);
 
 vm.runInContext("state.book = null; state.status = { online: false };", context);
-assert.strictEqual(vm.runInContext("mutationBlocked('trim_readd')", context), false);
+assert.strictEqual(vm.runInContext("mutationBlocked('close_resize')", context), false);
 assert.strictEqual(vm.runInContext("mutationBlocked('add_to_position')", context), false);
 assert.strictEqual(vm.runInContext("mutationBlocked('close_only')", context), false);
 
@@ -185,4 +167,4 @@ assert.ok(vm.runInContext("addWarnings()", context).some(w=>/whole/.test(w)));
 vm.runInContext('fields.fl_qty = "25";', context);
 assert.strictEqual(vm.runInContext("JSON.stringify(addWarnings())", context), "[]");
 assert.strictEqual(vm.runInContext("ticketPayload('add_to_position').qty", context), 25);
-console.log("PASS compact Primary controls, Re-add toggle, Add tickets and legacy fast-action contracts");
+console.log("PASS compact Primary controls, Re-add toggle, Add tickets, retired Trim and legacy fast-action contracts");
