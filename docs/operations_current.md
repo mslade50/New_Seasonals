@@ -11,6 +11,37 @@ The long strategy descriptions in AGENTS.md and older notes are historical conte
 
 Use the private-site build skill for every production site operation. Production inputs come from R2 through the cloud workflow. Retain historical scratch evidence; put machine-generated validation and candidate outputs under ignored artifacts.
 
+### EP morning research runtime (restored 2026-09-22)
+
+The active Codex heartbeat `ep-after-hours-shadow-queue` (EP Night and Morning
+Shadow Process) uses the permanent worktree
+`C:\Users\McKinley Slade\dev\New_Seasonals-worktrees\ep-production-runtime`,
+branch `codex/ep-production-runtime`, pinned to
+`9de30b6839ccbfcd03770c6a99bc8969897f3869`. This restores the source used by the
+successful September 17 morning run. The worktree is locked with a reason naming
+the active heartbeat; preserve both the worktree and branch during cleanup.
+The heartbeat remains attached to its existing Codex task and runs weekdays at
+08:20 and 19:20 America/New_York, with phase commands explicitly run in this runtime.
+
+The runtime's ignored `artifacts/` is a directory junction to
+`C:\Users\McKinley Slade\dev\New_Seasonals\artifacts\ep-production-runtime`.
+This keeps generated files inside the task's writable workspace without changing
+the pinned source or filesystem permissions. CLI defaults resolve through the
+junction; browser downloads and agent notes use the resolved absolute path.
+Preserve that output directory and junction as active runtime dependencies.
+
+Restoration checks: exact-commit integrity guard passed, runtime Git status was
+empty, all 352 EP tests passed, all seven CLI entry points loaded, email settings
+resolved without sending, and artifact creation/readback passed under the task
+sandbox. This verifies startup and local processing, not a completed live
+premarket capture or email delivery. Evidence:
+`artifacts/ep-runtime-repair-20260922/`.
+
+The old `artifacts/worktrees/ep-yfinance-prod` location was removed during the
+September 18 cleanup while the heartbeat still referenced it. Check Codex
+automations as well as Windows scheduled tasks before retiring any runtime;
+see [workspace_hygiene.md](workspace_hygiene.md).
+
 
 ### Preliminary afternoon breadth (2026-09-21)
 
