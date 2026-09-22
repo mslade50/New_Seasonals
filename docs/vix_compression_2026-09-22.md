@@ -1,6 +1,9 @@
 # VIX compression duration and direction change
 
-Status: source prepared; production activation awaits the final sizing-change approval.
+Status: production activation authorized on September 22, 2026. The scoped
+release uses immutable runtime tag `automation-runtime-2026-09-22.vix-compression`.
+Deployment and saved-history verification receipts are recorded under
+`artifacts/vix-rollout-20260922/`.
 
 ## Rule
 
@@ -70,14 +73,17 @@ existing `main` branch. The enabled v9 tasks run from the separate existing
 pinned to `e3412cf5667e357e0ef0b5d411c1031eaf536ec6` and immutable tag
 `automation-runtime-2026-09-21.breadth-canonical` at preparation time.
 
-After final approval, publish the verified source to `origin/main`, promote
+For the authorized activation, publish the verified source to `origin/main`, promote
 only the reviewed change onto the existing runtime branch, and align its marker
 and GitHub fallback pin to the same new immutable tag. Verify runtime idleness,
 the current pin, and the runner's validation guard immediately before promotion.
 Use the existing runtime; create no branch, worktree or checkout.
 
-Refresh canonical risk data through the data-only producer, then rebuild the
-private site through GitHub Actions from canonical R2 inputs. Verify cloud
+Refresh canonical risk data through the data-only producer, then rebuild both
+private sites through GitHub Actions from canonical R2 inputs. The risk workflow
+uses `mode=full`, which executes `--data-only` without an email or a prior-session
+correction. Build the main private site first to publish the redacted risk payload,
+then rebuild the Denali shared site from that payload. Verify cloud
 freshness and deployment identity. Do not build a production site from local
 data and do not trigger a scan, email, order or portfolio action for validation.
 
