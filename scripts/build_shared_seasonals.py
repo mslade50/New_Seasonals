@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.build_risk_json import assert_shared_payload_clean
-from scripts.macro_site_data import export_macro_snapshot
+from scripts.macro_site_data import export_macro_snapshot, validate_macro_rank_coverage
 from scripts.seasonality_site_data import export_seasonality_snapshot
 
 
@@ -142,16 +142,14 @@ def copy_risk_payload(
 def export_macro(output: Path, prices: Path, ranks: Path = DEFAULT_RANKS) -> bool:
     """Macro sub-tab payload beside the Seasonality Lab's per-ticker binaries.
 
-    Best effort: the ATR seasonal-rank parquet is a 50 MB canonical R2 object
-    and the shared workflow pulls it separately.  Without it the Lab still
-    ships and the Macro sub-tab shows its no-data state, which beats failing
-    the whole shared deploy over a secondary table.
+    The final output validator requires this payload and complete rank coverage.
+    A failed export leaves the existing production deployment in place.
     """
     destination = output / "data" / "seasonality" / "macro.json"
     try:
         payload = export_macro_snapshot(prices, ranks, destination)
     except Exception as exc:
-        print(f"shared site: WARNING macro snapshot failed ({exc}) - Macro sub-tab ships empty")
+        print(f"shared site: macro snapshot failed ({exc}) - final validation will block deployment")
         return False
     print(
         f"shared site: macro payload {len(payload['rows'])} tickers, "
@@ -170,6 +168,14 @@ def validate_shared_output(output: Path) -> None:
             raise ValueError(f"shared site is missing {page}")
     if not (output / "data/seasonality/manifest.json").is_file():
         raise ValueError("shared site is missing the seasonality manifest")
+    macro_path = output / "data/seasonality/macro.json"
+    if not macro_path.is_file():
+        raise ValueError("shared site is missing Macro seasonal ranks")
+    macro = json.loads(macro_path.read_text(encoding="utf-8"))
+    validate_macro_rank_coverage(macro)
+    supplemented = sum(row.get("sznl_source") == "macro_price_history" for row in macro["rows"])
+    print(f"shared site: verified all six seasonal ranks for {len(macro['rows'])} rows "
+          f"({supplemented} from macro price history), rank date {macro['sznl_asof']}")
 
     for path in output.rglob("*"):
         if not path.is_file():

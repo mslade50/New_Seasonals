@@ -18,6 +18,8 @@ from scripts.macro_site_data import (
     extension_ranks,
     percentile_rank,
     sort_key,
+    rank_session,
+    validate_macro_rank_coverage,
 )
 
 
@@ -75,7 +77,9 @@ def _fixture_prices(tmp_path: Path) -> Path:
     rows = []
     for ticker, base in [("GLD", 150.0), ("^VIX", 15.0)]:
         for i, date in enumerate(dates):
-            rows.append({"ticker": ticker, "date": date, "Close": base + i * 0.1})
+            close = base + i * 0.1
+            rows.append({"ticker": ticker, "date": date, "Close": close,
+                         "High": close + 1, "Low": close - 1})
     path = tmp_path / "master_prices.parquet"
     pd.DataFrame(rows).to_parquet(path, index=False)
     return path
@@ -147,3 +151,107 @@ def test_export_without_ranks_flags_it(tmp_path: Path):
     by_ticker = {row["ticker"]: row for row in payload["rows"]}
     assert by_ticker["GLD"]["s5"] is None
     assert by_ticker["GLD"]["price"] is not None
+
+
+def _macro_coverage_inputs(tmp_path, monkeypatch):
+    import scripts.macro_site_data as macro
+
+    monkeypatch.setattr(macro, "SECTOR_ETFS", ["GLD", "^VIX"])
+    dates = pd.bdate_range("2010-01-04", "2026-09-22")
+    steps = np.arange(len(dates))
+    close = 30 + steps * 0.004 + 3 * np.sin(steps / 17) + np.cos(steps / 71)
+    frames = []
+    for ticker in ("GLD", "^VIX"):
+        frames.append(pd.DataFrame({
+            "ticker": ticker, "date": dates, "Close": close,
+            "High": close + 0.7, "Low": close - 0.6,
+        }))
+    prices = tmp_path / "coverage_prices.parquet"
+    pd.concat(frames, ignore_index=True).to_parquet(prices, index=False)
+    ranks = tmp_path / "strategy_ranks.parquet"
+    pd.DataFrame([{
+        "ticker": "GLD", "Date": pd.Timestamp("2026-09-22"),
+        **{f"atr_sznl_{w}d": 87.3 for w in (5, 10, 21, 63, 126, 252)},
+    }]).to_parquet(ranks, index=False)
+    return prices, ranks
+
+
+def test_missing_macro_ranks_match_canonical_math_without_changing_inputs(tmp_path, monkeypatch):
+    from build_atr_seasonal_ranks import (
+        compute_ranks_for_year, generate_trading_dates, prepare_ticker_data,
+    )
+
+    prices, ranks = _macro_coverage_inputs(tmp_path, monkeypatch)
+    before = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in (prices, ranks)}
+    payload = export_macro_snapshot(prices, ranks, tmp_path / "complete.json",
+                                    asof=pd.Timestamp("2026-09-22"))
+    rows = {row["ticker"]: row for row in payload["rows"]}
+    frame = pd.read_parquet(prices).query("ticker == '^VIX'").set_index("date")
+    annual = compute_ranks_for_year(prepare_ticker_data(frame), 2026)
+    calendar = generate_trading_dates(2026)
+    day = calendar.loc[calendar["Date"] == pd.Timestamp("2026-09-22"), "day_count"].iloc[0]
+    for w in (5, 10, 21, 63, 126, 252):
+        assert rows["^VIX"][f"s{w}"] == pytest.approx(annual.loc[day, f"atr_sznl_{w}d"].round(1))
+        assert rows["GLD"][f"s{w}"] == 87.3
+    assert rows["^VIX"]["sznl_asof"] == "2026-09-22"
+    assert {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in before} == before
+
+
+def test_macro_supplement_ignores_current_year_outcomes(tmp_path, monkeypatch):
+    prices, ranks = _macro_coverage_inputs(tmp_path, monkeypatch)
+    before = export_macro_snapshot(prices, ranks, tmp_path / "before.json",
+                                   asof=pd.Timestamp("2026-09-22"))
+    frame = pd.read_parquet(prices)
+    frame.loc[frame["date"].dt.year == 2026, ["High", "Low", "Close"]] *= 4
+    changed = tmp_path / "changed_prices.parquet"
+    frame.to_parquet(changed, index=False)
+    after = export_macro_snapshot(changed, ranks, tmp_path / "after.json",
+                                  asof=pd.Timestamp("2026-09-22"))
+    left = next(row for row in before["rows"] if row["ticker"] == "^VIX")
+    right = next(row for row in after["rows"] if row["ticker"] == "^VIX")
+    assert left["s5"] is not None
+    assert [left[f"s{w}"] for w in (5, 10, 21, 63, 126, 252)] == [
+        right[f"s{w}"] for w in (5, 10, 21, 63, 126, 252)
+    ]
+
+
+@pytest.mark.parametrize("asof,expected", [
+    ("2026-01-01", "2025-12-31"), ("2026-09-20", "2026-09-18"),
+])
+def test_rank_session_handles_holidays_and_year_rollover(asof, expected):
+    assert rank_session(pd.Timestamp(asof))["Date"] == pd.Timestamp(expected)
+
+
+def test_insufficient_macro_history_blocks_export(tmp_path, monkeypatch):
+    prices, ranks = _macro_coverage_inputs(tmp_path, monkeypatch)
+    frame = pd.read_parquet(prices)
+    short = tmp_path / "short.parquet"
+    frame[frame["date"].dt.year >= 2025].to_parquet(short, index=False)
+    with pytest.raises(ValueError, match="three prior calendar years"):
+        export_macro_snapshot(short, ranks, tmp_path / "incomplete.json",
+                              asof=pd.Timestamp("2026-09-22"))
+
+
+def test_missing_strategy_ranks_cannot_use_macro_supplement(tmp_path, monkeypatch):
+    prices, ranks = _macro_coverage_inputs(tmp_path, monkeypatch)
+    absent = tmp_path / "absent_gld.parquet"
+    pd.read_parquet(ranks).assign(ticker="SPY").to_parquet(absent, index=False)
+    payload = export_macro_snapshot(prices, absent, tmp_path / "bad_strategy.json",
+                                    asof=pd.Timestamp("2026-09-22"))
+    with pytest.raises(ValueError, match="incomplete or stale for: GLD"):
+        validate_macro_rank_coverage(payload)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("s5", None), ("s10", float("nan")), ("s21", float("inf")),
+    ("s63", -1), ("s126", 101), ("s252", True),
+    ("sznl_asof", "2026-09-21"),
+])
+def test_coverage_gate_rejects_invalid_or_stale_ranks(tmp_path, monkeypatch, field, value):
+    prices, ranks = _macro_coverage_inputs(tmp_path, monkeypatch)
+    payload = export_macro_snapshot(prices, ranks, tmp_path / "valid.json",
+                                    asof=pd.Timestamp("2026-09-22"))
+    validate_macro_rank_coverage(payload)
+    payload["rows"][0][field] = value
+    with pytest.raises(ValueError, match="incomplete or stale"):
+        validate_macro_rank_coverage(payload)
