@@ -10,6 +10,9 @@ SQLite retains every distinct source observation; workbook history stays frozen.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
+import re
+from zoneinfo import ZoneInfo
 import hashlib
 import json
 import sqlite3
@@ -58,6 +61,10 @@ def validate_wsj(payload, now=None, *, allow_prior_session=False):
     """
     if payload.get("source_url") != URL or payload.get("column") != "Latest Close":
         raise ValueError("Use the WSJ Markets Diary Latest Close column only")
+    return _validate_session_counts(payload, now, allow_prior_session=allow_prior_session)
+
+
+def _validate_session_counts(payload, now=None, *, allow_prior_session=False):
     day = pd.Timestamp(payload["date"])
     if day.tzinfo is not None or day != day.normalize() or not TRADING_DAY.is_on_offset(day):
         raise ValueError("Diary date must be an NYSE trading session")
@@ -85,6 +92,37 @@ def validate_wsj(payload, now=None, *, allow_prior_session=False):
     if not payload.get("visible_evidence"):
         raise ValueError("Include the visible diary date, exchange labels and counts")
     return day.strftime("%Y-%m-%d"), observed.tz_convert("UTC").isoformat()
+
+
+def overview_timestamp(text):
+    """Parse the overview's explicit Eastern publication timestamp."""
+    match = re.fullmatch(r"(\d{1,2}:\d{2} [AP]M) (EDT|EST) (\d{1,2}/\d{1,2}/\d{2,4})", str(text).strip())
+    if not match:
+        raise ValueError("Overview needs a dated Eastern publication timestamp")
+    clock, zone, date = match.groups()
+    fmt = "%I:%M %p %m/%d/%Y" if len(date.split("/")[-1]) == 4 else "%I:%M %p %m/%d/%y"
+    stamp = dt.datetime.strptime(clock + " " + date, fmt).replace(tzinfo=ZoneInfo("America/New_York"))
+    if stamp.tzname() != zone or stamp.time() < dt.time(16, 15):
+        raise ValueError("Overview must be a post-close update (16:15 ET or later), with the correct Eastern offset")
+    return stamp
+
+
+def validate_overview(payload, now=None, *, allow_prior_session=False):
+    if payload.get("source_url") != URL or payload.get("column") != "Issues At (preliminary)":
+        raise ValueError("Use the Dow Jones overview Issues At table")
+    stamp = pd.Timestamp(overview_timestamp(payload.get("publisher_timestamp")))
+    if str(stamp.date()) != payload.get("date"):
+        raise ValueError("Overview publication date must match the stored session")
+    if stamp > pd.Timestamp(payload["observed_at"]):
+        raise ValueError("Overview publication timestamp is ahead of capture")
+    return _validate_session_counts(payload, now, allow_prior_session=allow_prior_session)
+
+
+def import_overview(db, payload, now=None, *, allow_prior_session=False):
+    day, observed = validate_overview(payload, now, allow_prior_session=allow_prior_session)
+    with db:
+        insert_observation(db, day, "dow_jones_overview", observed,
+                           {k: payload[k] for k in COUNT_COLUMNS}, payload)
 
 
 def insert_observation(db, date, source, observed_at, counts, payload):
@@ -127,13 +165,15 @@ def export_history(db, path):
     records = pd.read_sql_query("SELECT * FROM observations ORDER BY observed_at", db)
     if records.empty:
         raise ValueError("No breadth observations")
-    # Prior source observations are retained for overlap comparisons, but WSJ
-    # only supplies the canonical series from the explicitly dated cutover.
+    # Workbook history is frozen. Live dates may use the preliminary overview
+    # until the detailed WSJ diary is available.
     chosen = records.loc[((records.date < CUTOVER) & (records.source == "workbook")) |
-                         ((records.date >= CUTOVER) & (records.source == "wsj"))]
-    # Rows arrive ordered by observed_at, so the LATEST revision of a session
-    # wins the export. A re-pull that returns different counts supersedes the
-    # earlier reading; the superseded observation stays in the database.
+                         ((records.date >= CUTOVER) & records.source.isin(["wsj", "dow_jones_overview"]))].copy()
+    # The detailed diary supersedes preliminary overview counts, even if an
+    # overview is captured later. Preserve both sources in the observation store.
+    chosen["priority"] = chosen.source.map({"workbook": 0, "dow_jones_overview": 1, "wsj": 2})
+    chosen = chosen.sort_values(["priority", "observed_at"], kind="stable")
+    # Within the preferred source, the latest distinct revision wins.
     chosen = chosen.drop_duplicates("date", keep="last").set_index("date").sort_index()
     chosen.index = pd.to_datetime(chosen.index)
     chosen["nyse_net"] = chosen.nyse_highs - chosen.nyse_lows

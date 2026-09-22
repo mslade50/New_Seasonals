@@ -10,3 +10,21 @@ Operational truth comes from exact runtime/source identities, dated producer rec
 The long strategy descriptions in AGENTS.md and older notes are historical context where they conflict with current executable configuration. In particular, the old Layer 4C automated hedge recommendation is retired; current dial/hedge status must be read from dated implementation and runtime evidence. Read `strategy_config.py` and aligned execution contracts for current risk/ladder/path settings, not copied nominal examples in old notes.
 
 Use the private-site build skill for every production site operation. Production inputs come from R2 through the cloud workflow. Retain historical scratch evidence; put machine-generated validation and candidate outputs under ignored artifacts.
+
+
+### Preliminary afternoon breadth (2026-09-21)
+
+The weekday 17:10 ET postclose pipeline uses `collect_market_breadth.py --source overview`
+before scoring risk. This public Dow Jones overview returned the same NYSE and Nasdaq
+counts as MarketWatch on September 21 (26/154 and 147/189), with an explicit
+`4:15 PM EDT 9/21/26` timestamp. The detailed diary was still on the prior session
+during the earlier 17:13–17:33 collection window. Arrival by 17:10 has not yet been
+measured over multiple sessions; the collector retains its bounded 20-minute retry.
+
+Overview observations are preliminary (`dow_jones_overview`). Import requires a real
+trading date, a publication time of 16:15 ET or later, and completed-session/count checks.
+A stale date is never relabeled. The 04:10 ET collection continues to read the detailed
+WSJ Latest Close diary; that source takes priority regardless of later overview captures.
+Both sources and all distinct revisions remain in SQLite. Nasdaq counts can differ by
+source/universe; the live NYSE signal uses NYSE only. Historical workbook rows remain frozen.
+The site continues to build in GitHub Actions using canonical R2 inputs.

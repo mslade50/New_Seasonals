@@ -1366,3 +1366,11 @@ def test_an_undeclared_exit_code_still_fails_the_job(tmp_path):
 def test_success_is_never_a_degraded_exit_code():
     with pytest.raises(ValueError):
         sup.CommandSpec("bad", ("{python}", "tool.py"), degraded_exit_codes=(0,))
+
+
+def test_pm_breadth_uses_preliminary_overview_am_keeps_detailed_diary():
+    jobs = {job.id: job for pipeline in sup.CATALOG.values() for job in pipeline.jobs}
+    pm = jobs["breadth_pm"].commands[-1].argv
+    am = jobs["breadth_am"].commands[-1].argv
+    assert pm[pm.index("--source") + 1] == "overview"
+    assert "--source" not in am and "--allow-stale" in am
