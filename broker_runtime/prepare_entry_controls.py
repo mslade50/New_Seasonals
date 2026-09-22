@@ -1,4 +1,13 @@
-"""Prepare narrowly scoped execution changes; never install, arm, or connect."""
+"""Prepare the PA futures notional exemption; never install, arm, or connect.
+
+Refreshed 2026-09-21. PR #63 carried two changes. The second one -- adding
+``add_to_position`` to the executor's ``SUPPORTED`` set -- reached the live
+runtime by another route and is already installed there, so its fragment was
+removed: the live ``SUPPORTED`` literal no longer matches what it expected and
+``replace_once`` refused to run. What remains is exactly two hunks per file:
+the ``_futures_notional_exempt`` helper inserted above ``_uncapped_options``,
+and the one-token swap in that file's notional gate.
+"""
 from __future__ import annotations
 
 import argparse
@@ -26,18 +35,10 @@ def replace_once(source, old, new):
     return source.replace(old, new, 1)
 
 
-def patch(source, *, executor):
+def patch(source):
     source = replace_once(source, "def _uncapped_options(acct):",
                           NOTIONAL_HELPER + "def _uncapped_options(acct):")
     source = replace_once(source, GATE, GATE.replace("_uncapped_futures", "_futures_notional_exempt"))
-    if executor:
-        source = replace_once(
-            source,
-            'SUPPORTED = {"entry_bracket", "close_only", "close_resize", "flatten",\n'
-            '             "option_spread", "exit_attach"}',
-            'SUPPORTED = {"entry_bracket", "close_only", "close_resize", "flatten",\n'
-            '             "option_spread", "exit_attach", "add_to_position"}',
-        )
     ast.parse(source)
     return source
 
@@ -49,8 +50,7 @@ def prepare(source_dir, output):
                 "proposed_environment": {NOTIONAL_SETTING: "pa"}}
     for name in ("exec_agent.py", "execute_order.py"):
         original = (Path(source_dir) / name).read_bytes()
-        candidate = patch(original.decode("utf-8-sig").replace("\r\n", "\n"),
-                          executor=name == "execute_order.py").encode("utf-8")
+        candidate = patch(original.decode("utf-8-sig").replace("\r\n", "\n")).encode("utf-8")
         (output / name).write_bytes(candidate)
         (output / (name + ".original")).write_bytes(original)
         manifest["files"][name] = {

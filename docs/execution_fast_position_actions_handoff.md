@@ -15,6 +15,13 @@
   notional gates remain at $30,000 (`pa`) and $250,000 (`primary`), and the
   futures-contract cap is separate and unchanged. No live or dry-run relay
   command was sent during the rollout itself.
+- **PA futures notional exemption prepared 2026-09-21** (PR #63 refreshed):
+  `LIVE_FUTURES_NOTIONAL_EXEMPT_ACCOUNTS=pa` drops the notional predicate for
+  PA futures only, so the $30,000 `pa` gate above still governs PA stock, and
+  `LIVE_MAX_FUT_CONTRACTS=3` still bounds PA futures quantity. Candidate,
+  originals and manifest live in
+  `artifacts/entry_controls_candidate_20260921/`; the hand-install sequence is
+  `artifacts/recon_2026-09-17/pa_futures_install_runbook.md`. Installed: TBD.
 - Broker-free new-action tests and the existing bracket, flatten/cancel, modify,
   option-spread, JavaScript, and full static-site build checks pass.
 

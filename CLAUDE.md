@@ -2103,7 +2103,9 @@ basis on every render.
 
 Radar plans are a **primary-account sleeve**: `radar.js` pins `acct=primary`
 into the stage link and `applyRadarPrefill` switches the tab to it, because one
-plan's notional (BNY: $28.5k) nearly fills PA's entire $30k live cap.
+plan's notional (BNY: $28.5k) nearly fills PA's entire $30k live cap (futures
+exempt since 2026-09-21 via `LIVE_FUTURES_NOTIONAL_EXEMPT_ACCOUNTS=pa`; the
+stock cap the Radar stages against is unchanged).
 `radar_trail_sync.py` defaults to the same account.
 
 ### Execution-bridge features this required

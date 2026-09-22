@@ -102,7 +102,12 @@ uses `symbol` as the base currency and `currency` as the quote currency
 base-currency units. Initial FX support requires one leg to be USD so notional
 and stop risk can be normalized to USD. CASH/FX entries have no hard notional
 ceiling, but still require a protective stop and remain subject to the
-account-NLV risk guard. CASH entry,
+account-NLV risk guard. A separate futures-notional exemption family
+(`LIVE_FUTURES_NOTIONAL_EXEMPT_ACCOUNTS`, prepared for `pa` on 2026-09-21)
+drops only the notional predicate for futures on the listed accounts; the
+per-account contract cap, stopped-risk guard and ATR ack are untouched, and it
+is distinct from `LIVE_UNCAPPED_FUTURES_ACCOUNTS`, which also relaxes quantity
+and risk behavior. CASH entry,
 stop, and target prices are snapped to IBKR's live contract tick.
 
 ### `scheduled_option` (target-delta market buy resolved at trigger time)

@@ -45,7 +45,7 @@ class EntryControlsTests(unittest.TestCase):
         for name in ("exec_agent.py", "execute_order.py"):
             text = (SOURCE / (name + ".original")).read_text(encoding="utf-8-sig")
             cls.original[name] = ast.parse(text)
-            candidate = patch_source(text, executor=name == "execute_order.py")
+            candidate = patch_source(text)
             cls.candidate[name] = ast.parse(candidate)
             if candidate != (SOURCE / name).read_text(encoding="utf-8"):
                 raise AssertionError("Prepared candidate differs from tested patch")
@@ -135,18 +135,25 @@ class EntryControlsTests(unittest.TestCase):
         load_nodes(tree, {"SUPPORTED", "DISABLED_UNSAFE_MUTATIONS", "main"}, ns)
         return ns["main"](), events
 
-    def test_original_add_dispatch_reproduces_this_mornings_rejection(self):
+    def test_add_dispatch_support_already_landed_in_the_live_source(self):
+        """The 2026-09-11 'not supported live' rejection is closed in the runtime.
+
+        PR #63's second change (add_to_position in SUPPORTED) reached the live
+        executor by another route, so this candidate no longer carries it and
+        the original source already dispatches.
+        """
         result, events = self.dispatch(self.original["execute_order.py"], "primary")
-        self.assertIn("not supported live", result["detail"])
-        self.assertEqual(events, [])
+        self.assertEqual(result["state"], "test_dispatch")
+        self.assertEqual(events, ["connect", "add_handler", "disconnect"])
 
     def test_primary_add_dispatch_reaches_existing_handler(self):
         result, events = self.dispatch(self.candidate["execute_order.py"], "primary")
         self.assertEqual(result["state"], "test_dispatch")
         self.assertEqual(events, ["connect", "add_handler", "disconnect"])
 
-    def test_pa_add_and_unarmed_add_stay_blocked(self):
-        for account, armed, enabled in [("pa", True, True), ("primary", False, True), ("primary", True, False)]:
+    def test_unarmed_unknown_account_and_disabled_add_stay_blocked(self):
+        for account, armed, enabled in [("pa", False, True), ("primary", False, True),
+                                        ("primary", True, False), ("other", True, True)]:
             with self.subTest(account=account, armed=armed, enabled=enabled):
                 result, events = self.dispatch(self.candidate["execute_order.py"], account, armed=armed, enabled=enabled)
                 self.assertEqual(result["state"], "rejected")
@@ -159,10 +166,6 @@ class EntryControlsTests(unittest.TestCase):
             for node in ast.walk(restored):
                 if isinstance(node, ast.Name) and node.id == "_futures_notional_exempt":
                     node.id = "_uncapped_futures"
-            if name == "execute_order.py":
-                supported = next(n for n in restored.body if isinstance(n, ast.Assign)
-                                 and any(isinstance(t, ast.Name) and t.id == "SUPPORTED" for t in n.targets))
-                supported.value.elts = [n for n in supported.value.elts if not (isinstance(n, ast.Constant) and n.value == "add_to_position")]
             self.assertEqual(ast.dump(restored), ast.dump(self.original[name]))
 
 
