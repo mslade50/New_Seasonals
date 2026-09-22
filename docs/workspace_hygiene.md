@@ -17,6 +17,26 @@ This creates a sibling directory under `New_Seasonals-worktrees/` and a branch
 named `codex/execution-scheduler`. Open that directory for the task. The helper
 refuses to overwrite an existing directory or branch.
 
+## Protect scheduled runtimes during cleanup
+
+Before proposing worktree or branch removal, inventory both Windows Task
+Scheduler actions and active Codex automations under
+`$CODEX_HOME/automations/*/automation.toml` (normally `~/.codex/automations/`).
+Codex heartbeat prompts can name a runtime even when the task itself belongs to
+the main checkout. A merged branch or an unchanged Windows task inventory does
+not establish that a worktree is unused.
+
+Keep every referenced runtime and its branch. Mark permanent runtime worktrees
+with `git worktree lock --reason` identifying the active automation. Treat a lock
+as an active dependency: never unlock it or override it for routine cleanup.
+Retirement requires an explicit migration or shutdown, verification of the
+replacement schedule, and the owner's deletion approval.
+
+The September 18 cleanup removed the active EP runtime because the protected
+set omitted its Codex heartbeat. See
+`artifacts/recon_2026-09-17/cleanup_log.md` and the current runtime inventory in
+[operations_current.md](operations_current.md).
+
 ## Generated output
 
 Put disposable downloads, logs, screenshots, browser profiles, temporary
