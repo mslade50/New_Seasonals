@@ -28,3 +28,12 @@ WSJ Latest Close diary; that source takes priority regardless of later overview 
 Both sources and all distinct revisions remain in SQLite. Nasdaq counts can differ by
 source/universe; the live NYSE signal uses NYSE only. Historical workbook rows remain frozen.
 The site continues to build in GitHub Actions using canonical R2 inputs.
+
+
+The risk producer also consumes the canonical adjusted master-price snapshot using
+the site's loader. Verification on September 21 caught an independent Yahoo refresh
+ending SPY on September 18 while other risk rows extended to September 21, which had
+silently written a missing main score. The risk input pull now requires master prices;
+main-score assembly refuses a risk row beyond the available SPY history. This preserves
+the signal formulas while aligning producer and dashboard price vintages. Runtime
+release tag: `automation-runtime-2026-09-21.breadth-canonical`.

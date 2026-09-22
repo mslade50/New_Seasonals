@@ -66,15 +66,15 @@ from fragility_core import filter_risk_signals, load_main_dial_series
 # ---------------------------------------------------------------------------
 
 def download_data():
-    """Download all risk data (10-year lookback) and return cached DataFrames."""
-    start_date = (datetime.datetime.now() - datetime.timedelta(days=365 * 10)).strftime("%Y-%m-%d")
-    print("  Downloading risk data...")
-    refresh_all_data(start_date, progress_callback=None)
+    """Use the canonical adjusted snapshot pulled by the risk pipeline.
 
-    spy_df, closes, sp500_closes = load_cached_data()
-    if spy_df is None or closes is None:
-        raise RuntimeError("Failed to download/load risk data")
-    return spy_df, closes, sp500_closes
+    A second Yahoo pull can lag the master cache (observed 2026-09-21),
+    leaving the newest saved main score blank. Share the site's input loader
+    so the producer and dashboard use the same dated prices.
+    """
+    from scripts.build_risk_json import load_risk_data_from_master
+    return load_risk_data_from_master(
+        os.path.join(current_dir, "data", "master_prices.parquet"))
 
 
 # ---------------------------------------------------------------------------
