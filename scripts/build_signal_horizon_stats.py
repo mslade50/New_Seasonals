@@ -83,7 +83,8 @@ OUT_DEFAULT = os.path.join(_ROOT, "scratch", "signal_horizon_stats_candidate.jso
 PARAMS = {
     "Distribution Dominance": "63d window, ratio > 3.75, SPY within 2% of 52w high, SPY > 50d SMA",
     "Distribution Dominance (Elevated)": "63d window, ratio > 6.0, SPY within 2% of 52w high",
-    "VIX Range Compression": "21d range pctile < 15, VIX above floor and rising vs SMA",
+    "VIX Range Compression": ("21d close-range pctile < 15 for 10+ consecutive observations, "
+                              "504d lookback, VIX > 13, VIX < 5 observations earlier; no MA filter"),
     "Defensive Leadership": "50d risk-on minus risk-off spread < -10pp",
     "Low Absorption Ratio": "AR pctile < 10, SPY near 52w high",
     "Seasonal Rank Divergence": "risk-off minus risk-on seasonal spread > +10pp",

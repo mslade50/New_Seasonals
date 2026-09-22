@@ -474,14 +474,19 @@ def compute_da_signal(spy_df: pd.DataFrame) -> dict:
 
 
 def compute_vix_range_compression(vix_close: pd.Series) -> dict:
+    """Prolonged range compression with VIX falling over five observations.
+
+    Compression age counts consecutive percentiles below 15, independently
+    of the VIX level and direction gates. Keep the existing range/rank basis.
     """
-    VIX Range Compression signal.
-    VIX in a tight squeeze — eventual breakout tends to be violent.
-    """
+    rule_version = 'vix-compression-duration10-fall5-v1'
     empty = {
         'on': False, 'detail': '', 'summary': 'VIX data unavailable',
         'compression_pctile': pd.Series(dtype=float),
+        'compression_age': pd.Series(dtype=int),
+        'vix_change5': pd.Series(dtype=float),
         'signal_history': pd.Series(dtype=bool),
+        'rule_version': rule_version,
     }
     if len(vix_close) < 504:
         return empty
@@ -490,38 +495,51 @@ def compute_vix_range_compression(vix_close: pd.Series) -> dict:
     pctile_threshold = 15
     min_vix = 13
     lookback = 504
-    sma_period = 20
+    min_compression_days = 10
+    direction_window = 5
 
     compression_metric = vix_close.rolling(range_window).max() - vix_close.rolling(range_window).min()
-    compression_pctile = _rolling_percentile(compression_metric, lookback)
+    # A missing current range must not reuse the rank of the last valid range.
+    compression_pctile = _rolling_percentile(compression_metric, lookback).where(compression_metric.notna())
 
-    vix_sma = vix_close.rolling(sma_period, min_periods=int(sma_period * 0.8)).mean()
+    compressed = compression_pctile < pctile_threshold
+    compression_age = compressed.astype(int).groupby((~compressed).cumsum()).cumsum()
+    vix_change5 = vix_close - vix_close.shift(direction_window)
+    signal = (compression_age >= min_compression_days) & (vix_close > min_vix) & (vix_change5 < 0)
 
-    signal = (compression_pctile < pctile_threshold) & (vix_close > min_vix) & (vix_close > vix_sma)
-
-    latest_pctile = float(compression_pctile.iloc[-1]) if not np.isnan(compression_pctile.iloc[-1]) else 50.0
+    latest_pctile = compression_pctile.iloc[-1]
     signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
     cur_vix = float(vix_close.iloc[-1])
+    cur_age = int(compression_age.iloc[-1])
+    cur_change = vix_change5.iloc[-1]
+    pctile_text = f"{latest_pctile:.0f}th pctile" if pd.notna(latest_pctile) else "unavailable"
+    vix_text = f"{cur_vix:.1f}" if pd.notna(cur_vix) else "unavailable"
+    change_text = f"{cur_change:+.2f}" if pd.notna(cur_change) else "unavailable"
+
+    summary = (
+        f"{range_window}d range: {pctile_text}; compressed {cur_age}d "
+        f"(needs {min_compression_days}+ below {pctile_threshold}th); "
+        f"VIX {vix_text} (needs >{min_vix}); "
+        f"{direction_window}d change {change_text} (needs <0)"
+    )
 
     detail = ""
     if signal_on:
         detail = (
-            f"VIX {range_window}d range at {latest_pctile:.0f}th percentile "
-            f"(threshold: {pctile_threshold}th). VIX at {cur_vix:.1f} is compressed \u2014 "
-            f"eventual breakout tends to be violent."
+            f"VIX range has stayed below the {pctile_threshold}th percentile "
+            f"for {cur_age} consecutive sessions. VIX is {cur_vix:.1f} "
+            f"and has fallen {abs(cur_change):.2f} points over {direction_window} sessions."
         )
-
-    summary = (
-        f"{range_window}d range: {latest_pctile:.0f}th pctile "
-        f"(fires below {pctile_threshold}th) \u2014 VIX at {cur_vix:.1f}"
-    )
 
     return {
         'on': signal_on,
         'detail': detail,
         'summary': summary,
         'compression_pctile': compression_pctile,
+        'compression_age': compression_age,
+        'vix_change5': vix_change5,
         'signal_history': signal,
+        'rule_version': rule_version,
     }
 
 
