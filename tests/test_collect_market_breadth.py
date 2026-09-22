@@ -294,7 +294,72 @@ def test_endpoint_reads_the_diaries_set_of_the_documented_page():
     url = cmb.endpoint_url()
     assert url.startswith(URL + "?")
     assert "marketsDiaryType" in url and "diaries" in url
-    # The overview set disagrees with the diary on NASDAQ and timestamps its
-    # publication rather than its session; it must not be what we read.
+    # Morning/default collection must still use the detailed diary.
     assert "overview" not in url
     assert cmb.DIARY_ID["marketsDiaryType"] == "diaries"
+
+
+# Trimmed actual post-close overview, separately published from the diary.
+def overview(stamp="4:15 PM EDT 9/21/26", highs="26", lows="154"):
+    return {"timestamp": stamp, "instrumentSets": [{
+        "headerFields": [{"value": "name", "label": "Issues At"}],
+        "instruments": [
+            {"name": "New Highs", "NYSE": highs, "NASDAQ": "147"},
+            {"name": "New Lows", "NYSE": lows, "NASDAQ": "189"}]}]}
+
+
+def test_overview_imports_as_preliminary_and_morning_diary_wins(tmp_path):
+    code, _, _ = run(tmp_path, payloads=[overview()], start="2026-09-21T21:10:00Z", source="overview")
+    assert code == 0
+    table = pd.read_parquet(tmp_path / "breadth.parquet")
+    assert table.source.iloc[-1] == "dow_jones_overview"
+    assert table.nyse_net.iloc[-1] == -128
+    run(tmp_path, payloads=[diary("Monday, September 21, 2026", nyse=("27", "155"), nasdaq=("157", "190"))],
+        start="2026-09-22T08:10:00Z", allow_stale=True)
+    # A later overview must never overwrite the detailed diary.
+    run(tmp_path, payloads=[overview(highs="99")], start="2026-09-22T08:20:00Z", source="overview")
+    table = pd.read_parquet(tmp_path / "breadth.parquet")
+    assert table.source.iloc[-1] == "wsj" and table.nyse_highs.iloc[-1] == 27
+    with sqlite3.connect(tmp_path / "breadth.sqlite") as db:
+        assert db.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 3
+
+
+@pytest.mark.parametrize("stamp", ["3:59 PM EDT 9/21/26", "4:14 PM EDT 9/21/26",
+    "4:15 PM EST 9/21/26", "4:15 PM EDT", "unknown", "4:15 PM EDT 2/30/26"])
+def test_overview_refuses_intraday_undated_or_invalid_clock(stamp):
+    with pytest.raises(cmb.CollectionError):
+        cmb.parse_overview(overview(stamp))
+
+
+@pytest.mark.parametrize("patch", [
+    {"timestamp": "4:15 PM EDT 9/22/26"},  # future date
+    {"timestamp": "11:15 PM EDT 9/21/26"}, # future publication time
+    {"timestamp": "4:15 PM EDT 9/20/26"},  # weekend
+])
+def test_overview_rejects_future_and_non_session_even_on_dry_run(tmp_path, patch):
+    with pytest.raises(ValueError):
+        run(tmp_path, payloads=[overview() | patch], start="2026-09-21T21:10:00Z",
+            source="overview", allow_stale=True, dry_run=True)
+    assert not (tmp_path / "breadth.sqlite").exists()
+
+
+def test_overview_stale_never_stamped_as_today(tmp_path):
+    code, _, _ = run(tmp_path, payloads=[overview("4:15 PM EDT 9/18/26")],
+                     start="2026-09-21T21:10:00Z", source="overview")
+    assert code == 2 and not (tmp_path / "breadth.sqlite").exists()
+
+
+def test_overview_preserves_date_across_dst_and_rejects_wrong_table():
+    session, _, _, _ = cmb.parse_overview(overview("4:15 PM EST 12/15/26"))
+    assert session == dt.date(2026, 12, 15)
+    bad = overview()
+    bad["instrumentSets"][0]["headerFields"][0]["label"] = "Issues"
+    with pytest.raises(cmb.CollectionError):
+        cmb.parse_overview(bad)
+
+
+@pytest.mark.parametrize("highs,lows", [("0", "0"), ("20001", "154"), ("-1", "154"), ("N/A", "154")])
+def test_overview_rejects_missing_or_invalid_counts(tmp_path, highs, lows):
+    with pytest.raises((ValueError, cmb.CollectionError)):
+        run(tmp_path, payloads=[overview(highs=highs, lows=lows)],
+            start="2026-09-21T21:10:00Z", source="overview", dry_run=True)

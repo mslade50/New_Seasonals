@@ -1,34 +1,15 @@
-"""Collect the WSJ Markets Diary new-high/new-low counts over plain HTTP.
+"""Collect dated market breadth from public Dow Jones feeds.
 
-The diary page renders itself from a public JSON endpoint that answers a
-browser User-Agent. This reads the same document the page reads, the
-``marketsDiaryType=diaries`` set, and takes the **Latest Close** column of the
-**NYSE** and **NASDAQ** tables. No cookie, login or paywall is involved, and
-nothing here bypasses access control: an endpoint that refuses us is an error,
-never something to work around.
+Afternoon: --source overview reads the post-close Issues At snapshot (the
+counts displayed on MarketWatch). Its explicit publication date is the session;
+updates before 16:15 Eastern are refused. Counts remain preliminary and carry
+separate provenance, including the Nasdaq universe, which differs from the diary.
+Morning/default: the detailed WSJ Latest Close diary supplies revised counts.
+The store always prefers the detailed diary over an overview for the same day.
+No cookies, credentials or access-control workarounds are used.
 
-``marketsDiaryType=overview`` is deliberately NOT used. It answers with an
-"Issues At" block whose NYSE counts happen to agree with the diary but whose
-NASDAQ counts do not (2026-09-18: overview 72/244, diary 81/246), and its
-timestamp is a publication clock ("4:15 PM EDT 9/18/26") rather than the
-session the numbers describe. The diaries set names its own session in full
-("Friday, September 18, 2026"), which is the only date this collector trusts.
-
-Everything is imported through ``scripts.maintain_market_breadth`` so the
-existing validation, the digest-keyed revision retention and the verified R2
-publication apply unchanged. A re-pull that returns the same counts for a
-session already stored is a no-op; different counts insert a revision and the
-export takes the latest observation per session.
-
-Exit codes:
-  0  stored a new observation or a revision, or the expected session is
-     already current (including an ``--allow-stale`` run that found nothing
-     new). ``--publish`` republishes on any such run, so an unchanged store
-     still guarantees the canonical R2 objects exist.
-  2  the endpoint served an EARLIER session than expected and ``--allow-stale``
-     was not set. Loud, but recoverable: the risk producer keeps its documented
-     unfloored fallback and the next run collects the session.
-  1  network, parse or validation failure
+Exit codes: 0 imported/current; 2 stale session, nothing written; 1 failure.
+--allow-stale permits a dated prior session for morning reconciliation only.
 """
 from __future__ import annotations
 
@@ -57,6 +38,10 @@ from scripts.maintain_market_breadth import (  # noqa: E402
     connect,
     export_history,
     import_wsj,
+    import_overview,
+    overview_timestamp,
+    validate_wsj,
+    validate_overview,
     publish_history,
 )
 from trading_calendar import TRADING_DAY  # noqa: E402
@@ -89,15 +74,17 @@ class CollectionError(RuntimeError):
     """Raised for a network, shape or parse failure worth exiting 1 on."""
 
 
-def endpoint_url() -> str:
+def endpoint_url(source="diary") -> str:
     query = urllib.parse.urlencode(
-        {"id": json.dumps(DIARY_ID, separators=(",", ":")), "type": "mdc_marketsdiary"}
+        {"id": json.dumps(DIARY_ID if source == "diary" else
+                          {"application": "WSJ", "marketsDiaryType": "overview"},
+                          separators=(",", ":")), "type": "mdc_marketsdiary"}
     )
     return f"{URL}?{query}"
 
 
-def fetch_diary(*, timeout: int = TIMEOUT_SECONDS) -> dict:
-    request = urllib.request.Request(endpoint_url(), headers=HEADERS)
+def fetch_diary(*, timeout: int = TIMEOUT_SECONDS, source="diary") -> dict:
+    request = urllib.request.Request(endpoint_url(source), headers=HEADERS)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read()
@@ -116,7 +103,7 @@ def parse_session_date(text) -> dt.date:
     """Read the session the diary names, never the clock it was published on."""
     if not isinstance(text, str) or not text.strip():
         raise CollectionError("WSJ diary carries no timestamp")
-    value = text.replace("—", " ").replace("–", " ").strip()
+    value = text.replace("â€”", " ").replace("â€“", " ").strip()
     for pattern in ("%A, %B %d, %Y", "%B %d, %Y", "%A %B %d, %Y"):
         try:
             return dt.datetime.strptime(value, pattern).date()
@@ -195,18 +182,44 @@ def parse_diary(data: dict) -> tuple[dt.date, dict[str, int], str, dict]:
     return session, counts, f"Diaries {text}. " + ". ".join(evidence) + ".", raw_rows
 
 
+def parse_overview(data: dict):
+    try:
+        stamp = overview_timestamp(data.get("timestamp"))
+    except ValueError as exc:
+        raise CollectionError(str(exc)) from exc
+    groups = [g for g in data.get("instrumentSets", []) if isinstance(g, dict)
+              and {"value": "name", "label": "Issues At"} in g.get("headerFields", [])]
+    if len(groups) != 1:
+        raise CollectionError("Expected exactly one Issues At overview table")
+    rows = groups[0].get("instruments", [])
+    counts = {}
+    for suffix, name in (("highs", "New Highs"), ("lows", "New Lows")):
+        matches = [r for r in rows if isinstance(r, dict) and r.get("name") == name]
+        if len(matches) != 1:
+            raise CollectionError(f"Expected exactly one overview {name} row")
+        for prefix, exchange in EXCHANGES.items():
+            raw = matches[0].get(exchange)
+            if not isinstance(raw, str) or not raw.replace(",", "").isdigit():
+                raise CollectionError(f"Invalid overview {exchange} {name}: {raw!r}")
+            counts[f"{prefix}_{suffix}"] = int(raw.replace(",", ""))
+    evidence = f"Overview {data['timestamp']}; Issues At: " + ", ".join(f"{k}={v}" for k, v in counts.items())
+    return stamp.date(), counts, evidence, {"timestamp": data["timestamp"], "rows": rows}
+
+
 def build_observation(session: dt.date, counts: dict[str, int], evidence: str,
-                      raw_rows: dict, observed: dt.datetime) -> dict:
+                      raw_rows: dict, observed: dt.datetime, source="diary") -> dict:
     payload = {
         "source_url": URL,
-        "column": COLUMN,
+        "column": COLUMN if source == "diary" else "Issues At (preliminary)",
         "date": session.isoformat(),
         "observed_at": observed.isoformat(),
         "visible_evidence": evidence,
         "collector": "scripts/collect_market_breadth.py",
-        "endpoint": endpoint_url(),
+        "endpoint": endpoint_url(source),
         "raw_rows": raw_rows,
     }
+    if source == "overview":
+        payload["publisher_timestamp"] = raw_rows["timestamp"]
     payload.update({key: int(counts[key]) for key in COUNT_COLUMNS})
     return payload
 
@@ -225,23 +238,24 @@ def latest_completed_session(now_utc: dt.datetime) -> dt.date:
     return day.date()
 
 
-def _poll(expect: dt.date, wait_minutes: int, *, fetch, now, sleeper, log):
+def _poll(expect: dt.date, wait_minutes: int, *, fetch, now, sleeper, log, source="diary"):
+    parser = parse_diary if source == "diary" else parse_overview
     deadline = now() + dt.timedelta(minutes=max(0, wait_minutes))
     attempts = 0
     while True:
         observed = now()
         attempts += 1
         try:
-            session, counts, evidence, raw_rows = parse_diary(fetch())
+            session, counts, evidence, raw_rows = parser(fetch())
         except CollectionError as exc:
             if attempts >= FETCH_ATTEMPTS and observed >= deadline:
                 raise
-            log(f"WSJ diary attempt {attempts} failed: {exc}; retrying in {RETRY_SECONDS}s")
+            log(f"Dow Jones {source} attempt {attempts} failed: {exc}; retrying in {RETRY_SECONDS}s")
             sleeper(RETRY_SECONDS)
             continue
         if session >= expect or observed >= deadline:
             return session, counts, evidence, raw_rows, observed
-        log(f"WSJ diary still reports {session}; waiting for {expect} "
+        log(f"Dow Jones {source} still reports {session}; waiting for {expect} "
             f"(retry in {POLL_SECONDS}s, until {deadline.astimezone(ET):%H:%M:%S %Z})")
         sleeper(POLL_SECONDS)
 
@@ -255,28 +269,34 @@ def collect(
     expect_session: dt.date | None = None,
     wait_minutes: int = 0,
     allow_stale: bool = False,
-    fetch=fetch_diary,
+    fetch=None,
+    source="diary",
     now=lambda: dt.datetime.now(dt.timezone.utc),
     sleeper=time.sleep,
     log=print,
 ) -> int:
+    if source not in {"diary", "overview"}:
+        raise ValueError(f"Unknown breadth source: {source}")
+    fetch = fetch or (lambda: fetch_diary(source=source))
     expect = expect_session or latest_completed_session(now())
     session, counts, evidence, raw_rows, observed = _poll(
-        expect, wait_minutes, fetch=fetch, now=now, sleeper=sleeper, log=log
+        expect, wait_minutes, fetch=fetch, now=now, sleeper=sleeper, log=log, source=source
     )
-    log(f"WSJ diary session {session} (expected {expect}); "
+    log(f"Dow Jones {source} session {session} (expected {expect}); "
         + ", ".join(f"{key}={counts[key]}" for key in COUNT_COLUMNS))
 
     behind = session < expect
     if behind and not allow_stale:
-        log(f"STALE: the WSJ Markets Diary has not published {expect}; newest is "
+        log(f"STALE: Dow Jones {source} has not published {expect}; newest is "
             f"{session}. Nothing was stored. The risk dial keeps its documented "
             f"unfloored fallback until the next collection.")
         return 2
     if behind:
         log(f"STALE-ACCEPTED: importing {session} because --allow-stale was set.")
 
-    payload = build_observation(session, counts, evidence, raw_rows, observed)
+    payload = build_observation(session, counts, evidence, raw_rows, observed, source)
+    validator = validate_wsj if source == "diary" else validate_overview
+    validator(payload, observed, allow_prior_session=behind)
     if dry_run:
         log("DRY RUN: nothing written. Observation that would be imported:")
         log(json.dumps(payload, sort_keys=True)[:2000])
@@ -285,7 +305,8 @@ def collect(
     db = connect(db_path)
     try:
         before = db.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
-        import_wsj(db, payload, observed, allow_prior_session=behind)
+        importer = import_wsj if source == "diary" else import_overview
+        importer(db, payload, observed, allow_prior_session=behind)
         after = db.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
         stored = after > before
         # Always re-derive the export from the store, even on a no-op. It is
@@ -306,6 +327,7 @@ def collect(
         # exists for a machine that has never collected.
         publish_history(db_path, export_path)
     summary = {
+        "source": source,
         "session": session.isoformat(),
         "expected": expect.isoformat(),
         "stored": bool(stored),
@@ -322,6 +344,7 @@ def collect(
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--source", choices=("diary", "overview"), default="diary")
     ap.add_argument("--db", type=Path, default=DEFAULT_DB)
     ap.add_argument("--export", type=Path, default=DEFAULT_EXPORT)
     ap.add_argument(
@@ -344,6 +367,7 @@ def main(argv=None) -> int:
         expect = dt.date.fromisoformat(args.expect_session)
     try:
         return collect(
+            source=args.source,
             db_path=args.db,
             export_path=args.export,
             publish=args.publish,
