@@ -141,7 +141,7 @@ SIGNAL_METRICS = {
     "VIX Range Compression": {
         "key": "compression_pctile", "label": "21d range percentile",
         "unit": "percentile", "decimals": 1,
-        "thresholds": [{"value": 15.0, "label": "Fire", "operator": "<"}],
+        "thresholds": [{"value": 15.0, "label": "Compression (10+ days required)", "operator": "<"}],
     },
     "Defensive Leadership": {
         "key": "spread", "label": "50d risk-on minus risk-off spread",
@@ -265,6 +265,8 @@ def _build_signal_detail(signals_ordered, dates, signal_periods_fn):
                 "summary": _clean(sig.get("summary")),
             },
         }
+        if sig.get("rule_version"):
+            detail[name]["rule_version"] = _clean(sig["rule_version"])
     return detail
 
 
