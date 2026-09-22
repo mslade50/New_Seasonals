@@ -1,12 +1,20 @@
 """Prepare the PA futures notional exemption; never install, arm, or connect.
 
-Refreshed 2026-09-21. PR #63 carried two changes. The second one -- adding
-``add_to_position`` to the executor's ``SUPPORTED`` set -- reached the live
-runtime by another route and is already installed there, so its fragment was
-removed: the live ``SUPPORTED`` literal no longer matches what it expected and
-``replace_once`` refused to run. What remains is exactly two hunks per file:
-the ``_futures_notional_exempt`` helper inserted above ``_uncapped_options``,
-and the one-token swap in that file's notional gate.
+RETIRED 2026-09-21 -- SPENT ONE-SHOT INSTALLER. This preparer PRODUCED the PA
+futures notional exemption that was installed at 2026-09-21 20:39 ET, so both
+of its remaining hunks are now in live and its anchors no longer match. The
+candidate manifest's ``candidate_sha256`` equals the live sha256 byte for byte,
+which is the decisive evidence
+(`artifacts/recon_2026-09-17/reviewed_runtime_drift_review.md` items 1-2 and
+`pa_futures_install_runbook.md`). Kept as the record of what was installed;
+``prepare()`` refuses rather than failing on a vanished anchor.
+
+Its own history records the same fate for an earlier fragment: PR #63's second
+change -- adding ``add_to_position`` to the executor's ``SUPPORTED`` set --
+reached the live runtime by another route, so that fragment was removed on
+2026-09-21. What remained was exactly two hunks per file: the
+``_futures_notional_exempt`` helper inserted above ``_uncapped_options``, and
+the one-token swap in that file's notional gate. Both are now live too.
 """
 from __future__ import annotations
 
@@ -28,6 +36,11 @@ NOTIONAL_HELPER = '''def _futures_notional_exempt(acct):
 '''
 GATE = 'if sec_type != "CASH" and not (sec_type == "FUT" and _uncapped_futures(acct)):'
 
+SPENT = ("prepare_entry_controls is a retired one-shot installer: it produced the PA futures "
+         "notional exemption installed 2026-09-21 20:39 ET, so both of its hunks are already "
+         "in the live runtime and its anchors no longer match. See "
+         "artifacts/recon_2026-09-17/reviewed_runtime_drift_review.md.")
+
 
 def replace_once(source, old, new):
     if source.count(old) != 1:
@@ -44,6 +57,11 @@ def patch(source):
 
 
 def prepare(source_dir, output):
+    # Fail on the reason, not on a vanished anchor inside replace_once.
+    raise ValueError(SPENT)
+
+
+def _prepare_retired(source_dir, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     manifest = {"status": "prepared_only", "files": {},

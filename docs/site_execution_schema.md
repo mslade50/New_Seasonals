@@ -15,7 +15,7 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
 
 ```json
 { "id": "uuid",                       // idempotency key — agent dedups
-  "type": "entry_bracket | scheduled_option | scheduled_option_cancel | exit_attach | close_only | close_resize | flatten | cancel | modify",
+  "type": "entry_bracket | scheduled_option | scheduled_option_cancel | exit_attach | close_only | close_resize | flatten | cancel | modify | add_to_position | reconcile_exits | position_action_resolve",
   "account": "primary | pa",          // routes to TWS 7496 / PA Gateway 4001
   "dry_run": true,                    // agent validates + logs, transmits nothing
   "created_at": "iso", "expires_at": "iso",   // agent refuses if expired
@@ -159,7 +159,7 @@ OPT positions rejected. Site entry points: the "attach exits" ticket type and
 the amber `Protect…` button on any position row with nothing working against it.
 The original sznl_exit-style multi-rung `targets` ladder remains a later phase.
 
-### `flatten`  (quick Flatten/Trim buttons — cancel/resize exit orders)
+### `flatten`  (quick Flatten button — cancel/resize exit orders)
 ```json
 { "symbol":"USO","sec_type":"STK","currency":"USD","con_id":123,"expiry":null,
   "fraction":1.0,            // or "qty": N (whole shares; REJECTED above held, never clamped)
@@ -253,6 +253,58 @@ TIME legs down as the owning clientId, then place the trim).
 { "order_id":123, "new_limit":null, "new_stop":null, "new_qty":null }
 ```
 
+### `position_action_resolve`  (clear a position-action lock — places NO order)
+```json
+{ "account":"primary|pa", "symbol":"UNH", "action_id":"...", "operator_note":"..." }
+```
+Added 2026-09-21. An unresolved position action latches a lock that refuses
+every subsequent position-lifecycle command on the account until a human clears
+it; on 2026-09-16 that lock alone accounted for twelve of a thirty-minute run's
+rejections, and the site could create the lock but not resolve it
+(`artifacts/recon_2026-09-17/site_execution_audit.md` §4.2, finding C2).
+
+`operator_note` is REQUIRED and at least 8 characters — the site refuses to send
+a shorter one. The agent re-checks the live book for the symbol, records the
+positions and open orders it found against the action, and marks the action
+resolved by the operator. It refuses if the action is not actually unresolved.
+Response:
+
+```json
+{ "state":"resolved|rejected", "reason":"...",
+  "snapshot": { "positions":[...], "open_orders":[...] } }
+```
+
+The site renders `snapshot.positions.length` / `snapshot.open_orders.length`
+under the Activity row so the operator sees what was reconciled.
+
+**Structured lock rejection.** A command refused by the lock returns
+`state:"rejected"` with a `result.lock` object instead of the bare string
+"An earlier position action is unresolved":
+
+```json
+{ "symbol":"UNH", "action_type":"close_resize", "action_id":"...",
+  "created_at":"2026-09-16T10:26:00-04:00",
+  "discrepancy":"current exits cover 0 units but position holds 625" }
+```
+
+The Execution tab renders it as *"Blocked by unresolved &lt;action_type&gt; on
+&lt;symbol&gt; from &lt;created_at&gt;: &lt;discrepancy&gt;"* with a **Clear
+lock…** button that opens the inline operator-note form and sends
+`position_action_resolve` through the ordinary `/exec-command` path. A refusal
+that cannot supply symbol + action type + action id renders as plain detail
+text — the site never guesses an identity to resolve.
+
+### `trim_readd` — RETIRED 2026-09-21
+The Trim¼ / Trim½ buttons emitted `trim_readd`, which `exec_agent._validate`,
+`_live_eligible` and `execute_order` all rejected unconditionally: the control
+could only ever produce a failed command (finding A2). The buttons, the
+`execTrim` handler and `trimReaddPayload` are gone from `site/assets/execution.js`,
+and `trim_readd` is out of the site's `MUTATING_COMMANDS` vocabulary. Partial
+closes go through `close_resize` (protected position — exits shrink first) or
+`close_only` (bare position); neither cancels anything. `trim_readd` should also
+come out of `LIVE_TYPES` in `exec_agent.env`, where it is still misleadingly
+armed.
+
 ### Status returned by the agent (up the same socket)
 ```json
 { "id":"uuid","state":"queued|validated|rejected|working|filled|cancelled",
@@ -294,9 +346,9 @@ Positions / Orders     [Primary ▾] [PA]              ● execution online · a
 ──────────────────────────────────────────────────────────────────────────────
  POSITIONS
   Sym   Side  Qty   Avg     Last    P&L $    P&L%   Exits          Actions
-  USO   LONG  692  104.80  108.10  +2,284  +3.1%  ◎T123 ◎S103   [Flatten][Trim½][Exits▾]
-  AAPL  LONG  108  210.30  208.90    -151  -0.7%  [WARN] no stop [Flatten][Trim half][Exits]
-  NG=F  SHORT   3    3.42    3.30    +360  +3.5%  S3.55 TIME 7/22 [Flatten][Trim half][Exits]
+  USO   LONG  692  104.80  108.10  +2,284  +3.1%  ◎T123 ◎S103   [Close…][Add…][Exits▾]
+  AAPL  LONG  108  210.30  208.90    -151  -0.7%  [WARN] no stop [Close…][Protect…][Exits]
+  NG=F  SHORT   3    3.42    3.30    +360  +3.5%  S3.55 TIME 7/22 [Close…][Exits]
 ──────────────────────────────────────────────────────────────────────────────
  OPEN ORDERS
   Sym   Leg          Side  Qty   Price    Status     Actions
@@ -312,7 +364,7 @@ target+stop. P&L ≈ +$2,284."*  → `[Dry-run]` `[Confirm]`.
 1. **Error-proof by default.** Every action goes through a confirm modal that
    shows the *exact* order chain + risk; **Dry-run is the default**; client AND
    agent validate (the agent is the hard gate).
-2. **One-click common actions.** Flatten, Trim ½ are single buttons — the things
+2. **One-click common actions.** Flatten and Close… are single buttons — the things
    you do most shouldn't need a form.
 3. **Express intent, not share counts.** Prefer %/fraction and "Risk $ → solves
    qty"; pre-fill quantities from the live position or a signal so you rarely type

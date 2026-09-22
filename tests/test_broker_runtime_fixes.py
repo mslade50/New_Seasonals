@@ -13,6 +13,7 @@ import pytest
 from broker_runtime import auction_lifecycle as auction
 from broker_runtime import execution_lifecycle as life
 from broker_runtime import prepare_execution_repairs as prepare
+from tests.spent_preparers import retired_execution_repairs
 from broker_runtime import prepare as legacy_prepare
 
 SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
@@ -155,6 +156,7 @@ def test_flatten_working_close_is_unknown(executor):
     assert result["state"] == "unknown"
 
 
+@retired_execution_repairs
 def test_prepare_checks_all_reviewed_hashes_and_writes_new_candidate(tmp_path):
     if not (SOURCE / "execute_order.py").exists():
         pytest.skip("exact-source preparation requires the reviewed original checkout")

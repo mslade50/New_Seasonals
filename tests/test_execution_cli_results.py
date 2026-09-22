@@ -9,6 +9,7 @@ import sys
 
 import pytest
 
+from tests.spent_preparers import retired_execution_repairs
 
 SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
 REPO = Path(__file__).resolve().parents[1]
@@ -75,6 +76,7 @@ def invoke(tmp_path, operation, scenario):
     return result, json.loads((tmp_path / "simulation.json").read_text())
 
 
+@retired_execution_repairs
 def test_reviewed_cli_fixture_matches_installed_boundaries():
     from broker_runtime.prepare_execution_repairs import patch_executor
     path = SOURCE / "execute_order.py"
@@ -90,6 +92,7 @@ def test_reviewed_cli_fixture_matches_installed_boundaries():
 
 
 @pytest.mark.parametrize("operation", ["modify", "cancel"])
+@retired_execution_repairs
 def test_actual_cli_emits_one_terminal_result_and_replay_never_resubmits(tmp_path, operation):
     result, mutations = invoke(tmp_path, operation, "executed")
     assert result["state"] == "executed" and len(mutations) == 1
@@ -100,6 +103,7 @@ def test_actual_cli_emits_one_terminal_result_and_replay_never_resubmits(tmp_pat
 
 
 @pytest.mark.parametrize("scenario", ["rejected", "unknown"])
+@retired_execution_repairs
 def test_actual_cli_preserves_rejection_and_transmission_uncertainty(tmp_path, scenario):
     result, mutations = invoke(tmp_path, "modify", scenario)
     assert result["state"] == scenario

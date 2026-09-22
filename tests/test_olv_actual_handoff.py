@@ -10,6 +10,7 @@ import pytest
 
 from broker_runtime import olv_contract as contract
 from broker_runtime import prepare
+from tests.spent_preparers import skip_prepare_olv
 
 STRATEGY = "Oversold Low Volume"
 ENTRY_REF = f"SPY|BUY|{STRATEGY}|2026-09-01"
@@ -89,6 +90,7 @@ def test_rearm_cannot_turn_a_past_or_missing_deadline_into_market_now():
 
 @pytest.fixture
 def patched(monkeypatch):
+    skip_prepare_olv()
     if not (SOURCE / "olv_exit_moo.py").exists():
         pytest.skip("reviewed external source unavailable; portable handoff tests still run")
     source = prepare.patch_olv((SOURCE / "olv_exit_moo.py").read_text(encoding="utf-8-sig"))
