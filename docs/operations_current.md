@@ -17,8 +17,9 @@ The active Codex heartbeat `ep-after-hours-shadow-queue` (EP Night and Morning
 Shadow Process) uses the permanent worktree
 `C:\Users\McKinley Slade\dev\New_Seasonals-worktrees\ep-production-runtime`,
 branch `codex/ep-production-runtime`, pinned to
-`9de30b6839ccbfcd03770c6a99bc8969897f3869`. This restores the source used by the
-successful September 17 morning run. The worktree is locked with a reason naming
+`9dded222656b46f6840337898ed17dce974716cb`. It extends the restored September 17
+source (`9de30b6839ccbfcd03770c6a99bc8969897f3869`) with the requested ATR Extended
+Gap Up email watchlist. The worktree is locked with a reason naming
 the active heartbeat; preserve both the worktree and branch during cleanup.
 The heartbeat remains attached to its existing Codex task and runs weekdays at
 08:20 and 19:20 America/New_York, with phase commands explicitly run in this runtime.
@@ -36,6 +37,25 @@ resolved without sending, and artifact creation/readback passed under the task
 sandbox. This verifies startup and local processing, not a completed live
 premarket capture or email delivery. Evidence:
 `artifacts/ep-runtime-repair-20260922/`.
+
+The morning email now includes the independent
+[ATR Extended Gap Up short watchlist](ep_atr_extended_short_watchlist.md): shared
+strategy filters, fresh prior-session Yahoo daily bars, complete Google/source
+context review, pending regular-open confirmation, and the prior low as a reversal
+observation level. The screen covers the configured liquid universe plus static
+CSV overflow, with unavailable histories explicitly counted. A short-only failure
+adds an unavailable section while preserving EP's full-review delivery gate.
+The schedule, recipients, night phase and research-only/no-order boundary are unchanged.
+
+Expansion verification: 385 EP tests passed in both main and the protected runtime;
+the runtime integrity guard and clean Git status passed. Desktop/mobile email
+rendering passed. A fresh 1,025-symbol capture verified 985 histories, excluded 40
+invalid/missing histories and found zero setups; it is an afternoon validation
+artifact, not a premarket delivery. The active heartbeat was read back against the
+new pin and supplement instructions. Main source commit: `f6221b42`; runtime feature
+commit: `9dded222`. No test or retrospective email was sent. Evidence:
+`artifacts/ep-short-watchlist-20260922/`; frozen-price replay in
+`artifacts/ep-production-runtime/short-watchlist-validation-20260922/`.
 
 The old `artifacts/worktrees/ep-yfinance-prod` location was removed during the
 September 18 cleanup while the heartbeat still referenced it. Check Codex
