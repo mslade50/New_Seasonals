@@ -77,11 +77,11 @@ class FakeOrderStatus(SimpleNamespace):
 class FakeTrade:
     def __init__(self, *, account, con_id, symbol="TEST", client_id=98, order_id=1,
                  perm_id=1000, action="SELL", order_type="LMT", qty=100, filled=0,
-                 status="PreSubmitted", order_ref=""):
+                 status="PreSubmitted", order_ref="", oca_group=""):
         self.contract = SimpleNamespace(conId=con_id, symbol=symbol)
         self.order = SimpleNamespace(account=account, clientId=client_id, orderId=order_id,
                                      permId=perm_id, action=action, orderType=order_type,
-                                     totalQuantity=qty, orderRef=order_ref)
+                                     totalQuantity=qty, orderRef=order_ref, ocaGroup=oca_group)
         self.orderStatus = FakeOrderStatus(status=status, filled=filled)
 
 
@@ -529,10 +529,29 @@ class Item4DiagnosticTests(PositionActionsCandidateTestCase):
 class Item5ResolveHandlerTests(PositionActionsCandidateTestCase):
     """position_action_resolve: read the live book, record it, clear the lock."""
 
-    def broker(self, *, held=625.0, working=True):
-        trades = [FakeTrade(account=self.ACCOUNT, con_id=self.CON_ID, symbol="JHX",
-                            perm_id=1544733398, order_id=1554, order_ref="EXEC|abc|unified-close",
-                            status="PreSubmitted" if working else "Cancelled")]
+    ACTION_PERM_ID = 1544733398        # == write_record()'s record["identity"][4]
+
+    def broker(self, *, held=625.0, working=False, unrelated=False, own=True):
+        """The action's own exit leg, plus optionally somebody else's order.
+
+        ``working`` decides whether THIS action's leg is still live. It defaults
+        to terminal because that is the state a lock is legitimately cleared in:
+        the action stopped, its order is Cancelled, and the operator is telling
+        the journal so. A live own-leg is the refusal case and must be asked for.
+        """
+        trades = []
+        if own:
+            trades.append(FakeTrade(account=self.ACCOUNT, con_id=self.CON_ID, symbol="JHX",
+                                    perm_id=self.ACTION_PERM_ID, order_id=1554,
+                                    order_ref="EXEC|abc|unified-close",
+                                    status="PreSubmitted" if working else "Cancelled"))
+        if unrelated:
+            # A systematic-book bracket on the same contract: different orderRef,
+            # different OCA group, an order id this action never journalled.
+            trades.append(FakeTrade(account=self.ACCOUNT, con_id=self.CON_ID, symbol="JHX",
+                                    perm_id=777000111, order_id=9042, client_id=123,
+                                    order_ref="JHX|BUY|Oversold Low Volume|2026-09-18",
+                                    oca_group="OLV-9042", status="Submitted"))
         return FakeBroker(positions=[fake_position(self.ACCOUNT, self.CON_ID, "JHX", held)],
                           trades=trades)
 
@@ -543,6 +562,7 @@ class Item5ResolveHandlerTests(PositionActionsCandidateTestCase):
         return base
 
     def test_it_clears_the_lock_and_records_what_the_live_book_held(self):
+        """The clean case: the action's own leg has gone terminal."""
         self.write_record("890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")
         broker = self.broker()
         out = self.pa.resolve(self.ns(), broker, self.payload(), "pa")
@@ -550,6 +570,7 @@ class Item5ResolveHandlerTests(PositionActionsCandidateTestCase):
         self.assertEqual(out["state"], "executed")
         self.assertIn("cleared by operator", out["detail"])
         self.assertIn("625", out["detail"])
+        self.assertIn("with 0 working order(s)", out["detail"])
         self.assertIn("flattened by hand in TWS", out["detail"])
         stored = json.loads((self.pa.record_path(
             self.root, "890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")).read_text(encoding="utf-8"))
@@ -557,18 +578,154 @@ class Item5ResolveHandlerTests(PositionActionsCandidateTestCase):
         self.assertEqual(stored["resolution"]["resolved_by"], "operator")
         self.assertEqual(stored["resolution"]["previous_phase"], "attention")
         self.assertEqual(stored["resolution"]["positions"][0]["position"], 625.0)
-        self.assertEqual(stored["resolution"]["open_orders"][0]["perm_id"], 1544733398)
+        self.assertEqual(stored["resolution"]["open_orders"][0]["perm_id"], self.ACTION_PERM_ID)
+        # The terminal leg is still recorded, and recorded AS this action's.
+        self.assertTrue(stored["resolution"]["open_orders"][0]["attributed_to_action"])
+
+    def test_it_refuses_while_the_actions_own_orders_are_still_working(self):
+        """The split half of the old clears-with-a-PreSubmitted-order test.
+
+        Clearing the lock is what lets the NEXT position command through. If a
+        leg this action placed is still live, the action has not stopped, and
+        releasing the lock invites a second command onto a contract that already
+        has a working order on it.
+        """
+        self.write_record("890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")
+        out = self.pa.resolve(self.ns(), self.broker(working=True), self.payload(), "pa")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["state"], "rejected")
+        self.assertIn("Nothing sent", out["detail"])
+        self.assertIn("still has 1 working order(s) of its own", out["detail"])
+        # The reason names the order so the operator can go find it.
+        self.assertIn(f"perm {self.ACTION_PERM_ID}", out["detail"])
+        self.assertIn("PreSubmitted", out["detail"])
+        self.assertIn("Cancel them or let them go terminal", out["detail"])
+        # The evidence comes back with the refusal: a refusal decided against
+        # the live book is only actionable next to the rows.
+        self.assertEqual(out["snapshot"]["open_orders"][0]["perm_id"], self.ACTION_PERM_ID)
+        self.assertNotIn("unattributed_working", out["snapshot"])
+        # Nothing is written: the lock stays exactly as it was.
+        stored = json.loads((self.pa.record_path(
+            self.root, "890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")).read_text(encoding="utf-8"))
+        self.assertEqual(stored["phase"], "attention")
+        self.assertNotIn("resolution", stored)
+        self.assertEqual([r for r in self.pa.records(self.root) if r["phase"] != "done"],
+                         [stored])
+
+    def test_a_working_order_that_is_not_this_actions_is_reported_not_refused(self):
+        """The other half of the split.
+
+        The primary account runs the systematic book across ~1060 names. An OLV
+        bracket on the same contract is not this action's business, so it does
+        not veto the clearance -- but the operator clears with its count and its
+        ids in front of them, and they are in the journal afterwards.
+        """
+        self.write_record("890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")
+        out = self.pa.resolve(self.ns(), self.broker(unrelated=True), self.payload(), "pa")
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["state"], "executed")
+        self.assertIn("1 unrelated working order(s) remain", out["detail"])
+        self.assertIn("perm 777000111", out["detail"])
+        self.assertIn("were NOT touched", out["detail"])
+        self.assertIn("none of them this action's", out["detail"])
+        unattributed = out["snapshot"]["unattributed_working"]
+        self.assertEqual(unattributed["count"], 1)
+        self.assertEqual(unattributed["order_ids"], [9042])
+        self.assertEqual(unattributed["perm_ids"], [777000111])
+        self.assertEqual(unattributed["labels"], ["perm 777000111"])
+        stored = json.loads((self.pa.record_path(
+            self.root, "890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")).read_text(encoding="utf-8"))
+        self.assertEqual(stored["phase"], "done")
+        rows = {row["perm_id"]: row["attributed_to_action"]
+                for row in stored["resolution"]["open_orders"]}
+        self.assertEqual(rows, {self.ACTION_PERM_ID: True, 777000111: False})
+
+    def test_an_own_working_order_refuses_even_beside_an_unrelated_one(self):
+        self.write_record("890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")
+        out = self.pa.resolve(self.ns(), self.broker(working=True, unrelated=True),
+                              self.payload(), "pa")
+        self.assertEqual(out["state"], "rejected")
+        self.assertIn("still has 1 working order(s) of its own", out["detail"])
+        # The unrelated one is still carried as evidence, just not as a reason.
+        self.assertEqual(out["snapshot"]["unattributed_working"]["perm_ids"], [777000111])
+
+    def test_attribution_uses_order_ref_oca_group_and_durable_identity(self):
+        """Each stamp the action leaves is on its own sufficient to refuse.
+
+        A bare symbol/contract match is deliberately NOT enough: the contract is
+        shared with the systematic book.
+        """
+        base = {"account": self.ACCOUNT, "con_id": self.CON_ID, "symbol": "JHX",
+                "status": "Submitted"}
+        cases = [
+            ("close order ref", {"close_order_ref": "EXEC|zz|unified-close"},
+             dict(base, perm_id=5, order_id=5, client_id=7, order_ref="EXEC|zz|unified-close"), True),
+            ("leg order ref", {"legs": [{"order_ref": "EXEC|zz|exit-0"}]},
+             dict(base, perm_id=5, order_id=5, client_id=7, order_ref="EXEC|zz|exit-0"), True),
+            ("leg oca group", {"legs": [{"oca_group": "OCA-4411"}]},
+             dict(base, perm_id=5, order_id=5, client_id=7, oca_group="OCA-4411"), True),
+            ("leg source key", {"legs": [{"source_key": "perm:99001"}]},
+             dict(base, perm_id=99001, order_id=5, client_id=7), True),
+            ("removed source key", {"removed": ["client:7:order:4242"]},
+             dict(base, perm_id=0, order_id=4242, client_id=7), True),
+            ("closing wire perm id", {"wire": [self.ACCOUNT, self.CON_ID, 98, 1554, 31337]},
+             dict(base, perm_id=31337, order_id=1, client_id=98), True),
+            ("edit identity pre-perm", {"identity": [self.ACCOUNT, self.CON_ID, 98, 1554, 0]},
+             dict(base, perm_id=0, order_id=1554, client_id=98), True),
+            ("same contract only", {"legs": [{"oca_group": "OCA-4411"}]},
+             dict(base, perm_id=5, order_id=5, client_id=7, oca_group="OCA-OTHER",
+                  order_ref="JHX|BUY|Oversold Low Volume|2026-09-18"), False),
+            ("blank ref never matches blank", {"close_order_ref": ""},
+             dict(base, perm_id=5, order_id=5, client_id=7, order_ref=""), False),
+        ]
+        for label, extra, trade, refused in cases:
+            with self.subTest(case=label):
+                self.setUp()
+                record_id = "890dffb0-2bf9-4b19-8a38-3e9d71da6bf4"
+                # Strip the fixture's own identity so each case tests one stamp.
+                self.write_record(record_id, extra=dict({"identity": [self.ACCOUNT, self.CON_ID, 0, 0, 0]}, **extra))
+                broker = FakeBroker(
+                    positions=[fake_position(self.ACCOUNT, self.CON_ID, "JHX", 625.0)],
+                    trades=[FakeTrade(**trade)])
+                out = self.pa.resolve(self.ns(), broker, self.payload(), "pa")
+                self.assertEqual(out["state"], "rejected" if refused else "executed", out["detail"])
+                if not refused:
+                    self.assertEqual(out["snapshot"]["unattributed_working"]["count"], 1)
+
+    def test_a_terminal_order_of_this_actions_never_refuses(self):
+        """TERMINAL is the whole point: a Cancelled leg IS the evidence."""
+        for status in sorted(self.pa.TERMINAL):
+            with self.subTest(status=status):
+                self.setUp()
+                self.write_record("890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")
+                broker = FakeBroker(
+                    positions=[fake_position(self.ACCOUNT, self.CON_ID, "JHX", 0.0)],
+                    trades=[FakeTrade(account=self.ACCOUNT, con_id=self.CON_ID, symbol="JHX",
+                                      perm_id=self.ACTION_PERM_ID, order_id=1554,
+                                      status=status)])
+                out = self.pa.resolve(self.ns(), broker, self.payload(), "pa")
+                self.assertEqual(out["state"], "executed", out["detail"])
 
     def test_the_response_carries_the_snapshot_the_site_renders(self):
         """Contract: {state, reason, snapshot:{positions, open_orders}} --
         docs/site_execution_schema.md. `fill` stays None: nothing filled."""
         self.write_record("890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")
-        out = self.pa.resolve(self.ns(), self.broker(), self.payload(), "pa")
+        out = self.pa.resolve(self.ns(), self.broker(unrelated=True), self.payload(), "pa")
         self.assertIsNone(out["fill"])
-        self.assertEqual(sorted(out["snapshot"]), ["open_orders", "positions"])
-        self.assertEqual(out["snapshot"]["open_orders"][0]["status"], "PreSubmitted")
+        # The two site-rendered keys are always there; the third appears only
+        # when there is something unattributed to report.
+        self.assertEqual(sorted(out["snapshot"]),
+                         ["open_orders", "positions", "unattributed_working"])
+        statuses = {row["perm_id"]: row["status"] for row in out["snapshot"]["open_orders"]}
+        self.assertEqual(statuses, {self.ACTION_PERM_ID: "Cancelled", 777000111: "Submitted"})
         self.assertEqual(out["snapshot"]["positions"][0]["symbol"], "JHX")
         self.assertEqual(json.loads(json.dumps(out["snapshot"])), out["snapshot"])
+        # With nothing unattributed the snapshot is exactly the documented pair.
+        self.write_record("second-action", extra={"id": "second-action"})
+        clean = self.pa.resolve(self.ns(), self.broker(),
+                                self.payload(action_id="second-action"), "pa")
+        self.assertEqual(clean["state"], "executed", clean["detail"])
+        self.assertEqual(sorted(clean["snapshot"]), ["open_orders", "positions"])
 
     def test_a_refusal_carries_no_snapshot(self):
         self.write_record("890dffb0-2bf9-4b19-8a38-3e9d71da6bf4")

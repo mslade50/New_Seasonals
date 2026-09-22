@@ -274,11 +274,16 @@ class PreTransmitRefusal(ValueError):
     ``lock`` carries the structured identity of the blocking action when there
     is one, so the Execution tab can offer to clear exactly that action instead
     of asking the operator to find it.
+
+    ``snapshot`` carries the live book a refusal was decided against, when the
+    refusal only makes sense next to the evidence -- a resolve refused because
+    the action's own orders are still working has to show WHICH ones.
     """
 
-    def __init__(self, message, lock=None):
+    def __init__(self, message, lock=None, snapshot=None):
         super().__init__(message)
         self.lock = lock if isinstance(lock, dict) else None
+        self.snapshot = snapshot if isinstance(snapshot, dict) else None
 
 
 def blocking_lock(record, kind):
@@ -411,8 +416,101 @@ PA_RESOLVE_NEW = '''def open_orders_for(ns, ib, broker_account, con_id):
                      "quantity": float(getattr(order, "totalQuantity", 0) or 0),
                      "filled": float(getattr(trade.orderStatus, "filled", 0) or 0),
                      "status": str(getattr(trade.orderStatus, "status", "")),
-                     "order_ref": str(getattr(order, "orderRef", "") or "")})
+                     "order_ref": str(getattr(order, "orderRef", "") or ""),
+                     "oca_group": str(getattr(order, "ocaGroup", "") or "")})
     return rows
+
+
+def durable_keys(client_id, order_id, perm_id):
+    """The identity forms an order can be recognised by, newest first.
+
+    Mirrors the executor's ``_order_source_key``: a permId once the broker has
+    assigned one, else the placing client's own orderId. Both are emitted so a
+    record written before the order had a permId still matches the live row.
+    """
+    keys = set()
+    if int(perm_id or 0) > 0:
+        keys.add(f"perm:{int(perm_id)}")
+    if int(order_id or 0) > 0:
+        keys.add(f"client:{int(client_id or 0)}:order:{int(order_id)}")
+    return keys
+
+
+def action_fingerprint(record):
+    """Every orderRef / OCA group / durable key this action is known to own.
+
+    Assembled from whatever the record got as far as writing: the closing
+    order's ref and wire identity, each exit leg's ref / OCA group / source key
+    / identity, the legs it cancelled on the way (``removed``), the identity of
+    the order an order-edit record was editing, and any attached-add results.
+    An action that aborted early simply owns fewer keys; it never owns a key it
+    did not put on the wire.
+    """
+    refs, ocas, keys = set(), set(), set()
+
+    def add_wire(value):
+        if isinstance(value, (list, tuple)) and len(value) >= 5:
+            try:
+                keys.update(durable_keys(value[2], value[3], value[4]))
+            except (TypeError, ValueError):
+                pass
+
+    ref = str(record.get("close_order_ref") or "").strip()
+    if ref:
+        refs.add(ref)
+    add_wire(record.get("wire"))
+    add_wire(record.get("identity"))
+    for leg in (record.get("legs") or []):
+        if not isinstance(leg, dict):
+            continue
+        leg_ref = str(leg.get("order_ref") or "").strip()
+        if leg_ref:
+            refs.add(leg_ref)
+        oca = str(leg.get("oca_group") or "").strip()
+        if oca:
+            ocas.add(oca)
+        source_key = str(leg.get("source_key") or "").strip()
+        if source_key:
+            keys.add(source_key)
+        add_wire(leg.get("identity"))
+    for source_key in (record.get("removed") or []):
+        if str(source_key or "").strip():
+            keys.add(str(source_key).strip())
+    for result in (record.get("addition") or []):
+        if not isinstance(result, dict):
+            continue
+        result_ref = str(result.get("order_ref") or result.get("signal_id") or "").strip()
+        if result_ref:
+            refs.add(result_ref)
+        for wire in (result.get("orders") or result.get("wire") or []):
+            add_wire(wire)
+    return {"refs": refs, "ocas": ocas, "keys": keys}
+
+
+def attributed_to_action(row, fingerprint):
+    """True when this live order row belongs to the action being resolved.
+
+    Attribution is by the things the action itself stamped: the orderRef it
+    minted, the OCA group its exits share, or the durable order identity it
+    journalled. A bare symbol match is deliberately NOT enough -- the primary
+    account runs the systematic book across ~1060 names and an unrelated OLV or
+    OVS bracket on the same contract must not be mistaken for this action's.
+    """
+    ref = str(row.get("order_ref") or "").strip()
+    if ref and ref in fingerprint["refs"]:
+        return True
+    oca = str(row.get("oca_group") or "").strip()
+    if oca and oca in fingerprint["ocas"]:
+        return True
+    return bool(durable_keys(row.get("client_id"), row.get("order_id"),
+                             row.get("perm_id")) & fingerprint["keys"])
+
+
+def order_label(row):
+    """How an order is named back to the operator: permId when it has one."""
+    if int(row.get("perm_id") or 0) > 0:
+        return f"perm {int(row['perm_id'])}"
+    return f"order {int(row.get('order_id') or 0)}"
 
 
 def positions_for(ib, broker_account, con_id):
@@ -437,8 +535,23 @@ def resolve(ns, ib, payload, account_key):
     clear.
 
     Refuses (pre-transmit, so ``rejected``) when the action is unknown, already
-    resolved, on another account, on another symbol, or when the operator note
-    is missing.
+    resolved, on another account, on another symbol, when the operator note is
+    missing, or when THE ACTION'S OWN ORDERS ARE STILL WORKING.
+
+    That last refusal is the one with teeth. Clearing the lock is what lets the
+    next position command through, and the lock exists precisely because an
+    action stopped half-way. If a leg the action placed is still live on the
+    book -- same orderRef, same OCA group, or the same durable order identity --
+    then it has not stopped, and releasing the lock invites a second command to
+    act on a contract that already has a working order on it. The refusal names
+    the order ids and returns the snapshot, so the operator can go cancel or
+    let them fill and then resolve.
+
+    Working orders that are NOT attributable to this action do not refuse --
+    the primary account runs the systematic book across ~1060 names and an
+    unrelated OLV or OVS bracket on the same contract is not this action's
+    business. They are counted, named in the detail line, and carried in the
+    snapshot so the clearance is still made with eyes open.
     """
     root = journal_root(ns)
     try:
@@ -482,12 +595,40 @@ def resolve(ns, ib, payload, account_key):
                     f"{scope} {action_id} has no exact account/contract to re-check")
             positions = positions_for(ib, broker_account, con_id)
             orders = open_orders_for(ns, ib, broker_account, con_id)
+            fingerprint = action_fingerprint(record)
+            for row in orders:
+                row["attributed_to_action"] = attributed_to_action(row, fingerprint)
             held = sum(row["position"] for row in positions)
-            working = sum(1 for row in orders if row["status"] not in TERMINAL)
-            detail = (f"{scope} {action_id} on {recorded_symbol or con_id} cleared by operator; "
-                      f"live book now holds {held:g} unit(s) with {working} working order(s). "
-                      f"Note: {note}")
+            live = [row for row in orders if row["status"] not in TERMINAL]
+            mine = [row for row in live if row["attributed_to_action"]]
+            theirs = [row for row in live if not row["attributed_to_action"]]
             snapshot = {"positions": positions, "open_orders": orders}
+            if theirs:
+                snapshot["unattributed_working"] = {
+                    "count": len(theirs),
+                    "order_ids": [int(row["order_id"]) for row in theirs],
+                    "perm_ids": [int(row["perm_id"]) for row in theirs],
+                    "labels": [order_label(row) for row in theirs],
+                }
+            if mine:
+                raise PreTransmitRefusal(
+                    f"{scope} {action_id} still has {len(mine)} working order(s) of its own on "
+                    f"{recorded_symbol or con_id}: "
+                    + ", ".join(f"{order_label(row)} ({row['status']})" for row in mine)
+                    + ". Cancel them or let them go terminal before clearing the lock; "
+                      "the snapshot records what the book held.",
+                    None, snapshot)
+            unrelated = ""
+            if theirs:
+                unrelated = (f" {len(theirs)} unrelated working order(s) remain on the contract "
+                             f"and were NOT touched: "
+                             + ", ".join(f"{order_label(row)} ({row['status']})" for row in theirs)
+                             + ".")
+            mine_note = ", none of them this action's" if live else ""
+            detail = (f"{scope} {action_id} on {recorded_symbol or con_id} cleared by operator; "
+                      f"live book now holds {held:g} unit(s) with {len(live)} working order(s)"
+                      f"{mine_note}.{unrelated} "
+                      f"Note: {note}")
             record["resolution"] = {
                 "at": datetime.now(ZoneInfo("America/New_York")).isoformat(timespec="seconds"),
                 "resolved_by": "operator", "note": note,
@@ -505,7 +646,10 @@ def resolve(ns, ib, payload, account_key):
             return ns["_out"](ok=True, state="executed", detail=detail, fill=None,
                               snapshot=snapshot)
     except PreTransmitRefusal as exc:
-        return ns["_out"](ok=False, state="rejected", detail=f"Nothing sent: {exc}", fill=None)
+        # A refusal that was decided against the live book returns that book:
+        # "still has working orders" is only actionable next to the rows.
+        return ns["_out"](ok=False, state="rejected", detail=f"Nothing sent: {exc}", fill=None,
+                          snapshot=getattr(exc, "snapshot", None))
     except Exception as exc:  # noqa: BLE001
         # This path never places an order, so a read failure is still a clean
         # refusal: the record is only written after both reads succeed.
