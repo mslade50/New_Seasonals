@@ -135,6 +135,47 @@ assert.match(run("renderActivity()"), /snapshot recorded: 1 position · 0 open o
 run(`state.commands[0].result = { ok: true, detail: "resolved" };`);
 assert.doesNotMatch(run("renderActivity()"), /snapshot recorded/);
 
+/* ---- 5b. "resolved" is a first-class badge, not grey raw text ---- */
+// The agent renames its success state executed -> resolved for this command, so
+// without a map entry the Activity row shows a lowercase grey "resolved" that
+// reads like an unknown state.
+const resolvedBadge = run(`stateBadge("resolved")`);
+assert.match(resolvedBadge, /RESOLVED/, "resolved must render an uppercase label");
+assert.match(resolvedBadge, /#3ddb8f/, "a cleared lock placed no order — it is a success tone");
+assert.doesNotMatch(resolvedBadge, />resolved</, "the raw state string must not be the label");
+// It is styled the same way every other known state is.
+assert.match(resolvedBadge, /font-weight:600/);
+// Unknown states still fall through to the grey raw-text default.
+assert.match(run(`stateBadge("some_new_state")`), /#9aa3b2[^]*some_new_state/);
+// The badge reaches the Activity table for a real resolve row.
+run(`state.commands = [{ id: "c3", type: "position_action_resolve", account: "pa", state: "resolved",
+  result: { ok: true, detail: "cleared", snapshot: { positions: [], open_orders: [] } } }];`);
+assert.match(run("renderActivity()"), /RESOLVED/);
+
+/* ---- 5c. `reason` is the detail fallback when the agent omits detail ---- */
+// The documented resolve response is {state, reason, snapshot}; `detail` is an
+// extra the agent happens to send today. Do not depend on it.
+run(`state.commands = [{ id: "c4", type: "position_action_resolve", account: "pa", state: "resolved",
+  result: { ok: true, reason: "cleared act-0001 after verifying TWS", snapshot: { positions: [1], open_orders: [] } } }];`);
+let reasonOnly = run("renderActivity()");
+assert.match(reasonOnly, /cleared act-0001 after verifying TWS/, "reason must be shown when detail is absent");
+assert.match(reasonOnly, /snapshot recorded: 1 position · 0 open orders/);
+// An empty-string detail is still no detail.
+run(`state.commands[0].result.detail = "";`);
+assert.match(run("renderActivity()"), /cleared act-0001 after verifying TWS/);
+// When both are present, detail wins and reason is not duplicated.
+run(`state.commands[0].result.detail = "resolved: live book now holds 0 units";`);
+reasonOnly = run("renderActivity()");
+assert.match(reasonOnly, /resolved: live book now holds 0 units/);
+assert.doesNotMatch(reasonOnly, /cleared act-0001 after verifying TWS/);
+// A rejected resolve with only a reason still says why, and never renders
+// "pending" or the bare state.
+run(`state.commands = [{ id: "c5", type: "position_action_resolve", account: "pa", state: "rejected",
+  result: { ok: false, reason: "2 working order(s) still tied to act-0001: 901, 902" } }];`);
+const rejectedReason = run("renderActivity()");
+assert.match(rejectedReason, /2 working order\(s\) still tied to act-0001: 901, 902/);
+assert.doesNotMatch(rejectedReason, /pending/);
+
 /* ---- 6. RISK_ACK reads as a confirmation step, same mechanics ---- */
 const entry = { action: "BUY", quantity: 80, symbol: "RTX", entry: 141.5, stop: null,
   sec_type: "STK", entry_type: "LMT" };

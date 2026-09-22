@@ -2667,6 +2667,9 @@ async function pollFront(n, request = frontState.request) {
 function stateBadge(state) {
   const map = { dry_run: ["#3ddb8f", "DRY-RUN OK"], rejected: ["#ff6b6b", "REJECTED"],
                 executed: ["#ffc14d", "EXECUTED"], duplicate: ["#9aa3b2", "duplicate"],
+                // A cleared position-action lock: nothing was placed, so it reads
+                // as a success rather than borrowing EXECUTED's transmit colour.
+                resolved: ["#3ddb8f", "RESOLVED"],
                 scheduled: ["#4da3ff", "SCHEDULED"], executing: ["#ffc14d", "EXECUTING"],
                 cancelled: ["#9aa3b2", "CANCELLED"], expired: ["#ff6b6b", "EXPIRED"],
                 unknown: ["#ff6b6b", "VERIFY IN TWS"],
