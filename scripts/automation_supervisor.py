@@ -759,20 +759,17 @@ def build_catalog() -> dict[str, PipelineSpec]:
             ),
             JobSpec(
                 id="breadth_pm",
-                description="Collect today's NYSE diary before the dial is scored",
+                description="Collect preliminary NYSE breadth before the dial is scored",
                 commands=(
                     *pull_breadth,
-                    # Runs BEFORE risk_pm so the evening dial carries the NYSE
-                    # floor on the same day. The diary publishes around 16:15
-                    # ET, so it is normally up already; the wait covers a late
-                    # publication. Exit 2 (still the prior session) is declared
-                    # degraded rather than fatal: nyse_risk already blanks the
-                    # EMA on a missing session and risk_pm scores the base
-                    # dial, which is the behaviour this job exists to shorten,
-                    # not a state it may block the pipeline over.
+                    # The dated overview updates separately from the detailed
+                    # diary. Use it provisionally; breadth_am replaces it with
+                    # diary revisions. Never relabel a stale date as today.
                     _py(
-                        "collect WSJ market breadth",
+                        "collect preliminary Dow Jones overview breadth",
                         "scripts/collect_market_breadth.py",
+                        "--source",
+                        "overview",
                         "--wait-minutes",
                         "20",
                         "--publish",
