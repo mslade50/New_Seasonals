@@ -21,9 +21,53 @@
   `LIVE_MAX_FUT_CONTRACTS=3` still bounds PA futures quantity. Candidate,
   originals and manifest live in
   `artifacts/entry_controls_candidate_20260921/`; the hand-install sequence is
-  `artifacts/recon_2026-09-17/pa_futures_install_runbook.md`. Installed: TBD.
+  `artifacts/recon_2026-09-17/pa_futures_install_runbook.md`. Installed 2026-09-21
+  20:39 ET (backup: OneDrive\trading_ibkr\_backup_20260921_pa_futures_notional;
+  ExecAgent restarted, reconnected 20:39:33).
 - Broker-free new-action tests and the existing bracket, flatten/cancel, modify,
   option-spread, JavaScript, and full static-site build checks pass.
+
+## Reviewed-runtime re-pin (2026-09-21)
+
+`broker_runtime/*source_hashes.json` pin the sha256 of the reviewed live bytes.
+22 pins across 10 files and all 5 JSONs had drifted behind the September
+installs. Each drift was diffed reviewed-to-live and tied to a documented
+install, then re-pinned; **nothing was left UNEXPLAINED**. Full analysis (with
+the diffs) is in the gitignored
+`artifacts/recon_2026-09-17/reviewed_runtime_drift_review.md`.
+
+- `execute_order.py` — PA futures notional exemption installed tonight; the
+  candidate manifest's `candidate_sha256` equals the live file byte-for-byte.
+- `exec_agent.py` — same install, same two hunks on the agent's notional gate.
+- `position_actions.py` — broker reconciliation package (2026-09-17 12:34):
+  `reconcile()` now calls `broker_reconciliation.refresh_target()`.
+- `position_action_agent.py` — same install; adds the 30s `observe_stopped()`
+  read-only broker sweep.
+- `manual_order_actions.py` — same install; live is byte-identical to the
+  reviewed repo candidate apart from line endings.
+- `execution_lifecycle.py` — stale only in the oldest JSON; two newer JSONs had
+  already reviewed and pinned these exact bytes (2026-09-14 install).
+- `futures_front.py` — 2026-09-14: front-month selection delegated to
+  `execution_contracts.select_front_details()`, response gains `con_id`.
+- `book_snapshot.py` — commit `dcf8ede5`: fills completeness attestation plus
+  `inventory_snapshot_inputs` entry metadata and OLV coverage.
+- `olv_exit_moo.py` — primary OLV cutover 2026-09-09: 1534-line runner replaced
+  by a 15-line dispatcher over `olv_exit_primary` / `olv_exit_pa_legacy`.
+- `event_moo.py` — commit `076a113c` (2026-09-17 12:19): durable auction claims,
+  account-scoped reads, `PENDING_RECONCILIATION`.
+
+**No preparer fragment was refreshed.** Every stale anchor turned out to be a
+spent one-shot installer whose patch is already in the live runtime
+(`_do_dynamic_option_market` is now `_do_dynamic_option_limit`;
+`prepare_entry_controls.patch` is what produced tonight's install). Re-pointing
+those anchors would double-inject, so they were left in place and listed.
+Consequently the re-pin does not turn the execution suite green: those failures
+are anchor failures, not hash failures. Seven-module suite went
+`11 failed / 161 passed / 9 skipped / 21 errors` to
+`13 failed / 160 passed / 8 skipped / 21 errors`, the two new failures being
+tests that now clear the hash gate and reach the same wall. Retiring the spent
+fragments and re-pointing those tests at the live runtime is the owed
+follow-up.
 
 ## Objective
 
