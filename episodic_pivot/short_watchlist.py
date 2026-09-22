@@ -18,9 +18,10 @@ from indicators import calculate_indicators
 from trading_calendar import TRADING_DAY
 from .schema import parse_timestamp
 from .listed_universe import capture_universe, validate_universe
+from .short_discovery import capture_discovery, validate_discovery
 
 STRATEGY = "ATR Extended Gap Up"
-SCHEMA = "EP_ATR_EXTENDED_SHORT_WATCHLIST_V2"
+SCHEMA = "EP_ATR_EXTENDED_SHORT_WATCHLIST_V3"
 NY = ZoneInfo("America/New_York")
 
 
@@ -62,6 +63,13 @@ def screen_from_universe(evidence: dict, target: str) -> dict:
     listings, coverage = validate_universe(evidence, target, now=datetime.now(timezone.utc))
     return {**configured_screen(), "universe": sorted(listings), "listings": listings,
             "universe_coverage": coverage}
+
+
+def screen_from_discovery(universe: dict, discovery: dict, target: str) -> dict:
+    screen = screen_from_universe(universe, target)
+    targets, coverage = validate_discovery(discovery, target, screen["listings"], screen["settings"],
+                                           now=datetime.now(timezone.utc))
+    return {**screen, "universe": targets, "discovery_coverage": coverage}
 
 
 def _session(value: str) -> date:
@@ -161,7 +169,7 @@ def replay_prices(prices: dict, screen: dict, target: str) -> tuple[list[dict], 
         verified += 1
         if row:
             candidates.append(row)
-    if not verified:
+    if not verified and screen["universe"]:
         raise ValueError("No verified daily histories; short screen unavailable")
     candidates.sort(key=lambda r: (-r["extension_score"], -r["relative_volume_63"], r["symbol"]))
     return candidates, {"requested": len(prices), "verified": verified,
@@ -179,7 +187,9 @@ def capture(run_dir: Path, target: str, *, download=None) -> dict:
     run_dir.mkdir(parents=True, exist_ok=False)
     universe = capture_universe(target)
     _write(run_dir / "universe.json", universe)
-    screen = screen_from_universe(universe, target)
+    discovery = capture_discovery(target, configured_screen()["settings"])
+    _write(run_dir / "discovery.json", discovery)
+    screen = screen_from_discovery(universe, discovery, target)
     yf.set_tz_cache_location(str(run_dir / "yfinance-metadata"))
     download = download or yf.download
     source = {}
@@ -207,6 +217,7 @@ def capture(run_dir: Path, target: str, *, download=None) -> dict:
              "source": "YFINANCE_AUTO_ADJUST_FALSE_REPAIR_TRUE_WITH_ADJ_CLOSE",
              "screen": screen, "prices_sha256": digest(source),
              "universe_sha256": digest(universe),
+             "discovery_sha256": digest(discovery),
              "candidates": candidates, "coverage": coverage}
     _write(run_dir / "queue.json", queue)
     return queue
@@ -219,7 +230,10 @@ def validate_queue(run_dir: Path, target: str) -> dict:
     universe = _read(run_dir / "universe.json")
     if digest(universe) != queue["universe_sha256"]:
         raise ValueError("Listing-universe source hash mismatch")
-    screen = screen_from_universe(universe, target)
+    discovery = _read(run_dir / "discovery.json")
+    if digest(discovery) != queue["discovery_sha256"]:
+        raise ValueError("Bulk-discovery source hash mismatch")
+    screen = screen_from_discovery(universe, discovery, target)
     if queue["screen"] != screen:
         raise ValueError("Short screen differs from the configured strategy or captured listing universe")
     captured = parse_timestamp(queue["captured_at"])
@@ -312,7 +326,9 @@ def render_section(packet: dict) -> tuple[str, str]:
     settings = queue["screen"]["settings"]
     escape = lambda value: html.escape(str(value), quote=True)
     title = "Parabolic-short watchlist — ATR Extended Gap Up"
-    intro = (f"{coverage['verified']}/{coverage['requested']} daily histories verified; "
+    intro = (f"Broad universe: {queue['screen']['universe_coverage']['listed_equities']} listed equities; "
+             f"{queue['screen']['discovery_coverage']['shortlisted']} passed the lightweight discovery screen. "
+             f"{coverage['verified']}/{coverage['requested']} shortlisted daily histories verified; "
              f"{coverage['unverified']} unverified and excluded. {queue['screen']['universe_label']}. "
              f"Extension score >{settings['dist_min']:g}; volume >{settings['vol_thresh']:g}× 63-session average. "
              "The extension score is percentage distance above SMA50 divided by ATR%. "

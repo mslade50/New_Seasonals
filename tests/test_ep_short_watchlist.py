@@ -10,6 +10,7 @@ import pytest
 
 from episodic_pivot import short_watchlist as sw
 from episodic_pivot import listed_universe as lu
+from episodic_pivot import short_discovery as sd
 from episodic_pivot.email_delivery import EmailPayload, EmailDeliveryError, with_short_watchlist
 from trading_calendar import TRADING_DAY
 
@@ -26,9 +27,11 @@ class Clock(datetime):
 @pytest.fixture
 def screen(monkeypatch):
     monkeypatch.setattr(lu, "MIN_DIRECTORY_ROWS", 1)
+    monkeypatch.setattr(sd, "MIN_ROWS", 1)
     monkeypatch.setattr(sw, "datetime", Clock)
     monkeypatch.setattr(sw, "capture_universe", lambda _target: universe())
-    policy = sw.screen_from_universe(universe(), TARGET)
+    monkeypatch.setattr(sw, "capture_discovery", lambda _target, _settings: discovery())
+    policy = sw.screen_from_discovery(universe(), discovery(), TARGET)
     monkeypatch.setattr(sw, "configured_screen", lambda: deepcopy(policy))
     return policy
 
@@ -41,6 +44,15 @@ def universe():
     return {"schema": lu.SCHEMA, "session_date": TARGET, "sources": {
         name: {"url": url, "content": bodies[name], "captured_at": "2026-09-22T12:15:00Z"}
         for name, url in lu.URLS.items()}}
+
+
+def discovery():
+    return {"schema": sd.SCHEMA, "session_date": TARGET, "url": sd.URL,
+            "request": sd.request_for(sw.configured_screen()["settings"]),
+            "captured_at": "2026-09-22T12:17:00Z",
+            "response": {"totalCount": 1, "data": [{"s": "NASDAQ:TEST", "d": [
+                "TEST", "Test Company", "NASDAQ", 68.85, 800000, 100000, 60,
+                datetime(2026, 9, 21, 13, 30, tzinfo=timezone.utc).timestamp()]}]}}
 
 
 def bars():
@@ -78,8 +90,10 @@ def write_queue(run_dir, screen, *, source=None):
     queue = {"schema": sw.SCHEMA, "session_date": TARGET, "captured_at": "2026-09-22T12:20:00Z",
              "source": "YFINANCE_AUTO_ADJUST_FALSE_REPAIR_TRUE_WITH_ADJ_CLOSE",
              "screen": screen, "prices_sha256": sw.digest(source), "universe_sha256": sw.digest(universe()),
+             "discovery_sha256": sw.digest(discovery()),
              "candidates": candidates, "coverage": coverage}
     (run_dir / "universe.json").write_text(json.dumps(universe()))
+    (run_dir / "discovery.json").write_text(json.dumps(discovery()))
     (run_dir / "prices.json").write_text(json.dumps(source))
     (run_dir / "queue.json").write_text(json.dumps(queue))
     return queue
@@ -194,13 +208,14 @@ def test_incomplete_or_unverified_news_blocked(tmp_path, screen, kind):
         packet(tmp_path, screen, reviews)
 
 
-@pytest.mark.parametrize("file", ["universe.json", "prices.json", "queue.json", "watchlist.json", "watchlist.html", "watchlist.md"])
+@pytest.mark.parametrize("file", ["universe.json", "discovery.json", "prices.json", "queue.json", "watchlist.json", "watchlist.html", "watchlist.md"])
 def test_tampering_fails_before_delivery(tmp_path, screen, file):
     path = packet(tmp_path, screen)
     target = path.parent / file
     if file.endswith(".json"):
         content = json.loads(target.read_text())
         if file == "universe.json": content["sources"].pop("otherlisted.txt")
+        elif file == "discovery.json": content["response"]["data"] = []
         elif file == "prices.json": content["TEST"]["bars"][-1]["Close"] += 1
         elif file == "queue.json": content["candidates"] = []
         else: content["reviews"][0]["news_context"] = "Tampered unsupported claim about this company."
@@ -281,6 +296,49 @@ def test_capture_failure_is_retained_but_cannot_be_sealed(tmp_path, screen):
         sw.capture(run_dir, TARGET, download=outage)
     assert (run_dir / "prices.json").exists()
     assert not (run_dir / "queue.json").exists()
+
+
+def test_shortcut_excludes_names_before_history_download(tmp_path, screen, monkeypatch):
+    directory = universe()
+    directory["sources"]["nasdaqlisted.txt"]["content"] = directory["sources"]["nasdaqlisted.txt"]["content"].replace(
+        "TEST|", "LOW|Low Volume Company Common Stock|N|N\nTEST|")
+    bulk = discovery()
+    bulk["response"]["totalCount"] = 2
+    bulk["response"]["data"].append({"s": "NASDAQ:LOW", "d": [
+        "LOW", "Low Volume Company", "NASDAQ", 30, 200000, 1000000, 20,
+        bulk["response"]["data"][0]["d"][-1]]})
+    monkeypatch.setattr(sw, "capture_universe", lambda _target: directory)
+    monkeypatch.setattr(sw, "capture_discovery", lambda *_args: bulk)
+
+    def download(**kwargs):
+        assert kwargs["tickers"] == ["TEST"]
+        return pd.DataFrame(bars()).set_index("date")
+
+    queue = sw.capture(tmp_path / "bounded", TARGET, download=download)
+    assert queue["screen"]["universe_coverage"]["listed_equities"] == 2
+    assert queue["screen"]["discovery_coverage"]["volume_filtered"] == 1
+    assert len(queue["candidates"]) == 1
+
+
+def test_empty_discovery_can_seal_without_yahoo_requests(tmp_path, screen, monkeypatch):
+    bulk = discovery()
+    bulk["response"]["data"][0]["d"][5] = 1000000
+    monkeypatch.setattr(sw, "capture_discovery", lambda *_args: bulk)
+    run_dir = tmp_path / "no-discovery-matches"
+    queue = sw.capture(run_dir, TARGET, download=lambda **_kwargs: pytest.fail("Unnecessary history download"))
+    assert queue["coverage"] == {"requested": 0, "verified": 0, "unverified": 0, "failures": {}}
+    notes = tmp_path / "notes.json"
+    notes.write_text("[]")
+    assert sw.load_watchlist(sw.seal(run_dir, notes), TARGET)
+
+
+def test_capacity_outage_retains_bulk_evidence_without_full_market_fallback(tmp_path, screen, monkeypatch):
+    monkeypatch.setattr(sd, "MAX_HISTORY_TARGETS", 0)
+    run_dir = tmp_path / "over-capacity"
+    with pytest.raises(ValueError, match="exceeding capacity"):
+        sw.capture(run_dir, TARGET, download=lambda **_kwargs: pytest.fail("Unbounded history download"))
+    assert (run_dir / "discovery.json").exists()
+    assert not (run_dir / "prices.json").exists()
 
 
 def test_cli_refuses_outputs_outside_artifacts():

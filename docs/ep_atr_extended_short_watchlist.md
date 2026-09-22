@@ -42,11 +42,37 @@ conflicting identities/mappings fail validation. Missing/stale directories make 
 section unavailable; never silently fall back to a static list. See the official
 [Nasdaq directory definitions](https://www.nasdaqtrader.com/Trader.aspx?id=SymbolDirDefs).
 
-It freshly downloads 400 calendar days of Yahoo daily OHLCV and adjusted closes for
-every eligible listing in batches. No stored price database is used. Price/volume
-necessary gates are checked first for efficiency, then every survivor is evaluated
-by the full shared indicators and live filters. Missing prices remain explicit
-coverage failures rather than disappearing from the universe.
+The automated discovery shortcut uses one public TradingView bulk request before
+downloading any individual history. It includes all security types in the request
+(so ADRs are not lost) and joins exchange-qualified symbols to the fresh official
+equity directories. It does not use a saved user screen or require daily UI work.
+The loose gates are derived from the configured strategy:
+
+- Last regular-session price at least 95% of the configured minimum ($9.50 today).
+- Last regular-session volume at least 90% of minimum average volume times the
+  required relative volume (180,000 shares today).
+- Volume above `0.9 * required_RVOL * (60/63) * average_volume_60d_calc`, and price
+  at least 98% of SMA50. The sum of the last 60 daily volumes cannot exceed the
+  last-63 sum, making this a loose necessary bound with an additional vendor margin.
+
+Unknown local metrics are not treated as failures of that metric. The bulk daily
+`time` field must identify the prior NYSE session for at least 90% of matched
+listings. Isolated missing/stale dates bypass the local numeric gates and go to
+the exact history check. A generally stale feed makes the section unavailable.
+Vendor differences and the initial bulk filters can still affect discovery recall;
+this is broad discovery coverage, not a claim that every listing received an
+independent exact history check.
+
+`discovery.json` retains the exact query, URL, timestamp and complete raw response.
+Capture is allowed only 04:00–09:30 ET on the target day. Truncated, implausibly
+small or malformed responses fail validation. A maximum of **500 history targets**
+bounds work: an oversized shortlist makes the section unavailable, never top-N
+truncated and never replaced by a full-market history download.
+
+Only those targets receive 400 calendar days of fresh Yahoo daily OHLCV and adjusted
+closes in batches of 75. No stored price database is used. Every survivor is
+evaluated by the full shared indicators and live filters, using Yahoo-computed
+metrics as the setup authority. Missing prices remain explicit coverage failures.
 The latest usable bar must be the prior NYSE session, with at least 63 consecutive
 NYSE sessions. Today's incomplete candle never participates. Invalid/stale symbols
 are excluded and counted; a complete download failure is unavailable, never empty.
@@ -136,8 +162,9 @@ python scripts/build_ep_short_watchlist.py --seal --run-dir <absolute-short-run-
 ```
 
 This creates `watchlist.json`, `watchlist.html` and `watchlist.md`. It replays every
-symbol from `prices.json`, replays membership from `universe.json`, checks
-configuration, coverage and source hashes, and
+shortlisted symbol from `prices.json`, replays the listing universe and discovery
+gates from `universe.json` and `discovery.json`, checks configuration, stage counts,
+coverage and all three source hashes, and
 requires complete research. Inspect the output locally. Hashes establish record
 integrity, not factual truth of the agent's judgment.
 
