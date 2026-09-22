@@ -80,6 +80,7 @@ SETS: dict[str, tuple[list, list]] = {
     # row; a pinned checkout's tracked snapshots are never authoritative.
     "risk": (
         [
+            ("master_prices.parquet", "data/master_prices.parquet"),
             ("rd2_fragility.parquet", "data/rd2_fragility.parquet"),
             ("dial_sleeve_paper.json", "data/dial_sleeve_paper.json"),
         ],
