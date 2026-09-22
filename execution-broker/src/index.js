@@ -443,7 +443,7 @@ export class ExecBroker extends DurableObject {
       const durable=await this.ctx.storage.get(`command:${msg.id}`);
       if(durable) {
         durable.state=msg.state || "done";
-        durable.result=mergeCommandResult(durable.result,{ok:msg.ok,detail:msg.detail,validation:msg.validation,preview:msg.preview,fill:msg.fill,at:msg.at});
+        durable.result=mergeCommandResult(durable.result,{ok:msg.ok,detail:msg.detail,validation:msg.validation,preview:msg.preview,fill:msg.fill,at:msg.at,lock:msg.lock,snapshot:msg.snapshot,reason:msg.reason});
         await this.ctx.storage.put(`command:${msg.id}`,durable);
       }
 
@@ -454,6 +454,7 @@ export class ExecBroker extends DurableObject {
         recent[i].result = mergeCommandResult(recent[i].result, {
           ok: msg.ok, detail: msg.detail, validation: msg.validation,
           preview: msg.preview, fill: msg.fill, at: msg.at,
+          lock: msg.lock, snapshot: msg.snapshot, reason: msg.reason,
         });
         await this.ctx.storage.put("recent_commands", recent);
       }
@@ -464,6 +465,7 @@ export class ExecBroker extends DurableObject {
         scheduled[si].result = mergeCommandResult(scheduled[si].result, {
           ok: msg.ok, detail: msg.detail, validation: msg.validation,
           preview: msg.preview, fill: msg.fill, at: msg.at,
+          lock: msg.lock, snapshot: msg.snapshot, reason: msg.reason,
         });
         await this.ctx.storage.put("scheduled_commands", scheduled);
       }

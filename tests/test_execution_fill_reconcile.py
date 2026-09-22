@@ -319,6 +319,76 @@ console.log("OK");
     assert "OK" in _run_node(script)
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_result_pick_lists_pass_lock_snapshot_and_reason_to_the_site():
+    """The agent's lock / snapshot / reason must survive the DO's result reshape.
+
+    `webSocketMessage`'s `type:"result"` branch is the only place a command
+    result is narrowed (the read path is verbatim and the site reads the bag
+    generically), so a field missing from those three pick-lists never reaches
+    the browser. That is what silently killed the Clear lock UI.
+    """
+    script = f"""
+import fs from "node:fs";
+let source = fs.readFileSync({json.dumps(str(BROKER))}, "utf8");
+source = source.replace('import {{ DurableObject }} from "cloudflare:workers";',
+  'class DurableObject {{ constructor(ctx, env) {{ this.ctx = ctx; this.env = env; }} }}');
+source = source.replace('from "./fill-reconcile.mjs";',
+  'from {json.dumps(HELPERS.as_uri())};');
+source = source.replace('from "./fill-coverage.mjs";',
+  'from {json.dumps(HELPERS.with_name("fill-coverage.mjs").as_uri())};');
+const mod = await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"));
+class Storage {{
+  constructor() {{ this.values = new Map(); }}
+  async get(key) {{ const v=this.values.get(key); return v == null ? v : structuredClone(v); }}
+  async put(key, value) {{ this.values.set(key, structuredClone(value)); }}
+  async delete(key) {{ this.values.delete(key); }}
+  async list() {{ return new Map(); }}
+}}
+const storage = new Storage();
+const broker = new mod.ExecBroker({{storage, getWebSockets(){{return [];}}}}, {{}});
+
+const id = "lock-fixture";
+const row = () => ({{id, type:"position_action_resolve", account:"primary",
+  payload:{{symbol:"OXY", action_id:"pa-1"}}, state:"sent"}});
+await storage.put(`command:${{id}}`, row());
+await storage.put("recent_commands", [row()]);
+await storage.put("scheduled_commands", [row()]);
+
+const lock = {{symbol:"OXY", action_type:"close_only", action_id:"pa-1",
+  created_at:"2026-09-21T14:00:00Z", discrepancy:"phase 2 stalled", account:"primary"}};
+const snapshot = {{positions:[{{symbol:"OXY", position:-100}}],
+  open_orders:[{{order_id:901, status:"PreSubmitted"}}]}};
+await broker.webSocketMessage(null, JSON.stringify({{
+  type:"result", id, ok:false, state:"rejected",
+  detail:"refused: unresolved position action", reason:"unresolved position action",
+  lock, snapshot, at: 1234,
+}}));
+
+const stores = {{
+  durable: await storage.get(`command:${{id}}`),
+  recent: (await storage.get("recent_commands"))[0],
+  scheduled: (await storage.get("scheduled_commands"))[0],
+}};
+for (const [name, stored] of Object.entries(stores)) {{
+  const res = stored.result || {{}};
+  if (stored.state !== "rejected") throw new Error(name + ": state was not carried");
+  if (!res.lock || res.lock.action_id !== "pa-1" || res.lock.symbol !== "OXY"
+      || res.lock.action_type !== "close_only")
+    throw new Error(name + ": lock was dropped -> the Clear lock button cannot render");
+  if (!res.snapshot || res.snapshot.open_orders.length !== 1
+      || res.snapshot.positions[0].symbol !== "OXY")
+    throw new Error(name + ": snapshot was dropped");
+  if (res.reason !== "unresolved position action")
+    throw new Error(name + ": reason was dropped");
+  if (res.detail !== "refused: unresolved position action" || res.ok !== false || res.at !== 1234)
+    throw new Error(name + ": an existing result field regressed");
+}}
+console.log("OK");
+"""
+    assert "OK" in _run_node(script)
+
+
 @pytest.mark.skipif(not LOCAL_BOOK_SNAPSHOT.exists(), reason="live execution checkout is unavailable")
 def test_local_book_snapshot_exports_execution_client_id():
     src = LOCAL_BOOK_SNAPSHOT.read_text(encoding="utf-8")
