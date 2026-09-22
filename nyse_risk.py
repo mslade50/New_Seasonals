@@ -130,6 +130,9 @@ def append_main_scores(frame, existing, spy_close, net_highs, stats, run_date):
     Newly bootstrapped history remains legacy; historical new-model studies
     are separate artifacts. No fabricated inverse-smoothed 63d values.
     """
+    if not frame.empty and (spy_close.dropna().empty or
+                            frame.index.max() > spy_close.dropna().index.max()):
+        raise ValueError("SPY price history ends before the latest risk session")
     base = frame["63d"].dropna().rolling(10, min_periods=1).mean()
     calculated = compute_nyse_main(base, spy_close, net_highs, stats)
     out = frame.copy()
