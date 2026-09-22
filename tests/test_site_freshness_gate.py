@@ -8,6 +8,15 @@ from scripts.validate_site_freshness import validate_site
 SITE_BUILD_ID = "123"
 
 
+def test_private_gate_rejects_partial_macro_ranks(tmp_path):
+    _site(tmp_path)
+    path = tmp_path / "data/seasonality/macro.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["rows"][0]["s21"] = None
+    _write(path, payload)
+    assert any("Macro seasonal ranks incomplete" in problem for problem in validate_site(str(tmp_path)))
+
+
 def _write(path: Path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value), encoding="utf-8")
@@ -100,8 +109,11 @@ def _site(tmp_path: Path):
     _write(data / "seasonality" / "theses.json", {"asof": "2026-08-05"})
     _write(data / "seasonality" / "macro.json", {
         "asof": "2026-08-05",
+        "sznl_asof": "2026-08-05",
+        "sznl_requested_asof": "2026-08-05",
         "sznl_available": True,
-        "rows": [{"ticker": "SPY", "price": 100.0}],
+        "rows": [{"ticker": "SPY", "price": 100.0, "sznl_asof": "2026-08-05",
+                  **{f"s{w}": 55.0 for w in (5, 10, 21, 63, 126, 252)}}],
     })
     _write(data / "fundamentals.json", {
         "as_of": "2026-08-05",

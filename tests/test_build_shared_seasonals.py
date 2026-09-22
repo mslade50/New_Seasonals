@@ -10,6 +10,20 @@ from scripts.build_shared_seasonals import (
     build_shared_site,
     validate_shared_output,
 )
+from scripts.macro_site_data import rank_session
+
+
+@pytest.fixture(autouse=True)
+def macro_inputs(tmp_path, monkeypatch):
+    # These builder tests use a two-symbol snapshot; its ranks must be complete.
+    monkeypatch.setattr("scripts.macro_site_data.SECTOR_ETFS", ["SPY", "QQQ"])
+    date = rank_session(pd.Timestamp.today())["Date"]
+    path = tmp_path / "ranks.parquet"
+    pd.DataFrame([{
+        "ticker": ticker, "Date": date,
+        **{f"atr_sznl_{w}d": 55.0 for w in (5, 10, 21, 63, 126, 252)},
+    } for ticker in ("SPY", "QQQ")]).to_parquet(path, index=False)
+    return path
 
 
 def _prices() -> pd.DataFrame:
@@ -38,7 +52,7 @@ def test_builder_emits_only_share_allow_list(tmp_path: Path):
         prices,
         output,
         risk_payload=tmp_path / "absent.json",
-        ranks=tmp_path / "absent.parquet",
+        ranks=tmp_path / "ranks.parquet",
     )
 
     assert manifest["ticker_count"] == 2
@@ -85,12 +99,12 @@ def test_macro_payload_rides_the_seasonality_data_rule(tmp_path: Path):
         prices,
         output,
         risk_payload=tmp_path / "absent.json",
-        ranks=tmp_path / "absent.parquet",
+        ranks=tmp_path / "ranks.parquet",
     )
 
     assert manifest["macro_payload"] is True
     macro = json.loads((output / "data/seasonality/macro.json").read_text(encoding="utf-8"))
-    assert macro["sznl_available"] is False
+    assert macro["sznl_available"] is True
     assert {"ticker", "name"} <= set(macro["rows"][0])
     validate_shared_output(output)
 
@@ -103,11 +117,33 @@ def test_validator_fails_closed_on_private_payload(tmp_path: Path):
         prices,
         output,
         risk_payload=tmp_path / "absent.json",
-        ranks=tmp_path / "absent.parquet",
+        ranks=tmp_path / "ranks.parquet",
     )
     (output / "data/trades.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(ValueError, match="non-shareable file"):
+        validate_shared_output(output)
+
+
+def test_shared_build_blocks_missing_macro_ranks(tmp_path):
+    prices = tmp_path / "prices.parquet"
+    _prices().to_parquet(prices, index=False)
+    with pytest.raises(ValueError, match="Macro seasonal ranks are unavailable"):
+        build_shared_site(prices, tmp_path / "incomplete", ranks=tmp_path / "absent.parquet",
+                          risk_payload=tmp_path / "absent.json")
+
+
+def test_shared_validator_checks_serialized_rank_values(tmp_path):
+    prices = tmp_path / "prices.parquet"
+    _prices().to_parquet(prices, index=False)
+    output = tmp_path / "shared"
+    build_shared_site(prices, output, ranks=tmp_path / "ranks.parquet",
+                      risk_payload=tmp_path / "absent.json")
+    path = output / "data/seasonality/macro.json"
+    macro = json.loads(path.read_text(encoding="utf-8"))
+    macro["rows"][0]["s21"] = None
+    path.write_text(json.dumps(macro), encoding="utf-8")
+    with pytest.raises(ValueError, match="incomplete or stale"):
         validate_shared_output(output)
 
 

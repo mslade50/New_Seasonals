@@ -215,14 +215,20 @@ def test_builder_refuses_a_dirty_payload(tmp_path: Path):
     assert not (output / "data" / "risk.json").exists()
 
 
-def test_shared_build_carries_the_payload_and_validates(tmp_path: Path):
+def test_shared_build_carries_the_payload_and_validates(tmp_path: Path, monkeypatch):
+    from scripts.macro_site_data import rank_session
+    monkeypatch.setattr("scripts.macro_site_data.SECTOR_ETFS", ["SPY"])
+    ranks = tmp_path / "ranks.parquet"
+    pd.DataFrame([{"ticker": "SPY", "Date": rank_session(pd.Timestamp.today())["Date"],
+                   **{f"atr_sznl_{w}d": 55.0 for w in (5, 10, 21, 63, 126, 252)}}]
+                 ).to_parquet(ranks, index=False)
     prices = tmp_path / "prices.parquet"
     _prices().to_parquet(prices, index=False)
     source = tmp_path / "site_risk_shared.json"
     source.write_text(json.dumps(redact_for_shared(_payload())), encoding="utf-8")
 
     manifest = build_shared_site(
-        prices, tmp_path / "shared", risk_payload=source, ranks=tmp_path / "absent.parquet"
+        prices, tmp_path / "shared", risk_payload=source, ranks=ranks
     )
 
     assert manifest["risk_payload"] is True

@@ -303,6 +303,15 @@ def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[
         problems.append("Macro Seasonality payload is unavailable")
     else:
         macro_asof = macro_seasonality.get("asof")
+        # Import through the repository root for both CLI and module callers.
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from scripts.macro_site_data import validate_macro_rank_coverage
+        try:
+            validate_macro_rank_coverage(macro_seasonality)
+        except ValueError as exc:
+            problems.append(str(exc))
         if prev_td and (not macro_asof or str(macro_asof) < str(prev_td)):
             problems.append(
                 f"Macro Seasonality as-of {macro_asof or 'missing'} is before {prev_td}")

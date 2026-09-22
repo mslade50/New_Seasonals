@@ -3,7 +3,9 @@
 Replicates the table half of ``pages/macro_seasonality.py`` at build time:
 per macro ticker, the last price, MA-extension percentile ranks (5/20/50/200
 sessions over a trailing 2-year window of adjusted closes) and the ATR
-seasonal ranks looked up as-of today from atr_seasonal_ranks.parquet.  The
+seasonal ranks looked up as-of today from atr_seasonal_ranks.parquet. Macro-only
+symbols absent from that strategy artifact use the same annual rank calculation
+on the frozen master-price history; the canonical rank file is never changed. The
 chart half is rendered in the browser from the same per-ticker binaries the
 Seasonality Lab uses, so this module only stamps each row with its bin path.
 
@@ -65,12 +67,67 @@ def load_sznl_asof(ranks_path: str | os.PathLike[str], asof: pd.Timestamp) -> di
     cols = {f"atr_sznl_{w}d": f"s{w}" for w in SZNL_WINDOWS}
     out: dict[str, dict] = {}
     for row in frame.itertuples(index=False):
-        vals = {}
+        vals = {"sznl_asof": row.Date.strftime("%Y-%m-%d"), "sznl_source": "canonical"}
         for raw, key in cols.items():
             value = getattr(row, raw, None)
             vals[key] = float(value) if value is not None and np.isfinite(value) else None
         out[row.ticker] = vals
     return out
+
+
+def rank_session(asof: pd.Timestamp) -> pd.Series:
+    """Last canonical rank-calendar session, including year-boundary holidays."""
+    from build_atr_seasonal_ranks import generate_trading_dates
+
+    for year in (asof.year, asof.year - 1):
+        calendar = generate_trading_dates(year)
+        eligible = calendar[calendar["Date"] <= asof.normalize()]
+        if not eligible.empty:
+            return eligible.iloc[-1]
+    raise ValueError(f"No seasonal rank session on or before {asof}")
+
+
+def macro_only_ranks(group: pd.DataFrame, session: pd.Series) -> dict:
+    """Same math and rounding as the canonical builder, using full history."""
+    from build_atr_seasonal_ranks import compute_ranks_for_year, prepare_ticker_data
+
+    frame = group.set_index("date")[["High", "Low", "Close"]]
+    frame = frame.apply(pd.to_numeric, errors="coerce")
+    if not np.isfinite(frame.to_numpy()).all():
+        raise ValueError("Macro seasonal history contains invalid OHLC values")
+    prepared = prepare_ticker_data(frame)
+    annual = None if prepared is None else compute_ranks_for_year(prepared, session["Date"].year)
+    if annual is None:
+        raise ValueError("Macro seasonal ranks require at least three prior calendar years")
+    values = annual.loc[int(session["day_count"])].round(1)
+    return {
+        **{f"s{w}": float(values[f"atr_sznl_{w}d"]) for w in SZNL_WINDOWS},
+        "sznl_asof": session["Date"].strftime("%Y-%m-%d"),
+        "sznl_source": "macro_price_history",
+    }
+
+
+def validate_macro_rank_coverage(payload: dict) -> None:
+    """Block incomplete serialized tables rather than silently shipping dashes."""
+    rows = payload.get("rows") or []
+    if not rows or payload.get("sznl_available") is not True:
+        raise ValueError("Macro seasonal ranks are unavailable")
+    requested = payload.get("sznl_requested_asof")
+    if not requested:
+        raise ValueError("Macro seasonal rank request date is missing")
+    expected = rank_session(pd.Timestamp(requested))["Date"].strftime("%Y-%m-%d")
+    if payload.get("sznl_asof") != expected:
+        raise ValueError("Macro seasonal rank date does not match the requested session")
+    invalid = []
+    for row in rows:
+        values = [row.get(f"s{w}") for w in SZNL_WINDOWS]
+        if row.get("sznl_asof") != expected or any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            or not np.isfinite(value) or not 0 <= value <= 100 for value in values
+        ):
+            invalid.append(str(row.get("ticker", "?")))
+    if invalid:
+        raise ValueError(f"Macro seasonal ranks incomplete or stale for: {', '.join(invalid)}")
 
 
 def sort_key(row: dict) -> float:
@@ -86,9 +143,10 @@ def export_macro_snapshot(
     asof: pd.Timestamp | None = None,
 ) -> dict:
     asof = pd.Timestamp(dt.date.today()) if asof is None else pd.Timestamp(asof)
+    session = rank_session(asof)
     tickers = sorted(set(SECTOR_ETFS))
 
-    prices = pd.read_parquet(prices_path, columns=["ticker", "date", "Close"])
+    prices = pd.read_parquet(prices_path, columns=["ticker", "date", "High", "Low", "Close"])
     prices["ticker"] = prices["ticker"].astype(str).str.upper().str.strip()
     prices = prices[prices["ticker"].isin(tickers)]
     prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
@@ -106,6 +164,8 @@ def export_macro_snapshot(
 
     rows = []
     price_asof = None
+    from strategy_config import CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
+    strategy_tickers = set(CSV_UNIVERSE) | set(LIQUID_PLUS_COMMODITIES)
     for ticker in tickers:
         info = TICKER_INFO.get(ticker, ("", ""))
         row: dict = {"ticker": ticker, "name": info[0], "ibkr": info[1],
@@ -115,8 +175,7 @@ def export_macro_snapshot(
             row[f"r{window}"] = None
         group = (prices[prices["ticker"] == ticker]
                  .sort_values("date")
-                 .drop_duplicates("date", keep="last")
-                 .tail(LOOKBACK_SESSIONS))
+                 .drop_duplicates("date", keep="last"))
         # Index tickers master_prices doesn't carry (^DJT, ^SOX, intl carets)
         # would render as dash-only rows with no chart — drop them. Non-caret
         # ETFs stay as table-only rows: their absence is a cache gap to fix,
@@ -124,14 +183,23 @@ def export_macro_snapshot(
         if ticker.startswith("^") and group.empty:
             continue
         if not group.empty:
-            close = group.set_index("date")["Close"]
+            close = group.set_index("date")["Close"].tail(LOOKBACK_SESSIONS)
             row.update(extension_ranks(close))
             row["file"] = f"t/{_ticker_id(ticker)}.bin"
             last = group["date"].iloc[-1]
             if price_asof is None or last > price_asof:
                 price_asof = last
+        # Never repair missing strategy ranks with a separate calculation.
+        # Those remain a canonical-input failure caught by the deployment gate.
+        if sznl_ok and ticker not in sznl and ticker not in strategy_tickers and not group.empty:
+            try:
+                sznl[ticker] = macro_only_ranks(group, session)
+            except ValueError as exc:
+                raise ValueError(f"Macro seasonal ranks failed for {ticker}: {exc}") from exc
         for window in SZNL_WINDOWS:
             row[f"s{window}"] = sznl.get(ticker, {}).get(f"s{window}")
+        for key in ("sznl_asof", "sznl_source"):
+            row[key] = sznl.get(ticker, {}).get(key)
         rows.append(row)
 
     rows.sort(key=sort_key, reverse=True)
@@ -139,7 +207,8 @@ def export_macro_snapshot(
         "version": 1,
         "generated_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "asof": price_asof.strftime("%Y-%m-%d") if price_asof is not None else None,
-        "sznl_asof": asof.strftime("%Y-%m-%d"),
+        "sznl_requested_asof": asof.strftime("%Y-%m-%d"),
+        "sznl_asof": session["Date"].strftime("%Y-%m-%d"),
         "sznl_available": sznl_ok,
         "rows": rows,
     }
