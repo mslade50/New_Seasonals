@@ -17,7 +17,7 @@ The active Codex heartbeat `ep-after-hours-shadow-queue` (EP Night and Morning
 Shadow Process) uses the permanent worktree
 `C:\Users\McKinley Slade\dev\New_Seasonals-worktrees\ep-production-runtime`,
 branch `codex/ep-production-runtime`, pinned to
-`9dded222656b46f6840337898ed17dce974716cb`. It extends the restored September 17
+`958a8683fcbde692fa91d7083066b8222c5f2f33`. It extends the restored September 17
 source (`9de30b6839ccbfcd03770c6a99bc8969897f3869`) with the requested ATR Extended
 Gap Up email watchlist. The worktree is locked with a reason naming
 the active heartbeat; preserve both the worktree and branch during cleanup.
@@ -40,22 +40,29 @@ premarket capture or email delivery. Evidence:
 
 The morning email now includes the independent
 [ATR Extended Gap Up short watchlist](ep_atr_extended_short_watchlist.md): shared
-strategy filters, fresh prior-session Yahoo daily bars, complete Google/source
-context review, pending regular-open confirmation, and the prior low as a reversal
-observation level. The screen covers the configured liquid universe plus static
-CSV overflow, with unavailable histories explicitly counted. A short-only failure
+strategy daily filters, fresh prior-session Yahoo bars and complete Google/source
+context review. The user removed reversal/entry levels and opening-gap conditions
+from this research watchlist. Discovery covers fresh U.S. listed equities/ADRs
+independently of the native/CSV strategy universes. One public TradingView bulk
+request applies loose price/volume/MA gates before exact history downloads, capped
+at 500 targets; oversized or stale discovery is unavailable, never truncated or
+replaced with a full-market history download. News review follows only for exact
+setup matches, with unavailable histories explicitly counted. A short-only failure
 adds an unavailable section while preserving EP's full-review delivery gate.
 The schedule, recipients, night phase and research-only/no-order boundary are unchanged.
 
-Expansion verification: 385 EP tests passed in both main and the protected runtime;
+Expansion verification: 458 EP tests passed in both main and the protected runtime;
 the runtime integrity guard and clean Git status passed. Desktop/mobile email
-rendering passed. A fresh 1,025-symbol capture verified 985 histories, excluded 40
-invalid/missing histories and found zero setups; it is an afternoon validation
-artifact, not a premarket delivery. The active heartbeat was read back against the
-new pin and supplement instructions. Main source commit: `f6221b42`; runtime feature
-commit: `9dded222`. No test or retrospective email was sent. Evidence:
-`artifacts/ep-short-watchlist-20260922/`; frozen-price replay in
-`artifacts/ep-production-runtime/short-watchlist-validation-20260922/`.
+rendering passed. A public-feed operational probe covered 5,903 eligible listings,
+received 3,816 broad price/volume rows, matched 2,565 equities/ADRs and retained 143
+history targets after the loose local gates, including isolated unknown/stale
+metrics. This was an afternoon sizing probe, not premarket candidate evidence or a
+delivery. Automated tests cover the complete shortlist/capture/replay/email path,
+source dating, outages, capacity limits and unchanged EP delivery gates. The active
+heartbeat was read back against the new pin and instructions. Broad-universe source
+commit: `bf66503e`; shortcut source commit: `bf6951de`; runtime pin: `958a8683`.
+No test or retrospective email was sent. Evidence:
+`artifacts/ep-short-broad-20260922/` and `artifacts/ep-short-watchlist-20260922/`.
 
 The old `artifacts/worktrees/ep-yfinance-prod` location was removed during the
 September 18 cleanup while the heartbeat still referenced it. Check Codex
