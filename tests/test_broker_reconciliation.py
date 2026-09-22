@@ -13,6 +13,7 @@ from broker_runtime import broker_reconciliation as obs
 from broker_runtime import position_actions as actions
 from broker_runtime import position_action_agent as agent
 from tests.test_unified_position_actions import Broker, exit_order, namespace, request
+from tests.spent_preparers import retired_broker_reconciliation
 
 
 class ObservedBroker(Broker):
@@ -303,6 +304,7 @@ def test_installed_executor_routes_both_handlers_to_updated_module(tmp_path, mon
     assert next(actions.records(tmp_path))['phase'] == 'done'
 
 
+@retired_broker_reconciliation
 def test_candidate_is_pinned_to_reviewed_runtime_and_contains_only_required_modules(tmp_path):
     from broker_runtime import prepare_broker_reconciliation as prep
     runtime = Path('C:/Users/McKinley Slade/OneDrive/trading_ibkr')

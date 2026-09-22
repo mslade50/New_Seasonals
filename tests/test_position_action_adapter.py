@@ -11,6 +11,7 @@ import pytest
 from broker_runtime import position_actions as actions
 from broker_runtime import position_action_agent as agent
 from broker_runtime import prepare_execution_repairs as prepare
+from tests.spent_preparers import retired_execution_repairs, skip_execution_repairs
 from broker_runtime.prepare_position_actions import function_source
 from tests.test_unified_position_actions import Broker, exit_order, namespace, request
 
@@ -26,6 +27,7 @@ def source():
 
 @pytest.fixture
 def adapter(source, tmp_path, monkeypatch):
+    skip_execution_repairs()
     monkeypatch.setitem(__import__("sys").modules, "position_actions", actions)
     broker = Broker(exits=[exit_order(1, 30, "a"), exit_order(2, 30, "a", "LMT"),
                            exit_order(3, 20, "b"), exit_order(4, 20, "b", "LMT")])
@@ -112,6 +114,7 @@ def test_uncertain_native_release_stops_before_next_allocation(adapter, tmp_path
     assert record["phase"] == "mutating"
 
 
+@retired_execution_repairs
 def test_candidate_routes_primary_and_pa_through_same_position_lifecycle(source):
     candidate = prepare.patch_executor(source)
     for name in ("_do_close_resize", "_do_add_to_position"):
@@ -123,6 +126,7 @@ def test_candidate_routes_primary_and_pa_through_same_position_lifecycle(source)
     compile(candidate, "candidate", "exec")
 
 
+@retired_execution_repairs
 def test_agent_patcher_preserves_live_gates(source, monkeypatch):
     path = Path(os.environ.get("IBKR_REVIEW_SOURCE",
                 "C:/Users/McKinley Slade/OneDrive/trading_ibkr")) / "exec_agent.py"

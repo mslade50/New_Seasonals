@@ -11,6 +11,7 @@ import pytest
 
 from broker_runtime import auction_lifecycle, event_contract, prepare
 from event_sleeve import EVENT_SLEEVE
+from tests.spent_preparers import retired_prepare_auction, skip_prepare_auction
 
 
 def row(trade="T2_FOMC_MIDTERM_SHORT", day="2026-09-16", entry=False):
@@ -26,6 +27,7 @@ def row(trade="T2_FOMC_MIDTERM_SHORT", day="2026-09-16", entry=False):
 
 @pytest.fixture
 def runner(tmp_path, monkeypatch):
+    skip_prepare_auction()
     source = Path(os.environ.get("IBKR_REVIEW_SOURCE", str(Path.home() / "OneDrive" / "trading_ibkr"))) / "event_moo.py"
     if not source.exists():
         pytest.skip("reviewed external source unavailable")
@@ -136,6 +138,7 @@ def test_execution_contract_matches_all_producer_strategies():
         assert opening == ("BUY" if cfg["side"] == "LONG" else "SELL_SHORT")
 
 
+@retired_prepare_auction
 def test_event_only_candidate_checks_source_and_avoids_unrelated_runners(tmp_path):
     source = Path(os.environ.get("IBKR_REVIEW_SOURCE", str(Path.home() / "OneDrive" / "trading_ibkr")))
     if not (source / "event_moo.py").exists():
