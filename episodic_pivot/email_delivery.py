@@ -15,7 +15,7 @@ import os
 import smtplib
 import ssl
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from email.message import EmailMessage
 from email.utils import parseaddr
@@ -606,6 +606,44 @@ def morning_payload(run_dir: Path) -> EmailPayload:
             "execution_data_verified": execution_verified,
             "news_qualified": news_qualified,
         },
+    )
+
+
+def with_short_watchlist(
+    payload: EmailPayload, *, watchlist: Path | None = None, unavailable: bool = False
+) -> EmailPayload:
+    """Add an independently validated section without relaxing any EP gate."""
+    if payload.kind != "morning" or bool(watchlist) == bool(unavailable):
+        raise EmailDeliveryError("Choose a validated short watchlist or unavailable status for morning email")
+    from .short_watchlist import digest, load_watchlist, render_section
+
+    attachments = payload.attachments
+    if unavailable:
+        plain = ("Parabolic-short watchlist unavailable: daily-data validation or complete "
+                 "source review did not finish. This is not a zero-candidate result.")
+        section = f'<section><h2>Parabolic-short watchlist</h2><p>{plain}</p></section>'
+        supplement = {"status": "UNAVAILABLE"}
+        suffix = "short screen unavailable"
+    else:
+        try:
+            packet = load_watchlist(watchlist.resolve(), payload.metadata["target_session_date"])
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise EmailDeliveryError("Short watchlist validation failed; withhold that section") from exc
+        section, plain = render_section(packet)
+        supplement = {"status": "REVIEWED", "count": len(packet["queue"]["candidates"]),
+                      "packet_sha256": digest(packet), "coverage": packet["queue"]["coverage"]}
+        attachments += (watchlist.parent / "watchlist.html", watchlist.parent / "watchlist.md")
+        suffix = f"{supplement['count']} ATR short " + ("watch" if supplement["count"] == 1 else "watches")
+    if "</body>" not in payload.html_body:
+        raise EmailDeliveryError("EP report has no body boundary for the short section")
+    boundary = "<footer>" if "<footer>" in payload.html_body else "</main>" if "</main>" in payload.html_body else "</body>"
+    return replace(payload,
+        subject=payload.subject + " | " + suffix,
+        html_body=payload.html_body.replace(boundary, section + boundary, 1),
+        plain_body=payload.plain_body + "\n\n" + plain,
+        attachments=attachments,
+        source_sha256=digest({"ep": payload.source_sha256, "short_watchlist": supplement}),
+        metadata={**payload.metadata, "short_watchlist": supplement},
     )
 
 

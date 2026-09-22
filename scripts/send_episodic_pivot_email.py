@@ -22,6 +22,7 @@ from episodic_pivot.email_delivery import (
     payload_summary,
     resolve_email_settings,
     test_payload,
+    with_short_watchlist,
 )
 
 
@@ -48,6 +49,9 @@ def _parser() -> argparse.ArgumentParser:
         help="receipt root for failure/test emails",
     )
     parser.add_argument("--send", action="store_true")
+    supplement = parser.add_mutually_exclusive_group()
+    supplement.add_argument("--short-watchlist", type=Path, help="sealed ATR Extended Gap Up watchlist.json")
+    supplement.add_argument("--short-screen-unavailable", action="store_true", help="explicitly report unavailable short research while preserving a valid EP report")
     parser.add_argument(
         "--require-agent-review",
         action="store_true",
@@ -88,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         payload = _build_payload(args)
+        if args.short_watchlist or args.short_screen_unavailable:
+            payload = with_short_watchlist(payload, watchlist=args.short_watchlist,
+                                           unavailable=args.short_screen_unavailable)
         if (
             args.kind == "morning"
             and args.require_agent_review

@@ -5,6 +5,12 @@ existing night/TradingView/yfinance ingestion, identity checks and runtime pin.
 Candidate and article details stay in local artifacts and the morning email, not
 the task. Run times and all session decisions use America/New_York.
 
+The rules below govern the **EP section**. Since 2026-09-22 the same morning email
+also includes the independent [ATR Extended Gap Up watchlist](ep_atr_extended_short_watchlist.md).
+Follow that runbook for its full-universe capture, context review and mandatory
+`--short-watchlist` or `--short-screen-unavailable` flag on both final sender
+commands below. Its explicit unavailable fallback does not relax any EP gate.
+
 ## 1. Prepare the research queue
 
 After obtaining a validated `EP_YFINANCE_DAILY_ENRICHMENT_V1` file for today's
