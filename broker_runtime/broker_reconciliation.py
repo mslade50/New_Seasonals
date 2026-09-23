@@ -220,6 +220,31 @@ def execution_quantity(evidence, wanted, ref):
     return total
 
 
+def stopped_before_submission_detail(record):
+    """Say what the stopped workflow DID, from the record, not what it didn't.
+
+    The old text ("existing changes retained ... no broker changes made") read
+    as though nothing had happened, when a full close had in fact cancelled
+    every exit and left the position unprotected (RTX/RY/ROST 2026-09-23).
+    """
+    cancelled, resized = actions.exit_changes(record)
+    done = []
+    if cancelled:
+        done.append(f"removed {len(cancelled)} exit leg(s) ({', '.join(cancelled)})")
+    if resized:
+        done.append(f"resized {len(resized)} exit leg(s) ({', '.join(resized)})")
+    if not done and record.get("mutation") in {"resize exit", "cancel exit"}:
+        done.append(f"was mid-way through '{record['mutation']}' (the exact leg is not itemised)")
+    if done:
+        lead = ("Earlier workflow stopped before entry/close submission, after it "
+                + " and ".join(done) + "; those exit changes are still in effect at the broker. "
+                "No close or entry was placed and none is replayed")
+    else:
+        lead = ("Earlier workflow stopped before entry/close submission and before changing any exit. "
+                "No trade replayed")
+    return lead + ". Current broker orders and holdings verified"
+
+
 def resolve(record, evidence):
     """Return a terminal receipt only when evidence explains the stopped plan."""
     if record["phase"] == "done":
@@ -256,8 +281,7 @@ def resolve(record, evidence):
         if (number(record["held"]) <= 0 or number(record["quantity"]) <= 0
                 or record["closing"] not in {"BUY", "SELL"} or not isinstance(record["legs"], list)):
             raise ValueError("pre-submission journal is incomplete")
-        result = outcome(False, "Earlier workflow stopped before entry/close submission. "
-                         "Current broker orders and holdings verified; existing changes retained; no trade replayed")
+        result = outcome(False, stopped_before_submission_detail(record))
     elif record.get("addition"):
         context = record.get("add_context") or {}
         rungs = actions.groups(context.get("legs", []))
@@ -330,7 +354,8 @@ def resolve(record, evidence):
             # Report it without reviving an old plan or vetoing the next user
             # instruction. The next instruction retains its existing rules.
             warnings.append(str(exc))
-            result["detail"] += ". Current exit discrepancy: " + str(exc) + "; no broker changes made"
+            result["detail"] += (". Current exit discrepancy: " + str(exc)
+                                 + "; this reconciliation made no broker changes")
     resolved = copy.deepcopy(record)
     resolved.update(phase="done", result=result,
                     resolution=dict(kind="broker_readback", evidence=evidence, no_replay=True, warnings=warnings))

@@ -67,6 +67,17 @@ function publicCommand(record) {
   return visible;
 }
 
+// A command is only ever written to the agent socket inside POST /command, and
+// the DO persists "delivery_unknown" BEFORE that write. So "queued" with zero
+// delivery attempts proves the envelope never left the broker. Only that
+// state may expire; delivery_unknown / pushed without a result may have
+// reached IBKR and must stay as they are.
+const EXPIRED_UNDELIVERED = "agent offline; never delivered to IBKR — safe to resend";
+function lapsedUndelivered(record, now) {
+  return !!record && record.state === "queued" && !record.delivery_attempts &&
+    Number.isFinite(record.expires_at) && record.expires_at <= now;
+}
+
 export class ExecBroker extends DurableObject {
   _authed(request, token) {
     return typeof token === "string" && token.trim().length > 0 &&
@@ -140,6 +151,10 @@ export class ExecBroker extends DurableObject {
       if (prior && prior.intent_identity && prior.intent_identity !== identity) {
         return Response.json({ok:false,error:"command id belongs to a different intent"},{status:409});
       }
+      if (prior && prior.state === "expired") {
+        return Response.json({ok:false,id:cmd.id,state:"expired",expired:true,
+          error:(prior.result && prior.result.detail) || EXPIRED_UNDELIVERED,command:publicCommand(prior)},{status:409});
+      }
       if (prior && !["queued","delivery_unknown"].includes(prior.state)) {
         return Response.json({ok:true,deduped:true,id:cmd.id,state:prior.state,command:publicCommand(prior)});
       }
@@ -160,6 +175,10 @@ export class ExecBroker extends DurableObject {
       // Persist visibility before every offline/expiry return. An accepted
       // durable intent must remain inspectable in Activity.
       await this.ctx.storage.put("recent_commands",[publicCommand(record),...recent.filter(r=>r.id!==record.id)].slice(0,CMD_CAP));
+      if (lapsedUndelivered(record, Date.now())) {
+        const expired = await this._markExpired(record);
+        return Response.json({ok:false,id:expired.id,state:"expired",expired:true,error:EXPIRED_UNDELIVERED},{status:409});
+      }
       if (record.expires_at <= Date.now()) {
         return Response.json({ok:false,id:record.id,state:record.state,error:"original delivery window expired; reconcile this intent before a new order"},{status:409});
       }
@@ -167,6 +186,14 @@ export class ExecBroker extends DurableObject {
       if (!sockets.length) return Response.json({ok:false,id:record.id,state:record.state,error:"agent offline; intent retained"},{status:503});
       // Persist uncertainty BEFORE attempting the socket write. A crash or throw
       // must not masquerade as delivery. Same-ID retries use the original envelope.
+      // Re-read first: a concurrent sweep may have expired this record, and an
+      // expired command must never reach the socket.
+      const current=await this.ctx.storage.get(key);
+      if(!current || !["queued","delivery_unknown"].includes(current.state)) {
+        return Response.json({ok:false,id:record.id,state:current ? current.state : "missing",
+          error:current && current.state==="expired" ? EXPIRED_UNDELIVERED : "command state changed; check Activity"},{status:409});
+      }
+      record=current;
       record.state="delivery_unknown";
       record.delivery_attempts=(record.delivery_attempts||0)+1;
       await this.ctx.storage.put(key,record);
@@ -192,6 +219,7 @@ export class ExecBroker extends DurableObject {
     // --- Recent commands + results (site polls this) ---
     if (url.pathname === "/commands") {
       if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      await this._expireLapsedCommands(Date.now());
       const recent = (await this.ctx.storage.get("recent_commands")) || [];
       const scheduled = (await this.ctx.storage.get("scheduled_commands")) || [];
       const ids = new Set(recent.map((r) => r.id));
@@ -624,6 +652,42 @@ export class ExecBroker extends DurableObject {
     const observedBook={...book,accounts:observedAccounts};
     await this.ctx.storage.put("fill_receipt",{accounts,book:observedBook,complete_through:verifiedTimes.length?new Date(Math.min(...verifiedTimes)).toISOString():null});
     await this.ctx.storage.put("fill_merge_error",null);
+  }
+
+  // Terminal transition for a command whose delivery window lapsed while it was
+  // still undelivered. Lazy (run on reads and same-ID retries) rather than an
+  // alarm: nothing ever drains the queue on agent reconnect, so the only effect
+  // of expiry is what the Activity row says and that a retry is refused.
+  async _markExpired(record) {
+    const key=`command:${record.id}`;
+    const durable=await this.ctx.storage.get(key);
+    if(!lapsedUndelivered(durable, Date.now())) return durable || record;
+    const now=Date.now();
+    durable.state="expired";
+    durable.expired_at=now;
+    durable.result={ok:false,detail:EXPIRED_UNDELIVERED,reason:"undelivered_window_lapsed",at:now};
+    await this.ctx.storage.put(key,durable);
+    const visible=publicCommand(durable);
+    for(const ringKey of ["recent_commands","scheduled_commands"]) {
+      const ring=(await this.ctx.storage.get(ringKey)) || [];
+      const i=ring.findIndex(r=>r && r.id===durable.id);
+      if(i>=0) { ring[i]=visible; await this.ctx.storage.put(ringKey,ring); }
+    }
+    return durable;
+  }
+
+  async _expireLapsedCommands(now) {
+    const ids=new Set();
+    for(const ringKey of ["recent_commands","scheduled_commands"]) {
+      for(const r of (await this.ctx.storage.get(ringKey)) || []) {
+        // Ring rows are a candidate filter only; the durable record decides.
+        if(r && r.state==="queued" && Number.isFinite(r.expires_at) && r.expires_at<=now) ids.add(r.id);
+      }
+    }
+    for(const id of ids) {
+      const durable=await this.ctx.storage.get(`command:${id}`);
+      if(lapsedUndelivered(durable, now)) await this._markExpired(durable);
+    }
   }
 
   // Resting orders often return to the Activity table as Submitted, before

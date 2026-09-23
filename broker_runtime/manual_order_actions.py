@@ -82,7 +82,24 @@ def save(path, record):
         json.dump(record, stream, sort_keys=True)
         stream.flush()
         os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    _replace_with_retry(temporary, path)
+
+
+def _replace_with_retry(source, target, attempts=5, sleep=None):
+    # OneDrive/AV can hold the destination open for a moment (WinError 5);
+    # same bounded backoff as position_actions.replace_with_retry.
+    import time
+    sleep = sleep or time.sleep
+    delay = 0.1
+    for attempt in range(1, attempts + 1):
+        try:
+            os.replace(source, target)
+            return attempt
+        except PermissionError:
+            if attempt >= attempts:
+                raise
+            sleep(delay)
+            delay = min(delay * 2, 1.0)
 
 
 def pause_position_recovery(root, wanted, command_id):

@@ -26,6 +26,103 @@ except ImportError:
 
 TERMINAL = {"Filled", "Cancelled", "ApiCancelled", "Inactive"}
 ACKNOWLEDGED = {"Submitted", "PreSubmitted"}
+OPERATOR_NOTE_MIN = 8
+
+
+class PreTransmitRefusal(ValueError):
+    """A refusal decided BEFORE any broker mutation was attempted.
+
+    Nothing was sent, so the correct report is ``state="rejected"``. The command
+    boundary maps this class specifically; a bare ValueError from further in
+    still degrades to ``unknown`` because it cannot prove non-delivery.
+
+    ``lock`` carries the structured identity of the blocking action when there
+    is one, so the Execution tab can offer to clear exactly that action instead
+    of asking the operator to find it.
+
+    ``snapshot`` carries the live book a refusal was decided against, when the
+    refusal only makes sense next to the evidence -- a resolve refused because
+    the action's own orders are still working has to show WHICH ones.
+    """
+
+    def __init__(self, message, lock=None, snapshot=None):
+        super().__init__(message)
+        self.lock = lock if isinstance(lock, dict) else None
+        self.snapshot = snapshot if isinstance(snapshot, dict) else None
+
+
+def blocking_lock(record, kind):
+    """The structured identity of the action that blocks this command.
+
+    Field names are the site contract (`docs/site_execution_schema.md`,
+    `lockRejection()`): symbol, action_type, action_id, created_at, discrepancy.
+    ``action_type`` is the journalled command type where the record has one;
+    records written before this change carry none, so it degrades to the generic
+    kind rather than guessing a type from the record's shape.
+    """
+    payload = record.get("payload") or {}
+    con_id = payload.get("con_id") or (record.get("identity") or [None, None])[1]
+    return {"symbol": str(payload.get("symbol") or "").upper() or f"conId {con_id}",
+            "action_type": str(record.get("command_type") or "").strip() or kind,
+            "action_id": str(record.get("id") or ""),
+            "created_at": str(record.get("created") or record.get("session") or ""),
+            "discrepancy": str((record.get("observation") or {}).get("detail")
+                               or record.get("error")
+                               or ((record.get("result") or {}).get("detail") if record.get("result") else "")
+                               or f"phase {record.get('phase')}"),
+            "account": str(record.get("account_key") or "")}
+
+
+def blocking_summary(lock):
+    """One line naming WHICH earlier action blocks this one, and since when.
+
+    The audit's complaint about 'An earlier position action is unresolved' was
+    that it never said which one, on what, from when, or what the broker
+    actually disagreed about. Kept as prose as well as structure because a
+    relay that drops the structured field must still print something useful.
+    """
+    return (f"blocked by {lock['action_type']} {lock['action_id'] or 'unknown'} "
+            f"on {lock['symbol']} (opened {lock['created_at'] or 'unknown time'}): "
+            f"{lock['discrepancy']}")
+
+
+def exit_changes(record):
+    """(cancelled keys, resized keys) this record's workflow actually did.
+
+    ``changes`` is written by adjust_exits since 2026-09-23; older records fall
+    back to ``removed`` (cancellations only; resizes were never itemised).
+    """
+    changes = [c for c in (record.get("changes") or []) if isinstance(c, dict)]
+    if changes:
+        labels = {"cancelled": "", "oca_sibling_cancelled": " [OCA-cancelled by IBKR]",
+                  "oca_sibling_absent": " [gone from the book; cancellation NOT confirmed]"}
+        # A later restore takes a cancelled rung back out of ``removed``.
+        removed = {str(k) for k in (record.get("removed") or [])}
+        cancelled = [str(c.get("key")) + labels[c.get("kind")] for c in changes
+                     if c.get("kind") in labels and str(c.get("key")) in removed]
+        resized = [str(c.get("key")) for c in changes if c.get("kind") == "resized"]
+        return cancelled, resized
+    return [str(k) for k in (record.get("removed") or [])], []
+
+
+def exit_change_summary(record):
+    """What the stopped workflow left changed at the broker, for the operator."""
+    if record is None:
+        return ""
+    cancelled, resized = exit_changes(record)
+    if record.get("wire") or record.get("addition"):
+        return ""
+    parts = []
+    if cancelled:
+        parts.append(f"{len(cancelled)} exit leg(s) removed ({', '.join(cancelled)})")
+    if resized:
+        parts.append(f"{len(resized)} exit leg(s) resized ({', '.join(resized)})")
+    if not parts:
+        return ""
+    text = " -- NO close order was placed; this run " + " and ".join(parts)
+    if cancelled and not resized and len(cancelled) >= len(record.get("legs") or []):
+        text += "; the position currently has NO exits from this bracket -- re-attach exits or close it in TWS"
+    return text
 
 
 def whole(value, name="quantity", allow_zero=False):
@@ -79,6 +176,12 @@ def validate_topology(legs):
             for field in ("good_after", "good_till"):
                 if not leg.get(field):
                     continue
+                if field == "good_after" and leg.get("order_type") in {"STP", "STP LMT"}:
+                    # A stop's goodAfterTime is its ARMING time (day-2 arming,
+                    # eq_order_entry and the site's stop_arm=next_session). Once
+                    # it has passed the stop is simply live; it is not an
+                    # expired deadline and must not refuse an Add/re-add.
+                    continue
                 match = re.fullmatch(r"(\d{8})[ -](\d{2}:\d{2}:\d{2})(?: ([A-Za-z_/]+))?", str(leg[field]))
                 if not match:
                     raise ValueError("Inherited exit timing is unreadable")
@@ -109,6 +212,35 @@ def record_path(root, command_id):
     return root / (hashlib.sha256(command_id.encode()).hexdigest() + ".json")
 
 
+REPLACE_ATTEMPTS = 5
+REPLACE_FIRST_DELAY_S = 0.1
+REPLACE_MAX_DELAY_S = 1.0
+
+
+def replace_with_retry(source, target, *, attempts=REPLACE_ATTEMPTS, sleep=None):
+    """os.replace, retried on PermissionError (Windows WinError 5 / 32).
+
+    The journal lives in a OneDrive-synced folder. The sync client (and AV)
+    briefly opens the destination after each write, and a rename onto a file
+    another process holds open fails with Access is denied. 2026-09-23 NOVT:
+    that one refusal, between resizing the exits and sending the close, left
+    the action at phase=attention. Backoff 0.1, 0.2, 0.4, 0.8 s (capped at
+    1 s); the final failure re-raises the original error unchanged.
+    """
+    import time
+    sleep = sleep or time.sleep
+    delay = REPLACE_FIRST_DELAY_S
+    for attempt in range(1, attempts + 1):
+        try:
+            os.replace(source, target)
+            return attempt
+        except PermissionError:
+            if attempt >= attempts:
+                raise
+            sleep(delay)
+            delay = min(delay * 2, REPLACE_MAX_DELAY_S)
+
+
 def save(root, record):
     root.mkdir(parents=True, exist_ok=True)
     target = record_path(root, record["id"])
@@ -117,7 +249,7 @@ def save(root, record):
         json.dump({k: v for k, v in record.items() if not k.startswith("_")}, stream, sort_keys=True)
         stream.flush()
         os.fsync(stream.fileno())
-    os.replace(temporary, target)
+    replace_with_retry(temporary, target)
 
 
 @contextmanager
@@ -217,6 +349,55 @@ def mark_mutating(root, record, detail):
     save(root, record)
 
 
+def oca_sibling_outcome(connection, native, leg):
+    """Why a 0-quantity OCA sibling is no longer an open order: cancelled or filled.
+
+    ``native`` is the owning client's own Trade, resolved before the first
+    mutation, so its status callbacks are the broker's word on this order. The
+    completed-order and execution reads are the fallback when that callback has
+    not landed. Returns ("cancelled" | "absent" | "filled" | "working", detail).
+    "absent" means the order is gone with no evidence either way; the caller's
+    position re-read before the close is what then catches a fill. "working"
+    means the native order still reports a live status after the wait -- it is
+    NOT treated as removed, and the caller aborts.
+    """
+    status = str(life.wait_cancelled(connection, native).status)
+    filled = float(getattr(native.orderStatus, "filled", 0) or 0)
+    if status == "Filled" or filled > float(leg["filled_before"]):
+        return "filled", f"status {status}, filled {filled:g}"
+    if status in {"Cancelled", "ApiCancelled"}:
+        return "cancelled", f"broker status {status}"
+    if status not in life.TERMINAL:
+        return "working", f"native status still {status or 'unknown'} after the wait"
+    wanted = leg["identity"]
+    try:
+        completed = list(connection.reqCompletedOrders(apiOnly=False) or [])
+    except Exception:  # noqa: BLE001 - evidence only
+        completed = []
+    for trade in completed:
+        if not same_order(trade, wanted):
+            continue
+        done = str(trade.orderStatus.status)
+        reported = getattr(trade.order, "filledQuantity", None)
+        try:
+            reported = float(reported)
+        except (TypeError, ValueError):
+            reported = float("nan")
+        if done == "Filled" or (math.isfinite(reported) and reported > float(leg["filled_before"])):
+            return "filled", f"completed order {done}"
+        if done in {"Cancelled", "ApiCancelled"}:
+            return "cancelled", f"completed order {done}"
+    reader = getattr(connection, "reqExecutions", None)
+    if callable(reader):
+        try:
+            for fill in reader() or []:
+                if int(getattr(fill.execution, "permId", 0) or 0) == int(wanted[4]):
+                    return "filled", "execution report present"
+        except Exception:  # noqa: BLE001 - evidence only
+            pass
+    return "absent", f"no open order, last status {status or 'unknown'}"
+
+
 def adjust_exits(ns, ib, record, total, root, host, port, cid):
     """Resize remaining quantities; cancel zero rungs; restore only our cancellations."""
     payload = record["payload"]
@@ -245,9 +426,42 @@ def adjust_exits(ns, ib, record, total, root, host, port, cid):
     # Resolve ALL clients before the first order changes. Reductions precede
     # increases so normalizing incomplete coverage does not transiently add it.
     plans.sort(key=lambda item: (item[1] > float(item[0].order.totalQuantity), item[1]))
+    changes = record.setdefault("changes", [])
+    cancelled_ocas = set()
     with life.owners(ns, ib, host, port, cid, [t for t, _, _ in plans]) as resolved:
         for (connection, original), (_, target, leg) in zip(resolved, plans):
-            trade = life.fresh_for_edit(ns, connection, tuple(leg["identity"]))
+            group = str(leg.get("oca_group") or "")
+            try:
+                trade = life.fresh_for_edit(ns, connection, tuple(leg["identity"]))
+            except ValueError as exc:
+                # 2026-09-16..09-23 full closes (MCHP/HXL/SNA/RTX/ENTG/JHX/RY/ROST):
+                # every rung scales to 0, rung 1 of an OCA pair is cancelled,
+                # IBKR takes its sibling terminal, and find_exact -- which skips
+                # terminal rows -- matches ZERO orders. A 0-quantity leg whose
+                # OCA sibling THIS run cancelled is exactly what we wanted gone,
+                # PROVIDED the broker shows it Cancelled rather than Filled.
+                if not leg["scaled_qty"] and group and group in cancelled_ocas:
+                    verdict, detail = oca_sibling_outcome(connection, original, leg)
+                    if verdict == "filled":
+                        raise ValueError(
+                            f"exit {leg['source_key']} (OCA {group}) FILLED while its OCA sibling was "
+                            f"being cancelled ({detail}); the broker has already reduced the position, "
+                            "so no close was submitted") from exc
+                    if verdict == "working":
+                        raise ValueError(
+                            f"exit {leg['source_key']} (OCA {group}) cannot be resolved as an open order yet "
+                            f"its broker status is not terminal ({detail}); no close was submitted") from exc
+                    record["removed"].append(leg["source_key"])
+                    changes.append(dict(kind="oca_sibling_" + verdict, key=leg["source_key"],
+                                        oca=group, detail=detail))
+                    record["phase"] = "pending"
+                    save(root, record)
+                    continue
+                raise ValueError(
+                    f"{exc} [leg {leg['source_key']} -> {leg['scaled_qty']}, "
+                    f"OCA {group or 'none'}; "
+                    f"{len(record['removed'])} of {len(plans)} leg(s) already cancelled "
+                    "this run]") from exc
             if whole(trade.orderStatus.filled or 0, allow_zero=True) != leg["filled_before"]:
                 raise ValueError("exit fill changed during owner lookup")
             mark_mutating(root, record, "cancel exit" if not leg["scaled_qty"] else "resize exit")
@@ -256,6 +470,9 @@ def adjust_exits(ns, ib, record, total, root, host, port, cid):
                 if life.wait_cancelled(connection, original).status not in {"Cancelled", "ApiCancelled"}:
                     raise ValueError("exit cancellation was not confirmed")
                 record["removed"].append(leg["source_key"])
+                changes.append(dict(kind="cancelled", key=leg["source_key"], oca=group))
+                if group:
+                    cancelled_ocas.add(group)
             else:
                 order = copy.deepcopy(trade.order)
                 order.totalQuantity, order.transmit = target, True
@@ -265,8 +482,21 @@ def adjust_exits(ns, ib, record, total, root, host, port, cid):
                     signal_id=ns["_command_signal"](payload, f"normalize:{order.permId}:{target}"))
                 life.wait_modified(connection, tuple(leg["identity"]),
                                    {"totalQuantity": target}, leg["filled_before"], ns=ns)
+                changes.append(dict(kind="resized", key=leg["source_key"], oca=group,
+                                    qty=leg["scaled_qty"]))
             record["phase"] = "pending"
             save(root, record)
+    zeroed = [leg for _, _, leg in plans if not leg["scaled_qty"]]
+    if zeroed:
+        # Reverse risk: a close must never fill while an exit we meant to
+        # remove is still working, or that exit becomes a naked opposite order.
+        after = ns["_orders_for_contract"](ib, record["_contract"], payload["_broker_account"])
+        survivors = [leg["source_key"] for leg in zeroed
+                     if any(same_order(t, leg["identity"]) and str(t.orderStatus.status) not in TERMINAL
+                            for t in after)]
+        if survivors:
+            raise ValueError(f"exit leg(s) {', '.join(survivors)} still working after cancellation; "
+                             "no close was submitted")
     if recreate:
         mark_mutating(root, record, "restore previously cancelled exit rungs")
         # Each restored OCA rung is independent and preserves its prices/timing.
@@ -394,12 +624,290 @@ def reconcile(ns, ib, record, root, host, port, cid, close=None):
     return result
 
 
+def open_orders_for(ns, ib, broker_account, con_id):
+    """Every order on this exact account/contract, as plain rows.
+
+    Reads through the executor's ``_fresh_open_trades`` when it is available:
+    ``ib.openTrades()`` alone returns only THIS client's orders, and the whole
+    point of the snapshot is to show the operator what every client left behind
+    on the contract. Terminal rows are kept -- a stale working leg that has
+    since gone Cancelled is exactly the evidence that clears a lock.
+    """
+    reader = ns.get("_fresh_open_trades") if hasattr(ns, "get") else None
+    if callable(reader):
+        trades = list(reader(ib))
+    else:
+        ib.reqAllOpenOrders()
+        trades = list(ib.openTrades())
+    rows = []
+    for trade in trades:
+        order = trade.order
+        if (str(getattr(order, "account", "")) != broker_account
+                or int(getattr(trade.contract, "conId", 0) or 0) != int(con_id)):
+            continue
+        rows.append({"client_id": int(getattr(order, "clientId", -1)),
+                     "order_id": int(getattr(order, "orderId", 0) or 0),
+                     "perm_id": int(getattr(order, "permId", 0) or 0),
+                     "action": str(getattr(order, "action", "")),
+                     "order_type": str(getattr(order, "orderType", "")),
+                     "quantity": float(getattr(order, "totalQuantity", 0) or 0),
+                     "filled": float(getattr(trade.orderStatus, "filled", 0) or 0),
+                     "status": str(getattr(trade.orderStatus, "status", "")),
+                     "order_ref": str(getattr(order, "orderRef", "") or ""),
+                     "oca_group": str(getattr(order, "ocaGroup", "") or "")})
+    return rows
+
+
+def durable_keys(client_id, order_id, perm_id):
+    """The identity forms an order can be recognised by, newest first.
+
+    Mirrors the executor's ``_order_source_key``: a permId once the broker has
+    assigned one, else the placing client's own orderId. Both are emitted so a
+    record written before the order had a permId still matches the live row.
+    """
+    keys = set()
+    if int(perm_id or 0) > 0:
+        keys.add(f"perm:{int(perm_id)}")
+    if int(order_id or 0) > 0:
+        keys.add(f"client:{int(client_id or 0)}:order:{int(order_id)}")
+    return keys
+
+
+def action_fingerprint(record):
+    """Every orderRef / OCA group / durable key this action is known to own.
+
+    Assembled from whatever the record got as far as writing: the closing
+    order's ref and wire identity, each exit leg's ref / OCA group / source key
+    / identity, the legs it cancelled on the way (``removed``), the identity of
+    the order an order-edit record was editing, and any attached-add results.
+    An action that aborted early simply owns fewer keys; it never owns a key it
+    did not put on the wire.
+    """
+    refs, ocas, keys = set(), set(), set()
+
+    def add_wire(value):
+        if isinstance(value, (list, tuple)) and len(value) >= 5:
+            try:
+                keys.update(durable_keys(value[2], value[3], value[4]))
+            except (TypeError, ValueError):
+                pass
+
+    ref = str(record.get("close_order_ref") or "").strip()
+    if ref:
+        refs.add(ref)
+    add_wire(record.get("wire"))
+    add_wire(record.get("identity"))
+    for leg in (record.get("legs") or []):
+        if not isinstance(leg, dict):
+            continue
+        leg_ref = str(leg.get("order_ref") or "").strip()
+        if leg_ref:
+            refs.add(leg_ref)
+        oca = str(leg.get("oca_group") or "").strip()
+        if oca:
+            ocas.add(oca)
+        source_key = str(leg.get("source_key") or "").strip()
+        if source_key:
+            keys.add(source_key)
+        add_wire(leg.get("identity"))
+    for source_key in (record.get("removed") or []):
+        if str(source_key or "").strip():
+            keys.add(str(source_key).strip())
+    for result in (record.get("addition") or []):
+        if not isinstance(result, dict):
+            continue
+        result_ref = str(result.get("order_ref") or result.get("signal_id") or "").strip()
+        if result_ref:
+            refs.add(result_ref)
+        for wire in (result.get("orders") or result.get("wire") or []):
+            add_wire(wire)
+    return {"refs": refs, "ocas": ocas, "keys": keys}
+
+
+def attributed_to_action(row, fingerprint):
+    """True when this live order row belongs to the action being resolved.
+
+    Attribution is by the things the action itself stamped: the orderRef it
+    minted, the OCA group its exits share, or the durable order identity it
+    journalled. A bare symbol match is deliberately NOT enough -- the primary
+    account runs the systematic book across ~1060 names and an unrelated OLV or
+    OVS bracket on the same contract must not be mistaken for this action's.
+    """
+    ref = str(row.get("order_ref") or "").strip()
+    if ref and ref in fingerprint["refs"]:
+        return True
+    oca = str(row.get("oca_group") or "").strip()
+    if oca and oca in fingerprint["ocas"]:
+        return True
+    return bool(durable_keys(row.get("client_id"), row.get("order_id"),
+                             row.get("perm_id")) & fingerprint["keys"])
+
+
+def order_label(row):
+    """How an order is named back to the operator: permId when it has one."""
+    if int(row.get("perm_id") or 0) > 0:
+        return f"perm {int(row['perm_id'])}"
+    return f"order {int(row.get('order_id') or 0)}"
+
+
+def positions_for(ib, broker_account, con_id):
+    """Held rows on this exact account/contract."""
+    ib.reqPositions()
+    return [{"account": str(row.account), "con_id": int(row.contract.conId),
+             "symbol": str(getattr(row.contract, "symbol", "")),
+             "position": float(row.position), "avg_cost": float(getattr(row, "avgCost", 0) or 0)}
+            for row in ib.positions()
+            if str(row.account) == broker_account and int(row.contract.conId) == int(con_id)]
+
+
+def resolve(ns, ib, payload, account_key):
+    """Operator clearance of ONE unresolved position action. Sends NO order.
+
+    Re-reads the live book for the action's exact account/contract, records the
+    positions and working orders it saw into the action's state record, and
+    marks the record done with ``resolved_by = "operator"``. This is the site's
+    equivalent of the hand-written ``resolution`` blocks that until now could
+    only be produced by a one-off script on the trading box, which is why an
+    unresolved action latched a lock the Execution tab could create but never
+    clear.
+
+    Refuses (pre-transmit, so ``rejected``) when the action is unknown, already
+    resolved, on another account, on another symbol, when the operator note is
+    missing, or when THE ACTION'S OWN ORDERS ARE STILL WORKING.
+
+    That last refusal is the one with teeth. Clearing the lock is what lets the
+    next position command through, and the lock exists precisely because an
+    action stopped half-way. If a leg the action placed is still live on the
+    book -- same orderRef, same OCA group, or the same durable order identity --
+    then it has not stopped, and releasing the lock invites a second command to
+    act on a contract that already has a working order on it. The refusal names
+    the order ids and returns the snapshot, so the operator can go cancel or
+    let them fill and then resolve.
+
+    Working orders that are NOT attributable to this action do not refuse --
+    the primary account runs the systematic book across ~1060 names and an
+    unrelated OLV or OVS bracket on the same contract is not this action's
+    business. They are counted, named in the detail line, and carried in the
+    snapshot so the clearance is still made with eyes open.
+    """
+    root = journal_root(ns)
+    try:
+        if account_key not in {"primary", "pa"}:
+            raise PreTransmitRefusal("unknown execution account")
+        action_id = str(payload.get("action_id") or "").strip()
+        if not action_id:
+            raise PreTransmitRefusal("action_id is required")
+        note = str(payload.get("operator_note") or "").strip()
+        if len(note) < OPERATOR_NOTE_MIN:
+            raise PreTransmitRefusal(
+                f"operator_note of at least {OPERATOR_NOTE_MIN} characters is required; "
+                "clearing a lock is a judgement and the journal records who made it")
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        with operation_lock(root):
+            target, scope = None, "position action"
+            for candidate_root, label in ((root, "position action"),
+                                          (root / "order_edits", "order edit")):
+                path = record_path(candidate_root, action_id)
+                if path.exists():
+                    target, scope = path, label
+                    break
+            if target is None:
+                raise PreTransmitRefusal(f"no position action or order edit with id {action_id}")
+            record = json.loads(target.read_text(encoding="utf-8"))
+            if record.get("phase") == "done":
+                raise PreTransmitRefusal(
+                    f"{scope} {action_id} is already resolved; nothing to clear")
+            record_payload = record.get("payload") or {}
+            if str(record.get("account_key") or account_key) != account_key:
+                raise PreTransmitRefusal(
+                    f"{scope} {action_id} belongs to account {record.get('account_key')}")
+            recorded_symbol = str(record_payload.get("symbol") or "").strip().upper()
+            if symbol and recorded_symbol and symbol != recorded_symbol:
+                raise PreTransmitRefusal(
+                    f"{scope} {action_id} is on {recorded_symbol}, not {symbol}")
+            broker_account = str(record_payload.get("_broker_account") or "")
+            con_id = int(record_payload.get("con_id") or 0)
+            if not broker_account or con_id <= 0:
+                raise PreTransmitRefusal(
+                    f"{scope} {action_id} has no exact account/contract to re-check")
+            positions = positions_for(ib, broker_account, con_id)
+            orders = open_orders_for(ns, ib, broker_account, con_id)
+            fingerprint = action_fingerprint(record)
+            for row in orders:
+                row["attributed_to_action"] = attributed_to_action(row, fingerprint)
+            held = sum(row["position"] for row in positions)
+            live = [row for row in orders if row["status"] not in TERMINAL]
+            mine = [row for row in live if row["attributed_to_action"]]
+            theirs = [row for row in live if not row["attributed_to_action"]]
+            snapshot = {"positions": positions, "open_orders": orders}
+            if theirs:
+                snapshot["unattributed_working"] = {
+                    "count": len(theirs),
+                    "order_ids": [int(row["order_id"]) for row in theirs],
+                    "perm_ids": [int(row["perm_id"]) for row in theirs],
+                    "labels": [order_label(row) for row in theirs],
+                }
+            if mine:
+                raise PreTransmitRefusal(
+                    f"{scope} {action_id} still has {len(mine)} working order(s) of its own on "
+                    f"{recorded_symbol or con_id}: "
+                    + ", ".join(f"{order_label(row)} ({row['status']})" for row in mine)
+                    + ". Cancel them or let them go terminal before clearing the lock; "
+                      "the snapshot records what the book held.",
+                    None, snapshot)
+            unrelated = ""
+            if theirs:
+                unrelated = (f" {len(theirs)} unrelated working order(s) remain on the contract "
+                             f"and were NOT touched: "
+                             + ", ".join(f"{order_label(row)} ({row['status']})" for row in theirs)
+                             + ".")
+            mine_note = ", none of them this action's" if live else ""
+            detail = (f"{scope} {action_id} on {recorded_symbol or con_id} cleared by operator; "
+                      f"live book now holds {held:g} unit(s) with {len(live)} working order(s)"
+                      f"{mine_note}.{unrelated} "
+                      f"Note: {note}")
+            record["resolution"] = {
+                "at": datetime.now(ZoneInfo("America/New_York")).isoformat(timespec="seconds"),
+                "resolved_by": "operator", "note": note,
+                "positions": positions, "open_orders": orders,
+                "previous_phase": record.get("phase"), "previous_error": record.get("error"),
+            }
+            record["phase"] = "done"
+            record["result"] = dict(ok=True, state="executed", detail=detail, fill=None)
+            save(target.parent, record)
+            # state stays "executed" on the wire: exec_agent only trusts a child
+            # result in {executed, rejected, unknown}, and weakening that gate to
+            # teach it one read-only word would weaken it for every transmit.
+            # The agent renames this one to the site's "resolved" and forwards
+            # the snapshot (docs/site_execution_schema.md).
+            return ns["_out"](ok=True, state="executed", detail=detail, fill=None,
+                              snapshot=snapshot)
+    except PreTransmitRefusal as exc:
+        # A refusal that was decided against the live book returns that book:
+        # "still has working orders" is only actionable next to the rows.
+        return ns["_out"](ok=False, state="rejected", detail=f"Nothing sent: {exc}", fill=None,
+                          snapshot=getattr(exc, "snapshot", None))
+    except Exception as exc:  # noqa: BLE001
+        # This path never places an order, so a read failure is still a clean
+        # refusal: the record is only written after both reads succeed.
+        return ns["_out"](ok=False, state="rejected",
+                          detail=f"Nothing sent: resolve could not read the live book ({exc})",
+                          fill=None)
+
+
 def run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
     # Deliver only after the operation has saved its outcome. A closed output
     # pipe cannot change either a completed receipt or an acknowledged pending
     # close that still needs automatic fill/re-add reconciliation.
     outcome = _run(ns, ib, payload, account_key, host, port, cid, adding=adding)
-    return ns["_out"](**outcome)
+    try:
+        return ns["_out"](**outcome)
+    except TypeError:
+        # An _out without the structured side channel must still report the
+        # outcome; losing the whole result is far worse than losing `lock`.
+        if "lock" not in outcome:
+            raise
+        return ns["_out"](**{k: v for k, v in outcome.items() if k != "lock"})
 
 
 def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
@@ -438,11 +946,17 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                                        open_reader=ns.get("_fresh_open_trades"))
             for previous in records(root):
                 if previous["phase"] != "done" and previous["payload"]["_broker_account"] == payload["_broker_account"] and previous["payload"]["con_id"] == payload["con_id"]:
-                    raise ValueError("An earlier position action is unresolved; reconcile it before another")
+                    lock = blocking_lock(previous, "position action")
+                    raise PreTransmitRefusal(
+                        "An earlier position action is unresolved; reconcile it before another -- "
+                        + blocking_summary(lock), lock)
             for previous in records(root / "order_edits"):
                 if (previous["phase"] != "done" and previous["identity"][:2]
                         == [payload["_broker_account"], int(payload["con_id"])]):
-                    raise ValueError("An earlier order edit is unresolved; reconcile it before a position action")
+                    lock = blocking_lock(previous, "order edit")
+                    raise PreTransmitRefusal(
+                        "An earlier order edit is unresolved; reconcile it before a position action -- "
+                        + blocking_summary(lock), lock)
             # Positions callbacks can omit routing metadata. Resolve the exact
             # held instrument before changing any exits or staging an addition.
             position = qualify_position(ib, current_position(ns, ib, payload))
@@ -505,6 +1019,8 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                       "held": held, "quantity": quantity, "long": position.position > 0,
                       "closing": closing, "legs": legs, "removed": [],
                       "session": datetime.now(ZoneInfo("America/New_York")).date().isoformat(),
+                      "created": datetime.now(ZoneInfo("America/New_York")).isoformat(timespec="seconds"),
+                      "command_type": str(ns.get("_COMMAND_TYPE") or ""),
                       "_contract": position.contract}
             if context:
                 record["add_context"] = {k: context[k] for k in ("entry_action", "close_action", "avg_cost", "account", "legs", "risk_reference")}
@@ -539,9 +1055,15 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
             order.outsideRth = bool(payload.get("outside_rth"))
             order.orderId = ib.client.getReqId()
             order.orderRef = ns["_command_signal"](payload, "unified-close")
+            record["_close_marking"] = True
+            record["_mutation_before_close"] = record.get("mutation", "")
             record["close_order_ref"] = order.orderRef
             record["wire"] = [payload["_broker_account"], int(contract.conId), cid, order.orderId, 0]
             mark_mutating(root, record, "submit close")
+            # In memory only (underscore keys are never journalled). Set once
+            # the durable marker is on disk, immediately before the send: an
+            # exception while it is False proves the close never left.
+            record["_close_sent"] = True
             trade = ns["guarded_place_order"](ib, contract, order, mutation_kind="exit",
                                             account=order.account, signal_id=order.orderRef)
             record["wire"][4] = int(trade.order.permId or 0)
@@ -553,9 +1075,30 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                     break
             return reconcile(ns, ib, record, root, host, port, cid, trade)
     except Exception as exc:
-        attempted = record is not None and any(record.get(key) for key in ("mutation", "wire", "addition"))
-        outcome = dict(ok=False, state="unknown" if attempted else "rejected",
-                       detail=f"{'Reconcile in TWS; do not repeat this action' if attempted else 'Nothing changed'}: {exc}", fill=None)
+        if (record is not None and record.get("_close_marking") and not record.get("_close_sent")
+                and not isinstance(exc, PreTransmitRefusal)):
+            # The close marker was being written (or its save failed) and the
+            # send never happened. Journalling that wire would describe a close
+            # that does not exist and pin the record at attention forever (NOVT
+            # 2026-09-23); keep the record truthful so readback can retire it.
+            record.pop("wire", None)
+            record.pop("close_order_ref", None)
+            record["mutation"] = record.get("_mutation_before_close", "")
+        # A PreTransmitRefusal is decided before this command touches the broker,
+        # so an EARLIER command's mutation marker on a reloaded record must not
+        # promote it to "unknown".
+        attempted = (not isinstance(exc, PreTransmitRefusal)
+                     and record is not None
+                     and any(record.get(key) for key in ("mutation", "wire", "addition")))
+        detail = f"{'Reconcile in TWS; do not repeat this action' if attempted else 'Nothing changed'}: {exc}"
+        if attempted:
+            detail += exit_change_summary(record)
+        outcome = dict(ok=False, state="unknown" if attempted else "rejected", detail=detail, fill=None)
+        lock = getattr(exc, "lock", None)
+        if isinstance(lock, dict):
+            # Site contract: the Clear-lock control needs the structured
+            # identity, not just the prose in detail (10318876, 2026-09-23).
+            outcome["lock"] = lock
         if record is not None:
             record["phase"], record["error"] = ("attention" if attempted else "done"), str(exc)
             if not attempted:
@@ -563,5 +1106,10 @@ def _run(ns, ib, payload, account_key, host, port, cid, *, adding=False):
                 # first mutation marker. Preserve that rejection as terminal so
                 # a zero-send failure cannot block later manual corrections.
                 record["result"] = outcome
-            save(root, record)
+            try:
+                save(root, record)
+            except Exception as journal_exc:  # noqa: BLE001
+                # Still report: a lost result is worse than an unsaved error
+                # marker, and the on-disk record keeps its last durable phase.
+                outcome["detail"] += f" [journal update failed: {journal_exc}]"
         return outcome

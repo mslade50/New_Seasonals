@@ -2591,8 +2591,13 @@ async function sendCommand(type, payload, msgId, context = {}) {
     });
     const d = await r.json();
     const ok = r.ok && d && d.ok;
+    // Broker-certified never-delivered expiry is terminal: release the intent so
+    // the next click mints a fresh id instead of replaying the dead one.
+    const expired = !ok && d && d.state === "expired";
     if (ok) { sentId = d.id || intent.id; store.accepted(intent); }
+    if (expired) store.accepted(intent);
     if (msg) msg.textContent = ok ? `accepted ${sentId.slice(0, 8)} — check Activity for delivery and fills`
+      : expired ? `expired: ${d.error || "never delivered to IBKR"}; send again to resend as a new order`
       : `not confirmed: ${(d && d.error) || ("HTTP " + r.status)}; retry retains the same intent`;
   } catch (e) {
     if (msg) msg.textContent = "not confirmed: " + e + "; check Activity before retrying";

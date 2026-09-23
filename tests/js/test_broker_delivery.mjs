@@ -17,7 +17,7 @@ function make(env={STATUS_TOKEN:'fixture',AGENT_TOKEN:'agent-fixture'}) {
   }};
   const c={DurableObject:FakeDO,URL,Request,Response,Headers,console,TextEncoder,...reconciliation,...coverage};
   vm.createContext(c);vm.runInContext(source,c);
-  return {broker:new c.Broker(ctx,env),worker:c.worker,memory,calls:()=>calls,succeed:()=>{fail=false;},offline:()=>{connected=false;}};
+  return {broker:new c.Broker(ctx,env),worker:c.worker,memory,calls:()=>calls,succeed:()=>{fail=false;},offline:()=>{connected=false;},online:()=>{connected=true;}};
 }
 const failures=[];
 async function test(name, fn){try{await fn();console.log('PASS',name);}catch(e){failures.push(name+': '+e.message);}}
@@ -120,5 +120,42 @@ await test('read-only observation refreshes fills without activating command age
   assert.equal(x.memory.get('fill_receipt').accounts.primary.source_at,before);
   assert.equal(x.memory.get('fill_receipt').book.accounts[0].orders.length,0);
   assert.equal((await(await x.broker.fetch(request({at:now-5000,accounts:[{...account,fills_source_at:now-5000}]}))).json()).superseded,true);
+});
+
+const activityOf=async x=>(await(await x.broker.fetch(new Request('https://fixture.invalid/commands',{headers:{Authorization:'Bearer fixture'}}))).json()).commands;
+const lapse=(x,id='fixture-command')=>{const past=Date.now()-1;
+  const d=x.memory.get(`command:${id}`);d.expires_at=past;x.memory.set(`command:${id}`,d);
+  x.memory.set('recent_commands',(x.memory.get('recent_commands')||[]).map(r=>r.id===id?{...r,expires_at:past}:r));};
+await test('lapsed undelivered command expires with a resend-safe reason',async()=>{
+  const x=make();x.offline();
+  assert.equal((await x.broker.fetch(command())).status,503);
+  lapse(x);
+  const row=(await activityOf(x)).find(c=>c.id==='fixture-command');
+  assert.equal(row.state,'expired');assert.match(row.result.detail,/never delivered to IBKR/);
+  assert.equal(x.memory.get('command:fixture-command').state,'expired');
+  assert.equal(x.calls(),0);
+});
+await test('expired command is never delivered after the agent reconnects',async()=>{
+  const x=make();x.offline();x.succeed();
+  await x.broker.fetch(command());lapse(x);
+  x.online();
+  const retry=await x.broker.fetch(command());
+  assert.equal(retry.status,409);assert.equal((await retry.json()).state,'expired');
+  const again=await x.broker.fetch(command());
+  assert.equal(again.status,409);assert.equal((await again.json()).state,'expired');
+  assert.equal(x.calls(),0,'no socket write for an expired intent');
+});
+await test('delivered or delivery-unknown commands never become expired',async()=>{
+  const pushed=make();pushed.succeed();
+  assert.equal((await pushed.broker.fetch(command())).status,200);lapse(pushed);
+  assert.equal((await activityOf(pushed)).find(c=>c.id==='fixture-command').state,'pushed');
+  assert.equal(pushed.memory.get('command:fixture-command').state,'pushed');
+  const unknown=make();
+  assert.equal((await unknown.broker.fetch(command())).status,503);lapse(unknown);
+  assert.equal((await activityOf(unknown)).find(c=>c.id==='fixture-command').state,'delivery_unknown');
+  unknown.succeed();
+  const r=await unknown.broker.fetch(command());
+  assert.equal(r.status,409);assert.equal((await r.json()).state,'delivery_unknown');
+  assert.equal(unknown.calls(),1,'uncertain intent is not replayed after its window');
 });
 if(failures.length)throw Error(failures.join('\n'));
