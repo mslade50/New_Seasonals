@@ -1,0 +1,3 @@
+# Optional candidate collector: existing requests/pandas/bs4/lxml plus PDF extraction.
+# Do not install into or promote the pinned production runtime automatically.
+pypdf==6.10.0
