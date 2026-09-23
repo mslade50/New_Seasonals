@@ -49,6 +49,7 @@ def _parser() -> argparse.ArgumentParser:
         help="receipt root for failure/test emails",
     )
     parser.add_argument("--send", action="store_true")
+    parser.add_argument("--completion-root", type=Path, help="serialize AM report/failure delivery and check all session receipts")
     supplement = parser.add_mutually_exclusive_group()
     supplement.add_argument("--short-watchlist", type=Path, help="sealed ATR Extended Gap Up watchlist.json")
     supplement.add_argument("--short-screen-unavailable", action="store_true", help="explicitly report unavailable short research while preserving a valid EP report")
@@ -129,7 +130,13 @@ def main(argv: list[str] | None = None) -> int:
                     "morning research is stale or outside today's premarket"
                 )
         settings = resolve_email_settings(env_file=args.env_file)
-        status = deliver_email(payload, settings, send=True, resend=bool(args.resend))
+        if args.completion_root:
+            from episodic_pivot.morning_completion import deliver_once
+            if args.resend:
+                raise EmailDeliveryError("Guarded morning delivery forbids automatic resend")
+            status = deliver_once(payload, settings, args.completion_root.resolve())
+        else:
+            status = deliver_email(payload, settings, send=True, resend=bool(args.resend))
     except (EmailDeliveryError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"EP EMAIL DELIVERY FAILED: {exc}", file=sys.stderr)
         return 2

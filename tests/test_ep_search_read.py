@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from datetime import datetime
 from urllib.parse import urlencode
 
 import pytest
@@ -348,17 +349,21 @@ def test_empty_market_queue_retains_session_and_is_valid_zero(tmp_path):
     assert "news coverage incomplete" not in mail.subject
 
 
-def test_prepare_seal_complete_and_dry_email_cli(tmp_path, monkeypatch):
+@pytest.mark.parametrize("track_morning", [False, True])
+def test_prepare_seal_complete_and_dry_email_cli(tmp_path, monkeypatch, track_morning):
+    from episodic_pivot import morning_completion as completion
     from scripts import run_episodic_pivot_shadow as runner
     from scripts import seal_ep_news_reviews as seal
     from scripts.send_episodic_pivot_email import main as email
 
     monkeypatch.setattr(runner, "ROOT", tmp_path)
     monkeypatch.setattr(seal, "ROOT", tmp_path)
+    monkeypatch.setattr(completion, "_clock", lambda _now=None: datetime.fromisoformat(DECISION.replace("Z", "+00:00")))
     monkeypatch.setattr(
         runner, "_load_snapshots", lambda path: ([_snapshot()], "YFINANCE", ())
     )
-    source = tmp_path / "input.json"
+    source = tmp_path / "artifacts" / "input.json"
+    source.parent.mkdir()
     source.write_text("{}")
     output = tmp_path / "artifacts"
     queue = output / "queue.json"
@@ -372,11 +377,15 @@ def test_prepare_seal_complete_and_dry_email_cli(tmp_path, monkeypatch):
                 "--as-of",
                 AS_OF,
                 "--run-research",
+                *(["--track-morning"] if track_morning else []),
             ]
         )
         == 0
     )
     assert json.loads(queue.read_text()) == packet()["queue"]
+    if track_morning:
+        state = completion.progress(output / "episodic_pivot", "2026-08-24")
+        assert state["stage"] == "RESEARCH" and set(state["artifacts"]) == {"queue", "snapshot_1"}
     notes = output / "notes.json"
     notes.write_text(json.dumps(packet()["reviews"]))
     reviewed = output / "reviews.json"
@@ -400,6 +409,7 @@ def test_prepare_seal_complete_and_dry_email_cli(tmp_path, monkeypatch):
                 "--output-root",
                 str(output),
                 "--run-research",
+                *(["--track-morning"] if track_morning else []),
             ]
         )
         == 0
@@ -408,6 +418,9 @@ def test_prepare_seal_complete_and_dry_email_cli(tmp_path, monkeypatch):
     assert len(runs) == 1
     manifest = json.loads((runs[0] / "manifest.json").read_text())
     assert manifest["search_provider"] == MODE
+    if track_morning:
+        state = completion.progress(output / "episodic_pivot", "2026-08-24")
+        assert state["stage"] == "REPORT_READY" and set(state["artifacts"]) == {"queue", "snapshot_1", "reviews", "report"}
     assert (
         email(
             ["--kind", "morning", "--artifact", str(runs[0]), "--require-agent-review"]

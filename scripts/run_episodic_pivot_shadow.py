@@ -387,6 +387,7 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=ROOT / "artifacts" / "episodic_pivot",
     )
+    parser.add_argument("--track-morning", action="store_true", help="checkpoint this scheduled morning's immutable research inputs")
     return parser
 
 
@@ -515,6 +516,10 @@ def main(argv: list[str] | None = None) -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("x", encoding="utf-8") as handle:
             json.dump(queue, handle, indent=2)
+        if args.track_morning:
+            from episodic_pivot.morning_completion import checkpoint
+            checkpoint(ROOT / "artifacts" / "episodic_pivot", target_session_date, "RESEARCH",
+                       {"queue": path, **{f"snapshot_{i}": p for i, p in enumerate(args.snapshot, 1)}})
         print(
             f"Google research queue prepared: {len(queue['targets'])} targets; no news or email sent."
         )
@@ -561,6 +566,10 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(result.previews)} research sizing preview(s)"
     )
     print(f"Review artifacts: {written}")
+    if args.track_morning:
+        from episodic_pivot.morning_completion import checkpoint
+        checkpoint(ROOT / "artifacts" / "episodic_pivot", target_session_date, "REPORT_READY",
+                   {"report": run_dir / "manifest.json", **({"reviews": args.reviews} if args.reviews else {})})
     print("Safety: no broker, Sheets, R2, schedule, or production write was attempted.")
     return 0
 

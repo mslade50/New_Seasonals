@@ -20,7 +20,7 @@ from datetime import date, datetime, timezone
 from email.message import EmailMessage
 from email.utils import parseaddr
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from research_io import append_jsonl, file_lock
 
 from .config import DEFAULT_POLICY
@@ -792,15 +792,17 @@ def deliver_email(
     *,
     send: bool,
     resend: bool = False,
+    pre_send: Callable[[], None] | None = None,
 ) -> str:
     if not send:
-        return _deliver_email_locked(payload, settings, send=False, resend=resend)
+        return _deliver_email_locked(payload, settings, send=False, resend=resend, pre_send=pre_send)
     with file_lock(payload.receipt_path):
-        return _deliver_email_locked(payload, settings, send=True, resend=resend)
+        return _deliver_email_locked(payload, settings, send=True, resend=resend, pre_send=pre_send)
 
 
 def _deliver_email_locked(
-    payload: EmailPayload, settings: EmailSettings, *, send: bool, resend: bool = False
+    payload: EmailPayload, settings: EmailSettings, *, send: bool, resend: bool = False,
+    pre_send: Callable[[], None] | None = None,
 ) -> str:
     delivery_id = _delivery_id(payload, settings)
     existing = _existing_delivery(payload.receipt_path, delivery_id)
@@ -845,6 +847,8 @@ def _deliver_email_locked(
             server.starttls(context=ssl.create_default_context())
             server.ehlo()
             server.login(settings.sender, settings.password)
+            if pre_send is not None:
+                pre_send()
             _write_receipt(payload, settings, delivery_id=delivery_id, status="SENDING")
             delivery_started = True
             refused = server.send_message(message)

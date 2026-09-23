@@ -5,6 +5,11 @@ existing night/TradingView/yfinance ingestion, identity checks and runtime pin.
 Candidate and article details stay in local artifacts and the morning email, not
 the task. Run times and all session decisions use America/New_York.
 
+For scheduled morning runs, first follow [morning continuity and recovery](ep_morning_recovery.md).
+Preserve today's objective and checkpoint across context resets; use `--track-morning`
+when preparing the queue/building the final report and `--completion-root` on the
+sender. Only the session's verified delivery receipt establishes completion.
+
 The rules below govern the **EP section**. Since 2026-09-22 the same morning email
 also includes the independent [ATR Extended Gap Up watchlist](ep_atr_extended_short_watchlist.md).
 Follow that runbook for its full-universe capture, context review and mandatory
