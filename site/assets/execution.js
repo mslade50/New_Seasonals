@@ -97,10 +97,11 @@ function addTradingDays(from, n) {
    stop/target from the manual-seasonal convention, the radar's book engine has
    already decided every level. So these params are explicit and are copied in
    verbatim — deriving anything here would be a second opinion competing with
-   the engine's. Everything lands in editable fields; nothing is sent. */
-const radarStage = (() => {
+   the engine's. Everything lands in editable fields; nothing is sent.
+   The Pitch tab (stage=pitch) uses the same explicit-levels link shape. */
+function parseVerbatimStage(kind) {
   const q = new URLSearchParams(location.search);
-  if (q.get("stage") !== "radar") return null;
+  if (q.get("stage") !== kind) return null;
   const sym = String(q.get("sym") || "").toUpperCase().trim();
   const entry = parseFloat(q.get("entry") || "");
   if (!sym || !(entry > 0)) return null;
@@ -115,11 +116,97 @@ const radarStage = (() => {
     acct: q.get("acct") === "primary" ? "primary" : null,
     strat: String(q.get("strat") || "").trim(), refdate: q.get("refdate") || "",
   };
+}
+const radarStage = parseVerbatimStage("radar");
+
+/* Deep-link prefill from the Pitch tab (execution.html?stage=pitch&...). One
+   Daily Pitch leg per ticket, staged EXACTLY as pitched or not at all: the
+   only price pitch.js computes is an open-anchored limit, with pitch_moo's own
+   rule. Only the types a pitch leg maps to are accepted; anything else is
+   refused rather than defaulted to a limit. */
+const PITCH_STAGE_TYPES = ["LMT", "MOO", "MOC"];
+const PITCH_KIND_TYPE = { LIMIT_CLOSE: "LMT", LIMIT_OPEN: "LMT", MOO: "MOO", MOC: "MOC" };
+// pitch_moo's clock, mirrored in pitch.js: passes at 09:05 (auction) and 09:32
+// (open), OPG entry cutoff 09:25, MOC entry cutoff 15:30.
+const PITCH_PASS_AFTER = { auction: "09:05", open: "09:32" };
+const PITCH_OPG_CUTOFF = "09:25";
+const PITCH_MOC_CUTOFF = "15:30";
+const PITCH_SESSION_OPEN = "09:30";
+const pitchStage = (() => {
+  const r = parseVerbatimStage("pitch");
+  if (!r || !PITCH_STAGE_TYPES.includes(r.type)) return null;
+  const q = new URLSearchParams(location.search);
+  const kind = String(q.get("kind") || "").toUpperCase();
+  const tsat = String(q.get("tsat") || "").toLowerCase();
+  if (PITCH_KIND_TYPE[kind] !== r.type || !["open", "close"].includes(tsat)) return null;
+  // armed comes from pitch.js PITCH_MOO_ARMED via the link; only an explicit
+  // armed=0 skips the pass wait, so a missing/odd value fails closed.
+  return { ...r, kind, tsat, pass: String(q.get("pass") || "").toLowerCase(),
+           armed: q.get("armed") !== "0" };
 })();
+// Set only by a successful pitch prefill; radar and every other ticket path
+// leave it null, so their payloads never carry stop_arm / time_stop_at.
+let pitchTicket = null;
+
+function etClock(now) {
+  const parts = {};
+  new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric",
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(now || new Date()).forEach((p) => { parts[p.type] = p.value; });
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, hm: `${parts.hour}:${parts.minute}` };
+}
+
+/* Re-checks at prefill time what the Pitch card checked at render time: the
+   card may be minutes old, or the link reopened tomorrow. null = stageable. */
+function pitchPrefillRefusal(r, now) {
+  const et = etClock(now);
+  if (r.refdate !== et.date) return `pitch link is for ${r.refdate || "?"}, today is ${et.date} (ET)`;
+  const after = PITCH_PASS_AFTER[r.pass];
+  if (!after) return `pitch leg has no pitch_moo pass (${r.pass || "none"}); stage it by hand`;
+  if (r.armed && et.hm < after)
+    return `wait until pitch_moo's ${r.pass} pass has run (${after} ET); don't also approve Y in the Sheet`;
+  if (r.kind === "MOO" && et.hm >= PITCH_OPG_CUTOFF) return `MOO past the ${PITCH_OPG_CUTOFF} ET auction cutoff`;
+  if (r.kind === "MOC" && et.hm >= PITCH_MOC_CUTOFF) return `MOC past the ${PITCH_MOC_CUTOFF} ET cutoff`;
+  if (r.kind === "LIMIT_OPEN" && et.hm < PITCH_SESSION_OPEN)
+    return `open-anchored limit before the ${PITCH_SESSION_OPEN} ET open`;
+  return null;
+}
+
+// The pitch's execution conventions, sent only while the ticket still holds the
+// prefilled pitch symbol: stops arm the next session, and the time exit fires at
+// the open when the pitch says MOO.
+function pitchExecFields(stop, timeStop, symbol) {
+  if (!pitchTicket || String(symbol || "").toUpperCase().trim() !== pitchTicket.sym) return {};
+  const out = {};
+  if (stop != null) out.stop_arm = "next_session";
+  if (timeStop) out.time_stop_at = pitchTicket.timeStopAt;
+  return out;
+}
 
 function applyRadarPrefill() {
   if (!radarStage) return;
   const r = radarStage;
+  applyVerbatimPrefill(r, `prefilled from Radar — levels and size copied verbatim from the ` +
+    `book engine's plan${r.refdate ? ` (${r.refdate})` : ""}; review and send`);
+}
+
+function applyPitchPrefill(now) {
+  if (!pitchStage) return;
+  const r = pitchStage;
+  const refusal = pitchPrefillRefusal(r, now);
+  if (refusal) {
+    pitchTicket = null;
+    const msg = document.getElementById("cmdMsg");
+    if (msg) msg.textContent = `NOT prefilled from Daily Pitch: ${refusal}`;
+    return;
+  }
+  pitchTicket = { sym: r.sym, timeStopAt: r.tsat };
+  applyVerbatimPrefill(r, `prefilled from Daily Pitch (${r.refdate}) — one leg, exactly as pitched, ` +
+    `tagged ${r.strat || "untagged"}; stops arm next session, time exit at the ` +
+    `${r.tsat === "open" ? "OPEN" : "close"}; review and send`);
+}
+
+function applyVerbatimPrefill(r, message) {
   const setv = (id, v) => {
     const e = document.getElementById(id);
     if (e) e.value = String(v);
@@ -148,11 +235,12 @@ function applyRadarPrefill() {
   // $250k book, which is unrelated to PA's NLV, and a single plan's notional can
   // approach PA's whole live cap. Pin the account rather than inherit whichever
   // tab happened to be selected. radar_trail_sync.py defaults to primary to match.
+  // Pitch legs are sized off the fixed ACCOUNT_VALUE and pitch_moo places on
+  // primary, so they pin the same way.
   if (r.acct === "primary" && state.account !== "primary") setAccount("primary");
   updateReadout();
   const msg = document.getElementById("cmdMsg");
-  if (msg) msg.textContent = `prefilled from Radar — levels and size copied verbatim from the ` +
-    `book engine's plan${r.refdate ? ` (${r.refdate})` : ""}; review and send`;
+  if (msg) msg.textContent = message;
 }
 
 function applyStagePrefill() {
@@ -221,6 +309,7 @@ async function initExecution() {
   syncFields();
   applyStagePrefill();               // seasonal deep link: prefill the bracket ticket
   applyRadarPrefill();               // radar deep link: verbatim levels from the book engine
+  applyPitchPrefill();               // pitch deep link: one Daily Pitch leg
   await poll();
   pollTimer = setInterval(poll, 4000);
 }
@@ -2226,7 +2315,9 @@ function updateReadout() {
         : `<b style="color:#ffc14d">Scale-out ignored</b> <span class="cap" style="display:inline">(a tranche rounds below 1 share)</span>`);
     }
     const ts = val("f_timestop");
-    if (ts) parts.push(`Time-exit <b>${ts}</b>`);
+    const pitchX = pitchExecFields(stop, ts, sym);
+    if (pitchX.stop_arm) parts.push(`Stop arms <b>next session</b> <span class="cap" style="display:inline">(pitch convention)</span>`);
+    if (ts) parts.push(`Time-exit <b>${ts}</b>${pitchX.time_stop_at ? ` at the <b>${pitchX.time_stop_at === "open" ? "OPEN" : "close"}</b>` : ""}`);
     const ex = (orderType === "LMT" || orderType === "STP_LMT") ? val("f_expiry") : null;
     parts.push(`TIF <b>${orderType === "MOO" ? "OPG" : ex ? "GTD " + ex : "DAY"}</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
@@ -2370,7 +2461,7 @@ function ticketPayload(t) {
   const fut_expiry = sec_type === "FUT" ? String(val("f_futexp") || "").replace(/\D/g, "") : null;
   const currency = sec_type === "CASH" ? String(val("f_currency") || "USD").toUpperCase() : "USD";
   const spec = sec_type === "FUT" ? futSpec(val("f_symbol")) : null;
-  return { symbol: val("f_symbol"), sec_type, currency, fut_expiry,
+  const bracket = { symbol: val("f_symbol"), sec_type, currency, fut_expiry,
     exchange: sec_type === "FUT" ? selectedFutExchange() : null,
     fut_ib_symbol: spec ? (spec.ib_symbol || spec.symbol || val("f_symbol")) : null,
     fut_trading_class: spec ? (spec.trading_class || val("f_symbol")) : null,
@@ -2386,6 +2477,7 @@ function ticketPayload(t) {
       ? { frac: numOrNull("f_so_frac"), target: numOrNull("f_so_target") } : null,
     time_stop: val("f_timestop") || null,
     expiry: (entry_type === "LMT" || entry_type === "STP_LMT") ? (val("f_expiry") || null) : null };
+  return Object.assign(bracket, pitchExecFields(bracket.stop, bracket.time_stop, bracket.symbol));
 }
 function sendTicket() {
   const t = document.getElementById("cmdType").value;
@@ -2439,7 +2531,7 @@ function sendTicket() {
       : p.entry_type === "STP_LMT" ? `STP LMT trigger ${p.entry}, worst fill ${p.entry_cap}`
       : `${p.entry_type} (risk ref ${p.entry}; no price protection)`;
     const summary = t === "entry_bracket"
-      ? `${p.action} ${p.quantity} ${inst} ${entryDesc} [${p.entry_type === "MOO" ? "OPG" : p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
+      ? `${p.action} ${p.quantity} ${inst} ${entryDesc} [${p.entry_type === "MOO" ? "OPG" : p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}${p.stop_arm === "next_session" ? " arming NEXT SESSION" : ""}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""}${p.time_stop_at ? " at the " + (p.time_stop_at === "open" ? "OPEN" : "close") : ""})`
       : t === "exit_attach"
         ? `attach exits to ${p.symbol} (${[p.stop != null ? "stop " + p.stop : "", p.target != null ? "target " + p.target : "", p.time_stop ? "time " + p.time_stop : ""].filter(Boolean).join(", ")}) — full held size, OCA GTC`
         : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +

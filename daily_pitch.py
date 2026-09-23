@@ -68,6 +68,7 @@ from pitch_grammar import (
     price_context,
     validate_payload,
 )
+from strategy_config import ACCOUNT_VALUE
 from trading_calendar import TRADING_DAY
 
 ROOT = Path(__file__).resolve().parent
@@ -87,6 +88,18 @@ TAB_COLUMNS = [
     "Notional", "Sizing_Note", "Place_Pass", "Manual_Only", "Place_Note",
     "Proxy_Ticker", "Execute_On", "Scan_Source",
 ]
+
+# Site Pitch tab (2026-09-23): today's slate as JSON, served live from R2 by
+# functions/pitch-today.js because the pitch publishes after the morning site
+# deploy. A FIELD WHITELIST, copied verbatim: a new idea or order field never
+# reaches the browser unreviewed. Approve is the Sheets-side human filter and
+# is deliberately not shipped.
+SITE_PAYLOAD_PATH = ROOT / "data" / "pitch_today.json"
+SITE_R2_KEY = "pitch_today.json"
+SITE_IDEA_FIELDS = ("idea_id", "rank", "title", "grade", "horizon_td",
+                    "thesis", "survived", "what_kills_it", "place_pass")
+SITE_EVIDENCE_FIELDS = ("summary", "n")
+SITE_ORDER_FIELDS = tuple(c for c in TAB_COLUMNS if c != "Approve") + ("Multiplier",)
 
 GRADE_MEANING = {
     "A": "N >= 50, |t| >= 2.5, holds across eras, verified fresh this morning",
@@ -851,6 +864,67 @@ def append_approvals_once(approvals: list[dict], journal_path: Path) -> int:
 
 
 # ---------------------------------------------------------------------------
+# site Pitch tab payload
+# ---------------------------------------------------------------------------
+def _site_idea(idea: dict) -> dict:
+    orders = idea.get("orders") or []
+    out = {k: idea[k] for k in SITE_IDEA_FIELDS if k in idea}
+    if "place_pass" not in out and orders:
+        out["place_pass"] = orders[0].get("Place_Pass")
+    ev = idea.get("evidence") or {}
+    out["evidence"] = {k: ev[k] for k in SITE_EVIDENCE_FIELDS if k in ev}
+    out["orders"] = [{k: row[k] for k in SITE_ORDER_FIELDS if k in row}
+                     for row in orders]
+    return out
+
+
+def site_payload(asof: pd.Timestamp, ideas: list[dict],
+                 stand_down: dict | None = None,
+                 account_value: float = ACCOUNT_VALUE) -> dict:
+    return {
+        "date": str(asof.date()),
+        "generated_at": dt.datetime.now(dt.timezone.utc)
+                          .strftime("%Y-%m-%d %H:%M UTC"),
+        "account_value": account_value,
+        "stand_down": stand_down is not None,
+        "stand_down_reason": (stand_down or {}).get("reason", ""),
+        "ideas": [_site_idea(idea) for idea in ideas],
+    }
+
+
+def publish_site_payload(site: dict, journal_path: Path, args,
+                         asof: pd.Timestamp) -> bool:
+    """Best effort: write the site payload and mirror it to R2.
+
+    Same gate as the delivery receipt: a custom journal or explicit receipt is
+    a test/dev run, writes next to that journal, and never touches R2. Any
+    failure prints one loud line and returns False; it never fails a publish
+    that already delivered.
+    """
+    try:
+        _, use_r2 = delivery_receipt_settings(args, journal_path, asof)
+        path = (SITE_PAYLOAD_PATH if use_r2 else
+                journal_path.with_name(f"{journal_path.stem}.pitch_today.json"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(site, indent=1), encoding="utf-8")
+        if not use_r2:
+            print(f"Site payload written to {path.name} (dev run - no R2)")
+            return True
+        from cache_io import is_configured, upload_from_local
+        if not is_configured():
+            print("WARNING: site Pitch tab NOT published - R2 not configured")
+            return False
+        if not upload_from_local(str(path), SITE_R2_KEY):
+            print(f"WARNING: site Pitch tab upload to R2 {SITE_R2_KEY} FAILED")
+            return False
+        print(f"Site Pitch tab published -> R2 {SITE_R2_KEY}")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARNING: site Pitch tab publish failed ({exc})")
+        return False
+
+
+# ---------------------------------------------------------------------------
 def run_identity(model: str | None = None,
                  effort: str | None = None) -> tuple[str, str]:
     """Which model and effort produced this pitch.
@@ -1063,6 +1137,10 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
         return 1
     print(f"Journaled {approvals_written + written} new record(s) "
           f"-> {journal_path.name}")
+    # The site tab must say "nothing today" too, or yesterday's stageable
+    # legs would stay up on a no-trade morning.
+    publish_site_payload(site_payload(asof, [], stand_down=block),
+                         journal_path, args, asof)
     return 0 if email_ok else 1  # failed email = failed delivery, show red
 
 
@@ -1184,6 +1262,7 @@ def main() -> int:
         return 1
     print(f"Journaled {approvals_written + written} new record(s) "
           f"-> {journal_path.name}")
+    publish_site_payload(site_payload(asof, ideas), journal_path, args, asof)
     # A failed email is a failed DELIVERY even though the tab and journal
     # reflect the run — exit nonzero so Task Scheduler / the .bat log show
     # red instead of a green morning with no email in the inbox.

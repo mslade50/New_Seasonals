@@ -6,6 +6,7 @@ const PAGES = [
   { href: "index.html",    label: "Portfolio" },
   { href: "seasonal.html", label: "Seasonal" },
   { href: "radar.html",    label: "Radar" },
+  { href: "pitch.html",    label: "Pitch" },
   { href: "focus.html",    label: "Focus" },
   { href: "events.html",   label: "Events" },
   { href: "risk.html",     label: "Risk" },

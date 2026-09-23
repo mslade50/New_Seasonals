@@ -232,19 +232,52 @@ The upload is best effort and uses the delivery-receipt gate: a custom
   `SITE_ORDER_FIELDS` = `TAB_COLUMNS` minus `Approve`, plus `Multiplier`.
 - PRIMARY only, strategy tag `Pitch-<idea_id>` (the string `pitch_moo.py`
   stamps), qty = `Quantity` verbatim (fixed `ACCOUNT_VALUE` basis).
-- Entry mapping: LIMIT/CLOSE -> LMT verbatim (expiry = `Entry_Expire_Date`
-  when GTD); LIMIT/OPEN -> user types the session open, priced exactly like
-  `pitch_moo.price_open_row` (Python `round` ties-to-even mirrored by
-  `pyRound2`); MOO -> MOO before 09:28 ET, MKT after (labelled substitute);
-  MOC -> MOC until 15:30 ET (`pitch_moo.MOC_CUTOFF`; the ticket has no MOC
-  cutoff of its own), then blocked. MOO/MOC stop/target ATR are priced off
-  `Ref_Close` and labelled "off reference close".
-- Mismatches shown on the card, never silently changed: a `MOO` time exit
-  (the ticket's time stop is MKT 15:59 ET), and stop arming (ticket stops are
-  live from the fill; the pitch arms them next session).
+- **Rule (McKinley, 2026-09-23): stage EXACTLY what the pitch says, or block.**
+  No substitutes, no derived levels. The earlier MKT-after-the-auction
+  substitute and the "off reference close" MOO/MOC stop/target were removed.
+- Entry mapping: LIMIT/CLOSE -> `Order_Type`/`TIF` verbatim, Limit/Stop/Target
+  prices verbatim, expiry = `Entry_Expire_Date` when GTD; LIMIT/OPEN -> user
+  types the session open, priced exactly like `pitch_moo.price_open_row`
+  (Python `round` ties-to-even mirrored by `pyRound2`), stageable only after
+  09:30; MOO -> MOO only before 09:25 ET (`pitch_moo.OPG_CUTOFF`), then
+  blocked; MOC -> MOC only before 15:30 ET (`pitch_moo.MOC_CUTOFF`), then
+  blocked. A MOO/MOC entry's `entry` is `Ref_Close` as the ticket's risk
+  reference only.
+- Execution conventions ride the `entry_bracket` payload (executor contract in
+  `docs/site_execution_schema.md`): `stop_arm: "next_session"` whenever there
+  is a stop, `time_stop_at: "open"` when `Time_Exit_Order` is MOO, else
+  `"close"`. Both appear in the ticket readout and confirm text. They are
+  added only after a successful pitch prefill and only while the ticket holds
+  the prefilled symbol (`pitchTicket` / `pitchExecFields`); Radar and every
+  other ticket path send byte-identical payloads without them.
 - Blockers (`stageBlockers`): stale date (`Execute_On` != today ET), time exit
-  today/past, FUT leg (manual), no qty, stand-down, open-anchored before 09:30
-  or with no open, MOC past cutoff. Multi-leg ideas warn "stage every leg".
-- Staging here is independent of the Sheets `Y` approval; do not do both.
+  today/past, any `Manual_Only` row ("manual per pitch": FUT legs, MOO/MOC
+  with a price stop/target), non-empty `Proxy_Ticker`, non-STK, no qty,
+  stand-down, Order_Type/TIF not the vocabulary the row type implies, no
+  pitch_moo pass, open-anchored with no open, and the clock gates below.
+  Multi-leg ideas warn "stage every leg".
+- **Double-placement gate**: pitch_moo's dedupe cannot see site-staged orders
+  (shorts tag SELL vs SELL_SHORT, clientIds differ), so a leg is stageable
+  only AFTER its pitch_moo pass has run: `Place_Pass` "auction" from 09:05 ET,
+  "open" from 09:32 ET. An auction MOO is therefore stageable only 09:05-09:25.
+  The card says: stage here OR approve `Y` in the Sheet, never both.
+- **The pass wait applies only while `PITCH_MOO_ARMED` (pitch.js) is true.**
+  It is `false` today: the pitch_moo tasks are unregistered and there is no
+  `pitch_moo_enabled.flag`, so nothing can double and the wait would only
+  delay staging. Unarmed, the card adds "pitch_moo runner is off — the Sheet Y
+  places nothing" and every other gate stays (MOO < 09:25, MOC < 15:30,
+  open-anchored from 09:30, stale date, Manual_Only, proxy, ...). Set it true
+  in the same change that arms the runner. The constant lives only in
+  pitch.js; the stage link carries `armed=0|1`, and execution.js skips the
+  pass wait only on an explicit `armed=0` (absent or any other value enforces
+  it, fail closed).
+- Every gate re-runs at prefill (`pitchPrefillRefusal` in execution.js):
+  `refdate` != today ET, pass not yet run (armed links only), MOO >= 09:25,
+  MOC >= 15:30, open-anchored < 09:30. A refusal fills nothing and says why in
+  the ticket message. The link carries `kind` (LIMIT_CLOSE / LIMIT_OPEN / MOO
+  / MOC), `pass`, `armed` and `tsat`; a kind/type mismatch or missing `tsat` is
+  not a pitch link. pitch.js re-renders every 60 s and on `visibilitychange`.
+- `pitch_fills.ENTRY_SIDES` includes `("SELL_SHORT", "SLD")`: pitch_moo stamps
+  SELL_SHORT in a short entry's orderRef.
 - Guards: `tests/js/test_pitch_tab.js` (run by `tests/test_pitch_transport.py`),
-  `tests/test_pitch_transport.py`.
+  `tests/test_pitch_transport.py`, `tests/test_pitch_fills_approval.py`.

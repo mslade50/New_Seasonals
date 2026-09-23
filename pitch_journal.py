@@ -11,7 +11,9 @@ Record kinds:
               thesis, evidence, fingerprint)
     killed    a finalist the falsification stage killed, with the reason
     approval  McKinley's Approve cell, captured off the Pitch tab the
-              morning AFTER (the tab is cleared and rewritten daily)
+              morning AFTER (the tab is cleared and rewritten daily), or a
+              `source: "fills"` Y minted by pitch_fills.py from entry fills
+              tagged `Pitch-{idea_id}` (site-staged orders)
     outcome   the hypothetical replay booked by scripts/grade_pitch_journal.py
     stand_down  a morning that shipped nothing, with the sweep's size, the
               axes covered and the near-misses. One per stand-down day, and
@@ -27,7 +29,8 @@ Record kinds:
 
 `fold_ideas` merges the later approval/outcome records onto their idea, which
 is what every consumer actually wants. Later records win, so a re-grade
-supersedes an earlier one without rewriting history.
+supersedes an earlier one without rewriting history. One exception: a blank
+approval never overrides an earlier non-blank one.
 """
 from __future__ import annotations
 
@@ -107,8 +110,15 @@ def fold_ideas(records: list[dict]) -> list[dict]:
         if idea is None:
             continue
         if record.get("kind") == "approval":
-            idea["approve"] = record.get("approve", "")
+            answer = record.get("approve", "")
+            # A blank never erases an earlier answer: the tab capture journals
+            # "" for every idea nobody typed on, and that can land after a
+            # fills-derived "Y" (pitch_fills.py).
+            if not str(answer or "").strip() and str(idea.get("approve", "") or "").strip():
+                continue
+            idea["approve"] = answer
             idea["approve_captured_at"] = record.get("captured_at")
+            idea["approve_source"] = record.get("source", "tab")
         elif record.get("kind") == "outcome":
             idea["outcome"] = record.get("outcome")
             idea["graded_at"] = record.get("graded_at")

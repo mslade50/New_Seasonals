@@ -286,16 +286,29 @@ def main() -> int:
                     help="re-book ideas that already carry an outcome")
     ap.add_argument("--asof", default=None)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-fills-approvals", action="store_true",
+                    help="skip minting approvals from Pitch-tagged fills")
     args = ap.parse_args()
 
     journal_path = Path(args.journal)
+    today = pd.Timestamp(args.asof or dt.date.today()).normalize()
+    if not args.no_fills_approvals:
+        # Site-staged pitch orders count as approvals once they fill. Best
+        # effort: a missing or broken fills store must never cost the morning.
+        try:
+            from pitch_fills import append_fills_approvals
+            n = append_fills_approvals(journal_path, today, dry_run=args.dry_run)
+            print(f"Fills approvals: {n} new record(s)"
+                  f"{' [dry-run, not appended]' if args.dry_run else ''}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARNING: fills approvals skipped ({type(exc).__name__}: {exc})")
+
     records = pitch_journal.load(journal_path)
     ideas = pitch_journal.fold_ideas(records)
     if not ideas:
         print("No pitched ideas in the journal yet - nothing to grade.")
         return 0
 
-    today = pd.Timestamp(args.asof or dt.date.today()).normalize()
     todo = [i for i in ideas
             if args.regrade or (i.get("outcome") or {}).get("price_basis") != "RAW"
             or (i.get("outcome") or {}).get("status") in (None, "open", "ungradeable")]

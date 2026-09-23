@@ -27,14 +27,27 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
 ```json
 { "symbol":"USO","sec_type":"STK|FUT|CASH","exchange":"SMART","currency":"USD","fut_expiry":"202608",
   "action":"BUY|SELL","quantity":692,"entry_type":"LMT|STP_LMT|MKT|MOO|MOC","entry":104.80,"entry_cap":null,"stop":103.29,"target":123.21,
-  "use_target":true,"use_time_stop":true,"stop_tif":"GTC|GTD",
-  "parent_fill_by":"2026-06-26T15:00-04:00",
-  "exit_at":"2026-07-09T16:00-04:00","time_stop_at":"2026-07-09T15:00-04:00",
-  "outside_rth":false,"stop_outside_rth":null,"timestop_outside_rth":null }
+  "expiry":"2026-06-26","time_stop":"2026-07-09","time_stop_at":"close|open","stop_arm":"fill|next_session",
+  "strategy":"Momentum_Radar","ref_date":"2026-06-25","scaleout":null,"risk_ack":false }
 ```
-Validation (mirrors `validate_config`): BUY → `stop < entry` and
-`worst fill < target`; SELL inverted; `time_stop < bracket_gtd`;
-`parent_fill_by` in the future.
+Validation: BUY → `stop < entry` and `worst fill < target`; SELL inverted.
+`stop`, `target` and `time_stop` are each optional (omitted = no such leg).
+`expiry` (YYYY-MM-DD, LMT/STP_LMT only) makes the parent GTD 16:00 ET that
+day; `time_stop` (YYYY-MM-DD) adds a MKT GTC `outsideRth` TIME child held
+inactive until that day's clock; both must be in the future. FUT stops are
+always sent `outsideRth` by the executor (not a payload field).
+
+**Exit timing (2026-09-23), both optional, also accepted by `exit_attach`:**
+- `time_stop_at`: `"close"` (default, TIME child goodAfterTime 15:59:00 ET) or
+  `"open"` (09:30:00 ET on the `time_stop` date, the pitch_moo MOO-exit clock).
+- `stop_arm`: `"fill"` (default, STP child live as soon as the parent fills, no
+  goodAfterTime) or `"next_session"` (STP goodAfterTime = next weekday
+  09:30:00, `eq_order_entry.next_session_gat`, the book-wide day-2 arming
+  convention).
+- Absent or empty = the defaults, which build exactly the pre-2026-09-23
+  orders. Any other value (case-sensitive) rejects the whole command before
+  anything is placed. Note the agent's preview text still prints the TIME leg
+  as 15:59 regardless of `time_stop_at`.
 
 `entry` is the executable limit for `LMT`. For `MKT` and `MOC`, it is a required
 risk/reference price used for notional, stop-distance, and confirmation math; it
@@ -149,7 +162,8 @@ cannot be cancelled through this command.
   "stop":190.0,"target":230.0,"time_stop":"2026-08-14","outside_rth":false }
 ```
 Attach a standalone closing OCA group (any subset of price stop / limit target /
-scheduled 15:59 ET MKT time stop; at least one required) to an existing position,
+scheduled 15:59 ET MKT time stop, or 09:30 with `time_stop_at:"open"`; optional
+`stop_arm` as for `entry_bracket`; at least one leg required) to an existing position,
 sized to the **full live held quantity** (agent + executor both detect side/qty —
 the site never sends a size). Rejected while ANY order is already working on that
 exact contract: closing exits → "cancel or modify instead"; same-direction

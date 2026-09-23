@@ -491,7 +491,7 @@ def build_order_ref(symbol, action, strategy, ref_date=None):
 
 def build_bracket(action, qty, entry, stop, target, account, next_id, time_stop_gat=None,
                   parent_gtd=None, stop_outside_rth=False, entry_type="LMT", entry_cap=None,
-                  order_ref=None):
+                  order_ref=None, stop_gat=None):
     """stop=None builds a stop-less chain (UNPROTECTED unless target/time legs
     remain); with no children at all the parent transmits itself. MKT/MOO/MOC use
     ``entry`` only as the caller's risk reference; it is not placed on the order.
@@ -541,6 +541,8 @@ def build_bracket(action, qty, entry, stop, target, account, next_id, time_stop_
         stp = StopOrder(exit_a, qty, stop)
         stp.orderId = next_id(); stp.parentId = parent.orderId
         stp.ocaGroup = oca; stp.ocaType = 1; stp.tif = "GTC"; stp.transmit = False
+        if stop_gat:
+            stp.goodAfterTime = stop_gat  # stop_arm=next_session: day-2 arming
         if stop_outside_rth:
             stp.outsideRth = True       # futures: the protective stop must survive the overnight session
         if account:
@@ -1122,6 +1124,34 @@ def _execution_deadline(value, clock):
         raise ValueError("deadline has already passed")
     return when.strftime("%Y%m%d %H:%M:%S") + " US/Eastern"
 
+def next_session_gat():
+    """goodAfterTime string for the open of the NEXT trading session.
+
+    Copied verbatim from eq_order_entry.next_session_gat (importing that module
+    here would pull in its Sheets/staging dependencies); pitch_moo uses the same
+    string for its day-2-armed stops.
+    """
+    import pandas as pd
+    nxt = pd.Timestamp.now().normalize() + pd.offsets.BDay(1)
+    return nxt.strftime("%Y%m%d") + " 09:30:00"
+
+STOP_ARM_VALUES = ("fill", "next_session")
+TIME_STOP_AT_CLOCK = {"close": "15:59:00", "open": "09:30:00"}
+
+def _exit_timing(p):
+    """(stop goodAfterTime or None, time-exit clock) from the optional stop_arm /
+    time_stop_at fields. Absent = today's behavior (stop live at fill, time exit
+    at 15:59). Unknown values raise ValueError so the command fails closed."""
+    arm = p.get("stop_arm")
+    arm = "fill" if arm in (None, "") else str(arm)
+    if arm not in STOP_ARM_VALUES:
+        raise ValueError(f"stop_arm must be 'fill' or 'next_session', got {p.get('stop_arm')!r}")
+    at = p.get("time_stop_at")
+    at = "close" if at in (None, "") else str(at)
+    if at not in TIME_STOP_AT_CLOCK:
+        raise ValueError(f"time_stop_at must be 'open' or 'close', got {p.get('time_stop_at')!r}")
+    return (next_session_gat() if arm == "next_session" else None), TIME_STOP_AT_CLOCK[at]
+
 def _do_exit_attach(ib, p, acct):
     """Attach a standalone closing OCA group (stop / target / time, any subset)
     to an existing position with nothing working against it. Sized to the full
@@ -1131,11 +1161,15 @@ def _do_exit_attach(ib, p, acct):
         target = float(p["target"]) if p.get("target") not in (None, "") else None
     except (TypeError, ValueError):
         return _out(False, "rejected", "live gate: stop/target must be numbers")
+    try:
+        stop_gat, time_clock = _exit_timing(p)
+    except ValueError as exc:
+        return _out(False, "rejected", f"live gate: {exc}")
     time_stop = p.get("time_stop")
     time_gat = None
     if time_stop:
         try:
-            time_gat = _execution_deadline(time_stop, "15:59:00")
+            time_gat = _execution_deadline(time_stop, time_clock)
         except ValueError as exc:
             return _out(False, "rejected", f"live gate: time_stop must be a future valid date ({exc})")
     if stop is None and target is None and not time_gat:
@@ -1236,6 +1270,8 @@ def _do_exit_attach(ib, p, acct):
         orders.append(("TARGET", o))
     if stop is not None:
         o = StopOrder(close_action, held, stop)
+        if stop_gat:
+            o.goodAfterTime = stop_gat  # stop_arm=next_session
         if sec_type == "FUT":
             o.outsideRth = True         # survive the overnight session (entry-bracket convention)
         orders.append(("STOP", o))
@@ -1542,11 +1578,15 @@ def _do_entry_bracket(ib, p, acct):
                         fill={"needs_risk_ack": True})
 
     # --- Timing legs ---
+    try:
+        stop_gat, time_clock = _exit_timing(p)
+    except ValueError as exc:
+        return _out(False, "rejected", f"live gate: {exc}")
     time_stop = p.get("time_stop")
     time_gat = None
     if time_stop:
         try:
-            time_gat = _execution_deadline(time_stop, "15:59:00")
+            time_gat = _execution_deadline(time_stop, time_clock)
         except ValueError as exc:
             return _out(False, "rejected", f"live gate: time_stop must be a future valid date ({exc})")
     expiry = p.get("expiry")
@@ -1611,7 +1651,7 @@ def _do_entry_bracket(ib, p, acct):
                                          ib.client.getReqId, time_gat, parent_gtd,
                                          stop_outside_rth=(sec_type == "FUT"),
                                          entry_type=entry_type, entry_cap=entry_cap,
-                                         order_ref=ref)
+                                         order_ref=ref, stop_gat=stop_gat)
         placed = [
             guarded_place_order(
                 ib,
