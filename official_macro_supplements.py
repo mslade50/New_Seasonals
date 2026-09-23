@@ -14,6 +14,7 @@ from official_macro_releases import (
 ISM_INDEX = "https://www.prnewswire.com/news/institute-for-supply-management/"
 ADP_INDEX = "https://mediacenter.adp.com/press-releases?l=100"
 CLAIMS_SCHEDULE = "https://oui.doleta.gov/unemploy/archive.asp"
+JOLTS_SERIES = "JTS000000000000000JOL"
 
 
 def discover_release(raw, kind):
@@ -131,3 +132,56 @@ def claims_release_schedule(raw, *, as_of):
     upcoming = min(d for d in stamps if d > utc(as_of))
     return due, dict(event="jobless_claims", release_ts_utc=upcoming,
                      source=CLAIMS_SCHEDULE, schedule_basis="official_weekly_rule_with_holiday_exceptions")
+
+
+def parse_nyfed_jolts_calendar(raw, month, *, source):
+    """Read actual calendar cells; don't borrow another event's clock time."""
+    soup = BeautifulSoup(raw, "html.parser")
+    text = soup.get_text(" ", strip=True)
+    _match(r"(?:all Eastern Time|All times are (?:U\.S\. )?Eastern)", text)
+    month = pd.Period(month, freq="M")
+    _match(month.strftime("%B") + r"\s+" + str(month.year), text)
+    rows = []
+    for link in soup.find_all("a"):
+        if link.get_text(" ", strip=True) != "JOLTS":
+            continue
+        cell = link.find_parent("td")
+        if cell is None:
+            raise ValueError("JOLTS link is not in a calendar cell")
+        day = int(_match(r"^\s*(\d{1,2})\b", cell.get_text(" ", strip=True))[1])
+        after = cell.get_text(" ", strip=True).split("JOLTS", 1)[1]
+        clock = _match(r"^\s*\((\d{1,2}:\d{2})\)", after)[1]
+        rows.append(dict(event="jolts", release_ts_utc=release_time(f"{month}-{day:02d}", clock),
+                         source=source, schedule_basis="nyfed_official_calendar"))
+    return rows
+
+
+def parse_jolts_api(payload, schedules, *, fetched_at, digest):
+    if payload.get("status") != "REQUEST_SUCCEEDED":
+        raise ValueError("BLS API did not succeed")
+    series = [s for s in payload.get("Results", {}).get("series", []) if s["seriesID"] == JOLTS_SERIES]
+    if len(series) != 1:
+        raise ValueError("JOLTS API series missing or ambiguous")
+    values = {pd.Period(f"{d['year']}-{d['period'][1:]}", freq="M"): d["value"]
+              for d in series[0]["data"] if re.fullmatch(r"M(0[1-9]|1[0-2])", d["period"])}
+    if not values:
+        raise ValueError("JOLTS API has no monthly observations")
+    now = utc(fetched_at)
+    due = [s for s in schedules if s["release_ts_utc"] <= now]
+    upcoming = [s for s in schedules if s["release_ts_utc"] > now]
+    if not due or not upcoming:
+        raise ValueError("JOLTS calendar lacks a due or upcoming release")
+    release = max(due, key=lambda s: s["release_ts_utc"])
+    period = max(values)
+    # The Fed calendar omits reference months. Require a uniquely plausible
+    # monthly period (a 26-day window, shorter than any month). Delayed releases
+    # outside this window fail closed instead of guessing a period association.
+    lag = (release["release_ts_utc"].tz_convert("America/New_York").date() - period.end_time.date()).days
+    if not 20 <= lag <= 45:
+        raise ValueError("JOLTS reference month is stale or needs explicit delayed-release mapping")
+    row = observation("jolts_job_openings", values[period], str(period), release["release_ts_utc"],
+                      source=f"https://api.bls.gov/publicAPI/v2/timeseries/data/{JOLTS_SERIES}",
+                      fetched_at=fetched_at, digest=digest, unit="K", vintage="official_api_latest_vintage")
+    row["release_time_source"] = release["source"]
+    row["reference_mapping_basis"] = "latest_due_release_with_20_to_45_day_reference_lag_gate"
+    return [row], min(upcoming, key=lambda s: s["release_ts_utc"])

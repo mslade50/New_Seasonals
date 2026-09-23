@@ -23,7 +23,8 @@ sys.path.insert(0, str(ROOT))
 from official_macro_releases import (BLS_SERIES, current_capture, merge_official_history,
     parse_bls_api, parse_bls_rss, parse_bea, parse_retail, parse_claims, next_release)
 from official_macro_supplements import (ISM_INDEX, ADP_INDEX, CLAIMS_SCHEDULE,
-    discover_release, parse_ism, parse_adp, parse_retail_ex_autos, claims_release_schedule)
+    discover_release, parse_ism, parse_adp, parse_retail_ex_autos, claims_release_schedule,
+    JOLTS_SERIES, parse_nyfed_jolts_calendar, parse_jolts_api)
 
 URLS = {
     "bls_feed.html": "https://www.bls.gov/feed/bls_latest.rss",
@@ -34,8 +35,9 @@ URLS = {
 }
 REQUIRED = set(BLS_SERIES) | {"pce_mom", "core_pce_mom", "pce_yoy", "core_pce_yoy",
     "retail_sales_mom", "initial_jobless_claims", "continuing_jobless_claims",
-    "ism_manufacturing_pmi", "ism_services_pmi", "adp_employment_change", "retail_sales_ex_autos_mom"}
-UNRESOLVED = ["jolts_job_openings"]
+    "ism_manufacturing_pmi", "ism_services_pmi", "adp_employment_change", "retail_sales_ex_autos_mom",
+    "jolts_job_openings"}
+UNRESOLVED = []
 
 
 def artifact_output(path):
@@ -55,6 +57,7 @@ def collect(output, *, source_dir=None, calendar_path=ROOT / "data/macro_events.
     raw_dir.mkdir()
     sources, gaps, rows, schedules = [], [], [], []
     session = requests.Session()
+    bls_payload, bls_meta = None, None
 
     def get(name, url, *, post=None):
         if source_dir:
@@ -83,9 +86,11 @@ def collect(output, *, source_dir=None, calendar_path=ROOT / "data/macro_events.
 
     for name, parser in [("bls_batch.json", parse_bls_api), ("bls_feed.html", parse_bls_rss)]:
         try:
-            body = {"seriesid": sorted({v[0] for v in BLS_SERIES.values()}),
+            body = {"seriesid": sorted({v[0] for v in BLS_SERIES.values()} | {JOLTS_SERIES}),
                     "startyear": str(captured.year - 2), "endyear": str(captured.year)} if name.endswith("json") else None
             raw, meta = get(name, URLS[name], post=body)
+            if body:
+                bls_payload, bls_meta = json.loads(raw), meta
             result = parser(json.loads(raw) if body else raw, calendar, **meta)
             if isinstance(result, tuple):
                 result, errors = result
@@ -151,6 +156,22 @@ def collect(output, *, source_dir=None, calendar_path=ROOT / "data/macro_events.
         schedules.append(upcoming)
     except Exception as exc:
         gaps.append(f"claims schedule: {type(exc).__name__}: {exc}")
+    try:
+        jolts_schedules = []
+        month = captured.tz_convert("America/New_York").tz_localize(None).to_period("M")
+        for offset in (-1, 0, 1, 2):
+            period = month + offset
+            url = f"https://www.newyorkfed.org/research/calendars/i-{period.strftime('%b%y').lower()}.html"
+            raw, _ = get(f"nyfed_{period}.html", url)
+            jolts_schedules.extend(parse_nyfed_jolts_calendar(raw.decode("utf-8"), period, source=url))
+            if (any(s["release_ts_utc"] <= captured for s in jolts_schedules)
+                    and any(s["release_ts_utc"] > captured for s in jolts_schedules)):
+                break
+        result, upcoming = parse_jolts_api(bls_payload, jolts_schedules, **bls_meta)
+        rows.extend(result)
+        schedules.append(upcoming)
+    except Exception as exc:
+        gaps.append(f"JOLTS: {type(exc).__name__}: {exc}")
     all_observations = pd.DataFrame(rows)
     candidate = current_capture(rows)
     present = set(candidate.get("event_id", []))
@@ -185,7 +206,7 @@ def collect(output, *, source_dir=None, calendar_path=ROOT / "data/macro_events.
         unique_series=len(present), core_data_pass=not gaps, gaps=sorted(set(gaps)),
         warnings=warnings,
         unresolved_series=UNRESOLVED, production_ready=False,
-        pending_gates=["JOLTS unattended release-time mapping", "expanded economic event coverage",
+        pending_gates=["expanded economic event coverage",
                        "scheduled capture/revision monitoring", "production activation"],
         consensus_policy="none; new official rows cannot create surprise/P12 events")
     (output / "manifest.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

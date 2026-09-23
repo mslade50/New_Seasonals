@@ -36,7 +36,7 @@ enabling Focus; no histories or subscription records were deleted.
 
 ## Economic replacement validation
 
-The candidate collector now retrieves **28 series** with release timestamps and
+The candidate collector now retrieves **29 series** with release timestamps and
 reported values from free sources. The previous 24-series implementation is
 extended with:
 
@@ -53,24 +53,32 @@ extended with:
 - Claims freshness: the [DOL publication schedule](https://oui.doleta.gov/unemploy/archive.asp),
   applying its Thursday rule and explicit holiday exceptions. A PDF from an
   older due release is rejected; the Thanksgiving Wednesday exception is tested.
+- JOLTS: BLS API values plus the [New York Fed's official economic calendar](https://www.newyorkfed.org/research/calendars/i-sep26.html).
+  Its public monthly pages supply dates and Eastern times without the BLS
+  schedule's HTTP 403 problem. Reference periods come from BLS observations;
+  the collector requires a 20–45 day lag between reference month-end and release,
+  a window shorter than any month, rejecting stale values and unusually delayed
+  releases that need explicit period mapping. The calendar and value sources
+  are retained separately in provenance.
 
-The September 23 live run passed all 28 required series with no coverage gaps.
+The September 23 live run passed all 29 required series with no coverage gaps.
 ISM August values were 54.6 manufacturing and 55.4 services; ADP August was +38K;
 August retail excluding autos was +1.4%. BLS RSS returned 403, but the supported
 BLS API supplied the 16 required BLS series, explicitly marked latest revised
 vintage rather than originally announced prints.
 
-`artifacts/fmp_retirement/20260923/macro_live01/` contains hashed raw responses,
-observations, the seven next-release notices, the candidate history and a
-manifest. The candidate has 42,517 rows versus 42,489 baseline rows; all 37,712
+`artifacts/fmp_retirement/20260923/macro_live02/` contains hashed raw responses,
+observations, eight next-release notices, the candidate history and a
+manifest. The candidate has 42,518 rows versus 42,489 baseline rows; all 37,712
 previously populated rows retain their actual, consensus, previous, source and
-vintage values. New observations carry no consensus or surprise. Forty focused
+vintage values. New observations carry no consensus or surprise. Forty-three focused
 macro/retirement tests passed, including issuer identity, timestamp consistency,
 signed values, changed HTML/table formats, DST and the holiday exception.
 
-This candidate is **not yet the production macro writer**. JOLTS values are
-available through the BLS API, but unattended release-time mapping remains open:
-the BLS schedule and ICS return 403 to the collector. The wider FMP event catalog
-is not represented by the 28-series coverage claim. Scheduled capture/revision
+This candidate is **not yet the production macro writer**. All five previously
+identified missing series now have working adapters. The wider FMP event catalog
+is not represented by the 29-series coverage claim. Scheduled capture/revision
 monitoring and production activation remain separate gates. FMP cancellation
-has not been attempted.
+has not been attempted. Workspace hygiene also reported three unrelated financing
+research files created concurrently; they were left untouched and excluded from
+these commits.
