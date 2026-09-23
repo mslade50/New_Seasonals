@@ -17,9 +17,9 @@ The active Codex heartbeat `ep-after-hours-shadow-queue` (EP Night and Morning
 Shadow Process) uses the permanent worktree
 `C:\Users\McKinley Slade\dev\New_Seasonals-worktrees\ep-production-runtime`,
 branch `codex/ep-production-runtime`, pinned to
-`958a8683fcbde692fa91d7083066b8222c5f2f33`. It extends the restored September 17
+`e53c17d5a35bd1249196299dfcd4d7db87ac2963`. It extends the restored September 17
 source (`9de30b6839ccbfcd03770c6a99bc8969897f3869`) with the requested ATR Extended
-Gap Up email watchlist. The worktree is locked with a reason naming
+Gap Up email watchlist and September 23 completion recovery. The worktree is locked with a reason naming
 the active heartbeat; preserve both the worktree and branch during cleanup.
 The heartbeat remains attached to its existing Codex task and runs weekdays at
 08:20 and 19:20 America/New_York, with phase commands explicitly run in this runtime.
@@ -63,6 +63,36 @@ heartbeat was read back against the new pin and instructions. Broad-universe sou
 commit: `bf66503e`; shortcut source commit: `bf6951de`; runtime pin: `958a8683`.
 No test or retrospective email was sent. Evidence:
 `artifacts/ep-short-broad-20260922/` and `artifacts/ep-short-watchlist-20260922/`.
+
+September 23 completion recovery: the first morning scan ran, but after context
+compaction the worker answered an old research-safeguard request and ended without
+research completion or email. The [recovery runbook](ep_morning_recovery.md) now
+preserves the active objective and exact input/notes/report pointers in a per-day
+checkpoint. Only confirmed SMTP receipts establish delivery. Scheduled senders
+share a session lock across report and failure attempts; uncertain delivery blocks
+automatic retry. Runtime prerequisite `c3944ba8` ports the already-existing durable
+SMTP receipt/file-lock helpers from main; recovery source `77384f95` is installed
+as `e53c17d5`.
+
+Independent heartbeat `ep-morning-completion-guard` is ACTIVE in the maintenance
+task, separate from the worker. Its weekday 08:00/08:20 checks are no-ops; at
+08:40, 09:00 and 09:20 it checks receipts and resumes only an idle unfinished
+worker, with one atomic dispatch claim per 20-minute slot. At 09:40 a missing
+outcome uses the existing guarded operational failure email. Explicit user pauses
+and ambiguous receipts are not automatically resumed. Existing 08:20/19:20 worker
+schedule and research/source rules remain unchanged. Both require the local Codex
+scheduler to be available. Future runtime updates must update and verify both
+automations' expected commits together; the completion guard fails closed on drift.
+
+Recovery validation: 493 EP tests passed in the installed runtime, including the
+abandoned-after-a-test-audit regression, checkpointed full research/CLI path,
+concurrent report/failure sends, delayed SMTP crossing the cutoff, DATA/QUIT
+disconnects, duplicate recovery and explicit pauses. The read-only checker
+correctly identified September 23 as `DEADLINE_MISSED`. Runtime integrity and clean
+Git status passed; both automation prompts, pins, targets and schedules were read
+back exactly. No email or retrospective research was sent during repair. The next
+scheduled run remains the live recovery confirmation. Evidence:
+`artifacts/ep-completion-20260923/`.
 
 The old `artifacts/worktrees/ep-yfinance-prod` location was removed during the
 September 18 cleanup while the heartbeat still referenced it. Check Codex
