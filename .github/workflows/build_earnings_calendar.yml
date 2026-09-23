@@ -1,13 +1,7 @@
-name: Build Earnings Calendar + Analyst Grades
-run-name: "Build Earnings Calendar + Analyst Grades — ${{ inputs.automation_token || 'manual' }}"
+name: Build Earnings Calendar
+run-name: "Build Earnings Calendar — ${{ inputs.automation_token || 'manual' }}"
 
-# Refreshes two FMP-sourced parquets and uploads them to R2 so downstream
-# workflows (daily_scan, portfolio_report, the cloud backtester) can pull
-# the same caches:
-#   - data/earnings_calendar.parquet  (EPS / revenue actuals, estimates,
-#                                       beat-size + YoY derived columns)
-#   - data/analyst_grades.parquet     (full /stable/grades event log:
-#                                       upgrade / downgrade / maintain rows)
+# Refresh earnings only. Analyst grades retired 2026-09-23; history retained.
 # Runs once per weekday after market close and before the daily_scan
 # morning run that needs the freshest forward dates.
 
@@ -51,12 +45,3 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/build_earnings_calendar.py
-
-      - name: Build + upload analyst grades
-        env:
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: python scripts/build_analyst_grades.py

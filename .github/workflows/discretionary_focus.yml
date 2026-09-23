@@ -32,6 +32,8 @@ env:
 
 jobs:
   build-publish-email:
+    # Retired by owner, 2026-09-23. Retain historical workflow runs.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
