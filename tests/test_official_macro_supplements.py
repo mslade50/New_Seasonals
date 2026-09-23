@@ -2,7 +2,8 @@ import pandas as pd
 import pytest
 
 from official_macro_supplements import (discover_release, parse_ism, parse_adp,
-    parse_retail_ex_autos, claims_release_schedule)
+    parse_retail_ex_autos, claims_release_schedule, parse_nyfed_jolts_calendar,
+    parse_jolts_api, JOLTS_SERIES)
 
 META = dict(fetched_at="2026-09-23T18:00:00Z", digest="test-digest")
 ISM = "https://www.prnewswire.com/news-releases/example.html"
@@ -87,3 +88,39 @@ def test_claims_before_release_and_stale_schedule():
     due, _ = claims_release_schedule(claims(), as_of="2026-11-25T13:00:00Z")
     assert due == pd.Timestamp("2026-11-19T13:30:00Z")
     with pytest.raises(ValueError): claims_release_schedule(claims(), as_of="2027-01-07T15:00:00Z")
+
+
+def jolts_calendar():
+    return '''September 2026 (all Eastern Time)
+    <table><td><div>01<br/><a>JOLTS</a><br/>(10:00)<a>Other event</a>(10:30)</div></td>
+    <td><div>29<br/><a>Other event</a>(08:30)<a>JOLTS</a><br/>(10:00)</div></td></table>'''
+
+
+def test_jolts_reads_correct_clock_and_distinct_monthly_releases():
+    schedules = parse_nyfed_jolts_calendar(jolts_calendar(), "2026-09", source="https://www.newyorkfed.org/calendar")
+    assert [s["release_ts_utc"] for s in schedules] == [pd.Timestamp("2026-09-01T14:00:00Z"), pd.Timestamp("2026-09-29T14:00:00Z")]
+    payload = {"status": "REQUEST_SUCCEEDED", "Results": {"series": [
+        {"seriesID": JOLTS_SERIES, "data": [{"year": "2026", "period": "M07", "value": "7130"}]}]}}
+    rows, upcoming = parse_jolts_api(payload, schedules, **META)
+    assert rows[0]["actual"] == 7130 and rows[0]["reference_period"] == "2026-07"
+    assert rows[0]["release_time_source"] == "https://www.newyorkfed.org/calendar"
+    assert upcoming["release_ts_utc"] == pd.Timestamp("2026-09-29T14:00:00Z")
+    payload["Results"]["series"][0]["data"][0]["period"] = "M06"
+    with pytest.raises(ValueError, match="stale"):
+        parse_jolts_api(payload, schedules, **META)
+
+
+def test_jolts_calendar_wrong_month_or_missing_time_fails():
+    with pytest.raises(ValueError):
+        parse_nyfed_jolts_calendar(jolts_calendar(), "2026-10", source="https://www.newyorkfed.org/calendar")
+    with pytest.raises(ValueError):
+        parse_nyfed_jolts_calendar(jolts_calendar().replace("(10:00)", "TBA"), "2026-09", source="https://www.newyorkfed.org/calendar")
+
+
+def test_jolts_does_not_attach_stale_values_to_new_release():
+    schedules = parse_nyfed_jolts_calendar(jolts_calendar(), "2026-09", source="https://www.newyorkfed.org/calendar")
+    schedules += [dict(release_ts_utc=pd.Timestamp("2026-11-03T15:00:00Z"), source="https://www.newyorkfed.org/calendar")]
+    payload = {"status": "REQUEST_SUCCEEDED", "Results": {"series": [
+        {"seriesID": JOLTS_SERIES, "data": [{"year": "2026", "period": "M07", "value": "7130"}]}]}}
+    with pytest.raises(ValueError, match="stale"):
+        parse_jolts_api(payload, schedules, fetched_at="2026-09-29T15:00:00Z", digest="test")
