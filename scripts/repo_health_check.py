@@ -69,7 +69,6 @@ CRITICAL_AUTOMATION_JOBS: dict[str, int] = {
     "scan_am": 1,
     "private_site_am": 1,
     "shared_site_am": 1,
-    "discretionary_focus": 1,
     "execution_report": 2,
     "master_prices_pm": 1,
     "breadth_pm": 1,
@@ -90,7 +89,6 @@ CRITICAL_AUTOMATION_JOBS: dict[str, int] = {
 
 LOCAL_PIPELINE_MAX_BD: dict[str, int] = {
     "premarket": 2,
-    "discretionary": 2,
     "execution": 2,
     "postclose": 2,
     "indicator": 8,

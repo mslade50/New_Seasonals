@@ -57,7 +57,6 @@ $PipelineSpecs = @(
     # 05:45, not 05:30: master_prices_am holds a 70-minute lease, so a 04:10
     # claim is still live at 05:30 and the retry would skip the stalled job.
     [pscustomobject]@{ Id = 'premarket-retry'; Time = '05:45:00'; DaysMask = 62; Description = 'Weekday premarket local second chance (receipt-gated re-run, no GitHub dependency)' },
-    [pscustomobject]@{ Id = 'discretionary';   Time = '08:35:00'; DaysMask = 62; Description = 'Weekday research-only discretionary focus pipeline' },
     [pscustomobject]@{ Id = 'inventory-close'; Time = '16:05:00'; DaysMask = 62; Description = 'Weekday closing Primary inventory and NAV capture for next-session OLV sizing' },
     [pscustomobject]@{ Id = 'execution';       Time = '16:30:00'; DaysMask = 62; Description = 'Weekday execution reporting pipeline' },
     [pscustomobject]@{ Id = 'postclose';       Time = '17:10:00'; DaysMask = 62; Description = 'Weekday post-close data, reports, signals, and cloud-deploy handoff pipeline' },

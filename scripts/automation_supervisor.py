@@ -596,93 +596,16 @@ def build_catalog() -> dict[str, PipelineSpec]:
         ),
     )
 
+    # Retired by owner on 2026-09-23. Keep the legacy ID as an inert
+    # compatibility entry for old task definitions and manual dispatches.
     discretionary = PipelineSpec(
         id="discretionary",
-        description="Research-only 0-2 name premarket attention list",
+        description="Retired Discretionary Focus (no work)",
         cadence="weekdays",
         run_at_et=dt.time(8, 35),
         fallback_at_et=dt.time(8, 50),
         fallback_until_et=dt.time(9, 20),
-        jobs=(
-            JobSpec(
-                id="discretionary_focus",
-                description="Build, publish, and email the research-only focus list",
-                commands=(
-                    _py(
-                        "gate NYSE delivery window",
-                        "scripts/check_discretionary_focus_session.py",
-                        "--delivery-window",
-                        "--require-allowed",
-                    ),
-                    _py("pull discretionary inputs", "scripts/pull_discretionary_focus_inputs.py"),
-                    _py(
-                        "refresh isolated overflow prices",
-                        "scripts/build_overflow_prices.py",
-                        "--no-upload",
-                        timeout=2700,
-                    ),
-                    _py(
-                        "refresh isolated overflow earnings",
-                        "scripts/build_earnings_calendar.py",
-                        "--overflow-staging",
-                        "--fail-on-fetch-errors",
-                        "--no-upload",
-                        timeout=2700,
-                    ),
-                    _py(
-                        "build FINAL research shortlist",
-                        "scripts/build_discretionary_focus.py",
-                        "--phase",
-                        "FINAL",
-                        "--fetch-news",
-                        "--output",
-                        "data/discretionary_focus/current.json",
-                        timeout=2700,
-                    ),
-                    _py(
-                        "recheck NYSE delivery window",
-                        "scripts/check_discretionary_focus_session.py",
-                        "--delivery-window",
-                        "--require-allowed",
-                    ),
-                    _py(
-                        "publish discretionary focus",
-                        "scripts/publish_discretionary_focus.py",
-                        "--input",
-                        "data/discretionary_focus/current.json",
-                        side_effecting=True,
-                    ),
-                    _py(
-                        "send at-most-once focus email",
-                        "scripts/send_discretionary_focus_email.py",
-                        "--input",
-                        "data/discretionary_focus/current.json",
-                        "--receipt",
-                        "data/discretionary_focus/email_receipt.json",
-                        "--persist-receipt-r2",
-                        side_effecting=True,
-                    ),
-                ),
-                workflow=WorkflowSpec(
-                    "discretionary_focus.yml", (("delivery_mode", "publish_and_email"),), 2700
-                ),
-                required_env=R2_ENV + ("FMP_API_KEY",) + EMAIL_ENV,
-                local_gate="discretionary_delivery_window",
-                outputs=(
-                    _out(
-                        "data/discretionary_focus/current.json",
-                        "discretionary_focus/current.json",
-                        minimum=50,
-                    ),
-                    _out(
-                        "data/discretionary_focus/email_receipt.json",
-                        "discretionary_focus/email_receipt.json",
-                        minimum=50,
-                    ),
-                ),
-                duplicate_sensitive=True,
-            ),
-        ),
+        jobs=(),
     )
 
     inventory_close = PipelineSpec(
@@ -854,17 +777,11 @@ def build_catalog() -> dict[str, PipelineSpec]:
             ),
             JobSpec(
                 id="earnings_and_grades",
-                description="Refresh FMP earnings calendar and analyst-grade history",
+                description="Refresh FMP earnings calendar; analyst grades retired",
                 commands=(
                     _py(
                         "build earnings calendar",
                         "scripts/build_earnings_calendar.py",
-                        timeout=3600,
-                        side_effecting=True,
-                    ),
-                    _py(
-                        "build analyst grades",
-                        "scripts/build_analyst_grades.py",
                         timeout=3600,
                         side_effecting=True,
                     ),
@@ -874,7 +791,6 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 rerun_safe=True,
                 outputs=(
                     _out("data/earnings_calendar.parquet", "earnings_calendar.parquet", minimum=10_000),
-                    _out("data/analyst_grades.parquet", "analyst_grades.parquet", minimum=1_000),
                 ),
             ),
             JobSpec(

@@ -169,19 +169,7 @@ def build_grades(tickers, api_key, output_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Backfill analyst grades from FMP.")
-    parser.add_argument("--tickers", nargs="+", default=None,
-                        help="Specific tickers (default: full CSV_UNIVERSE)")
-    parser.add_argument("--output", default=OUTPUT_PATH,
-                        help=f"Output parquet path (default: {OUTPUT_PATH})")
-    args = parser.parse_args()
-
-    api_key = load_env()
-    tickers = args.tickers if args.tickers else sorted(set(CSV_UNIVERSE))
-    if not tickers:
-        raise SystemExit("No tickers to process.")
-
-    build_grades(tickers, api_key, args.output)
+    print("Analyst-grade collection retired by owner on 2026-09-23; history retained.")
 
 
 if __name__ == "__main__":
