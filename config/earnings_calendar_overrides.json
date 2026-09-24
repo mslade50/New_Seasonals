@@ -1,0 +1,23 @@
+{
+  "overrides": [
+    {
+      "ticker": "SA",
+      "date": "2026-09-23",
+      "fiscal_date": "2026-06-30",
+      "action": "exclude",
+      "expires": "2026-09-30",
+      "evidence": "https://www.sec.gov/Archives/edgar/data/1231346/000106299326004389/form6k.htm",
+      "reason": "June 30, 2026 quarterly results were already released/filed August 13, 2026. Exclude only this duplicate Alpha period/date, not other SA events."
+    },
+    {
+      "ticker": "UEC",
+      "date": "2026-09-23",
+      "fiscal_date": "2026-07-31",
+      "action": "reschedule",
+      "new_date": "2026-09-29",
+      "expires": "2026-10-13",
+      "evidence": "https://www.uraniumenergy.com/news/releases/2026/index.php?content_id=1140",
+      "reason": "Issuer September 22 announcement confirms September 29 before market open for fiscal 2026 results."
+    }
+  ]
+}
