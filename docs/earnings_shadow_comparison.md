@@ -132,7 +132,7 @@ When using `--basetemp`, select a new path under `artifacts/` on every run so
 pytest never removes an existing test directory.
 
 
-## Prepared production-transition observer, September 24
+## Active production-transition observer, September 24
 
 After activation, use `--fmp-baseline-dir` with a fresh independent FMP reference;
 the observer rejects production-derived calendars, including fallback generations.
@@ -142,6 +142,11 @@ Existing successful same-day authenticated artifacts seed that snapshot without
 another request. Failed attempts remain claimed; no automatic quota retry occurs.
 The snapshot object contains the CSV and its capture time/hash, never the API key.
 Shared snapshot writes are observation evidence, not canonical calendar writes.
-The existing observer checkout and automation must be updated with this source
-and scope before production activation; current monitor instructions alone do not
-authorize that new snapshot-writing path.
+The owner approved activation. The monitor now uses the existing production
+runtime at `36cbf9c0234e26743c10b91af9a57647710f83c6`, with MAIN as config-root,
+and explicitly authorizes this shared snapshot prefix. The old observer checkout
+must not make live Alpha calls. It runs weekdays at 06:30 and 18:30 ET: independent
+earnings reference/comparison in the morning, production receipts and official
+macro comparison in the evening. Historical schedule and retirement statements
+above describe earlier observations; Focus and grades remain retired. See
+[fmp_cutover_2026-09-24.md](fmp_cutover_2026-09-24.md) for the live fallback outcome.

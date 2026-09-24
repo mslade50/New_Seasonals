@@ -1,5 +1,11 @@
 # Current operations entry point
 
+September 24 data-provider trial: [production evidence and monitoring](fmp_cutover_2026-09-24.md).
+Official economic releases are active for 29 series. The Alpha-primary earnings
+trial selected an explicit FMP fallback on its first run because RZLT disappeared
+without confirmation; earnings are not yet independent of FMP. Runtime/fallback
+SHA is `36cbf9c0234e26743c10b91af9a57647710f83c6`.
+
 Latest priority-3 inventory work: [Primary OLV cutover](olv_inventory_cutover_2026-09-09.md).
 Its prepared source and reconciled opening candidate are not yet active.
 

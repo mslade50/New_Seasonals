@@ -1,12 +1,12 @@
 # Alpha earnings cutover — prepared September 22, 2026
 
-**Prepared source; not activated.** September 24 trial preparation sets the
-working source config to Alpha, but production remains on runtime
-`dd853d0892f6663feab3426be66c7511fe3d7de9`, fallback tag
-`automation-runtime-2026-09-23.research-retirement`, running FMP. See the
-[September 24 trial](fmp_cutover_2026-09-24.md) for current evidence and approval.
-The September 22 findings below are dated historical evidence, not current
-provider discrepancies. No canonical earnings object or runtime pin has changed.
+**September 24 trial activated; first run selected FMP fallback.** Production
+runtime `36cbf9c0234e26743c10b91af9a57647710f83c6` requests Alpha but refused
+an unconfirmed disappearance of RZLT's expected September 24 release. It published
+a verified, explicitly degraded FMP fallback. Official macro releases are active.
+See the [September 24 trial](fmp_cutover_2026-09-24.md) for exact evidence,
+monitoring and remaining expiry blockers. September 22 findings below are dated
+historical evidence, not a statement of current discrepancies.
 
 ## Prepared behavior
 
