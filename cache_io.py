@@ -26,8 +26,11 @@ Usage
     upload_from_local("data/earnings_calendar.parquet", "earnings_calendar.parquet")
 """
 
+import glob
 import os
 import sys
+import time
+import uuid
 from typing import Optional
 
 # Auto-load .env from the project root so local entry points (Streamlit,
@@ -315,8 +318,15 @@ def download_to_local(key: str, local_path: str) -> bool:
     parent = os.path.dirname(os.path.abspath(local_path))
     if parent:
         os.makedirs(parent, exist_ok=True)
+    # boto3 download_file() on Windows removes the existing target before
+    # renaming its temp file into place (s3transfer.compat.rename_file), so a
+    # transient lock on the rename loses the prior file. Download to our own
+    # unique temp path instead and swap it in with os.replace, which never
+    # leaves the target missing.
+    tmp_path = f"{local_path}.{uuid.uuid4().hex[:8]}.download"
     try:
-        client.download_file(bucket, key, local_path)
+        client.download_file(bucket, key, tmp_path)
+        _replace_with_retry(tmp_path, local_path)
         size = os.path.getsize(local_path)
         print(f"[cache_io] downloaded r2://{bucket}/{key} -> {local_path} ({size:,} bytes)")
         return True
@@ -334,6 +344,46 @@ def download_to_local(key: str, local_path: str) -> bool:
         if not is_not_found:
             print(f"[cache_io] download failed for r2://{bucket}/{key}: {e}", file=sys.stderr)
         return False
+    finally:
+        _remove_temp_files(tmp_path)
+
+
+_REPLACE_ATTEMPTS = 10
+_REPLACE_BASE_DELAY_S = 0.25
+_REPLACE_MAX_DELAY_S = 3.0
+_LOCK_WINERRORS = {5, 32, 33}
+
+
+def _is_lock_error(e: OSError) -> bool:
+    return isinstance(e, PermissionError) or getattr(e, "winerror", None) in _LOCK_WINERRORS
+
+
+def _replace_with_retry(src: str, dst: str) -> None:
+    # 10 attempts, backoff 0.25 -> 3.0 s, about 19 s of waiting in total.
+    delay = _REPLACE_BASE_DELAY_S
+    for attempt in range(1, _REPLACE_ATTEMPTS + 1):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as e:
+            if attempt == _REPLACE_ATTEMPTS or not _is_lock_error(e):
+                raise
+            print(f"[cache_io] replace {src} -> {dst} locked "
+                  f"(attempt {attempt}/{_REPLACE_ATTEMPTS}): {e}; retrying in {delay:.2f}s",
+                  file=sys.stderr)
+            time.sleep(delay)
+            delay = min(delay * 2, _REPLACE_MAX_DELAY_S)
+
+
+def _remove_temp_files(tmp_path: str) -> None:
+    # s3transfer writes its own "<tmp_path>.<random>" intermediate; sweep it too.
+    for path in [tmp_path, *glob.glob(glob.escape(tmp_path) + ".*")]:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            print(f"[cache_io] could not remove temp file {path}: {e}", file=sys.stderr)
 
 
 def head(key: str) -> Optional[dict]:
