@@ -16,7 +16,7 @@ from .schema import parse_timestamp
 
 NY = ZoneInfo("America/New_York")
 SCHEMA = "EP_MORNING_PROGRESS_V1"
-STAGES = {"DISCOVERY", "RESEARCH", "REPORT_READY", "PAUSED_BY_USER"}
+STAGES = {"DISCOVERY", "RESEARCH", "REPORT_READY", "RETRY_PENDING", "PAUSED_BY_USER"}
 MODE = "AGENT_GOOGLE_SEARCH_AND_READ"
 
 
@@ -180,6 +180,8 @@ def deliver_once(payload, settings, root: Path, *, now_fn=None) -> str:
             instant = _clock(now_fn())
             if target != instant.astimezone(NY).date().isoformat():
                 raise EmailDeliveryError("Morning delivery target date changed before submission")
+            if payload.kind == "failure" and instant.astimezone(NY).time() < time(9, 30):
+                raise EmailDeliveryError("Morning failure email deferred until the 09:30 ET deadline; checkpoint RETRY_PENDING")
             if payload.kind == "morning":
                 generated = parse_timestamp(payload.metadata["generated_at"])
                 if (payload.metadata.get("research_mode") != MODE or not time(4) <= instant.astimezone(NY).time() < time(9, 30)

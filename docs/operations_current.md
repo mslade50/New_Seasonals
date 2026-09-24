@@ -17,7 +17,19 @@ The long strategy descriptions in AGENTS.md and older notes are historical conte
 
 Use the private-site build skill for every production site operation. Production inputs come from R2 through the cloud workflow. Retain historical scratch evidence; put machine-generated validation and candidate outputs under ignored artifacts.
 
-### EP morning research runtime (restored 2026-09-22)
+### EP morning robustness (2026-09-24)
+
+Latest repair: [deterministic preparation, retries and deadline delivery](ep_morning_robustness.md).
+The existing protected runtime now includes browser-independent public discovery,
+Windows preparation retries and an independent Windows deadline check. The exact
+installed commit is pinned in both Codex automation prompts and both Windows task
+actions. Early errors retain `RETRY_PENDING`; the sender forbids failure email
+before 09:30 ET. Source-review and duplicate-delivery gates remain mandatory.
+Read the September 24 release evidence under `artifacts/ep-robustness-20260924/`
+for installation/verification; a future live morning is still required to confirm
+end-to-end operational success. The following September 22–23 notes are historical.
+
+### EP morning research runtime (restored 2026-09-22; historical)
 
 The active Codex heartbeat `ep-after-hours-shadow-queue` (EP Night and Morning
 Shadow Process) uses the permanent worktree

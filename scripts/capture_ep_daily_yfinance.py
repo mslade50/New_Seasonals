@@ -27,6 +27,7 @@ from episodic_pivot.premarket import (
 )
 from episodic_pivot.schema import PremarketSnapshot, parse_timestamp
 from episodic_pivot.tradingview import result_counts_are_verified
+from episodic_pivot.bulk_premarket import RECORD_TYPE as BULK_RECORD_TYPE, validate_capture
 
 _IBKR_RECORD_TYPE = "EP_IBKR_PREMARKET_CAPTURE_V1"
 _TRADINGVIEW_SCREEN_BY_SESSION = {
@@ -73,18 +74,22 @@ def _load_discovery_inputs(
         wrapper_provider = str(raw.get("provider", "")).upper()
         wrapper_mode = str(raw.get("mode", "")).upper()
         wrapper_record_type = str(raw.get("record_type", "")).upper()
-        is_tradingview = wrapper_provider == "TRADINGVIEW"
+        is_bulk = wrapper_record_type == BULK_RECORD_TYPE
+        is_tradingview = wrapper_provider == "TRADINGVIEW" and not is_bulk
         is_ibkr = (
             wrapper_provider == "IBKR"
             or wrapper_mode == "IBKR_READ_ONLY_SHADOW"
             or wrapper_record_type == _IBKR_RECORD_TYPE
         )
-        if not (is_tradingview or is_ibkr):
+        if not (is_tradingview or is_ibkr or is_bulk):
             raise ValueError(
                 "daily yfinance capture accepts validated TradingView or read-only IBKR inputs only"
             )
         rows = raw["snapshots"]
-        if is_tradingview:
+        if is_bulk:
+            validate_capture(raw)
+            saw_premarket_tradingview = True
+        elif is_tradingview:
             wrapper_session = str(raw.get("session", "")).strip().lower()
             wrapper_screen = str(raw.get("saved_screen_id", "")).strip()
             if wrapper_session != "premarket":

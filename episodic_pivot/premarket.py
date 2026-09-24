@@ -60,9 +60,10 @@ def premarket_move_is_verified(
     provider = snapshot.provider.strip().upper()
     source = snapshot.source.strip().upper()
     if provider == "TRADINGVIEW":
+        bulk = source == "TRADINGVIEW_PUBLIC_BULK"
         if (
-            source != "TRADINGVIEW_BROWSER_EXPORT"
-            or (snapshot.saved_screen_id not in _TRADINGVIEW_PREMARKET_SCREEN_IDS)
+            (source != "TRADINGVIEW_BROWSER_EXPORT" and not bulk)
+            or (not bulk and snapshot.saved_screen_id not in _TRADINGVIEW_PREMARKET_SCREEN_IDS)
             or (
                 snapshot.reported_change_pct is None
                 and snapshot.reported_move_dollars is None
@@ -70,7 +71,10 @@ def premarket_move_is_verified(
         ):
             return False
         observed_value = snapshot.observed_at
-        expected_verification_source = "TRADINGVIEW_BROWSER_EXPORT"
+        if bulk and (not snapshot.source_file_sha256 or not snapshot.reported_result_count
+                     or snapshot.reported_result_count != snapshot.extracted_row_count):
+            return False
+        expected_verification_source = source
     elif provider == "IBKR":
         if source != "IBKR_TARGETED_READ_ONLY":
             return False

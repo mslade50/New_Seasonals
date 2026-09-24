@@ -1,5 +1,30 @@
 # EP morning continuity and recovery
 
+September 24 robustness repair: see [scheduled preparation and recovery](ep_morning_robustness.md).
+Start the morning with `python scripts/prepare_ep_morning.py --capture` after
+the pinned runtime check. Windows Task Scheduler independently runs the same
+command every ten minutes from 08:20 through 09:20 ET. A per-session preparation
+lock prevents concurrent captures. An existing frozen queue is reused, never
+replaced; resume its saved snapshot and notes through the full source-review rules.
+The direct public TradingView response is validated and retained separately from
+browser exports. It is not fabricated browser/count evidence. Use the existing
+validated browser/IBKR fallback only when direct preparation remains unavailable.
+
+Before 09:30, capture/browser/news failures are **retryable local progress**:
+save a sanitized local note, checkpoint `--stage RETRY_PENDING`, and end with
+`EP morning retry pending; saved work will resume before the deadline.` Never send
+an early failure email. The guarded sender enforces this cutoff before SMTP DATA.
+The completion guard resumes idle unfinished work at the next recovery slot.
+Do not clear explicit pauses or recreate the frozen queue. Existing historical
+failure receipts still block second emails; never relabel or remove a receipt.
+
+The independent Windows deadline task runs at 09:40 and 09:45 using
+`scripts/finish_ep_morning.py --env-file <existing-env-file> --send`. It only
+sends for `DEADLINE_MISSED` during 09:30–09:50 ET, using the same delivery lock,
+recipient configuration and durable receipt as the agent guard. All other
+terminal, paused or ambiguous states remain untouched. No candidate or test
+email is sent by preparation or the deadline task.
+
 An active morning run ends only with a confirmed morning email receipt, a confirmed
 operational failure receipt, an explicitly reported uncertain delivery, or an
 explicit user pause. Passing tests, source capture, a research queue and an answer
@@ -109,4 +134,6 @@ treated as a missing receipt. Retain sanitized local error evidence.
 
 This guard is quiet on unchanged/successful states. Report meaningful failures,
 required decisions or failed recovery dispatches only. Both heartbeats depend on
-the local Codex scheduler being available; this is not an external uptime service.
+the local Codex scheduler being available. Windows preparation and deadline tasks
+are independent of Codex but still require this computer to be awake and the user
+logged in. Source review still requires Codex and accessible Google/source pages.

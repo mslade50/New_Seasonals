@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -83,6 +84,7 @@ def test_invalid_receipt_cannot_claim_success(tmp_path, mutation):
     elif mutation == "postopen": value["sent_at"] = NOW.replace(hour=14).isoformat()
     elif mutation == "mode": value["metadata"]["research_mode"] = "OFFLINE"
     path.write_text("{" if mutation == "corrupt" else json.dumps(value))
+    os.utime(path, (NOW.timestamp(), NOW.timestamp()))
     assert mc.inspect_morning(tmp_path, TARGET, now=NOW)["status"] == "DELIVERY_UNCERTAIN"
 
 
@@ -232,6 +234,26 @@ def test_failure_after_report_deadline_still_allowed(tmp_path, smtp):
     result = mc.deliver_once(payload(tmp_path, kind="failure"), SETTINGS, tmp_path,
                              now_fn=lambda: NOW.replace(hour=13, minute=40))
     assert result == "SENT" and len(smtp) == 1
+
+
+def test_sept24_early_failure_cannot_end_retry_window(tmp_path, smtp):
+    with pytest.raises(mail.EmailDeliveryError, match="deadline"):
+        mc.deliver_once(payload(tmp_path, kind="failure"), SETTINGS, tmp_path,
+                        now_fn=lambda: NOW.replace(minute=23))
+    assert not smtp
+    assert mc.inspect_morning(tmp_path, TARGET, now=NOW)["status"] == "RESUME"
+    assert mc.claim_resume(tmp_path, TARGET, now=NOW)
+
+
+def test_retry_checkpoint_retains_frozen_research(tmp_path):
+    queue = tmp_path / "queue.json"
+    queue.write_text("{}")
+    mc.checkpoint(tmp_path, TARGET, "RESEARCH", {"queue": queue}, now=NOW)
+    mc.checkpoint(tmp_path, TARGET, "RETRY_PENDING", {}, now=NOW)
+    state = mc.inspect_morning(tmp_path, TARGET, now=NOW)
+    assert state["status"] == "RESUME"
+    assert state["progress"]["stage"] == "RETRY_PENDING"
+    assert state["progress"]["artifacts"]["queue"]["path"] == str(queue)
 
 
 def test_transport_disconnect_retains_claim_and_blocks_recovery(tmp_path, smtp, monkeypatch):
