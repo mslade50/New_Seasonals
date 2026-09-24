@@ -933,16 +933,16 @@ def build_catalog() -> dict[str, PipelineSpec]:
             ),
             JobSpec(
                 id="macro_releases",
-                description="Refresh normalized U.S. macro release history",
+                description="Refresh official U.S. macro release observations; preserve historical captures",
                 commands=(
                     _py(
                         "build macro release history",
-                        "scripts/build_macro_releases.py",
+                        "scripts/refresh_macro_releases.py",
                         side_effecting=True,
                     ),
                 ),
-                workflow=WorkflowSpec("build_macro_releases.yml", (("full", "false"),), 3600),
-                required_env=R2_ENV + ("FMP_API_KEY",),
+                workflow=WorkflowSpec("build_macro_releases.yml", (), 3600),
+                required_env=R2_ENV,
                 rerun_safe=True,
                 outputs=(
                     _out(

@@ -134,7 +134,7 @@ def claims_release_schedule(raw, *, as_of):
                      source=CLAIMS_SCHEDULE, schedule_basis="official_weekly_rule_with_holiday_exceptions")
 
 
-def parse_nyfed_jolts_calendar(raw, month, *, source):
+def parse_nyfed_calendar(raw, month, *, source, labels):
     """Read actual calendar cells; don't borrow another event's clock time."""
     soup = BeautifulSoup(raw, "html.parser")
     text = soup.get_text(" ", strip=True)
@@ -143,17 +143,48 @@ def parse_nyfed_jolts_calendar(raw, month, *, source):
     _match(month.strftime("%B") + r"\s+" + str(month.year), text)
     rows = []
     for link in soup.find_all("a"):
-        if link.get_text(" ", strip=True) != "JOLTS":
+        label = link.get_text(" ", strip=True)
+        if label not in labels:
             continue
         cell = link.find_parent("td")
         if cell is None:
-            raise ValueError("JOLTS link is not in a calendar cell")
+            raise ValueError("Release link is not in a calendar cell")
         day = int(_match(r"^\s*(\d{1,2})\b", cell.get_text(" ", strip=True))[1])
-        after = cell.get_text(" ", strip=True).split("JOLTS", 1)[1]
+        after = cell.get_text(" ", strip=True).split(label, 1)[1]
         clock = _match(r"^\s*\((\d{1,2}:\d{2})\)", after)[1]
-        rows.append(dict(event="jolts", release_ts_utc=release_time(f"{month}-{day:02d}", clock),
+        rows.append(dict(event=labels[label], release_ts_utc=release_time(f"{month}-{day:02d}", clock),
                          source=source, schedule_basis="nyfed_official_calendar"))
     return rows
+
+
+def parse_nyfed_jolts_calendar(raw, month, *, source):
+    return parse_nyfed_calendar(raw, month, source=source, labels={"JOLTS": "jolts"})
+
+
+def validate_bls_schedules(rows, schedules, captured):
+    """Independently cross-check static BLS period mapping against live NY Fed dates."""
+    from official_macro_releases import BLS_SERIES
+    captured = pd.Timestamp(captured)
+    upcoming = []
+    for family in ("cpi", "ppi", "nfp"):
+        stamps = [s for s in schedules if s["event"] == family]
+        due = [s for s in stamps if s["release_ts_utc"] <= captured]
+        future = [s for s in stamps if s["release_ts_utc"] > captured]
+        if not due or not future:
+            raise ValueError(f"{family} official schedule lacks a due or next release")
+        latest = max(due, key=lambda s: s["release_ts_utc"])
+        next_one = min(future, key=lambda s: s["release_ts_utc"])
+        if next_one["release_ts_utc"] > captured + pd.Timedelta(days=45):
+            raise ValueError(f"{family} next release is beyond supported calendar horizon")
+        relevant = [r for r in rows if r["event_id"] in BLS_SERIES and BLS_SERIES[r["event_id"]][1] == family]
+        if not relevant or any(r["release_ts_utc"] != latest["release_ts_utc"] for r in relevant):
+            raise ValueError(f"{family} observation missed the latest independently scheduled release")
+        for r in relevant:
+            r["release_time_crosscheck_source"] = latest["source"]
+            r["release_time_crosscheck_digest"] = latest.get("source_digest")
+            r["release_time_crosscheck_fetched_at"] = latest.get("source_fetched_at")
+        upcoming.append(next_one)
+    return upcoming
 
 
 def parse_jolts_api(payload, schedules, *, fetched_at, digest):
@@ -183,5 +214,7 @@ def parse_jolts_api(payload, schedules, *, fetched_at, digest):
                       source=f"https://api.bls.gov/publicAPI/v2/timeseries/data/{JOLTS_SERIES}",
                       fetched_at=fetched_at, digest=digest, unit="K", vintage="official_api_latest_vintage")
     row["release_time_source"] = release["source"]
+    row["release_time_digest"] = release.get("source_digest")
+    row["release_time_fetched_at"] = release.get("source_fetched_at")
     row["reference_mapping_basis"] = "latest_due_release_with_20_to_45_day_reference_lag_gate"
     return [row], min(upcoming, key=lambda s: s["release_ts_utc"])

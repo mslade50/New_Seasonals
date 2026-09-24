@@ -124,3 +124,18 @@ def test_jolts_does_not_attach_stale_values_to_new_release():
         {"seriesID": JOLTS_SERIES, "data": [{"year": "2026", "period": "M07", "value": "7130"}]}]}}
     with pytest.raises(ValueError, match="stale"):
         parse_jolts_api(payload, schedules, fetched_at="2026-09-29T15:00:00Z", digest="test")
+
+
+def test_bls_live_schedule_requires_due_and_next_and_detects_stale_mapping():
+    from official_macro_supplements import parse_nyfed_calendar, validate_bls_schedules
+    labels = {"Consumer Price Index": "cpi", "Producer Price Index (PPI)": "ppi", "Employment Situation": "nfp"}
+    raw = "September 2026 (all Eastern Time)<table>" + "".join(
+        f"<td>{day}<a>{label}</a>(08:30)</td>" for day in (4, 29) for label in labels) + "</table>"
+    schedules = parse_nyfed_calendar(raw, "2026-09", source="https://www.newyorkfed.org", labels=labels)
+    rows = [dict(event_id=e, release_ts_utc=pd.Timestamp("2026-09-04T12:30:00Z")) for e in ("cpi_mom", "ppi_mom", "nfp")]
+    assert len(validate_bls_schedules(rows, schedules, pd.Timestamp("2026-09-24T11:00:00Z"))) == 3
+    with pytest.raises(ValueError, match="due or next"):
+        validate_bls_schedules(rows, schedules[:3], pd.Timestamp("2026-09-24T11:00:00Z"))
+    newer = [dict(event="nfp", release_ts_utc=pd.Timestamp("2026-09-23T12:30:00Z"), source="https://www.newyorkfed.org")]
+    with pytest.raises(ValueError, match="missed"):
+        validate_bls_schedules(rows, schedules+newer, pd.Timestamp("2026-09-24T11:00:00Z"))

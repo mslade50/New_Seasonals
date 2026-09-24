@@ -1,9 +1,8 @@
 name: Build Macro Release History
-run-name: "Build Macro Release History — ${{ inputs.automation_token || 'manual' }}"
+run-name: "Build Macro Release History - ${{ inputs.automation_token || 'manual' }}"
 
-# Captures U.S. economic actuals, consensus estimates, prior values, and
-# release timestamps from FMP.  The normalized cache is stored in R2 for
-# event studies; rows with released actuals are immutable once captured.
+# Official U.S. reported values and timestamps; frozen historical captures retained.
+# No FMP dependency, consensus generation or historical backfill.
 
 concurrency:
   group: ${{ github.workflow }}
@@ -20,11 +19,6 @@ on:
         required: false
         default: ''
         type: string
-      full:
-        description: 'Refetch the full FMP history from 2013'
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   build:
@@ -39,19 +33,12 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install pandas pyarrow requests boto3 python-dotenv
+        run: pip install pandas pyarrow requests boto3==1.43.23 python-dotenv beautifulsoup4 lxml -r requirements-official-data.txt
 
       - name: Build + upload macro release history
         env:
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          FULL_REFRESH: ${{ inputs.full || 'false' }}
-        shell: bash
-        run: |
-          args=()
-          if [[ "$FULL_REFRESH" == "true" ]]; then args+=(--full); fi
-          python scripts/build_macro_releases.py "${args[@]}"
-
+        run: python scripts/refresh_macro_releases.py

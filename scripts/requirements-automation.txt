@@ -6,3 +6,6 @@
 exchange-calendars
 google-auth
 pytest
+
+# Official economic release PDF parser.
+-r ../requirements-official-data.txt
