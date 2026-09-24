@@ -39,7 +39,7 @@ Set-Location $ProjectDir
 
 try {
     $ErrorActionPreference = "Continue"
-    $output = python scripts/build_earnings_calendar.py 2>&1
+    $output = python scripts/refresh_earnings_calendar.py 2>&1
     $output | Tee-Object -FilePath $LogFile -Append
     $ErrorActionPreference = "Stop"
 

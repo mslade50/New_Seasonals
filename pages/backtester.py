@@ -216,33 +216,9 @@ def compute_signed_earnings_offsets(df_dates, earnings_dates, holidays_d64):
 
 
 def _load_earnings_frame():
-    """Production earnings_calendar.parquet UNION the isolated overflow staging
-    file (earnings_calendar_overflow.parquet), each pulled from R2 if missing/
-    stale. Returns one concatenated DataFrame (possibly empty). The staging file
-    carries the new overflow names' earnings so the daily CSV_UNIVERSE rebuild
-    of production can't wipe them."""
-    prod = "data/earnings_calendar.parquet"
-    staging = "data/earnings_calendar_overflow.parquet"
-    try:
-        from earnings_filter import _refresh_from_r2_if_needed
-        _refresh_from_r2_if_needed(prod)
-    except Exception:
-        pass
-    try:
-        from cache_io import download_to_local
-        if (not os.path.exists(staging)) or (time.time() - os.path.getmtime(staging) > 18 * 3600):
-            download_to_local("earnings_calendar_overflow.parquet", staging)
-    except Exception:
-        pass
-    frames = []
-    for p in (prod, staging):
-        try:
-            frames.append(pd.read_parquet(p))
-        except Exception:
-            pass
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    """Same source precedence as the scanner; historical replay permits old data."""
+    from earnings_filter import load_earnings_frame
+    return load_earnings_frame()
 
 
 @st.cache_resource

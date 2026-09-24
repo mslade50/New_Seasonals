@@ -1,7 +1,9 @@
 name: Build Earnings Calendar
 run-name: "Build Earnings Calendar — ${{ inputs.automation_token || 'manual' }}"
 
-# Refresh earnings only. Analyst grades retired 2026-09-23; history retained.
+# Provider selection lives in config/earnings_calendar.json, shared with the
+# pinned local runtime. Alpha retains FMP for actuals confirmation/fallback.
+# Analyst-grade collection is retired; existing historical files are retained.
 # Runs once per weekday after market close and before the daily_scan
 # morning run that needs the freshest forward dates.
 
@@ -35,13 +37,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas pyarrow requests boto3
+          pip install pandas pyarrow requests boto3==1.43.23 python-dotenv
 
       - name: Build + upload earnings calendar
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: python scripts/build_earnings_calendar.py
+        run: python scripts/refresh_earnings_calendar.py

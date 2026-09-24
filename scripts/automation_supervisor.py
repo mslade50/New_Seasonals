@@ -777,11 +777,12 @@ def build_catalog() -> dict[str, PipelineSpec]:
             ),
             JobSpec(
                 id="earnings_and_grades",
-                description="Refresh FMP earnings calendar; analyst grades retired",
+                # Keep the receipt ID stable for dependent jobs and fallback leases.
+                description="Refresh earnings calendar using the configured provider",
                 commands=(
                     _py(
                         "build earnings calendar",
-                        "scripts/build_earnings_calendar.py",
+                        "scripts/refresh_earnings_calendar.py",
                         timeout=3600,
                         side_effecting=True,
                     ),

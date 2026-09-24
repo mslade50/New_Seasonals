@@ -1,5 +1,11 @@
 # Alpha Vantage earnings shadow comparison
 
+September 22 update: [the production adapter is prepared but gated](earnings_alpha_cutover.md).
+After activation, refresh an independent FMP reference using
+`scripts/refresh_earnings_calendar.py --reference-only --no-upload --output-dir artifacts/earnings_reference/NEW_RUN`
+and pass that directory with `--fmp-baseline-dir`. This observer now refuses an
+Alpha production calendar as its FMP control, preventing false self-agreement.
+
 This is a separate observer. Production continues to use FMP. Nothing in this
 tool writes production data, uploads, stages orders, or switches providers.
 
@@ -124,3 +130,18 @@ financial enrichment/news build. These should be accounted for before cancelling
 Verification: `python -m pytest tests/test_earnings_shadow.py -q -p no:cacheprovider`.
 When using `--basetemp`, select a new path under `artifacts/` on every run so
 pytest never removes an existing test directory.
+
+
+## Prepared production-transition observer, September 24
+
+After activation, use `--fmp-baseline-dir` with a fresh independent FMP reference;
+the observer rejects production-derived calendars, including fallback generations.
+The live authenticated path uses `alpha_calendar_snapshot.py`: an atomic daily
+R2 claim coordinates one request across the producer, observer and cloud backup.
+Existing successful same-day authenticated artifacts seed that snapshot without
+another request. Failed attempts remain claimed; no automatic quota retry occurs.
+The snapshot object contains the CSV and its capture time/hash, never the API key.
+Shared snapshot writes are observation evidence, not canonical calendar writes.
+The existing observer checkout and automation must be updated with this source
+and scope before production activation; current monitor instructions alone do not
+authorize that new snapshot-writing path.

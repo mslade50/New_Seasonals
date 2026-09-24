@@ -21,6 +21,7 @@ indices, futures, and FX should never be silently killed by a stock-only filter.
 import os
 import numpy as np
 import pandas as pd
+from earnings_calendar_provider import combine_calendars, is_authoritative, validate_freshness
 
 from trading_calendar import NYSE_HOLIDAYS
 
@@ -78,10 +79,10 @@ def _refresh_from_r2_if_needed(local_path, r2_key="earnings_calendar.parquet"):
         download_to_local(r2_key, local_path)
 
 
-def load_earnings_dates_map(path=None):
-    """Load earnings calendar parquet → {ticker: np.array of datetime64[D]}.
+def load_earnings_frame(path=None, overflow_path=None, *, require_fresh=False):
+    """Load the authoritative frame, or the legacy main/overflow union.
 
-    Returns empty dict if the parquet is MISSING — callers should treat that
+    Returns an empty frame if the parquet is MISSING — legacy callers treat that
     as "filter off" (every ticker passes through). A file that exists but is
     unreadable or lost its schema RAISES instead: an empty map silently
     disables the whole OVS ±10 TD blackout (and the earnings size overrides)
@@ -108,15 +109,25 @@ def load_earnings_dates_map(path=None):
     # staging file so OVS blackout covers the dynamic overflow names (their
     # earnings are absent from production). Skipped when a caller passes an
     # explicit path (e.g. tests).
-    if path is None:
-        _refresh_from_r2_if_needed(_OVERFLOW_PARQUET_PATH, "earnings_calendar_overflow.parquet")
+    staging = overflow_path or (_OVERFLOW_PARQUET_PATH if path is None else None)
+    authoritative = bool(frames and is_authoritative(frames[0]))
+    if staging and not authoritative:
+        _refresh_from_r2_if_needed(staging, "earnings_calendar_overflow.parquet")
         try:
-            frames.append(pd.read_parquet(_OVERFLOW_PARQUET_PATH))
+            frames.append(pd.read_parquet(staging))
         except Exception:
             pass
     if not frames:
-        return {}
-    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+        return pd.DataFrame()
+    df = combine_calendars(frames[0], frames[1] if len(frames) > 1 else None)
+    if require_fresh:
+        validate_freshness(df)
+    return df
+
+
+def load_earnings_dates_map(path=None, overflow_path=None):
+    """Read the canonical calendar, with legacy overflow only when applicable."""
+    df = load_earnings_frame(path, overflow_path, require_fresh=(path is None or overflow_path is not None))
     if df.empty or "ticker" not in df.columns or "date" not in df.columns:
         return {}
     df = df.copy()

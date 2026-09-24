@@ -197,6 +197,7 @@ def main(argv=None) -> int:
     parser.add_argument("--alpha-csv", type=Path, help="Offline replay; makes no API request")
     parser.add_argument("--demo", action="store_true", help="Public demo feed; exploratory only")
     parser.add_argument("--as-of", help="Offline replay date only; live runs use today's New York date")
+    parser.add_argument("--fmp-baseline-dir", type=Path, help="Independent FMP reference directory; required after Alpha production activation")
     args = parser.parse_args(argv)
     if args.as_of and not args.alpha_csv:
         parser.error("--as-of requires --alpha-csv; live snapshots cannot be backdated")
@@ -211,16 +212,17 @@ def main(argv=None) -> int:
         snapshots, meta = [], []
         universe = set(CSV_UNIVERSE)
         for name in ("earnings_calendar.parquet", "earnings_calendar_overflow.parquet"):
-            path = config / "data" / name
+            path = (args.fmp_baseline_dir or config / "data") / name
             if not path.exists() and "overflow" in name:
                 continue
             if not path.exists():
                 raise ShadowError("No FMP baseline available at config-root/data/earnings_calendar.parquet")
             payload = path.read_bytes()
             frame = pd.read_parquet(io.BytesIO(payload))
+            if "calendar_provider" in frame and bool(set(frame.calendar_provider.dropna()) - {"fmp_reference", "fmp"}):
+                raise ShadowError("Production-derived calendar; supply an independent FMP reference with --fmp-baseline-dir")
             snapshots.append(frame)
-            if "overflow" in name:
-                universe.update(frame.ticker.str.upper())
+            universe.update(frame.ticker.str.upper())
             age = (now.timestamp() - path.stat().st_mtime) / 3600
             meta.append({"path": str(path), "age_hours": round(age, 2), "sha256": hashlib.sha256(payload).hexdigest()})
         fmp = normalize_fmp(pd.concat(snapshots, ignore_index=True))
@@ -232,7 +234,12 @@ def main(argv=None) -> int:
             key = "demo" if args.demo else (os.environ.get("ALPHA_VANTAGE_API_KEY") or env.get("ALPHA_VANTAGE_API_KEY"))
             if not key:
                 raise ShadowError("Set ALPHA_VANTAGE_API_KEY in config-root/.env; no API call made")
-            raw, alpha = fetch_alpha(key)
+            if args.demo:
+                raw, alpha = fetch_alpha(key)
+            else:
+                from alpha_calendar_snapshot import daily_alpha
+                raw, alpha, snapshot_meta = daily_alpha(config_root=config, fetch=fetch_alpha,
+                                                        parse=parse_alpha_csv, key=key)
         details, summary = compare(fmp, alpha, universe, as_of)
         summary["segments"] = {
             "regular_universe": segment_summary(details, set(CSV_UNIVERSE)),
@@ -243,6 +250,9 @@ def main(argv=None) -> int:
                         "baseline_files_older_than_48h": any(m["age_hours"] > 48 for m in meta),
                         "fmp_source_freshness_verified": False,
                         "freshness_note": "File age is not provider freshness; validate producer receipts before a switching decision."})
+        if mode == "authenticated":
+            summary["captured_at_utc"] = snapshot_meta["captured_at_utc"]
+            summary["alpha_snapshot"] = snapshot_meta
         alpha.to_csv(run / "alpha_calendar.csv", index=False)
         (run / "alpha_raw.csv").write_text(raw, encoding="utf-8")
         fmp.to_parquet(run / "fmp_snapshot.parquet", index=False)

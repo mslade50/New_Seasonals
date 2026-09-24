@@ -43,3 +43,40 @@ part of the cutover.
 
 Production status and exact release identities will be recorded here only after
 actual promotion, producer success and remote digest verification.
+
+## Final earnings rehearsal, September 24
+
+Independent FMP reference: 1,552 requested names, zero failed requests, 68 empty
+responses (retained as explicit unknown/noncorporate coverage). The initial
+527-name additional universe history refresh is included in the rehearsal.
+Candidate: 147,738 rows, UEC issuer correction applied; no second Alpha request.
+NAVN's fresh FMP reference no longer contains the unsupported September 30 event.
+ASTC is September 24 in both fresh feeds, still an unconfirmed expectation.
+
+Six hypothetical policy flags change across two names:
+
+| Name | Change today | Evidence/uncertainty |
+| --- | --- | --- |
+| BETA | OLV pre-earnings reduced sizing removed; OVS and LT Trend ST OS blackouts removed | FMP expects October 5; Alpha has no event. The issuer has no upcoming event announcement. Absence is not proof that FMP is wrong. |
+| DAL | OLV reduced sizing begins; OVS and LT Trend ST OS blackouts begin | Alpha October 8 enters the ten-day window; FMP October 9 is just outside. Delta confirms an October 9 call, not an explicit separate publication time. |
+
+This is a replay of policy flags, not orders or proof either name qualifies for a
+strategy today. No strategy parameters or broker state change. Approval must
+include these differences; the source does not silently reinterpret estimates
+as confirmed events.
+
+The initial trial still uses FMP for reported-date confirmation, newly covered
+history and emergency fallback. Those are remaining expiry blockers, along with
+any separately scheduled symbol-master/research enrichment dependencies. Do not
+call the subscription migration complete after this first provider cutover.
+
+Validation: the final 190-test source/publisher/scheduler/sizing suite passed
+in both the development Python and the existing production Python environment. Macro's live no-upload capture passed all 29 series,
+including current and next official CPI/PPI/NFP schedule checks. Forecast-only
+records retain their full original observation when filled, and partial remote
+publication is explicitly recorded before readback. The pinned runtime PDF
+parser dependency is installed; runtime source/provider activation is pending.
+
+Automatic approval review rejected the direct `origin main` push on September 24,
+requiring explicit owner approval of that exact production-branch action. No push,
+canonical publication, runtime-pin promotion or monitor change has occurred.

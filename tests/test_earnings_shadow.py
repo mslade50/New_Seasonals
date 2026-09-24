@@ -13,6 +13,20 @@ from scripts import compare_earnings_shadow as shadow
 HEADER = "symbol,name,reportDate,fiscalDateEnding,estimate,currency\n"
 
 
+def test_observer_refuses_alpha_as_its_fmp_control(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    data.mkdir()
+    pd.DataFrame({"ticker": ["AAA"], "date": [pd.Timestamp("2026-09-24")],
+                  "eps_est": [1.0], "calendar_provider": ["alpha"]}).to_parquet(data / "earnings_calendar.parquet")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("No Alpha request should follow a contaminated FMP baseline")
+    monkeypatch.setattr(shadow, "fetch_alpha", forbidden)
+    assert shadow.main(["--config-root", str(tmp_path)]) == 1
+    failures = list((tmp_path / "artifacts/earnings_shadow/authenticated").glob("*/failure.json"))
+    assert len(failures) == 1
+    assert "independent FMP" in json.loads(failures[0].read_text())["error"]
+
+
 def alpha(rows):
     return shadow.parse_alpha_csv(HEADER + rows)
 

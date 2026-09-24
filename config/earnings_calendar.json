@@ -1,0 +1,6 @@
+{
+  "provider": "alpha",
+  "alpha_fallback": "fmp",
+  "horizon_trading_days": 10,
+  "activation_note": "Prepared September 24 trial: Alpha primary with FMP confirmations/fallback. Activate only after owner approval of runtime promotion and reviewed policy differences."
+}
