@@ -24,7 +24,7 @@ from official_macro_releases import (BLS_SERIES, current_capture, merge_official
     parse_bls_api, parse_bls_rss, parse_bea, parse_retail, parse_claims, next_release)
 from official_macro_supplements import (ISM_INDEX, ADP_INDEX, CLAIMS_SCHEDULE,
     discover_release, parse_ism, parse_adp, parse_retail_ex_autos, claims_release_schedule,
-    JOLTS_SERIES, parse_nyfed_jolts_calendar, parse_jolts_api)
+    JOLTS_SERIES, parse_nyfed_jolts_calendar, parse_jolts_api, parse_nyfed_calendar, validate_bls_schedules)
 
 URLS = {
     "bls_feed.html": "https://www.bls.gov/feed/bls_latest.rss",
@@ -158,20 +158,30 @@ def collect(output, *, source_dir=None, calendar_path=ROOT / "data/macro_events.
         gaps.append(f"claims schedule: {type(exc).__name__}: {exc}")
     try:
         jolts_schedules = []
+        bls_schedules = []
         month = captured.tz_convert("America/New_York").tz_localize(None).to_period("M")
         for offset in (-1, 0, 1, 2):
             period = month + offset
             url = f"https://www.newyorkfed.org/research/calendars/i-{period.strftime('%b%y').lower()}.html"
-            raw, _ = get(f"nyfed_{period}.html", url)
+            raw, calendar_meta = get(f"nyfed_{period}.html", url)
             jolts_schedules.extend(parse_nyfed_jolts_calendar(raw.decode("utf-8"), period, source=url))
-            if (any(s["release_ts_utc"] <= captured for s in jolts_schedules)
+            bls_schedules.extend(parse_nyfed_calendar(raw.decode("utf-8"), period, source=url,
+                labels={"Consumer Price Index": "cpi", "Producer Price Index (PPI)": "ppi", "Employment Situation": "nfp"}))
+            for schedule in jolts_schedules + bls_schedules:
+                if schedule["source"] == url:
+                    schedule.update(source_digest=calendar_meta["digest"], source_fetched_at=calendar_meta["fetched_at"])
+            bls_ready = all(any(s["event"] == family and s["release_ts_utc"] <= captured for s in bls_schedules)
+                            and any(s["event"] == family and s["release_ts_utc"] > captured for s in bls_schedules)
+                            for family in ("cpi", "ppi", "nfp"))
+            if (bls_ready and any(s["release_ts_utc"] <= captured for s in jolts_schedules)
                     and any(s["release_ts_utc"] > captured for s in jolts_schedules)):
                 break
         result, upcoming = parse_jolts_api(bls_payload, jolts_schedules, **bls_meta)
         rows.extend(result)
         schedules.append(upcoming)
+        schedules.extend(validate_bls_schedules(rows, bls_schedules, captured))
     except Exception as exc:
-        gaps.append(f"JOLTS: {type(exc).__name__}: {exc}")
+        gaps.append(f"JOLTS/BLS schedules: {type(exc).__name__}: {exc}")
     all_observations = pd.DataFrame(rows)
     candidate = current_capture(rows)
     present = set(candidate.get("event_id", []))
@@ -181,8 +191,7 @@ def collect(output, *, source_dir=None, calendar_path=ROOT / "data/macro_events.
     for schedule in schedules:
         if schedule["release_ts_utc"] <= captured:
             gaps.append(f"missed next announced release: {schedule['event']}")
-    # Staleness is series-specific. This supplements (not replaces) the next
-    # scheduled release gate, which must be completed before production use.
+    # Staleness supplements the explicit next-release and independent BLS schedule gates.
     for row in rows:
         max_age = 10 if "jobless_claims" in row["event_id"] else 45
         if (captured - row["release_ts_utc"]).days > max_age:
@@ -205,9 +214,9 @@ def collect(output, *, source_dir=None, calendar_path=ROOT / "data/macro_events.
     report = dict(captured_at=captured.isoformat(), sources=sources, observations=len(rows),
         unique_series=len(present), core_data_pass=not gaps, gaps=sorted(set(gaps)),
         warnings=warnings,
-        unresolved_series=UNRESOLVED, production_ready=False,
-        pending_gates=["expanded economic event coverage",
-                       "scheduled capture/revision monitoring", "production activation"],
+        unresolved_series=UNRESOLVED, publication_eligible=not gaps, published=False,
+        coverage_scope="29 implemented US series; not the full FMP catalog",
+        pending_gates=["publisher history validation", "conditional publication and readback"],
         consensus_policy="none; new official rows cannot create surprise/P12 events")
     (output / "manifest.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report
