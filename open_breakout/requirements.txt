@@ -1,0 +1,2 @@
+# Optional IBKR transport only; replay uses the main repository dependencies.
+ib_insync==0.9.86

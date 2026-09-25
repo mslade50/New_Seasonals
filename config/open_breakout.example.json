@@ -1,0 +1,21 @@
+{
+  "mode": "shadow",
+  "host": "127.0.0.1",
+  "port": 7497,
+  "client_id": 71,
+  "account": "REPLACE_WITH_EXPLICIT_ACCOUNT",
+  "allow_live": false,
+  "markets": [
+    {"name": "NQ", "signal": {"symbol": "NQ", "expiry": "YYYYMMDD", "con_id": 0}, "execution": {"symbol": "MNQ", "expiry": "YYYYMMDD", "con_id": 0}, "risk_bps": 15, "max_contracts": 10},
+    {"name": "ES", "signal": {"symbol": "ES", "expiry": "YYYYMMDD", "con_id": 0}, "execution": {"symbol": "MES", "expiry": "YYYYMMDD", "con_id": 0}, "risk_bps": 5, "max_contracts": 10}
+  ],
+  "shadow_equity": 100000,
+  "max_daily_risk_bps": 60,
+  "max_open_risk_bps": 20,
+  "max_margin_fraction": 0.2,
+  "fee_per_contract_side": 0.85,
+  "max_entry_slippage_ticks": 2,
+  "exit_slippage_reserve_ticks": 4,
+  "stale_seconds": 3,
+  "max_open_delay_seconds": 2
+}
