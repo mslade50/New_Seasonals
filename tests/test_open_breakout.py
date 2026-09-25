@@ -344,9 +344,9 @@ def test_ibkr_paper_order_fields_and_live_release(config,monkeypatch):
         adapter.send(17,m,body)
         assert sent[0].auxPrice==20000 and sent[0].ocaType==2 and sent[0].account==paper.account
         assert sent[0].orderId==17 and sent[0].transmit
-        body=dict(kind='MKT',side=-1,qty=2,tif='GTC',oca='test-group',account=paper.account,ref='OB:test:TIME',good_after='20260924 15:55:00 US/Eastern')
+        body=dict(kind='MKT',side=-1,qty=2,tif='GTC',oca='test-group',account=paper.account,ref='OB:test:TIME',good_after='20260924 15:55:00 America/New_York')
         adapter.send(18,m,body)
-        assert sent[1].goodAfterTime.endswith('US/Eastern') and sent[1].ocaGroup==sent[0].ocaGroup
+        assert sent[1].goodAfterTime.endswith('America/New_York') and sent[1].ocaGroup==sent[0].ocaGroup
         live=replace(config,mode='live',account='U_REAL',allow_live=True)
         monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {live.account}')
         with pytest.raises(PermissionError,match='pilot'):await IBKR(live,session=DAY).connect()
@@ -660,7 +660,7 @@ def test_live_timed_exit_and_stop_order_fields(config,live,tmp_path):
         adapter.send(21,m,{**stop,'qty':1,'account':live.account})
         adapter.send(22,m,{**timed,'qty':1,'account':live.account})
         st,tx=sent
-        assert tx.orderType=='MKT' and tx.tif=='GTC' and tx.goodAfterTime==f'{DAY.replace("-","")} 15:55:00 US/Eastern'
+        assert tx.orderType=='MKT' and tx.tif=='GTC' and tx.goodAfterTime==f'{DAY.replace("-","")} 15:55:00 America/New_York'
         assert tx.ocaGroup==st.ocaGroup==s.oca and tx.ocaType==2==st.ocaType
         assert tx.account==st.account==live.account and tx.orderRef==timed['ref'] and st.orderRef==stop['ref']
         assert st.orderType=='STP' and st.tif=='GTC' and st.auxPrice==stop['stop'] and st.action=='SELL'
@@ -993,7 +993,7 @@ def test_timed_exit_sent_even_when_halted_during_entry(config,tmp_path):
             await open_nq(service,b,now)
             s=service.states['NQ']
             assert service.halted and s.qty==6 and s.time_order
-            assert store.orders()[s.time_order]['body']['good_after'].endswith('15:55:00 US/Eastern')
+            assert store.orders()[s.time_order]['body']['good_after'].endswith('15:55:00 America/New_York')
         finally:store.close()
     asyncio.run(run())
 

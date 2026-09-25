@@ -106,7 +106,7 @@ check. Risk budgets are planning limits, not maximum losses through gaps.
 Every intent is committed before transmission. Every execution ID is deduplicated.
 An actual partial entry immediately creates/updates its standalone protective stop.
 Once entry execution reports reconcile and the stop is acknowledged, a GTC market
-exit with `goodAfterTime=15:55 US/Eastern` is submitted in the same OCA group
+exit with `goodAfterTime=15:55 America/New_York` is submitted in the same OCA group
 (type 2: reduce remaining quantity with blocking). The process checks that the
 position is flat after 15:56. It never issues a speculative second flatten order.
 
@@ -256,7 +256,7 @@ session above keeps running as the comparison baseline.
   fresh. Any failure: no arming, session ends `HALTED_PREFLIGHT`. Until arming, an
   order gate below the adapter lets only what-if previews through.
 - Protection: each entry fill gets a standalone STP (GTC) immediately, then a GTC MKT
-  exit with `goodAfterTime` 15:55 US/Eastern in the same OCA group (type 2). Every
+  exit with `goodAfterTime` 15:55 America/New_York in the same OCA group (type 2). Every
   order carries the account and an `orderRef` of the form
   `MNQ|BUY|OpenBreakout|2026-09-25|NQ-1-STOP` (strategy is the 3rd pipe field, as the
   nightly execution report parses it). The timed exit is sent for every acknowledged
@@ -355,9 +355,16 @@ stop refused locally before transmission halts without flattening; a Gateway
 disconnect after arming ends the process (protection stays at IBKR).
 
 Still unverified at the broker (to be observed during this pilot): acceptance and
-survival of the GTC MKT order with `goodAfterTime` 15:55 US/Eastern; OCA type 2
+survival of the GTC MKT order with `goodAfterTime` 15:55 America/New_York; OCA type 2
 behaviour with STP plus a timed MKT on CME micros; and the real shape of a stop
 rejection (Inactive vs ib_insync's synthesized Cancelled, and which error codes).
+
+2026-09-25 what-if finding: Gateway server version 176 rejects `goodAfterTime`
+strings ending in `US/Eastern` with error 337 (invalid date/time/time zone), while
+`America/New_York` is accepted. The service used `US/Eastern` until this date, so
+every timed exit would have been refused. Fixed in `service.py`; the what-if is in
+`artifacts/open_breakout_build/mechanics_test.py --dry-run`. Survival of the
+accepted order through the day is still to be observed.
 
 
 ## Session 2026-09-25 outcome and Monday 2026-09-28 staging

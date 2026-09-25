@@ -241,7 +241,7 @@ class Service:
         if s.time_order or not s.qty or s.market in self.flattened:
             return
         s.time_order = self._send(s,'TIME',dict(kind='MKT',side=-s.side,qty=s.qty,tif='GTC',
-            oca=s.oca,good_after=f'{s.day.replace("-","")} 15:55:00 US/Eastern'))
+            oca=s.oca,good_after=f'{s.day.replace("-","")} 15:55:00 America/New_York'))
         self.store.save(s)
         try:
             await self.broker.wait_ack(s.time_order,3.)
