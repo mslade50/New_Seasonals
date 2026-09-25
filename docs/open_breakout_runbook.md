@@ -1,8 +1,11 @@
 # NQ / ES opening breakout: IBKR service
 
-Status (2026-09-24, evening): **one shadow session is running for 2026-09-25** on the
-local IB Gateway at port 7496 (client 927480), and a **live one-contract pilot
-(1 MNQ / 1 MES, client 927481) is prepared but not launched**. Live routing now exists
+Status (2026-09-25): **Friday 2026-09-25 did not trade.** The 7496 Gateway restarted
+around 07:00 ET and was not back before the open, so the shadow failed and the live
+pilot was never launched; no orders were placed. **Monday 2026-09-28 is staged**
+(shadow on client 927480 plus the live one-contract pilot, 1 MNQ / 1 MES, client
+927481) with dated launchers; nothing is launched yet. See "Session 2026-09-25 outcome
+and Monday 2026-09-28 staging" at the end. Live routing now exists
 only behind layered guards: `mode: live` + `allow_live` + a non-DU account + the
 `pilot` block + every `max_contracts == 1` + the code constant
 `LIVE_PILOT_MAX_CONTRACTS = 1` + the exact session/account acknowledgement
@@ -355,3 +358,97 @@ Still unverified at the broker (to be observed during this pilot): acceptance an
 survival of the GTC MKT order with `goodAfterTime` 15:55 US/Eastern; OCA type 2
 behaviour with STP plus a timed MKT on CME micros; and the real shape of a stop
 rejection (Inactive vs ib_insync's synthesized Cancelled, and which error codes).
+
+
+## Session 2026-09-25 outcome and Monday 2026-09-28 staging
+
+**What happened on 2026-09-25.** The IB Gateway on port 7496 restarted around 07:00 ET
+and did not come back before 09:30. The shadow process (started Sep 24, PID 14928) kept
+waiting for the connection and then failed with "Opening missed before connection
+recovered" (`artifacts/open_breakout_runs/2026-09-25-shadow/launch.stdout.log`: "SHADOW
+FAILED"). The live pilot was never launched. Nothing traded and no orders were placed.
+All three pilot checks (GTC timed exit, OCA type 2, stop rejection shape) are still
+unobserved and carry over to Monday.
+
+**Gateway requirement.** The 7496 Gateway must be logged in and listening **before
+08:45 ET** on the session day. Set its daily auto-restart outside 07:00 to 16:30 ET
+(for example 23:45 ET), or enable auto-login so a restart comes back unattended.
+Check it before launching anything: the preflight in step (a) below fails if it is not up.
+
+**Risk refresh.** The short gate needs the legacy score for the prior cash session
+(Friday 2026-09-25), and the Sep 25 R2 file only reaches Sep 24. The scheduled task
+`OpenBreakout_RiskRefresh_20260928` runs
+`artifacts/open_breakout_build/refresh_risk.py --session 2026-09-28` at 19:00 ET tonight.
+It writes a new `artifacts/open_breakout_build/risk_<UTC stamp>/` folder with
+`risk_authoritative.parquet` and `refresh.json`, and logs to
+`artifacts/open_breakout_build/refresh_20260928.log`. Read the log (or the new
+`refresh.json`): a good run shows `"session": "2026-09-28"`,
+`"risk_latest": "2026-09-25 00:00:00"`, a `legacy_score` and `short_gate`. A
+`risk_error` means R2 was not updated yet; rerun the same command by hand later in
+the evening. The two `risk_20260925_*` folders from this morning both carry
+`risk_error` and must not be used.
+
+**Launchers.** Two dated-by-argument launchers replace the one-off Sep 25 script (kept
+as history):
+
+- `artifacts/open_breakout_runs/launch-shadow.ps1` (shadow-session, config
+  `config-20260925-shadow.json`, client 927480, state dir `<Session>-shadow[-N]`)
+- `artifacts/open_breakout_runs/launch-live.ps1` (live-session, config
+  `config-20260925-live.json`, client 927481, state dir `<Session>-live[-N]`)
+
+Both take `-Session YYYY-MM-DD` (required), `-Risk <parquet>` (optional), `-Attempt 1-9`
+and `-DryRun`. Without `-Risk` they pick the newest `risk_*/refresh.json` whose
+`session` matches and that has no `risk_error`, and print the chosen file with its
+`risk_latest` and `legacy_score`; if none qualifies they stop with an error. `-DryRun`
+prints the full python command, state dir, config fingerprint and risk file and starts
+nothing. Both keep the old guards: config checks, refusal over an existing
+`runtime.sqlite`, refusal if a process of the same kind is running, hidden window,
+`launch.stdout.log` / `launch.stderr.log` / `launcher.pid` in the state dir. Only the
+live launcher sets `OPEN_BREAKOUT_LIVE_ACK`, and only for the child process.
+Expected fingerprints: shadow `50c1ca8c...48ae4`, live `c08a3222...bbbf38`.
+
+**Monday 2026-09-28 sequence.**
+
+(a) Sunday night or Monday before 08:45 ET, with the Gateway up: read-only preflight.
+It needs the live acknowledgement; set it for this one PowerShell window, using the
+full account number from the live config, then clear it:
+
+```powershell
+$env:OPEN_BREAKOUT_LIVE_ACK = "LIVE 2026-09-28 <the account in the live config>"
+python -m open_breakout preflight --config artifacts/open_breakout_runs/config-20260925-live.json --session 2026-09-28 --out artifacts/open_breakout_runs/preflight-20260928-live.json
+Remove-Item Env:\OPEN_BREAKOUT_LIVE_ACK
+```
+
+`--out` refuses to overwrite an existing file; use a new file name for a second run.
+Also confirm the dry runs pick the new refresh:
+`powershell -File artifacts/open_breakout_runs/launch-live.ps1 -Session 2026-09-28 -DryRun`
+(and the same for `launch-shadow.ps1`).
+
+(b) Start the shadow (before 09:00 ET):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File artifacts/open_breakout_runs/launch-shadow.ps1 -Session 2026-09-28
+```
+
+(c) Live activation step, run once before 09:25 ET:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File artifacts/open_breakout_runs/launch-live.ps1 -Session 2026-09-28
+```
+
+A relaunch after an attempt that placed **no orders** uses `-Attempt 2` (state dir
+`2026-09-28-live-2`); `live-session` refuses if any `2026-09-28-live*` journal holds orders.
+
+(d) Status:
+
+```powershell
+python -m open_breakout status --state artifacts/open_breakout_runs/2026-09-28-shadow/runtime.sqlite
+python -m open_breakout status --state artifacts/open_breakout_runs/2026-09-28-live/runtime.sqlite
+```
+
+(e) Attended windows: watch TWS and Slack **09:25 to 11:30 ET** and **15:50 to 16:01 ET**.
+Graceful stop: create a file named `STOP` in the session state dir (it does not cancel
+or flatten anything). Manual rollback is as in the Sep 25 section: kill the PID in
+`launcher.pid`, flatten MNQ/MES by hand in TWS and cancel the remaining `OpenBreakout`
+orders, then, with the env ack set as in step (a), run the read-only comparison:
+`python -m open_breakout reconcile --config artifacts/open_breakout_runs/config-20260925-live.json --state artifacts/open_breakout_runs/2026-09-28-live/trades.sqlite --session 2026-09-28 --client-id 927482`.
