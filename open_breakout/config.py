@@ -55,6 +55,32 @@ class Market:
     risk_bps: float
     max_contracts: int
 
+RANGE_MODES = {'skip', 'half'}
+
+@dataclass(frozen=True)
+class RangeFilter:
+    """Prior-range filter (prereg 2026-09-25): ratio = prior_tr / atr20; act when ratio >= threshold."""
+    enabled: bool
+    threshold: float
+    mode: str
+
+    @classmethod
+    def parse(cls, value, mode):
+        if not isinstance(value, dict) or set(value) != {'enabled', 'threshold', 'mode'}:
+            raise ValueError('prior_range_filter must be {"enabled": bool, "threshold": number, "mode": "skip"|"half"}')
+        enabled, threshold, how = value['enabled'], value['threshold'], value['mode']
+        if not isinstance(enabled, bool):
+            raise ValueError('prior_range_filter.enabled must be a JSON boolean')
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold) or not 1. <= threshold <= 3.:
+            raise ValueError('prior_range_filter.threshold must be a number in [1.0, 3.0]')
+        if how not in RANGE_MODES:
+            raise ValueError('prior_range_filter.mode must be "skip" or "half"')
+        if how == 'half' and mode == 'live':
+            # Half of the one-contract pilot floors to zero: only skip is meaningful live.
+            raise ValueError(f'prior_range_filter.mode "half" is not allowed in live mode: half of the '
+                             f'{LIVE_PILOT_MAX_CONTRACTS}-contract pilot floors to 0; use "skip"')
+        return cls(enabled, float(threshold), how)
+
 @dataclass(frozen=True)
 class Config:
     mode: str
@@ -77,6 +103,12 @@ class Config:
     pilot_max_contracts: int = 0
     # Watchdog/stream-gap tolerance; entry-time freshness still uses stale_seconds.
     watchdog_stale_seconds: float = 30.
+    # None (key absent) means disabled; the fingerprint is unchanged when the key is absent.
+    prior_range_filter: RangeFilter | None = None
+
+    @property
+    def range_filter_on(self):
+        return bool(self.prior_range_filter and self.prior_range_filter.enabled)
 
     @classmethod
     def load(cls, path):
@@ -85,7 +117,7 @@ class Config:
                    'max_daily_risk_bps','max_open_risk_bps','max_margin_fraction',
                    'fee_per_contract_side','max_entry_slippage_ticks',
                    'exit_slippage_reserve_ticks','stale_seconds','max_open_delay_seconds','allow_live'}
-        optional = {'pilot','watchdog_stale_seconds'}
+        optional = {'pilot','watchdog_stale_seconds','prior_range_filter'}
         if not allowed <= set(raw) or set(raw) - allowed - optional:
             raise ValueError(f'Configuration fields differ: {sorted((set(raw) - optional) ^ allowed)}')
         if 'watchdog_stale_seconds' in raw:
@@ -102,6 +134,7 @@ class Config:
                 raise ValueError('pilot.max_contracts_per_market must be a positive integer')
         if raw['mode'] not in {'shadow','paper','live'}:
             raise ValueError('mode must be shadow, paper or live')
+        range_filter = RangeFilter.parse(raw['prior_range_filter'], raw['mode']) if 'prior_range_filter' in raw else None
         if not isinstance(raw['allow_live'], bool):
             raise ValueError('allow_live must be a JSON boolean')
         if not isinstance(raw['account'], str) or not raw['account']:
@@ -137,7 +170,9 @@ class Config:
             raise ValueError('Per-trade risk exceeds the open-risk cap')
         digest = hashlib.sha256(json.dumps(raw, sort_keys=True).encode()).hexdigest()
         raw.pop('pilot', None)
-        config = cls(**{**raw, 'markets': tuple(markets), 'fingerprint': digest, 'pilot_max_contracts': pilot_max})
+        raw.pop('prior_range_filter', None)
+        config = cls(**{**raw, 'markets': tuple(markets), 'fingerprint': digest, 'pilot_max_contracts': pilot_max,
+                        'prior_range_filter': range_filter})
         if config.mode == 'live':
             config.validate_live()
         return config

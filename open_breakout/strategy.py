@@ -44,6 +44,8 @@ class State:
     time_order: int = 0
     oca: str = ''
     note: str = ''
+    # Prior-range filter, mode "half" (never live): half the computed contracts, floored.
+    half_size: bool = False
 
     @property
     def distance(self):
@@ -111,6 +113,8 @@ def size_order(state, market, side, bid, ask, equity, config):
     per_contract = abs(limit-stop)*mult + 2*config.fee_per_contract_side + config.exit_slippage_reserve_ticks*tick*mult
     budget = equity*market.risk_bps/10000
     qty = min(market.max_contracts, math.floor(budget/per_contract))
+    if state.half_size:
+        qty //= 2
     if config.mode == 'live':
         # Pilot clamp after all sizing; a computed 0 remains no trade.
         qty = min(qty, LIVE_PILOT_MAX_CONTRACTS)

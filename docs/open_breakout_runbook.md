@@ -30,6 +30,12 @@ dated sections below for both sessions.
   approved allocation or actual account balance. All bps here are effective:
   the stock book's global multiplier is not applied. Configure the final budgets,
   fees, margin reserve and contract caps before a paper acceptance run.
+- Config option (not part of the frozen research rules): `prior_range_filter`
+  `{enabled, threshold, mode}` skips a market for the session when the previous full
+  session's TR divided by its prior 20-session average is at or above the threshold,
+  and fails closed when that average cannot be computed. Absent means off, with an
+  unchanged config fingerprint. On in the live pilot config since 2026-09-25 (1.25,
+  skip), off in the shadow config. See "Prior-range skip filter" at the end.
 
 ## Components
 
@@ -412,7 +418,8 @@ nothing. Both keep the old guards: config checks, refusal over an existing
 `runtime.sqlite`, refusal if a process of the same kind is running, hidden window,
 `launch.stdout.log` / `launch.stderr.log` / `launcher.pid` in the state dir. Only the
 live launcher sets `OPEN_BREAKOUT_LIVE_ACK`, and only for the child process.
-Expected fingerprints: shadow `50c1ca8c...48ae4`, live `c08a3222...bbbf38`.
+Expected fingerprints: shadow `50c1ca8c...48ae4`, live `b226b74f...d678f77` (live was
+`c08a3222...bbbf38` until the prior-range filter was added on 2026-09-25; see the last section).
 
 **Monday 2026-09-28 sequence.**
 
@@ -459,3 +466,133 @@ or flatten anything). Manual rollback is as in the Sep 25 section: kill the PID 
 `launcher.pid`, flatten MNQ/MES by hand in TWS and cancel the remaining `OpenBreakout`
 orders, then, with the env ack set as in step (a), run the read-only comparison:
 `python -m open_breakout reconcile --config artifacts/open_breakout_runs/config-20260925-live.json --state artifacts/open_breakout_runs/2026-09-28-live/trades.sqlite --session 2026-09-28 --client-id 927482`.
+
+## Prior-range skip filter (shipped 2026-09-25 for the live pilot)
+
+Owner decision 2026-09-25: the rule from
+`docs/prereg_open_breakout_range_filter_2026-09-25.md` ships in the live one-contract
+pilot from Monday 2026-09-28. The shadow session stays unfiltered as the forward-tier
+baseline. The prereg's own decision rule and forward tier are unchanged by this; the
+shadow journal still supplies the skipped-day outcomes.
+
+**Rule.** Per market, `ratio = prior_tr / atr20`. With the filter enabled in mode
+`skip`, a market with `ratio >= threshold` is not armed that session (no opening
+capture, no entries, both sides). The other market is unaffected.
+
+**Definitions (match the research, `current_candidate/engine.py:make_sessions` and
+`test_simple_filters.make_features`).**
+- `prior_tr`: unchanged. Previous cash session's full CME session (18:00 to 17:00 ET),
+  raw 1-minute same-contract OHLC from `session_range`,
+  `max(high - low, |high - prev_close|, |low - prev_close|)`.
+- `atr20`: mean of the 20 most recent valid full-session TRs strictly before the previous
+  session (the previous session is excluded), point-in-time at the previous close. All
+  CME trade dates count, including shortened holiday sessions such as Labor Day, as in
+  the research.
+- Roll handling: the research series is Databento's volume-front continuous contract.
+  The service rebuilds it from the signal contract and the expiry before it
+  (`includeExpired`): the front for UTC calendar date D is the contract with strictly
+  greater volume on the second-most-recent CME trade date before D, so the switch lands
+  at 00:00 UTC (19:00 or 20:00 ET) inside a session. As in the research there is no tie
+  band: a 1% lead decides like a 50% lead, and a lead that moves back to the earlier
+  expiry is followed. A session that spans two contracts, or whose contract differs from
+  the prior session's, has no TR and is skipped when collecting the 20 (this covers
+  both directions of a switch-back). This rule reproduced the research switch time on
+  all 10 NQ/ES rolls from Sep 2025 to Jun 2026 (IB trade-date volumes), and the
+  service `atr20` equals the research `atr20_before_prior` on every session compared
+  across the Sep 2025, Dec 2025 and Mar 2026 rolls (324 NQ/ES sessions, 0 mismatches,
+  scratch `roll_history_check.py`, 2026-09-25) and Jun 22 to Aug 28 2026 (parity
+  below). For the Sep 2026 roll the volume lead changed on trade date 09-14, so 09-16
+  and 09-17 are excluded for both markets.
+- Data: IB `TRADES` 1-hour bars, `useRTH=False`, 2 months, both contracts
+  (`IBKR.range_history`, four requests at the 09:00 prepare, about 1 to 4 seconds each).
+  Each market is fetched separately (200 s cap per market, 450 s overall): one market's
+  failure makes only that market UNAVAILABLE. An empty response is retried once after
+  2 seconds (ib_insync returns an empty list on its own 45 s timeout). On a restart
+  with a retained `inputs.json` nothing is re-fetched; the retained manifest is loaded.
+  Hourly bars are used because the session edges (18:00, 17:00) and the roll switch
+  (00:00 UTC) are all on the hour; the parity check below shows they reproduce the
+  1-minute session TR exactly. The 7-day 1-minute request is unchanged and still sets
+  `prior_tr`.
+- Known differences from the research, all declared: hourly rather than 1-minute bars;
+  IB volumes rather than Databento's for the roll decision, with the lag-2 rule fitted
+  to Databento's observed switch times rather than taken from its documentation; only
+  two expiries (the signal contract and the one before it), so a later expiry that took
+  the volume lead while the service still signals on the earlier one is not seen (the
+  reviewed contract roll prevents that); and completeness checks the research does not
+  make (below). A CME trade date missing entirely from IB outside the XNYS calendar
+  (for example a holiday session) is not detected; the research would have included it.
+
+**Fail-closed.** `prior_range_status: "UNAVAILABLE"` (with `prior_range_reason`) when:
+fewer than 20 valid prior TRs; a regular XNYS session (16:00 close) in the span missing,
+or missing any expected hourly bar start (18:00 to 16:00 ET, 23 bars; the same
+`missing_bars` rule as the 1-minute `session_range` check, whose 16:15 to 16:30 halt
+allowance covers no whole hour); an ambiguous roll (a deciding trade date with equal or
+zero volumes, or the start of history with no deciding date); an earlier expiry that
+last traded inside the window returning no bars; the hourly same-contract TR of the
+previous session differing from the 1-minute `prior_tr` by more than one tick; or the
+history request failing. XNYS early-close days, holidays with a shortened CME session
+(Labor Day, Good Friday, Juneteenth) and non-XNYS days are not completeness-checked and
+count with the bars they have, as in the research. One missing hourly bar on a regular
+session fails the market closed until that session leaves the span (about a month), so
+a recurring `incomplete session` reason is worth checking against TWS. With the filter
+enabled an unavailable market does not trade that session (`skip_prior_range: true`).
+The service also refuses to arm a market when the filter is enabled and the manifest
+has no `OK` decision for it.
+
+**Manifest fields (additive; `prior_tr` and the hashes are unchanged).** Per market:
+`prior_range_status`, `atr20`, `ratio`, `skip_prior_range`, `half_prior_range`,
+`prior_range_reason`, `atr20_window` (first and last session), `roll_excluded`. Top
+level: `prior_range_filter` (the config block or null) and `range_source`. The shadow
+records `atr20` and `ratio` and never skips.
+
+**Service behaviour.** A skipped market's state is `phase: SKIPPED`, note
+`PRIOR_RANGE_SKIP: ratio ... >= threshold ...` (or the unavailable reason). A
+`PRIOR_RANGE_SKIP` event with ratio, atr20, prior_tr and threshold is journaled when
+the service is built (09:25 arm time live, 09:00 in shadow), and the process prints
+`<market> not armed: ...`. The watchdog does not mark it `MISSED_0930_OPEN`, and a feed
+gap on it does not halt the session. The `ARMED LIVE` alert names the skipped market
+(`NOT ARMED {...}`); the 09:25 preflight runs as before. If both markets are skipped the
+alert reads `ARMED LIVE: NO MARKET (all skipped; ...)`, no order can be sent, and the
+run ends `SESSION_COMPLETE` at 16:01 without a halt.
+`status` shows the SKIPPED state; the runtime `inputs` record carries a `prior_range`
+summary. Protection paths, the 15:56 checks and the other market are unchanged. IOC
+entry mode only (main has no bracket mode).
+
+**Config.** Optional top-level key
+`"prior_range_filter": {"enabled": bool, "threshold": 1.0 to 3.0, "mode": "skip" | "half"}`.
+Absent means disabled and leaves the fingerprint unchanged. `half` (the prereg's A2:
+half the computed contracts, floored) is rejected in live mode because half of the
+one-contract pilot is zero.
+- `config-20260925-live.json`: `{"enabled": true, "threshold": 1.25, "mode": "skip"}`.
+  New live fingerprint `b226b74f63fa57874790fcb371c113b5824e1ec25dc7979162982ed26d678f77`
+  (was `c08a3222...bbbf38`). `validate` passes; `launch-live.ps1 -DryRun` accepts it.
+- `config-20260925-shadow.json`: untouched, no key, fingerprint still `50c1ca8c...48ae4`.
+
+**Parity check (prereg gate 3): PASS.** `artifacts/open_breakout_build/prior_range_parity.py`
+(read-only, client 927485) wrote `prior_range_parity_20260925.json`. Against the research
+features files (`range_cuts/*_features.csv`):
+- August 2026, non-roll sessions: NQ 20 of 20 and ES 20 of 20 equal to the research TR
+  (difference 0.00) on both service paths, the hourly continuous series and
+  `session_range` on 1-minute bars of the September contract.
+- June 22 to July 31: 29 of 29 TRs equal for each market.
+- `atr20` versus the research `atr20_before_prior`: 49 sessions per market (June 22 to
+  August 28, including windows that span the June roll exclusion), maximum absolute
+  difference 0.00.
+- Overlapping recent week on the December contract (sessions 09-18 to 09-24): 1-minute
+  `session_range` TR equals the hourly TR on 5 of 5 sessions for both markets.
+- Re-run 2026-09-25 evening after the roll-rule review (strict volume leader, no 5% tie
+  band, switch-backs followed, `missing_bars` completeness): PASS with the same counts;
+  every session from June 22 to September 24 yields an `atr20` (none fail closed).
+
+**Monday 2026-09-28 preview** (read-only, taken 17:00 ET Friday through
+`build_manifest` with the live config; the runner recomputes at 09:00 ET Monday):
+
+| Market | prior_tr (09-25) | atr20 (08-26 to 09-24) | ratio | Skip at 1.25 |
+|---|---|---|---|---|
+| NQ | 320.50 | 404.425 | 0.792 | no |
+| ES | 66.25 | 68.0625 | 0.973 | no |
+
+Both markets would be armed Monday. The roll sessions 09-16 and 09-17 are excluded from
+both windows. Re-run after the roll-rule review: identical values. Hand check: the mean
+of the 20 hourly TRs in the parity file for 08-26 to 09-24 (Labor Day 09-07 included,
+09-16 and 09-17 excluded) is 404.425 (NQ) and 68.0625 (ES).

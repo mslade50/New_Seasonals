@@ -20,6 +20,19 @@ from .store import Store
 from .strategy import NY
 
 
+async def fetch_range_bars(transport):
+    """Prior-range history; a failure is recorded in the manifest (fail closed per market), not raised."""
+    try:
+        return await asyncio.wait_for(transport.range_history(),450),None
+    except Exception as exc:
+        return None,f'{type(exc).__name__}: {exc}'
+
+
+def range_summary(manifest):
+    return {k:{f:v.get(f) for f in ('prior_range_status','atr20','ratio','skip_prior_range','half_prior_range','prior_range_reason')}
+            for k,v in manifest['markets'].items()}
+
+
 def session_bounds(day):
     calendar_dates(day)
     d=datetime.fromisoformat(day).date()
@@ -202,22 +215,25 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
             if service is None and now>=prepare:
                 if now>=opening:raise RuntimeError('Opening missed before inputs prepared')
                 runtime.set('phase','PREPARING')
-                bars=await transport.history()
-                risk=pd.read_parquet(risk_path)
-                manifest=build_manifest(config,day,risk,bars,now=clock(),roll_verified=True)
                 path=root/'inputs.json'
                 if path.exists():
-                    # Never replace a retained manifest on restart.
+                    # Never replace a retained manifest on restart (and do not re-fetch history).
                     from .inputs import load_manifest
                     manifest=load_manifest(path,config)
                 else:
+                    bars=await transport.history()
+                    range_bars,range_error=await fetch_range_bars(transport)
+                    risk=pd.read_parquet(risk_path)
+                    manifest=build_manifest(config,day,risk,bars,now=clock(),roll_verified=True,
+                                            range_bars=range_bars,range_error=range_error)
                     with path.open('x',encoding='utf-8') as f:json.dump(manifest,f,indent=2)
                 ledger=Store(root/'trades.sqlite',config.fingerprint,day)
                 broker=SimBroker(config,clock)
                 service=Service(config,manifest,ledger,broker,clock)
                 for name,(bid,ask,stamp) in transport.quotes.items():broker.update_quote(name,bid,ask,stamp)
                 runtime.set('inputs',{'hash':manifest['hash'],'score':manifest['score'],
-                    'prior_tr':{k:v['prior_tr'] for k,v in manifest['markets'].items()}})
+                    'prior_tr':{k:v['prior_tr'] for k,v in manifest['markets'].items()},
+                    'prior_range':range_summary(manifest)})
                 runtime.set('phase','ARMED_SHADOW')
                 print('SHADOW armed for the cash open; broker order transmission disabled',flush=True)
             if service:
@@ -342,17 +358,22 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
             if manifest is None and now>=prepare:
                 if now>=opening:raise RuntimeError('Opening missed before inputs prepared')
                 runtime.set('phase','PREPARING')
-                bars=await transport.history()
-                risk=pd.read_parquet(risk_path)
-                manifest=build_manifest(config,day,risk,bars,now=clock(),roll_verified=True)
                 path=root/'inputs.json'
                 if path.exists():
+                    # Restart: the retained manifest is authoritative; do not spend the pre-open
+                    # minutes re-fetching history that would be discarded.
                     from .inputs import load_manifest
                     manifest=load_manifest(path,config)
                 else:
+                    bars=await transport.history()
+                    range_bars,range_error=await fetch_range_bars(transport)
+                    risk=pd.read_parquet(risk_path)
+                    manifest=build_manifest(config,day,risk,bars,now=clock(),roll_verified=True,
+                                            range_bars=range_bars,range_error=range_error)
                     with path.open('x',encoding='utf-8') as f:json.dump(manifest,f,indent=2)
                 runtime.set('inputs',{'hash':manifest['hash'],'score':manifest['score'],
-                    'prior_tr':{k:v['prior_tr'] for k,v in manifest['markets'].items()}})
+                    'prior_tr':{k:v['prior_tr'] for k,v in manifest['markets'].items()},
+                    'prior_range':range_summary(manifest)})
                 runtime.set('phase','PREPARED_WAITING_TO_ARM')
             if manifest is not None and service is None and now>=arm_at:
                 if now>=opening:raise RuntimeError('Opening missed before arming')
@@ -371,8 +392,11 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                     runtime.set('last_error',ledger.get('halt_reason'));final='HALTED';break
                 gate.open=True
                 runtime.set('phase','ARMED_LIVE')
-                alert(f'ARMED LIVE: {", ".join(m.execution.symbol for m in config.markets)} max 1 contract each; '
-                      f'prior TR {runtime.get("inputs")["prior_tr"]}; score {manifest["score"]:.2f}')
+                armed=[m.execution.symbol for m in config.markets if service.states[m.name].phase!='SKIPPED']
+                skipped={k:s.note for k,s in service.states.items() if s.phase=='SKIPPED'}
+                alert(f'ARMED LIVE: {", ".join(armed) or "NO MARKET (all skipped; session runs to 16:01 with no orders)"} max 1 contract each; '
+                      f'prior TR {runtime.get("inputs")["prior_tr"]}; score {manifest["score"]:.2f}'
+                      +(f'; NOT ARMED {skipped}' if skipped else ''))
             if service:
                 await service.watchdog()
                 if service.halted and not reported:

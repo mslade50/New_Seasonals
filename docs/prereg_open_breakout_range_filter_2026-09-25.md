@@ -1,6 +1,6 @@
 # Pre-registration: prior-range skip filter for the NQ/ES opening breakout
 
-Date 2026-09-25. Author McKinley Slade (drafted by Claude). Status: DRAFT. Nothing in this document is approved, and no config changes because of it.
+Date 2026-09-25. Author McKinley Slade (drafted by Claude). Status: APPROVED WITH OWNER OVERRIDE, 2026-09-25 afternoon. McKinley reviewed the draft and decided to ship the primary rule (skip at ratio >= 1.25) in the one-contract LIVE pilot from 2026-09-28, ahead of the forward tier, and to run the RTY cross-validation now. The forward tier still runs unchanged as a post-ship review: the shadow session stays unfiltered and remains the source of skipped-day outcomes, and a forward FAIL is grounds to turn the filter back off. The rest of this document is as drafted before that decision. RTY results: `artifacts/research/qqq_open_breakout_20260923/range_filter_rty/RESULTS.md`.
 
 Candidate: `artifacts/research/qqq_open_breakout_20260923/current_candidate/` (break-even OFF, decision 2026-09-24). Live service: `open_breakout/`, runbook `docs/open_breakout_runbook.md`.
 

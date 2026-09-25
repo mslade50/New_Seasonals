@@ -189,6 +189,48 @@ class IBKR:
             result[m.name]=frame.set_index('date')
         return result
 
+    async def range_history(self,duration='2 M',end=''):
+        """Prior-range filter inputs: hourly TRADES bars for the signal contract and the expiry
+        immediately before it (expired contracts via includeExpired). Read-only."""
+        result={}
+        for m in self.config.markets:
+            # Per market: one market's failure is that market's UNAVAILABLE, never the other's.
+            try:
+                result[m.name]=await asyncio.wait_for(self._range_market(m,duration,end),200)
+            except Exception as exc:
+                result[m.name]=dict(error=f'{type(exc).__name__}: {exc}')
+        return result
+
+    async def _range_market(self,m,duration,end):
+        import pandas as pd
+        from ib_insync import Contract, util
+        details=await self.ib.reqContractDetailsAsync(Contract(secType='FUT',symbol=m.signal.symbol,exchange='CME',
+                                                                currency='USD',includeExpired=True))
+        by={d.contract.lastTradeDateOrContractMonth[:8]:d.contract for d in details}
+        if m.signal.expiry not in by or by[m.signal.expiry].conId!=m.signal.con_id:
+            raise ValueError(f'{m.name}: signal contract not in the expiry list')
+        earlier=[e for e in by if e<m.signal.expiry]
+        if not earlier:raise ValueError(f'{m.name}: no earlier expiry for roll detection')
+        contracts=[]
+        for expiry in [max(earlier),m.signal.expiry]:
+            c=by[expiry];c.includeExpired=True
+            frame=None
+            for attempt in range(2):
+                # ib_insync returns an empty list on its own timeout: retry once, then report empty.
+                rows=await self.ib.reqHistoricalDataAsync(c,endDateTime=end,durationStr=duration,barSizeSetting='1 hour',
+                    whatToShow='TRADES',useRTH=False,formatDate=2,keepUpToDate=False,timeout=45)
+                frame=util.df(rows)
+                if frame is not None and not frame.empty:break
+                if not attempt:await asyncio.sleep(2)
+            if frame is None or frame.empty:
+                if expiry==m.signal.expiry:raise ValueError(f'{m.name}: signal-contract range history unavailable')
+                # Zero volume only if it expired before the window; inputs.prior_range enforces that.
+                frame=pd.DataFrame(columns=['date','open','high','low','close','volume'])
+            frame['date']=pd.to_datetime(frame['date'],utc=True)
+            contracts.append(dict(expiry=expiry,con_id=c.conId,local_symbol=c.localSymbol,
+                bars=frame.set_index('date')[['open','high','low','close','volume']].astype(float)))
+        return dict(bar_minutes=60,contracts=contracts)
+
     def subscribe(self,on_tick,capture):
         self.ib.reqMarketDataType(1)
         self.ib.pendingTickersEvent+=lambda tickers:self._ticks(tickers,on_tick,capture)

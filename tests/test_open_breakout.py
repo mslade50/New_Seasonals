@@ -1086,3 +1086,382 @@ def test_relaunch_allowed_only_when_prior_live_journal_has_no_orders(tmp_path):
     s=Store(first/'trades.sqlite','fp',DAY);s.order(1,'NQ','ENTRY',{'x':1});s.close()
     assert prior_live_orders(tmp_path/f'{DAY}-live-2',DAY)==[f'{DAY}-live']
     assert prior_live_orders(first.resolve(),DAY)==[]
+
+
+# ---- Prior-range filter (prereg 2026-09-25) ----
+
+from open_breakout.inputs import continuous_sessions, atr20_from_table, prior_range, range_decision, check_range_fields
+from open_breakout.config import RangeFilter
+
+FILTER={'enabled':True,'threshold':1.25,'mode':'skip'}
+
+def filtered(tmp_path,filt=FILTER,name='filtered.json'):
+    raw=json.loads((tmp_path/'config.json').read_text());raw['prior_range_filter']=filt
+    return load_raw(tmp_path,raw,name)
+
+def test_range_filter_config_validation(config,tmp_path,monkeypatch):
+    raw=json.loads((tmp_path/'config.json').read_text())
+    assert 'prior_range_filter' not in raw and config.prior_range_filter is None and not config.range_filter_on
+    assert Config.load(tmp_path/'config.json').fingerprint==config.fingerprint
+    c=filtered(tmp_path)
+    assert c.prior_range_filter==RangeFilter(True,1.25,'skip') and c.range_filter_on and c.fingerprint!=config.fingerprint
+    off=filtered(tmp_path,{'enabled':False,'threshold':1.25,'mode':'skip'},'off.json')
+    assert not off.range_filter_on and off.fingerprint not in {c.fingerprint,config.fingerprint}
+    assert filtered(tmp_path,{'enabled':True,'threshold':1.25,'mode':'half'},'half.json').prior_range_filter.mode=='half'
+    for bad in [{'enabled':True,'threshold':0.99,'mode':'skip'},{'enabled':True,'threshold':3.01,'mode':'skip'},
+                {'enabled':True,'threshold':'1.25','mode':'skip'},{'enabled':True,'threshold':True,'mode':'skip'},
+                {'enabled':True,'threshold':1.25,'mode':'quarter'},{'enabled':1,'threshold':1.25,'mode':'skip'},
+                {'enabled':True,'threshold':1.25},{'enabled':True,'threshold':1.25,'mode':'skip','x':1},True]:
+        with pytest.raises(ValueError):filtered(tmp_path,bad,'bad.json')
+    assert filtered(tmp_path,{'enabled':True,'threshold':3,'mode':'skip'},'edge.json').prior_range_filter.threshold==3.
+    # Live: skip is accepted; half would floor the one-contract pilot to zero and is rejected.
+    ok=load_raw(tmp_path,live_raw(prior_range_filter=FILTER))
+    assert ok.mode=='live' and ok.range_filter_on and ok.fingerprint!=load_raw(tmp_path,live_raw(),'plain.json').fingerprint
+    with pytest.raises(ValueError,match='half'):load_raw(tmp_path,live_raw(prior_range_filter={**FILTER,'mode':'half'}))
+
+def hourly_session(day,high,low,close,volume):
+    """23 one-hour bars, 18:00 ET the evening before to 16:00 ET; the first bar sets the high, the second the low."""
+    start=pd.Timestamp(day,tz=NY)-pd.Timedelta(hours=6)
+    ix=pd.DatetimeIndex([start+pd.Timedelta(hours=k) for k in range(23)]).tz_convert('UTC')
+    f=pd.DataFrame({'open':close,'high':close,'low':close,'close':close,'volume':volume/23},index=ix)
+    f.iloc[0,f.columns.get_loc('high')]=high;f.iloc[1,f.columns.get_loc('low')]=low
+    return f
+
+def roll_history(vols=None,start='2026-07-20',end='2026-09-23'):
+    """Sep contract (prices +5) leads until trade date 09-14, then Dec leads; Sep has no bars after 09-18.
+    Every non-roll session has TR 32 except 09-22 (40) and 09-23 (40, the previous session for DAY).
+    vols: {trade date: (sep volume, dec volume)} overrides."""
+    import exchange_calendars as xcals
+    days=[d.date().isoformat() for d in xcals.get_calendar('XNYS').sessions_in_range(start,end)]
+    sep,dec=[],[]
+    for d in days:
+        h,l,c=(120.,80.,110.) if d in {'2026-09-22','2026-09-23'} else (126.,94.,110.)
+        vs,vd=(vols or {}).get(d,(1000.,10.) if d<'2026-09-14' else (400.,1000.))
+        if d<='2026-09-18':sep.append(hourly_session(d,h+5,l+5,c+5,vs))
+        dec.append(hourly_session(d,h,l,c,vd))
+    return dict(bar_minutes=60,contracts=[dict(expiry='20260918',bars=pd.concat(sep)),dict(expiry='20261218',bars=pd.concat(dec))])
+
+def test_continuous_sessions_roll_rule_and_atr20():
+    entry=roll_history()
+    table=continuous_sessions(entry['contracts'])
+    # Switch at 00:00 UTC two trade dates after the volume flip (09-14): 09-16 spans both, 09-17 changed contract.
+    assert table.loc['2026-09-16','instrument_count']==2 and table.loc['2026-09-17','instrument']=='20261218'
+    assert table.loc['2026-09-15','instrument']=='20260918' and table.loc['2026-09-15','instrument_count']==1
+    assert list(table.index[table.tr.isna() & (table.index>'2026-08-01')].strftime('%Y-%m-%d'))==['2026-09-16','2026-09-17']
+    assert table.loc['2026-09-18','tr']==32 and table.loc['2026-09-15','tr']==32
+    atr,window,span=atr20_from_table(table,'2026-09-23')
+    # Previous session (09-23) excluded; the window is the 20 valid TRs before it, skipping the two roll sessions.
+    assert atr==pytest.approx((19*32+40)/20) and window.index[-1]==pd.Timestamp('2026-09-22')
+    assert len(window)==20 and pd.Timestamp('2026-09-16') not in window.index and pd.Timestamp('2026-09-23') not in window.index
+    info=prior_range(entry,'2026-09-23','2026-09-22',40.,.25)
+    assert info['atr20']==pytest.approx(32.4) and info['ratio']==pytest.approx(40/32.4)
+    assert info['roll_excluded']==['2026-09-16','2026-09-17'] and info['atr20_window'][1]=='2026-09-22'
+    with pytest.raises(ValueError,match='differs from 1-minute'):prior_range(entry,'2026-09-23','2026-09-22',41.,.25)
+
+def test_previous_session_range_does_not_enter_atr20():
+    a=continuous_sessions(roll_history()['contracts'])
+    entry=roll_history();bars=entry['contracts'][1]['bars']
+    last=bars.index[bars.index>=pd.Timestamp('2026-09-22 22:00',tz='UTC')]
+    bars.loc[last[0],'high']=500.
+    b=continuous_sessions(entry['contracts'])
+    assert b.loc['2026-09-23','tr']>a.loc['2026-09-23','tr']
+    assert atr20_from_table(a,'2026-09-23')[0]==atr20_from_table(b,'2026-09-23')[0]
+
+def test_atr20_fails_closed_on_19_valid_ambiguous_roll_and_gaps():
+    table=continuous_sessions(roll_history()['contracts'])
+    valid=table.tr.dropna()
+    with pytest.raises(ValueError,match='only 19 valid'):atr20_from_table(table,valid.index[19])
+    # With exactly 20, the session supplying the first prev_close is the unknown-front start of history: fail closed.
+    with pytest.raises(ValueError,match='ambiguous'):atr20_from_table(table,valid.index[20])
+    assert atr20_from_table(table,valid.index[21])[0]==pytest.approx(valid.iloc[1:21].mean())
+    # Only a deciding date with no strict volume leader (exact tie) is ambiguous.
+    with pytest.raises(ValueError,match='ambiguous roll'):
+        atr20_from_table(continuous_sessions(roll_history({'2026-09-14':(1000.,1000.)})['contracts']),'2026-09-23')
+    entry=roll_history();bars=entry['contracts'][0]['bars']
+    entry['contracts'][0]['bars']=bars.drop(bars.index[(bars.index>=pd.Timestamp('2026-09-09 14:00',tz='UTC'))&(bars.index<pd.Timestamp('2026-09-09 16:00',tz='UTC'))])
+    with pytest.raises(ValueError,match='incomplete session 2026-09-09: 2 missing'):atr20_from_table(continuous_sessions(entry['contracts']),'2026-09-23')
+    # 23 bars, but off the hour: the hourly rule checks bar starts, not a count.
+    entry=roll_history();bars=entry['contracts'][0]['bars']
+    day=(bars.index>=pd.Timestamp('2026-09-08 22:00',tz='UTC'))&(bars.index<pd.Timestamp('2026-09-09 21:00',tz='UTC'))
+    assert day.sum()==23
+    entry['contracts'][0]['bars']=bars.set_axis(bars.index.where(~day,bars.index+pd.Timedelta(minutes=30)))
+    with pytest.raises(ValueError,match='incomplete session 2026-09-09'):atr20_from_table(continuous_sessions(entry['contracts']),'2026-09-23')
+
+def test_near_tie_roll_follows_strict_volume_leader():
+    # A 1.1% volume lead (the Sep 2025 NQ pattern) decides the roll exactly as a large lead does: no ambiguity.
+    base=continuous_sessions(roll_history()['contracts'])
+    near=continuous_sessions(roll_history({'2026-09-14':(989.,1000.)})['contracts'])
+    assert not near.ambiguous.loc['2026-08-01':].any()
+    assert near.tr.equals(base.tr) and near.instrument.equals(base.instrument)
+    assert atr20_from_table(near,'2026-09-23')[0]==pytest.approx(atr20_from_table(base,'2026-09-23')[0])
+    # One more contract of volume the other way keeps Sep front for that deciding date: the switch moves one date later.
+    later=continuous_sessions(roll_history({'2026-09-14':(1000.,999.)})['contracts'])
+    assert list(later.index[later.tr.isna()&(later.index>'2026-08-01')].strftime('%Y-%m-%d'))==['2026-09-17','2026-09-18']
+    assert atr20_from_table(later,'2026-09-23')[0]>0
+
+def test_volume_lead_moving_back_is_followed_like_the_research():
+    # Dec leads on trade date 09-10 only, Sep again on 09-11, Dec from 09-14: the research series switches
+    # to Dec and back, and every session touching a switch has no TR. Not a fail-closed condition.
+    t=continuous_sessions(roll_history({'2026-09-10':(500.,600.)})['contracts'])
+    assert list(t.index[t.tr.isna()&(t.index>'2026-08-01')].strftime('%Y-%m-%d'))==['2026-09-14','2026-09-15','2026-09-16','2026-09-17']
+    assert t.loc['2026-09-14','instrument']=='20261218' and t.loc['2026-09-15','instrument_count']==2
+    atr,window,span=atr20_from_table(t,'2026-09-23')
+    assert len(window)==20 and atr==pytest.approx((19*32+40)/20) and not span.ambiguous.any()
+
+def test_shortened_holiday_session_counts_and_is_not_completeness_checked():
+    # Labor Day 2026-09-07: CME trades 18:00 Sunday to 13:00 Monday (19 hourly bars); XNYS is closed.
+    entry=roll_history()
+    hol=hourly_session('2026-09-07',150.,94.,110.,1000.).iloc[:19]
+    entry['contracts'][0]['bars']=pd.concat([entry['contracts'][0]['bars'],hol+[5.,5.,5.,5.,0.]]).sort_index()
+    entry['contracts'][1]['bars']=pd.concat([entry['contracts'][1]['bars'],hol.assign(volume=1.)]).sort_index()
+    t=continuous_sessions(entry['contracts'])
+    assert t.loc['2026-09-07','missing']==4 and t.loc['2026-09-07','tr']==56
+    atr,window,span=atr20_from_table(t,'2026-09-23')
+    assert pd.Timestamp('2026-09-07') in window.index and atr==pytest.approx((18*32+40+56)/20)
+
+def test_minute_completeness_rule_unchanged_by_shared_helper():
+    from open_breakout.inputs import missing_bars
+    f=minutes('2026-09-23')
+    halt=(f.index.tz_convert(NY).time>=datetime.strptime('16:15','%H:%M').time())&(f.index.tz_convert(NY).time<datetime.strptime('16:30','%H:%M').time())
+    assert halt.sum()==15 and session_range(f[~halt],'2026-09-23')==(120,80,110)
+    with pytest.raises(ValueError,match='1 missing'):session_range(f.drop(f.index[halt][-1]+pd.Timedelta(minutes=1)),'2026-09-23')
+    assert missing_bars(pd.DatetimeIndex([]),'2026-09-23',60)[0]==pd.Timestamp('2026-09-22 18:00',tz=NY)
+    assert len(missing_bars(pd.DatetimeIndex([]),'2026-09-23',60))==23
+
+def test_prior_range_rejects_failed_or_empty_history():
+    entry=roll_history()
+    with pytest.raises(ValueError,match='boom'):prior_range(dict(error='TimeoutError: boom'),'2026-09-23','2026-09-22',40.,.25)
+    # The Sep contract traded inside the window: an empty response is a failed request, not zero volume.
+    entry['contracts'][0]['bars']=entry['contracts'][0]['bars'].iloc[:0]
+    with pytest.raises(ValueError,match='traded inside the window'):prior_range(entry,'2026-09-23','2026-09-22',40.,.25)
+    # An expiry that ended before the window legitimately has no bars.
+    later=roll_history(start='2026-09-01');later['contracts'][0]['bars']=later['contracts'][0]['bars'].iloc[:0]
+    later['contracts'][0]['expiry']='20260618'
+    with pytest.raises(ValueError,match='valid prior TRs'):prior_range(later,'2026-09-23','2026-09-22',40.,.25)
+
+def test_range_history_isolates_market_failures(config):
+    pytest.importorskip('ib_insync')
+    from types import SimpleNamespace as NS
+    from ib_insync import BarData
+    from open_breakout.ibkr import IBKR
+    calls=[]
+    def details(contract):
+        async def go():
+            if contract.symbol=='NQ':raise ConnectionError('details down')
+            m=[m for m in config.markets if m.signal.symbol==contract.symbol][0]
+            return [NS(contract=NS(lastTradeDateOrContractMonth=e,conId=c,localSymbol=e,includeExpired=False))
+                    for e,c in [('20260918',1),('20261218',m.signal.con_id)]]
+        return go()
+    def hist(c,**kw):
+        async def go():
+            calls.append(c.lastTradeDateOrContractMonth)
+            if c.lastTradeDateOrContractMonth=='20260918' and calls.count('20260918')==1:return []
+            return [BarData(date=datetime(2026,9,22,22,tzinfo=NY),open=1.,high=2.,low=1.,close=1.5,volume=10.)]
+        return go()
+    async def run():
+        adapter=IBKR(config)
+        adapter.ib=NS(reqContractDetailsAsync=details,reqHistoricalDataAsync=hist)
+        return await adapter.range_history()
+    out=asyncio.run(run())
+    assert 'details down' in out['NQ']['error']
+    es=out['ES']['contracts']
+    # The empty first response for the earlier expiry was retried once.
+    assert calls==['20260918','20260918','20261218'] and [c['expiry'] for c in es]==['20260918','20261218']
+    assert all(len(c['bars'])==1 for c in es)
+
+def test_manifest_one_market_range_failure_leaves_other_market(config,tmp_path):
+    c=filtered(tmp_path)
+    risk,bars,rb=range_manifest_inputs(c)
+    rb['NQ']=dict(error='ValueError: NQ: signal contract not in the expiry list')
+    b=build_manifest(c,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,range_bars=rb)
+    assert b['markets']['NQ']['prior_range_status']=='UNAVAILABLE' and b['markets']['NQ']['skip_prior_range']
+    assert 'expiry list' in b['markets']['NQ']['prior_range_reason']
+    assert b['markets']['ES']['prior_range_status']=='OK' and not b['markets']['ES']['skip_prior_range']
+
+@pytest.mark.parametrize('ratio,skip',[(1.2499,False),(1.25,True),(1.9,True)])
+def test_range_decision_threshold(ratio,skip):
+    info=dict(atr20=10.,ratio=ratio,atr20_window=['a','b'],roll_excluded=[])
+    d=range_decision(RangeFilter(True,1.25,'skip'),info)
+    assert d['prior_range_status']=='OK' and d['skip_prior_range'] is skip and d['half_prior_range'] is False
+    h=range_decision(RangeFilter(True,1.25,'half'),info)
+    assert h['half_prior_range'] is skip and h['skip_prior_range'] is False
+    # Disabled or absent: recorded, never acted on.
+    for f in [None,RangeFilter(False,1.25,'skip')]:
+        d=range_decision(f,info);assert d['ratio']==ratio and not d['skip_prior_range'] and not d['half_prior_range']
+    u=range_decision(RangeFilter(True,1.25,'half'),'only 19 valid prior TRs (need 20)')
+    assert u['prior_range_status']=='UNAVAILABLE' and u['skip_prior_range'] and u['ratio'] is None and '19' in u['prior_range_reason']
+    assert not range_decision(None,'boom')['skip_prior_range']
+
+def range_manifest_inputs(config):
+    risk=pd.DataFrame({'63d':25.},index=pd.bdate_range('2026-09-01','2026-09-23'))
+    bars={m.name:pd.concat([minutes('2026-09-22'),minutes('2026-09-23')]) for m in config.markets}
+    return risk,bars,{m.name:roll_history() for m in config.markets}
+
+@pytest.mark.parametrize('threshold,skip',[(1.2,True),(1.25,False)])
+def test_manifest_records_ratio_and_skip_flag(config,tmp_path,threshold,skip):
+    c=filtered(tmp_path,{**FILTER,'threshold':threshold})
+    risk,bars,rb=range_manifest_inputs(c)
+    b=build_manifest(c,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,range_bars=rb)
+    for name,item in b['markets'].items():
+        assert item['prior_tr']==40 and item['prior_range_status']=='OK' and item['atr20']==pytest.approx(32.4)
+        assert item['ratio']==pytest.approx(40/32.4) and item['skip_prior_range'] is skip
+    assert b['prior_range_filter']=={'enabled':True,'threshold':threshold,'mode':'skip'}
+    p=tmp_path/'inputs.json';p.write_text(json.dumps(b));assert load_manifest(p,c)==b
+    # A tampered flag is caught by the hash, and an inconsistent flag by the range check.
+    item=dict(b['markets']['NQ']);item['skip_prior_range']=not skip
+    with pytest.raises(ValueError):check_range_fields(c,item)
+
+def test_manifest_fails_closed_when_history_missing_or_short(config,tmp_path):
+    c=filtered(tmp_path)
+    risk,bars,rb=range_manifest_inputs(c)
+    b=build_manifest(c,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,range_error='TimeoutError: x')
+    assert all(i['prior_range_status']=='UNAVAILABLE' and i['skip_prior_range'] for i in b['markets'].values())
+    assert 'TimeoutError' in b['markets']['NQ']['prior_range_reason']
+    short={k:roll_history(start='2026-08-26') for k in rb}
+    b=build_manifest(c,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,range_bars=short)
+    assert all(i['skip_prior_range'] and 'valid prior TRs' in i['prior_range_reason'] for i in b['markets'].values())
+    p=tmp_path/'inputs.json';p.write_text(json.dumps(b));assert load_manifest(p,c)==b
+    bad={k:dict(v) for k,v in b['markets'].items()};bad['NQ']['skip_prior_range']=False
+    with pytest.raises(ValueError,match='Unavailable'):check_range_fields(c,bad['NQ'])
+
+def test_shadow_records_ratio_without_skipping(config,tmp_path):
+    risk,bars,rb=range_manifest_inputs(config)
+    b=build_manifest(config,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,range_bars=rb)
+    assert b['prior_range_filter'] is None
+    for item in b['markets'].values():
+        assert item['ratio']==pytest.approx(40/32.4) and item['atr20']==pytest.approx(32.4)
+        assert item['skip_prior_range'] is False and item['half_prior_range'] is False
+    # Even a ratio far above any threshold never skips with the filter absent.
+    b=build_manifest(config,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,range_error='x')
+    assert not any(i['skip_prior_range'] for i in b['markets'].values())
+    p=tmp_path/'inputs.json';p.write_text(json.dumps(b));assert load_manifest(p,config)==b
+    forged=dict(b['markets']['NQ'],skip_prior_range=True)
+    with pytest.raises(ValueError,match='disabled'):check_range_fields(config,forged)
+
+def skip_manifest(config,market='NQ',**fields):
+    b=manifest(config);b.pop('hash')
+    for name in b['markets']:
+        b['markets'][name].update(prior_range_status='OK',atr20=40.,ratio=1.,skip_prior_range=False,
+                                  half_prior_range=False,prior_range_reason=None)
+    b['markets'][market].update(dict(prior_range_status='OK',atr20=28.,ratio=40/28.,skip_prior_range=True,
+                                     half_prior_range=False,prior_range_reason='ratio 1.4286 >= threshold 1.25'),**fields)
+    return {**b,'hash':digest(b)}
+
+def test_service_never_arms_skipped_market_and_other_market_trades(config,tmp_path):
+    c=filtered(tmp_path)
+    async def run():
+        now=[at('09:29:00')]
+        broker=SimBroker(c,lambda:now[0])
+        store=Store(tmp_path/'session.sqlite',c.fingerprint,DAY)
+        try:
+            service=Service(c,skip_manifest(c,'ES'),store,broker,lambda:now[0])
+            nq,es=service.states['NQ'],service.states['ES']
+            assert es.phase=='SKIPPED' and es.note.startswith('PRIOR_RANGE_SKIP') and not es.long_armed and not es.short_armed
+            events=[(k,json.loads(v)) for k,v in store.db.execute('SELECT kind,body FROM events')]
+            skips=[v for k,v in events if k=='PRIOR_RANGE_SKIP']
+            assert len(skips)==1 and skips[0]['market']=='ES' and skips[0]['threshold']==1.25 and skips[0]['ratio']==pytest.approx(40/28.)
+            for market,base in [('ES',5000),('NQ',20000)]:
+                await tick(service,broker,now,base,'09:30:00',market)
+                await tick(service,broker,now,base+10,'09:30:01',market)
+            assert es.opening==0 and es.attempts==0 and es.phase=='SKIPPED'
+            assert nq.opening==20000 and nq.attempts==1 and nq.qty==6 and nq.phase=='OPEN'
+            assert not any(o['market']=='ES' for o in store.orders().values())
+            await tick(service,broker,now,20010,'09:30:05','NQ');await service.watchdog()
+            assert es.phase=='SKIPPED' and not service.halted and nq.phase=='OPEN', store.get('halt_reason')
+            assert not any(k=='MARKET_BLOCKED' for k,_ in store.db.execute('SELECT kind,body FROM events'))
+            # Restart: the skip persists and is journaled once.
+            store.close()
+            store2=Store(tmp_path/'session2.sqlite',c.fingerprint,DAY)
+            store2.db.execute('INSERT INTO states VALUES (?,?)',('ES',json.dumps(es.record())))
+            store2.db.execute('INSERT INTO states VALUES (?,?)',('NQ',json.dumps(State(DAY,'NQ',40.,25).record())))
+            again=Service(c,skip_manifest(c,'ES'),store2,SimBroker(c,lambda:now[0]),lambda:now[0])
+            assert again.states['ES'].phase=='SKIPPED' and again.states['NQ'].phase=='FLAT'
+            assert store2.db.execute("SELECT COUNT(*) FROM events WHERE kind='PRIOR_RANGE_SKIP'").fetchone()[0]==0
+            store2.close()
+        finally:
+            if store.db:store.close()
+    asyncio.run(run())
+
+def test_fully_skipped_day_runs_to_close_without_halt(config,tmp_path):
+    c=filtered(tmp_path)
+    async def run():
+        now=[at('09:29:00')]
+        broker=SimBroker(c,lambda:now[0])
+        store=Store(tmp_path/'both.sqlite',c.fingerprint,DAY)
+        try:
+            m=skip_manifest(c,'NQ');m.pop('hash')
+            m['markets']['ES'].update(prior_range_status='UNAVAILABLE',atr20=None,ratio=None,skip_prior_range=True,
+                                      prior_range_reason='UNAVAILABLE: only 19 valid prior TRs (need 20)')
+            m={**m,'hash':digest(m)}
+            service=Service(c,m,store,broker,lambda:now[0])
+            assert {s.phase for s in service.states.values()}=={'SKIPPED'}
+            for stamp,price in [('09:30:00',20000),('09:30:01',20100),('09:45:00',20200)]:
+                for market in ['NQ','ES']:await tick(service,broker,now,price,stamp,market)
+            for stamp in ['09:31:00','11:31:00','15:57:00','16:00:30']:
+                now[0]=at(stamp);await service.watchdog()
+            assert not service.halted and not store.orders(), store.get('halt_reason')
+            assert {s.phase for s in service.states.values()}=={'SKIPPED'}
+            kinds={k for k, in store.db.execute('SELECT kind FROM events')}
+            assert 'MARKET_BLOCKED' not in kinds and 'HALT' not in kinds
+        finally:store.close()
+    asyncio.run(run())
+
+def test_service_fails_closed_without_range_decision_when_enabled(config,tmp_path):
+    c=filtered(tmp_path)
+    now=[at('09:29:00')]
+    store=Store(tmp_path/'s.sqlite',c.fingerprint,DAY)
+    try:
+        service=Service(c,manifest(c),store,SimBroker(c,lambda:now[0]),lambda:now[0])
+        assert {s.phase for s in service.states.values()}=={'SKIPPED'}
+    finally:store.close()
+    # The same legacy manifest under a config without the filter arms both markets.
+    store=Store(tmp_path/'t.sqlite',config.fingerprint,DAY)
+    try:
+        service=Service(config,manifest(config),store,SimBroker(config,lambda:now[0]),lambda:now[0])
+        assert {s.phase for s in service.states.values()}=={'FLAT'}
+    finally:store.close()
+
+def test_half_mode_halves_contracts_floored(config,tmp_path):
+    c=filtered(tmp_path,{**FILTER,'mode':'half'})
+    s=State(DAY,'NQ',40.1,25)
+    full=size_order(s,c.markets[0],1,20000,20000.25,100000,c)['qty']
+    s.half_size=True
+    assert size_order(s,c.markets[0],1,20000,20000.25,100000,c)['qty']==full//2
+    now=[at('09:29:00')]
+    store=Store(tmp_path/'h.sqlite',c.fingerprint,DAY)
+    try:
+        m=skip_manifest(c,skip_prior_range=False,half_prior_range=True)
+        service=Service(c,m,store,SimBroker(c,lambda:now[0]),lambda:now[0])
+        assert service.states['NQ'].half_size and service.states['NQ'].phase=='FLAT' and not service.states['ES'].half_size
+    finally:store.close()
+
+def test_prepare_cli_prints_prior_range_fields(config,tmp_path,monkeypatch,capsys):
+    from types import SimpleNamespace as NS
+    import open_breakout.ibkr as ibkr_module
+    import open_breakout.__main__ as cli
+    c=filtered(tmp_path)
+    risk,bars,rb=range_manifest_inputs(c)
+    rpath=tmp_path/'risk.parquet';risk.to_parquet(rpath)
+    class Fake:
+        def __init__(self,config,session=None):
+            self.ib=NS(client=NS(placeOrder=lambda *a:None),isConnected=lambda:True)
+        async def connect(self):pass
+        async def history(self):return bars
+        async def range_history(self):return rb
+        def close(self):pass
+    monkeypatch.setattr(ibkr_module,'IBKR',Fake)
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return at('09:00:00').astimezone(tz) if tz else at('09:00:00')
+    monkeypatch.setattr(cli,'datetime',Clock)
+    out=tmp_path/'prep'/'inputs.json'
+    asyncio.run(cli.main_async(NS(command='prepare',config=str(tmp_path/'filtered.json'),session=DAY,
+        risk_parquet=str(rpath),out=str(out),roll_verified=True,client_id=None)))
+    text=capsys.readouterr().out
+    printed=json.loads(text[:text.rindex('}')+1])
+    assert printed['prior_range_filter']==FILTER
+    for name in ['NQ','ES']:
+        p=printed['markets'][name]
+        assert set(p)>={'prior_tr','prior_range_status','atr20','ratio','skip_prior_range','prior_range_reason'}
+        assert p['prior_range_status']=='OK' and p['atr20']==pytest.approx(32.4) and p['skip_prior_range'] is False
+    assert load_manifest(out,c)['markets']['NQ']['ratio']==pytest.approx(40/32.4)

@@ -41,11 +41,33 @@ class Service:
         store.set('manifest_hash',manifest['hash'])
         if store.orders():
             self.halt('RESTART_REQUIRES_READ_ONLY_RECONCILIATION')
+        self._apply_prior_range()
         for state in self.states.values(): store.save(state)
         broker.fill_callback = self.fill
         broker.status_callback = self.status
         broker.halt_callback = self.halt
         broker.order_error_callback = self.order_error
+
+    def _apply_prior_range(self):
+        """A skipped market is never armed: no opening capture, no entries, no missed-open block."""
+        filt = self.config.prior_range_filter
+        for name,s in self.states.items():
+            item = self.manifest['markets'][name]
+            # Fail closed if an enabled filter meets a manifest without an OK decision.
+            skip = item.get('skip_prior_range',False) is True or (self.config.range_filter_on and item.get('prior_range_status')!='OK')
+            if item.get('half_prior_range') is True and not s.half_size and not s.attempts:
+                s.half_size = True
+                self.store.event('PRIOR_RANGE_HALF',dict(market=name,ratio=item.get('ratio'),atr20=item.get('atr20'),
+                                                         threshold=filt.threshold if filt else None))
+            if not skip or s.phase=='SKIPPED' or s.qty or s.attempts or s.opening:
+                continue
+            s.phase='SKIPPED'
+            s.long_armed=s.short_armed=False
+            s.note=f'PRIOR_RANGE_SKIP: {item.get("prior_range_reason") or "filter enabled without an OK prior-range decision"}'
+            self.store.event('PRIOR_RANGE_SKIP',dict(market=name,ratio=item.get('ratio'),atr20=item.get('atr20'),
+                                                     prior_tr=item.get('prior_tr'),status=item.get('prior_range_status'),
+                                                     threshold=filt.threshold if filt else None,reason=s.note))
+            print(f'{name} not armed: {s.note}',flush=True)
 
     def halt(self, reason):
         self.halted = True
@@ -202,6 +224,8 @@ class Service:
 
     def tick(self, market, timestamp, price):
         s = self.states[market]
+        if s.phase=='SKIPPED':
+            return
         now = self.clock()
         before=(s.opening,s.phase)
         if s.last_timestamp and (aware(timestamp)-aware(s.last_timestamp)).total_seconds()>self.config.watchdog_stale_seconds and aware(timestamp).astimezone(NY).time()<time(11,30):
@@ -411,6 +435,8 @@ class Service:
             working={o['id']:o for o in snapshot['orders'] if o['client_id']==self.config.client_id}
             late = self.clock().astimezone(NY).time()>=time(15,56)
             for s in self.states.values():
+                if s.phase=='SKIPPED' and not s.qty:
+                    continue
                 local=self.clock().astimezone(NY)
                 boundary=local.replace(hour=9,minute=30,second=0,microsecond=0)
                 if not s.opening and (local-boundary).total_seconds()>self.config.max_open_delay_seconds:

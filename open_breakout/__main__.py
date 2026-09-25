@@ -49,7 +49,8 @@ async def main_async(args):
     if args.command=='validate':
         ack=config.authorize(session)
         print(json.dumps(dict(mode=config.mode,config_hash=config.fingerprint,live_release_enabled=config.mode=='live',
-                              live_ack_verified=ack is not None,markets=[m.name for m in config.markets])))
+                              live_ack_verified=ack is not None,markets=[m.name for m in config.markets],
+                              prior_range_filter=None if config.prior_range_filter is None else vars(config.prior_range_filter))))
         return
     if args.command=='preflight':
         from .ibkr import IBKR
@@ -117,10 +118,15 @@ async def main_async(args):
             return
         if args.command=='prepare':
             import pandas as pd
+            from .standby import fetch_range_bars, range_summary
             bars=await transport.history()
+            range_bars,range_error=await fetch_range_bars(transport)
             body=build_manifest(config,args.session,pd.read_parquet(args.risk_parquet),bars,
-                                now=datetime.now(timezone.utc),roll_verified=args.roll_verified)
+                                now=datetime.now(timezone.utc),roll_verified=args.roll_verified,
+                                range_bars=range_bars,range_error=range_error)
             write_new(args.out,body)
+            print(json.dumps(dict(prior_range_filter=body['prior_range_filter'],
+                markets={k:{'prior_tr':v['prior_tr'],**r} for (k,v),r in zip(body['markets'].items(),range_summary(body).values())}),indent=2))
             print(f'Prepared {args.out}; no orders submitted')
             return
         manifest=load_manifest(args.inputs,config)
@@ -154,7 +160,7 @@ async def main_async(args):
                 if service.halted and not reported:
                     print('HALTED: inspect journal and broker; existing protective orders retained',flush=True);reported=True
                 for name,state in service.states.items():
-                    if state.phase=='BLOCKED' and name not in reported_markets:
+                    if state.phase in {'BLOCKED','SKIPPED'} and name not in reported_markets:
                         print(f'{name} skipped: {state.note}',flush=True);reported_markets.add(name)
                 local=datetime.now(timezone.utc).astimezone(NY)
                 if local.time()>=time(16,1):break
