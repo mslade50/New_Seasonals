@@ -347,13 +347,13 @@
       "status": "live",
       "live_since": "2026-09-23",
       "direction": "long",
-      "instruments": "SPY and QQQ",
+      "instruments": "SPY and QQQ ETFs, plus MES and MNQ futures (signal graded on ES/NQ of the same expiry)",
       "universe_size": 2,
       "captures": "After a session with a strong one-way bar (body at least 75% of the day's range) whose 15-minute bars never touched their 20-period EMA, the next open tends to reach back toward that EMA in the first hour. The trade buys an open that sits below the EMA and targets a penny under it.",
-      "entry": "Per ETF: the prior session qualifies if |close - open| / (high - low) >= 0.75 and no 15-minute bar touched its EMA20, and it must be a full session. At 09:31, if the 09:30 open is below the EMA reference, buy at market. Rejected if the 09:30 bar already touched the target. Ex-dividend days are skipped through a configured skip-date list. Long only; shorts are off by owner decision (2026-09-23).",
-      "exit": "Target limit at the EMA minus $0.01, revised at 09:46, 10:01 and 10:16 as completed 15-minute bars extend the EMA; otherwise a market exit at 10:30. No stop. A 10:32 check trades any residual of the quantity entered back to flat.",
-      "sizing": "40 percent of NAV for SPY and 30 percent for QQQ, capped by MAX_SHARES. Shares = floor(NLV x pct / decision price), with NLV read live from the Primary account rather than the $750k book basis. MAX_SHARES is a fat-finger ceiling, not the size, and the code refuses any cap above its own hard ceiling.",
-      "risk_controls": "No stop; the 10:30 time exit bounds the hold. Share-cap ceiling, refusal when NLV is missing or non-finite, activation flag, append-only journal for idempotence. It runs independently of the systematic book: another book's position or order in SPY or QQQ does not block an entry, and it refuses only when its own orderRef or journal already shows today's entry. Exits and the 10:32 check net only its own executions.",
+      "entry": "Per instrument: the prior session qualifies if |close - open| / (high - low) >= 0.75 and no 15-minute bar touched its EMA20, and it must be a full session. ETF leg: graded on SPY and QQQ themselves. Futures leg: graded on full-size ES and NQ of the same expiry as the MES and MNQ contract traded. At 09:31, if the 09:30 open is below the EMA reference, buy at market. Rejected if the 09:30 bar already touched the target. Ex-dividend days are skipped on the ETF leg through a configured skip-date list. Long only on both legs; shorts are off by owner decision (2026-09-23).",
+      "exit": "Target limit just inside the EMA (ETF: EMA minus $0.01; futures: the highest tick below the EMA), revised at 09:46, 10:01 and 10:16 as completed 15-minute bars extend the EMA; otherwise a market exit at 10:30. No stop. On futures the target (GTD limit) and the 10:30 market leg are independent orders with no OCA group, and the runner cancels the survivor. A 10:32 check trades any residual of the quantity entered back to flat.",
+      "sizing": "ETF leg at full size: 40 percent of NAV for SPY and 30 percent for QQQ, shares = floor(NLV x pct / decision price), capped at 1000 shares. Futures leg: contracts = round-half-up(NLV x 40 percent for MES or 30 percent for MNQ / (price x multiplier)), multiplier 5 for MES and 2 for MNQ, capped at 1 MES and 1 MNQ at cutover; the owner default later is 20 MES and 10 MNQ, and the code refuses any cap above its hard ceiling of 40 MES and 20 MNQ. NLV is read live from the Primary account rather than the $750k book basis. The caps are fat-finger ceilings, not the size.",
+      "risk_controls": "No stop; the 10:30 time exit bounds the hold. Share and contract cap ceilings, refusal when NLV is missing or non-finite, activation flag per leg, append-only journal per leg for idempotence. It runs independently of the systematic book: another book's position or order in SPY, QQQ, MES or MNQ does not block an entry, and it refuses only when its own orderRef or journal already shows today's entry. Exits and the 10:32 check net only its own executions.",
       "order_ref_tags": ["Legend_EMA"],
       "doc": "docs/briefs/2026-09-22/legend_ema_fresh_runner_spec.md",
       "stats_source": "research_backtest",
@@ -374,7 +374,7 @@
           {"case": "QQQ long (NQ signal)", "n_trades": 45, "win_rate": 0.644, "avg_bps": 12.5, "profit_factor": 1.81, "t_stat": 1.49}
         ]
       },
-      "notes": "Started on 2026-09-23 with MAX_SHARES set to one share while the exit-sizing fixes in docs/briefs/2026-09-23/legend_ema_size_fixes.md were open; since 2026-09-24 the cap is a fat-finger ceiling and the NAV percentages set the size. Neither long cell is individually significant (t 1.2 and 1.5). The runner is legend_ema.py in trading_ibkr, not this repo. Source: artifacts/legend-etf-execution-backtest-20260901/."
+      "notes": "Live since 2026-09-23 is the ETF leg. The futures leg cutover (legend_ema_fut.py) is in progress as of 2026-09-26, at 1 MES and 1 MNQ. The ETF leg started with MAX_SHARES set to one share while the exit-sizing fixes in docs/briefs/2026-09-23/legend_ema_size_fixes.md were open; since 2026-09-24 the cap is a fat-finger ceiling and the NAV percentages set the size. Both legs keep the strategy tag Legend_EMA and the orderRef SYMBOL|ACTION|Legend_EMA|YYYY-MM-DD (for example MES|BUY|Legend_EMA|2026-10-01); exit legs append |TARGET or |TIME. Legend and Open Breakout share MES and MNQ in Primary: Open Breakout's position reconciliation halts its new entries on a day Legend holds a futures position (accepted for the 2026-09-28 pilot; orderRef-scoped reconciliation is the follow-up). Neither long cell is individually significant (t 1.2 and 1.5). The runners are legend_ema.py and legend_ema_fut.py in trading_ibkr, not this repo. Source: artifacts/legend-etf-execution-backtest-20260901/."
     },
     {
       "id": "trend_sleeve",
@@ -389,7 +389,7 @@
       "entry": "On the month's last trading day an ETF is held when its 12-1 month momentum is positive and it closes above its 10-month SMA. trend_sleeve.py writes MOO rows for the next session, but the pre-market true-MOO runner (trend_moo.py) is not activated, so order_staging's legacy path submits them as market orders with TIF DAY at about 09:31. Changes under 1% of sleeve NAV are skipped unless the signal flips.",
       "exit": "Positions unwind at the next monthly rebalance when an ETF fails the signal. No stops.",
       "sizing": "30% of the $750k basis deployed (cut from 60% on 2026-07-17). Inverse-volatility weights across eligible ETFs, each slot capped at 20%; unused slots sit in cash. Not GRM-scaled.",
-      "risk_controls": "20% slot cap, rebalance band, and in the current code a month-entry fragility gate: the whole sleeve stays in cash when the latest month-end 10d MA of the 63d dial is above 50 (fails closed on a missing or stale dial).",
+      "risk_controls": "20% slot cap, rebalance band, and a month-entry fragility cash gate: the whole sleeve stays in cash when the latest month-end 10d MA of the 63d dial is above 50 (fails closed on a missing or stale dial).",
       "order_ref_tags": ["Trend Sleeve"],
       "doc": "docs/claude_ref/strategies_3x_and_pilots.md",
       "stats_source": "research_backtest",
@@ -407,7 +407,7 @@
         "median_hold": "monthly rebalance",
         "notes": "Expected figures from the trend_sleeve.py spec on the next-open basis for this 12-ETF universe, not a trade-level backtest. Trades per year counts monthly rebalances."
       },
-      "notes": "Ballast only; it loses about 0.4% a month in high-fragility months. No USO (roll decay) and no UUP (capital inefficiency). Scale-up only after 2 clean quarters. If staged orders never execute, the R2 state must be cleared or the next rebalance deltas are wrong. Note that docs/claude_ref/fragility_dial.md lists a \"trend-sleeve gate\" among rejected proposals, while trend_sleeve.py runs the dial cash gate described under risk controls."
+      "notes": "Ballast only; it loses about 0.4% a month in high-fragility months. No USO (roll decay) and no UUP (capital inefficiency). Scale-up only after 2 clean quarters. If staged orders never execute, the R2 state must be cleared or the next rebalance deltas are wrong. The dial above 50 cash gate is the intended rule (owner confirmed 2026-09-26)."
     },
     {
       "id": "event_sleeve",

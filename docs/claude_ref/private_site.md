@@ -32,8 +32,11 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   into "Actual-only strategies" instead of "excluded"; the Exec hedge panel
   treats FUT positions as strategy exposure, not hedge, when a working
   closing-side leg on the same root/expiry carries a known futures tag
-  (`HEDGE_FUT_STRATEGY_TAGS` = OpenBreakout, OpenBreakoutMechTest, plus
-  Futures-family catalog tags), capped at the leg quantity; the untagged
+  (`HEDGE_FUT_STRATEGY_TAGS` = OpenBreakout, OpenBreakoutMechTest,
+  Legend_EMA, Legend_EMA_TEST, plus Futures-family catalog tags; Legend's
+  MES/MNQ leg from 2026-09-26 has no OCA group, so its |TARGET and |TIME
+  exits group by the base signal ref and count once, and a SELL_SHORT ref
+  side reads as SELL), capped at the leg quantity; the untagged
   remainder still counts. A leg claims only when its orderRef side (2nd
   field, the position direction) matches the position, its order side
   closes it, and the contract matches (conId, else YYYYMM expiry; an order

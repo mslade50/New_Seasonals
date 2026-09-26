@@ -32,7 +32,14 @@ const HEDGE_WORKING_STATUSES = new Set(["Submitted", "PreSubmitted", "PendingSub
 const HEDGE_INDEX_ROOTS = new Set(["MES", "ES", "MNQ", "NQ", "M2K", "RTY", "MYM", "YM"]);
 // orderRef strategy tags that mark a futures position as strategy exposure
 // rather than a hedge. The build's strategies.json order_ref_tags extend this.
-const HEDGE_FUT_STRATEGY_TAGS = new Set(["OpenBreakout", "OpenBreakoutMechTest"]);
+// Legend EMA trades MES/MNQ alongside its SPY/QQQ leg (cutover 2026-09-26).
+const HEDGE_FUT_STRATEGY_TAGS = new Set([
+  "OpenBreakout", "OpenBreakoutMechTest", "Legend_EMA", "Legend_EMA_TEST",
+]);
+// Tags whose exit legs are independent orders (no OCA group) suffixed onto one
+// signal ref (|TARGET, |TIME, |RESIDUAL...): group them by the base signal ref
+// so the two legs of one position count once.
+const HEDGE_FUT_SIGNAL_GROUPED_TAGS = new Set(["Legend_EMA", "Legend_EMA_TEST"]);
 let HEDGE_STRATEGY_TAGS = [];   // catalog order_ref_tags from data/strategies.json (optional)
 const HEDGE_INDEX_PROXY = {
   MES: "SPY", ES: "SPY", MNQ: "QQQ", NQ: "QQQ",
@@ -547,7 +554,10 @@ function parseHedgeOrderRef(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
   const parts = raw.split("|");
-  const action = String(parts[1] || "").toUpperCase();
+  // Legend's runners write SELL_SHORT for a short signal; the position
+  // direction is SELL either way.
+  const rawAction = String(parts[1] || "").toUpperCase();
+  const action = rawAction === "SELL_SHORT" ? "SELL" : rawAction;
   const date = String(parts[3] || "");
   if (parts.length < 4 || !parts[0] || !parts[2]
       || !["BUY", "SELL"].includes(action)
@@ -786,7 +796,10 @@ function attributeBook(account, betas, futSpecs, opts = {}) {
       if (posConId && orderConId) {
         if (posConId !== orderConId) continue;
       } else if (posExpiry && posExpiry !== orderExpiry) continue;
-      const key = `${item.parsed.strategy}|${order.oca_group || item.parsed.raw}`;
+      const signalRef = [item.parsed.symbol, item.parsed.action, item.parsed.strategy, item.parsed.date].join("|");
+      const legKey = HEDGE_FUT_SIGNAL_GROUPED_TAGS.has(item.parsed.strategy)
+        ? signalRef : (order.oca_group || item.parsed.raw);
+      const key = `${item.parsed.strategy}|${legKey}`;
       if (!groups.has(key)) groups.set(key, { strategy: item.parsed.strategy, qty: 0, exitDate: null });
       const group = groups.get(key);
       group.qty = Math.max(group.qty, Math.abs(hedgeNum(order.qty) || 0));

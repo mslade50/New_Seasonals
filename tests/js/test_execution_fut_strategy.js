@@ -151,4 +151,75 @@ function book(positions, orders) {
   assert.ok(Number.isFinite(model.netSpyEquiv));
 }
 
-console.log("PASS hedge carve-out: OpenBreakout MES excluded from hedge, untagged MES counted, wrong side/expiry not claimed, Legend_EMA stock attributed");
+// 9. Legend_EMA futures (cutover 2026-09-26): long 1 MES with two independent
+//    exits (GTD target LMT and a 10:30 goodAfterTime MKT, no OCA group), both
+//    SELL orders carrying the entry ref plus |TARGET / |TIME, as
+//    legend_ema_fut.build_exit_orders places them. One strategy contract, no hedge.
+const legend = (id, type, ref, extra) => Object.assign({
+  order_id: id, symbol: "MES", sec_type: "FUT", expiry: "20261218", action: "SELL", qty: 1,
+  status: "Submitted", order_type: type, oca_group: "", parent_id: 0, order_ref: ref,
+}, extra || {});
+{
+  const sig = "MES|BUY|Legend_EMA|2026-10-01";
+  const model = context.attributeBook(book([
+    { symbol: "MES", sec_type: "FUT", expiry: "20261218", position: 1, market_price: 7800 },
+  ], [
+    legend(91, "LMT", `${sig}|TARGET`, { lmt: 7830, tif: "GTD" }),
+    legend(92, "MKT", `${sig}|TIME`, { good_after: "20261001 10:30:00 America/New_York" }),
+  ]), betas, specs, { today: "20261001" });
+  assert.strictEqual(model.futuresSpyEquiv, 0);
+  assert.strictEqual(model.futures.filter(f => f.counted).length, 0);
+  const row = model.byStrategy.find(r => r.strategy === "Legend_EMA");
+  assert.ok(row, "Legend MES must attribute to Legend_EMA");
+  assert.strictEqual(row.legs, 1);
+  assert.strictEqual(row.spyEquiv, 5 * 7800);
+  assert.strictEqual(row.legDetails[0].exitDate, "20261001");
+}
+
+// 10. Legend and OpenBreakout both long 1 MES in one 2-lot position: Legend's
+//     two exit legs count once, so each strategy claims one contract.
+{
+  const sig = "MES|BUY|Legend_EMA|2026-10-01";
+  const model = context.attributeBook(book([
+    { symbol: "MES", sec_type: "FUT", expiry: "20261218", position: 2, market_price: 7800 },
+  ], [
+    legend(101, "LMT", `${sig}|TARGET`, { lmt: 7830 }),
+    legend(102, "MKT", `${sig}|TIME`, { good_after: "20261001 10:30:00 America/New_York" }),
+    ob(103, "STP", { aux: 7700 }),
+  ]), betas, specs, { today: "20261001" });
+  assert.strictEqual(model.futuresSpyEquiv, 0);
+  assert.strictEqual(model.byStrategy.find(r => r.strategy === "Legend_EMA").legs, 1);
+  assert.strictEqual(model.byStrategy.find(r => r.strategy === "OpenBreakout").legs, 1);
+  const legendFut = model.futures.find(f => f.strategy === "Legend_EMA");
+  const obFut = model.futures.find(f => f.strategy === "OpenBreakout");
+  assert.strictEqual(legendFut.position, 1);
+  assert.strictEqual(obFut.position, 1);
+}
+
+// 11. Mirror short (shorts are disabled today): short 1 MES with BUY exit legs.
+//     The runner writes SELL_SHORT in the 2nd field; a plain SELL ref works too.
+for (const action of ["SELL_SHORT", "SELL"]) {
+  const sig = `MES|${action}|Legend_EMA|2026-10-01`;
+  const model = context.attributeBook(book([
+    { symbol: "MES", sec_type: "FUT", expiry: "20261218", position: -1, market_price: 7800 },
+  ], [
+    legend(111, "LMT", `${sig}|TARGET`, { action: "BUY", lmt: 7770 }),
+    legend(112, "MKT", `${sig}|TIME`, { action: "BUY", good_after: "20261001 10:30:00 America/New_York" }),
+  ]), betas, specs, { today: "20261001" });
+  assert.strictEqual(model.futuresSpyEquiv, 0, `${action} short must not count as hedge`);
+  const row = model.byStrategy.find(r => r.strategy === "Legend_EMA");
+  assert.ok(row, `${action} short must attribute to Legend_EMA`);
+  assert.strictEqual(row.legs, 1);
+}
+
+// 12. A Legend long's SELL exits do not claim a short hedge (strict side rule).
+{
+  const sig = "MES|BUY|Legend_EMA|2026-10-01";
+  const model = context.attributeBook(book([
+    { symbol: "MES", sec_type: "FUT", expiry: "20261218", position: -1, market_price: 7800 },
+  ], [legend(121, "LMT", `${sig}|TARGET`, { lmt: 7830 })]), betas, specs, { today: "20261001" });
+  assert.strictEqual(model.futuresSpyEquiv, -5 * 7800);
+  assert.strictEqual(model.byStrategy.length, 0);
+}
+
+console.log("PASS hedge carve-out: OpenBreakout MES excluded from hedge, untagged MES counted, wrong side/expiry not claimed, Legend_EMA stock and MES futures attributed");

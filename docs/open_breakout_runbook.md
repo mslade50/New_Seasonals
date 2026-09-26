@@ -600,3 +600,22 @@ Both markets would be armed Monday. The roll sessions 09-16 and 09-17 are exclud
 both windows. Re-run after the roll-rule review: identical values. Hand check: the mean
 of the 20 hourly TRs in the parity file for 08-26 to 09-24 (Labor Day 09-07 included,
 09-16 and 09-17 excluded) is 404.425 (NQ) and 68.0625 (ES).
+
+## Shared contracts with Legend EMA futures (2026-09-26)
+
+Legend EMA is being cut over to also trade MES and MNQ in Primary (`legend_ema_fut.py`
+in trading_ibkr, 1 contract cap per market at cutover, entry at 09:31, flat by the 10:30
+time exit and the 10:32 residual check). Open Breakout reconciles the account's whole
+MES/MNQ position against its own journal, so the two collide on a day Legend trades:
+- The 09:25 preflight passes, because Legend has not entered yet.
+- After Legend's 09:31 entry the broker position differs from Open Breakout's journal.
+  The watchdog's position check trips after its 3 consecutive stable checks and halts
+  new Open Breakout entries for the rest of the session.
+- Protection is untouched: any Open Breakout stop and timed exit already working stay
+  in place.
+- Legend is unaffected, since it nets only executions carrying its own orderRefs
+  (`MES|BUY|Legend_EMA|<date>` and its `|TARGET` / `|TIME` legs).
+
+Accepted for the 2026-09-28 pilot. Follow-up: orderRef-scoped reconciliation, so the
+watchdog compares Open Breakout's journal to executions tagged `OpenBreakout` rather
+than to the account position.
