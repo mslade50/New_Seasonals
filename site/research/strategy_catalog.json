@@ -322,23 +322,30 @@
       "stats_source": "research_backtest",
       "frozen_stats": {
         "span": "2018-01..2026-08",
-        "n_trades": 3374,
-        "trades_per_year": 390.0,
-        "trades_per_month": 32.5,
-        "win_rate": 0.389,
-        "avg_r": 0.167,
-        "profit_factor": 1.27,
-        "sharpe": null,
-        "median_hold": "intraday (median 214 minutes)",
-        "notes": "Headline is NQ and ES combined at base costs, unfiltered current candidate (break-even off). Profit factor is on R. Sharpe is per market from the 100 bps compounded replay (see cases). Computed from current_candidate/{NQ,ES}_{base,stress}_trades.csv.",
+        "n_trades": 2737,
+        "trades_per_year": 316.4,
+        "trades_per_month": 26.4,
+        "win_rate": 0.379,
+        "avg_r": 0.204,
+        "median_r": -1.013,
+        "profit_factor": 1.33,
+        "sharpe": 1.47,
+        "max_dd_r": -35.9,
+        "usd_per_contract_trade": 18.1,
+        "usd_per_contract_year": 5737,
+        "median_hold": "intraday (median 173 minutes)",
+        "notes": "NQ and ES combined at base costs, with the shipped 1.25 prior-range skip; in-sample 2018-01..2026-08; unfiltered: 390.0 trades/yr, win 38.9%, mean 0.167R. Built by dropping every trade on a market-day with prior full-session TR / ATR20 >= 1.25 from current_candidate/{NQ,ES}_{base,stress}_trades.csv (328 NQ and 309 ES trades dropped at base, matching range_filter_rty). Profit factor is on R. Sharpe is day-level: daily summed R over every eligible session, times sqrt(252). Max drawdown is on cumulative day-level R. Dollars are net per micro contract (fees and slippage included); the year figure is one MNQ plus one MES. Net points per contract per market are in the cases.",
         "cases": [
-          {"case": "NQ base", "n_trades": 1762, "trades_per_year": 203.7, "trades_per_month": 17.0, "win_rate": 0.404, "avg_r": 0.231, "profit_factor": 1.40, "sharpe": 1.78, "long_avg_r": 0.184, "short_avg_r": 0.322},
-          {"case": "NQ stress", "n_trades": 1811, "trades_per_year": 209.3, "trades_per_month": 17.4, "win_rate": 0.388, "avg_r": 0.147, "profit_factor": 1.24, "sharpe": 1.18, "long_avg_r": 0.099, "short_avg_r": 0.238},
-          {"case": "ES base", "n_trades": 1612, "trades_per_year": 186.4, "trades_per_month": 15.5, "win_rate": 0.373, "avg_r": 0.096, "profit_factor": 1.15, "sharpe": 0.73, "long_avg_r": 0.039, "short_avg_r": 0.203},
-          {"case": "ES stress", "n_trades": 1602, "trades_per_year": 185.2, "trades_per_month": 15.4, "win_rate": 0.320, "avg_r": -0.134, "profit_factor": 0.82, "sharpe": -1.08, "long_avg_r": -0.196, "short_avg_r": -0.009}
+          {"case": "NQ base, skip on", "n_trades": 1434, "trades_per_year": 165.8, "trades_per_month": 13.8, "win_rate": 0.394, "avg_r": 0.278, "median_r": -1.009, "profit_factor": 1.46, "sharpe": 1.82, "max_dd_r": -19.6, "pts_per_trade": 13.84, "pts_per_year": 2294, "long_avg_r": 0.238, "short_avg_r": 0.359},
+          {"case": "NQ stress, skip on", "n_trades": 1482, "trades_per_year": 171.3, "trades_per_month": 14.3, "win_rate": 0.375, "avg_r": 0.178, "median_r": -1.020, "profit_factor": 1.28, "sharpe": 1.23, "max_dd_r": -24.4, "pts_per_trade": 10.36, "pts_per_year": 1775, "long_avg_r": 0.138, "short_avg_r": 0.258},
+          {"case": "ES base, skip on", "n_trades": 1303, "trades_per_year": 150.6, "trades_per_month": 12.6, "win_rate": 0.363, "avg_r": 0.122, "median_r": -1.032, "profit_factor": 1.19, "sharpe": 0.79, "max_dd_r": -26.6, "pts_per_trade": 1.53, "pts_per_year": 230, "long_avg_r": 0.050, "short_avg_r": 0.268},
+          {"case": "ES stress, skip on (still loses)", "n_trades": 1370, "trades_per_year": 158.4, "trades_per_month": 13.2, "win_rate": 0.308, "avg_r": -0.140, "median_r": -1.096, "profit_factor": 0.82, "sharpe": -0.93, "max_dd_r": -205.9, "pts_per_trade": -0.45, "pts_per_year": -72, "long_avg_r": -0.214, "short_avg_r": 0.016},
+          {"case": "Combined stress, skip on", "n_trades": 2852, "trades_per_year": 329.7, "trades_per_month": 27.5, "win_rate": 0.343, "avg_r": 0.025, "median_r": -1.030, "profit_factor": 1.04, "sharpe": 0.19, "max_dd_r": -83.3, "usd_per_contract_trade": 9.7, "usd_per_contract_year": 3192},
+          {"case": "NQ base, unfiltered (reference)", "n_trades": 1762, "trades_per_year": 203.7, "trades_per_month": 17.0, "win_rate": 0.404, "avg_r": 0.231, "median_r": -1.007, "profit_factor": 1.40, "sharpe": 1.78, "max_dd_r": -22.0, "pts_per_trade": 10.58, "pts_per_year": 2155, "long_avg_r": 0.184, "short_avg_r": 0.322},
+          {"case": "ES base, unfiltered (reference)", "n_trades": 1612, "trades_per_year": 186.3, "trades_per_month": 15.5, "win_rate": 0.373, "avg_r": 0.096, "median_r": -1.023, "profit_factor": 1.15, "sharpe": 0.73, "max_dd_r": -23.2, "pts_per_trade": 0.88, "pts_per_year": 164, "long_avg_r": 0.039, "short_avg_r": 0.203}
         ]
       },
-      "notes": "ES at stress costs (4-tick slippage) loses money: 1602 trades, 32.0% win rate, mean -0.134R, PF 0.82 on R, Sharpe -1.08, and a 90% drawdown in the compounded replay. ES is thin even at base costs (+0.096R). The prior-range filter shipped on an owner override ahead of its pre-registered forward test (prereg 2026-09-25; RTY cross-check NEUTRAL); in sample it skips about 21-22% of traded days, and the stats here are the unfiltered candidate. The 2026-09-25 launch never happened (Gateway outage); 2026-09-28 is the first staged live session."
+      "notes": "Stats are with the shipped prior-range skip (1.25), i.e. the strategy as it trades; the shadow session runs unfiltered as the forward baseline. The skip shipped on an owner override ahead of its pre-registered forward test (prereg 2026-09-25; RTY cross-check NEUTRAL) and in sample removes about 19% of trades. ES at stress costs (4-tick slippage) still loses money with the skip: 1370 trades, 30.8% win rate, mean -0.140R, PF 0.82 on R, day-level Sharpe -0.93, and an 88% drawdown in the compounded replay. ES is thin even at base costs (+0.122R). The 2026-09-25 launch never happened (Gateway outage); 2026-09-28 is the first staged live session."
     },
     {
       "id": "legend_ema",
