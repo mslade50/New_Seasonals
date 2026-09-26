@@ -9,6 +9,7 @@ const PAGES = [
   { href: "pitch.html",    label: "Pitch" },
   { href: "focus.html",    label: "Focus" },
   { href: "events.html",   label: "Events" },
+  { href: "strategies.html", label: "Strategies" },
   { href: "risk.html",     label: "Risk" },
   { href: "tradelog.html", label: "Trade Log" },
   { href: "signals.html",  label: "Signals" },

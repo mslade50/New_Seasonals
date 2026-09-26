@@ -52,6 +52,7 @@ PAGE_BUILD_PAYLOADS = (
     ("signals.json", "signals"),
     ("sizer.json", "sizer"),
     ("strat_notes.json", "strat_notes"),
+    ("strategies.json", "strategies"),
 )
 
 

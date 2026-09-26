@@ -132,6 +132,15 @@ def test_fundamentals_are_optional_at_the_r2_boundary():
     assert by_name["fundamental_maps"].required is False
 
 
+def test_live_fills_is_an_optional_canonical_input():
+    by_name = {item.name: item for item in pipeline.CANONICAL_INPUTS}
+    fills = by_name["live_fills"]
+    assert fills.key == "live_fills.parquet"
+    assert fills.path == "data/live_fills.parquet"
+    assert fills.required is False
+    assert "live_fills" not in {item.name for item in pipeline.GENERATED_INPUTS}
+
+
 def test_publish_group_is_github_actions_only(tmp_path, monkeypatch):
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     with pytest.raises(RuntimeError, match="GitHub-Actions-only"):

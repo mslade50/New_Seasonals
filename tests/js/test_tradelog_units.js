@@ -19,5 +19,8 @@ assert.equal(c.aggregateOrders([fill,{...fill,exec_id:"other-leg",con_id:99}]).l
 assert.equal(c.aggregateOrders([fill,{...fill,exec_id:"other-acct",account_key:"pa"}]).length,2);
 assert.match(c.kpiHtml([{side:"BUY",qty:2,notional:null,n_fills:1}]),/notional unavailable/);
 assert.doesNotMatch(c.kpiHtml([{side:"BUY",qty:2,notional:100,n_fills:1}]),/ sh \//);
+assert.equal(c.stratFromRef("MES|SELL|OpenBreakout|2026-09-28|ES-1-STOP"),"OpenBreakout");
+assert.equal(c.stratFromRef("SPY|BUY|Legend_EMA|2026-09-24|TIME"),"Legend_EMA");
+assert.equal(c.aggregateOrders([{...fill,symbol:"MES",order_ref:"MES|BUY|OpenBreakout|2026-09-28|ES-1-ENTRY"}])[0].strategy,"OpenBreakout");
 console.log("PASS Trade Log contract multipliers, price VWAP, USD FX units, unknown units and contract/account separation");
 

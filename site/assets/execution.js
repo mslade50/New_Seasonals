@@ -30,6 +30,10 @@ const HEDGE_DEFAULT_PRIMARY_NAV = 750000;
 const HEDGE_DEFAULT_STRATEGY = "Oversold Low Volume";
 const HEDGE_WORKING_STATUSES = new Set(["Submitted", "PreSubmitted", "PendingSubmit"]);
 const HEDGE_INDEX_ROOTS = new Set(["MES", "ES", "MNQ", "NQ", "M2K", "RTY", "MYM", "YM"]);
+// orderRef strategy tags that mark a futures position as strategy exposure
+// rather than a hedge. The build's strategies.json order_ref_tags extend this.
+const HEDGE_FUT_STRATEGY_TAGS = new Set(["OpenBreakout", "OpenBreakoutMechTest"]);
+let HEDGE_STRATEGY_TAGS = [];   // catalog order_ref_tags from data/strategies.json (optional)
 const HEDGE_INDEX_PROXY = {
   MES: "SPY", ES: "SPY", MNQ: "QQQ", NQ: "QQQ",
   M2K: "IWM", RTY: "IWM", MYM: "DIA", YM: "DIA",
@@ -295,6 +299,15 @@ async function initExecution() {
   } else {
     HEDGE_BETAS = await fetchJSONOrNull("data/betas.json");
     HEDGE_BETA_STATUS = HEDGE_BETAS ? "loaded" : "load-failed";
+  }
+  if (!(payloadFlags && payloadFlags.strategies === false)) {
+    const catalog = await fetchJSONOrNull("data/strategies.json");
+    // Only the Futures family: a catalog hedge sleeve must never be carved
+    // out of the hedge total just because it carries an orderRef tag.
+    HEDGE_STRATEGY_TAGS = ((catalog && catalog.strategies) || [])
+      .filter((s) => s && s.family === "Futures")
+      .flatMap((s) => Array.isArray(s.order_ref_tags) ? s.order_ref_tags : [])
+      .map((tag) => String(tag || "").trim()).filter(Boolean);
   }
   document.querySelectorAll("[data-acct]").forEach((b) =>
     b.addEventListener("click", () => setAccount(b.dataset.acct)));
@@ -744,6 +757,120 @@ function attributeBook(account, betas, futSpecs, opts = {}) {
     addWorkingParent(item, item.parsed.action === "BUY" ? 1 : -1);
   }
 
+  // Futures strategies (e.g. OpenBreakout) tag their protective legs with a
+  // known strategy in the orderRef 3rd field. Those contracts are strategy
+  // exposure, not a hedge: carve them out of the index-hedge total and show
+  // them under their strategy. Untagged index futures still count as hedge.
+  const knownFutTags = new Set([...HEDGE_FUT_STRATEGY_TAGS, ...(opts.strategyTags || [])]);
+  function futureStrategyClaims(position, root, quantity) {
+    // The orderRef 2nd field is the POSITION direction for every leg (entry,
+    // stop, timed exit), as for stock brackets. Requiring both the ref side
+    // and the closing order side keeps a working entry on the other side
+    // (e.g. an OpenBreakout long entry) from claiming a short hedge.
+    const entrySide = quantity > 0 ? "BUY" : "SELL";
+    const closeSide = quantity > 0 ? "SELL" : "BUY";
+    const posConId = hedgeNum(position.con_id);
+    const posExpiry = String(position.expiry || "").slice(0, 6);
+    const groups = new Map();
+    for (const item of parsedOrders) {
+      if (!item.parsed || !knownFutTags.has(item.parsed.strategy)) continue;
+      if (item.parsed.action !== entrySide) continue;
+      const order = item.order;
+      if (String(order.sec_type || "FUT").toUpperCase() !== "FUT") continue;
+      if (hedgeFutureRoot(order.symbol || item.parsed.symbol, futSpecs) !== root) continue;
+      if (String(order.action || "").toUpperCase() !== closeSide) continue;
+      // Same contract: conId when both carry one, else the YYYYMM expiry. A
+      // position with a known expiry is never claimed by an order without one.
+      const orderConId = hedgeNum(order.con_id);
+      const orderExpiry = String(order.expiry || "").slice(0, 6);
+      if (posConId && orderConId) {
+        if (posConId !== orderConId) continue;
+      } else if (posExpiry && posExpiry !== orderExpiry) continue;
+      const key = `${item.parsed.strategy}|${order.oca_group || item.parsed.raw}`;
+      if (!groups.has(key)) groups.set(key, { strategy: item.parsed.strategy, qty: 0, exitDate: null });
+      const group = groups.get(key);
+      group.qty = Math.max(group.qty, Math.abs(hedgeNum(order.qty) || 0));
+      const exitDate = String(order.order_type || "").toUpperCase() === "MKT" ? hedgeExitDate(order) : null;
+      if (exitDate && (!group.exitDate || exitDate < group.exitDate)) group.exitDate = exitDate;
+    }
+    const byName = new Map();
+    let remaining = Math.abs(quantity);
+    for (const group of [...groups.values()].sort((a, b) => a.strategy.localeCompare(b.strategy))) {
+      const qty = Math.min(group.qty, remaining);
+      if (!(qty > 0)) continue;
+      remaining -= qty;
+      const claim = byName.get(group.strategy) || { strategy: group.strategy, qty: 0, exitDate: null };
+      claim.qty += qty;
+      if (group.exitDate && (!claim.exitDate || group.exitDate < claim.exitDate)) claim.exitDate = group.exitDate;
+      byName.set(group.strategy, claim);
+    }
+    return [...byName.values()];
+  }
+
+  const futures = [];
+  let futuresSpyEquiv = 0;
+  let futuresComplete = true;
+  for (const position of positions) {
+    if (String(position.sec_type || "").toUpperCase() !== "FUT") continue;
+    const quantity = hedgeNum(position.position);
+    if (!quantity) continue;
+    const root = hedgeFutureRoot(position.symbol, futSpecs);
+    const spec = futSpecs[root] || {};
+    const indexRoot = HEDGE_INDEX_ROOTS.has(root);
+    const claims = futureStrategyClaims(position, root, quantity);
+    const sign = quantity > 0 ? 1 : -1;
+    const claimedQty = claims.reduce((sum, claim) => sum + claim.qty, 0);
+    const hedgeQuantity = sign * Math.max(0, Math.abs(quantity) - claimedQty);
+    const counted = indexRoot && hedgeQuantity !== 0;
+    const positionMultiplier = hedgeNum(position.multiplier);
+    const specMultiplier = hedgeNum(spec.multiplier);
+    const configuredMultiplier = positionMultiplier != null ? positionMultiplier : specMultiplier;
+    const fallbackMultiplier = indexRoot ? hedgeNum(HEDGE_INDEX_MULTIPLIER[root]) : null;
+    const multiplier = configuredMultiplier != null ? configuredMultiplier : fallbackMultiplier;
+    const livePrice = hedgeNum(position.market_price);
+    const averageCost = hedgeNum(position.avg_cost);
+    const price = livePrice == null ? (averageCost != null && multiplier > 0 ? averageCost / multiplier : null) : livePrice;
+    let beta = 1;
+    let betaAssumed = false;
+    if (indexRoot) {
+      const proxy = HEDGE_INDEX_PROXY[root];
+      const info = hedgeBetaInfo(betas, proxy, betaKey);
+      beta = info.value;
+      betaAssumed = info.assumed;
+      if (betaAssumed) flags.add(`${root}/${proxy} index beta assumed 1.00`);
+      if (configuredMultiplier == null && fallbackMultiplier != null) {
+        flags.add(`${root} multiplier uses trusted ${fallbackMultiplier} contract fallback`);
+      }
+      if (livePrice == null) flags.add(`${root} marked at avg_cost`);
+      if (price == null || multiplier == null) {
+        flags.add(`${root} index future has incomplete mark/spec`);
+        if (counted) futuresComplete = false;
+      }
+    }
+    const symbol = String(position.symbol || root);
+    const priced = price != null && multiplier != null;
+    for (const claim of claims) {
+      const notional = priced ? sign * claim.qty * multiplier * price : 0;
+      const claimSpyEquiv = indexRoot ? notional * beta : 0;
+      futures.push({
+        symbol, root, position: sign * claim.qty, multiplier, price,
+        spyEquiv: claimSpyEquiv, counted: false, strategy: claim.strategy, beta, betaAssumed,
+      });
+      addLeg(claim.strategy, {
+        symbol, strategy: claim.strategy, qty: claim.qty, mark: price, markAssumed: livePrice == null,
+        beta, betaAssumed: indexRoot && betaAssumed, notional, spyEquiv: claimSpyEquiv,
+        exitDate: claim.exitDate, secType: "FUT",
+      });
+    }
+    if (hedgeQuantity === 0) continue;
+    const spyEquiv = counted && priced ? hedgeQuantity * multiplier * price * beta : 0;
+    if (counted) futuresSpyEquiv += spyEquiv;
+    futures.push({
+      symbol, root, position: hedgeQuantity,
+      multiplier, price, spyEquiv, counted, beta, betaAssumed,
+    });
+  }
+
   let equityLong = 0;
   let equityShort = 0;
   let equitySpyEquiv = 0;
@@ -756,50 +883,6 @@ function attributeBook(account, betas, futSpecs, opts = {}) {
     if (row.avgCostMarks.size) markers.push(`avg-cost mark: ${[...row.avgCostMarks].sort().join(", ")}`);
     return { ...row, assumedBetas: [...row.assumedBetas], avgCostMarks: [...row.avgCostMarks], markers };
   }).sort(hedgeModelSort);
-
-  const futures = [];
-  let futuresSpyEquiv = 0;
-  let futuresComplete = true;
-  for (const position of positions) {
-    if (String(position.sec_type || "").toUpperCase() !== "FUT") continue;
-    const quantity = hedgeNum(position.position);
-    if (!quantity) continue;
-    const root = hedgeFutureRoot(position.symbol, futSpecs);
-    const spec = futSpecs[root] || {};
-    const counted = HEDGE_INDEX_ROOTS.has(root);
-    const positionMultiplier = hedgeNum(position.multiplier);
-    const specMultiplier = hedgeNum(spec.multiplier);
-    const configuredMultiplier = positionMultiplier != null ? positionMultiplier : specMultiplier;
-    const fallbackMultiplier = counted ? hedgeNum(HEDGE_INDEX_MULTIPLIER[root]) : null;
-    const multiplier = configuredMultiplier != null ? configuredMultiplier : fallbackMultiplier;
-    const livePrice = hedgeNum(position.market_price);
-    const averageCost = hedgeNum(position.avg_cost);
-    const price = livePrice == null ? (averageCost != null && multiplier > 0 ? averageCost / multiplier : null) : livePrice;
-    let beta = 1;
-    let betaAssumed = false;
-    if (counted) {
-      const proxy = HEDGE_INDEX_PROXY[root];
-      const info = hedgeBetaInfo(betas, proxy, betaKey);
-      beta = info.value;
-      betaAssumed = info.assumed;
-      if (betaAssumed) flags.add(`${root}/${proxy} index beta assumed 1.00`);
-      if (configuredMultiplier == null && fallbackMultiplier != null) {
-        flags.add(`${root} multiplier uses trusted ${fallbackMultiplier} contract fallback`);
-      }
-      if (livePrice == null) flags.add(`${root} marked at avg_cost`);
-      if (price == null || multiplier == null) {
-        flags.add(`${root} index future has incomplete mark/spec`);
-        futuresComplete = false;
-      }
-    }
-    const spyEquiv = counted && price != null && multiplier != null
-      ? quantity * multiplier * price * beta : 0;
-    if (counted) futuresSpyEquiv += spyEquiv;
-    futures.push({
-      symbol: String(position.symbol || root), root, position: quantity,
-      multiplier, price, spyEquiv, counted, beta, betaAssumed,
-    });
-  }
 
   const isPrimary = String(account.key || opts.accountKey || "primary") === "primary";
   const configuredPrimaryNav = hedgeNum(betas && betas.account_value);
@@ -930,6 +1013,7 @@ function hedgeScopeForAccount() {
 function currentHedgeView() {
   const model = attributeBook(acctBook(), HEDGE_BETAS, FUT_SPECS, {
     betaKey: hedgePrefs.betaKey, accountKey: state.account, today: etToday(),
+    strategyTags: HEDGE_STRATEGY_TAGS,
   });
   const scope = hedgeScopeForAccount();
   const contract = selectedHedgeContract(model, hedgePrefs.contract);
@@ -1014,7 +1098,7 @@ function renderHedge() {
       <td>${fmt.money(row.notionalShort)}</td><td>${fmt.money(row.spyEquiv)}</td>
       <td><input type="checkbox" aria-label="Include ${esc(row.strategy)} in hedge scope"
         data-hedge-strategy="${encoded}"${scope.has(row.strategy) ? " checked" : ""}></td></tr>`;
-  }).join("") || `<tr><td class="l" colspan="6"><span class="cap">No stock exposure in this account.</span></td></tr>`;
+  }).join("") || `<tr><td class="l" colspan="6"><span class="cap">No strategy exposure in this account.</span></td></tr>`;
   const totalLegs = model.byStrategy.reduce((sum, row) => sum + row.legs, 0);
 
   const indexRows = model.futures.filter((future) => future.counted).map((future) => {
@@ -1024,10 +1108,15 @@ function renderHedge() {
       <td>${future.price != null ? fmt.num(future.price, 2) : "&mdash;"}</td>
       <td>${fmt.money(future.spyEquiv)}</td><td>counted</td></tr>`;
   }).join("") || `<tr><td class="l" colspan="6"><span class="cap">No equity-index futures held.</span></td></tr>`;
-  const otherFutures = model.futures.filter((future) => !future.counted);
+  const otherFutures = model.futures.filter((future) => !future.counted && !future.strategy);
   const otherLine = otherFutures.length
     ? otherFutures.map((future) => `${esc(future.symbol)} ${fmt.num(future.position, 0)}`).join(" · ")
     : "none";
+  const strategyFutures = model.futures.filter((future) => future.strategy);
+  const strategyFuturesLine = strategyFutures.length
+    ? `<p class="cap">Strategy futures (not counted as hedge; shown under their strategy above): ${strategyFutures
+      .map((future) => `${esc(future.symbol)} ${fmt.num(future.position, 0)} (${esc(future.strategy)})`).join(" · ")}</p>`
+    : "";
 
   const scopedEntries = model.workingEntries.filter((entry) => scope.has(entry.strategy));
   const workingNotional = scopedEntries.reduce((sum, entry) => sum + Math.abs(entry.notional), 0);
@@ -1053,7 +1142,7 @@ function renderHedge() {
     ${betaBanner}
     <div class="tblwrap"><table class="tbl"><thead><tr>
       <th class="l">Strategy</th><th>Legs</th><th>Long $</th><th>Short $</th><th>β-wtd SPY-equiv</th><th>In scope</th>
-    </tr></thead><tbody>${strategyRows}<tr class="hedge-total"><td class="l">Total equity</td>
+    </tr></thead><tbody>${strategyRows}<tr class="hedge-total"><td class="l">Total strategies</td>
       <td>${totalLegs}</td><td>${fmt.money(model.equityLong)}</td><td>${fmt.money(model.equityShort)}</td>
       <td>${fmt.money(model.equitySpyEquiv)}</td><td></td></tr></tbody></table></div>
 
@@ -1061,7 +1150,7 @@ function renderHedge() {
     <div class="tblwrap"><table class="tbl"><thead><tr>
       <th class="l">Contract</th><th>Pos</th><th>Mult</th><th>Index</th><th>SPY-equiv</th><th>State</th>
     </tr></thead><tbody>${indexRows}</tbody></table></div>
-    <p class="cap">Other futures (excluded): ${otherLine}</p>
+    ${strategyFuturesLine}<p class="cap">Other futures (excluded): ${otherLine}</p>
 
     <div class="hedge-target-row">
       <label class="cap" for="hedge_target">Target</label>

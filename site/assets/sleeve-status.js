@@ -8,12 +8,13 @@
   };
   const links = new Set(["events.html", "execution.html", "execution.html#hedge", "risk.html"]);
   function card(row) {
-    const needs = row.health === "unavailable" || row.health === "aging" || row.runtime_health === "unavailable";
+    const needs = row.attention === true || row.health === "unavailable" || row.health === "aging" || row.runtime_health === "unavailable";
+    const details = Array.isArray(row.details) ? row.details.slice(0, 6).map(line => `<p class="sleeve-detail">${safe(line)}</p>`).join("") : "";
     const observed = row.kind === "Research pending" ? "Scope reviewed" : "State reported";
     return `<article class="card sleeve-card">
       <div class="sleeve-heading"><h3>${safe(row.name)}</h3><span class="sleeve-kind">${safe(row.kind)}</span></div>
       <div class="sleeve-state ${needs ? "sleeve-attention" : ""}">${safe(row.deployment)}</div>
-      <p>${safe(row.summary)}</p>
+      <p>${safe(row.summary)}</p>${details}
       <dl class="sleeve-dates"><dt>${observed}</dt><dd>${safe(row.report_date || "Not reported")}${row.health === "aging" ? " · report aging" : row.health === "unavailable" ? " · unavailable" : ""}</dd>
       <dt>Machine checked</dt><dd>${safe(row.checked_at ? stamp(row.checked_at) : row.runtime_note)}${row.checked_at && row.runtime_health === "unavailable" ? " · refresh needed" : ""}</dd></dl>
       <div class="sleeve-next"><span>Next</span> ${safe(row.next)}</div>

@@ -163,6 +163,53 @@ function portfolioFreshnessError(meta, health, positions) {
   return null;
 }
 
+/* Strategies that trade live but have no ledger replay (futures, intraday
+   ETF, sleeves). The ledger views above cannot show them, so list them with
+   their live-fill summary and link to the Strategies tab card. Optional:
+   a missing or foreign-build catalog just hides the card. */
+async function loadStrategyCatalog(meta) {
+  if (!meta || (meta.payloads || {}).strategies === false) return null;
+  try { return await fetchSitePayload(meta, "data/strategies.json"); }
+  catch (e) { return null; }
+}
+
+function liveOnlyStrategies(catalog) {
+  const list = catalog && Array.isArray(catalog.strategies) ? catalog.strategies : [];
+  return list.filter(s => s && s.stats_source !== "ledger_replay"
+    && (s.status === "live" || s.status === "pilot"));
+}
+
+function liveOnlyStrategiesHtml(catalog) {
+  const rows = liveOnlyStrategies(catalog);
+  if (!rows.length) return "";
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const anchor = id => "strat-" + String(id == null ? "" : id).replace(/[^A-Za-z0-9_-]/g, "-");
+  const fills = live => {
+    if (!live) return "fills store unavailable in this build";
+    const n = Number(live.fills != null ? live.fills : live.n_fills) || 0;
+    if (!n) return "no live fills recorded";
+    const symbols = Array.isArray(live.symbols) ? live.symbols.join(", ") : (live.symbols || "");
+    return `${n} fill${n === 1 ? "" : "s"}` + (live.first_fill ? ` since ${fmt.date(live.first_fill)}` : "")
+      + (symbols ? ` (${symbols})` : "");
+  };
+  const body = rows.map(s => `<tr>
+    <td class="l"><a href="strategies.html#${encodeURIComponent(anchor(s.id))}">${esc(s.name || s.id)}</a></td>
+    <td class="l">${esc(s.family)}</td>
+    <td class="l">${esc(String(s.status || "").toUpperCase())}</td>
+    <td class="l">${esc(fills(s.live))}</td></tr>`).join("");
+  return `<div class="card" style="margin-top:14px"><b>Live-only strategies (no ledger replay)</b>
+    <div class="cap">These trade live but are not in the ledger replay, so none of the views on this page
+      include them. Full definitions and stats are on the Strategies tab.</div>
+    <div class="tblwrap"><table class="tbl"><thead><tr><th class="l">Strategy</th><th class="l">Family</th>
+      <th class="l">Status</th><th class="l">Live fills</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+}
+
+function renderLiveOnlyStrategies(catalog) {
+  const el = document.getElementById("liveOnlyStrats");
+  if (el) el.innerHTML = liveOnlyStrategiesHtml(catalog);
+}
+
 async function init() {
   renderNav("index.html");
   try {
@@ -250,6 +297,7 @@ async function init() {
     buildRiskPanel();
     renderStatic();
     apply();
+    loadStrategyCatalog(meta).then(renderLiveOnlyStrategies).catch(() => {});
   } catch (e) {
     document.getElementById("kpis").innerHTML = `<div class="err">Failed to load data: ${e.message}</div>`;
     console.error(e);

@@ -80,6 +80,9 @@ CANONICAL_INPUTS: tuple[R2Input, ...] = (
         "data/earnings_calendar_overflow.parquet",
         False,
     ),
+    # R2-canonical fills store (scripts/harvest_fills.py). Optional: the
+    # Strategies tab degrades to live: null without it.
+    R2Input("live_fills", "live_fills.parquet", "data/live_fills.parquet", False),
     R2Input("iv_history", "options/iv_history.parquet", "data/iv_history.parquet", False),
     R2Input(
         "option_surface_history",

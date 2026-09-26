@@ -8,6 +8,7 @@
 <p class="sub">Recent closed-trade results alongside broker-reported realized PnL. Model dollars use the fixed $750k book; actual dollars use executed sizes. These are different accounting bases.</p>
 <div class="filters"><label>Window <select id="compare-days"><option value="7">7 calendar days</option><option value="14">14 calendar days</option></select></label><button class="btn" id="compare-refresh">Refresh</button></div>
 <p id="compare-status" role="status">Loading…</p><div class="card" id="compare-table"></div>
-<p class="cap">This view excludes untagged trades and strategy tags absent from the theoretical catalog. It does not infer live holdings from the modeled portfolio, compute execution slippage, or compare account returns. Missing broker PnL remains unknown. Actual mark-to-market and older history require the reconciled allocation ledger.</p>
+<div class="card" id="compare-actual-only" style="display:none;margin-top:14px"><b>Actual-only strategies</b><p class="cap" id="compare-actual-only-note"></p><div id="compare-actual-only-table"></div><p class="cap">Definitions and status for each tag are on the <a href="strategies.html">Strategies</a> tab.</p></div>
+<p class="cap">This view excludes untagged trades and strategy tags found in neither the ledger roster nor the strategy catalog. Catalog strategies without a ledger replay appear under Actual-only strategies with broker figures only. It does not infer live holdings from the modeled portfolio, compute execution slippage, or compare account returns. Missing broker PnL remains unknown. Actual mark-to-market and older history require the reconciled allocation ledger.</p>
 <a href="tradelog.html">Inspect executions and excluded tags in Trade Log →</a>
 </main></body></html>

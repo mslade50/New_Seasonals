@@ -75,7 +75,7 @@ Read the doc before changing a subsystem. Each doc holds the live rule, the hist
 | Ledger, stop arming/fill conventions, live fills store | `ledger_and_fills.md` | `test_fills_harvest.py` |
 | Local-primary automation, R2, Sunday pipeline | `automation_and_r2.md` | `test_local_automation_powershell.py` |
 | Retired GitHub-first schedule and radar digest (history only) | `automation_history.md` | none |
-| Private site, shared Denali risk tab, trade log, hedge panel | `private_site.md` | `test_tradelog_site.py`, `test_risk_site_js.py` |
+| Private site, shared Denali risk tab, trade log, hedge panel | `private_site.md` | `test_tradelog_site.py`, `test_risk_site_js.py`, `test_strategies_site.py`, `test_publish_sleeve_runtime_status.py`, `tests/js/test_strategies_tab.js`, `tests/js/test_sleeve_status.mjs` |
 | Momentum radar staging + trail | `radar.md` | `tests/js/test_radar_tab.js`, `test_radar_transport.py`, `test_radar_trail_sync.py` + `test_stop_limit_entry.py` (trading_ibkr) |
 | Google Sheets tabs | `sheets.md` | none |
 

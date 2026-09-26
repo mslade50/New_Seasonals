@@ -946,3 +946,31 @@ footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px
   padding: 10px 14px; margin: 10px 0; font-size: 13px;
 }
 @media (max-width: 700px) { .radar-grid { grid-template-columns: 1fr; } }
+
+/* ---------- Strategies tab ---------- */
+.strat-grid { align-items: start; }
+.strat-card { scroll-margin-top: 64px; min-width: 0; }
+.strat-card-live { border-left: 3px solid var(--green); }
+.strat-card-pilot { border-left: 3px solid var(--amber); }
+.strat-card-shadow, .strat-card-paper, .strat-card-manual { border-left: 3px solid var(--muted); }
+.strat-card-retired { border-left: 3px solid var(--border); opacity: .75; }
+.strat-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.strat-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 10.5px;
+  font-weight: 700; letter-spacing: .4px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.strat-badge.strat-live { color: var(--green); background: rgba(0,209,143,.12); border-color: rgba(0,209,143,.35); }
+.strat-badge.strat-pilot { color: var(--amber); background: rgba(255,193,77,.12); border-color: rgba(255,193,77,.4); }
+.strat-badge.strat-shadow, .strat-badge.strat-paper, .strat-badge.strat-manual { color: var(--muted); background: rgba(152,160,174,.10); }
+.strat-badge.strat-retired, .strat-badge.strat-unknown { color: var(--faint); background: transparent; }
+.strat-sec { margin-top: 10px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+.strat-captures { margin: 4px 0 8px; line-height: 1.45; }
+.strat-defs { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0; font-size: 13px; }
+.strat-defs dt { color: var(--muted); }
+.strat-defs dd { margin: 0; overflow-wrap: anywhere; }
+.strat-chips { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px;
+  background: var(--card2); border-radius: 6px; }
+.strat-chip { min-width: 64px; }
+.strat-chip .l { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.strat-chip .v { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.strat-components { margin-top: 8px; }
+.strat-live { margin-top: 8px; font-size: 13px; }
+@media (max-width: 650px) { .strat-defs { grid-template-columns: 1fr; } .strat-defs dd { margin-bottom: 4px; } }

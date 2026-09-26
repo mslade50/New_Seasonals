@@ -20,6 +20,30 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   history from the R2 journal) via `dist/data/event_sleeve.json`. The IDEAS TAB was REMOVED 2026-07-28 (page +
   ideas.js deleted); `ideas.json` is still built — the signals page's
   strategy-context block reads it.
+- **Strategies tab** (`strategies.html` + `assets/strategies.js`, 2026-09-26,
+  under More after Events): summary table plus one card per catalog entry
+  from optional `dist/data/strategies.json` (empty-state card when absent).
+  Stats shown are `stats || ledger_stats || frozen_stats`, always captioned
+  with their source. Card anchors are `#strat-<id>`. Consumers of the same
+  payload: the Portfolio page's "Live-only strategies (no ledger replay)"
+  card (live/pilot entries whose `stats_source` is not `ledger_replay`);
+  Theo vs Actual routes fills whose orderRef strategy is a catalog
+  `order_ref_tags` member (exact, or `*` prefix) but not a ledger roster name
+  into "Actual-only strategies" instead of "excluded"; the Exec hedge panel
+  treats FUT positions as strategy exposure, not hedge, when a working
+  closing-side leg on the same root/expiry carries a known futures tag
+  (`HEDGE_FUT_STRATEGY_TAGS` = OpenBreakout, OpenBreakoutMechTest, plus
+  Futures-family catalog tags), capped at the leg quantity; the untagged
+  remainder still counts. A leg claims only when its orderRef side (2nd
+  field, the position direction) matches the position, its order side
+  closes it, and the contract matches (conId, else YYYYMM expiry; an order
+  with no expiry never claims a dated position). Raw broker account ids never
+  render: `by_account` keys on `account_key`/`account_label`, and the tab and
+  the Status function mask any id-shaped string. Guards:
+  `tests/test_strategies_site.py`, `tests/js/test_strategies_tab.js`,
+  `test_portfolio_comparison.mjs`, `test_execution_fut_strategy.js`; Status
+  tab: `tests/test_publish_sleeve_runtime_status.py`,
+  `tests/js/test_sleeve_status.mjs`.
 - **Radar tab** (`radar.html` + `assets/radar.js`, 2026-08-18): the momentum
   radar's weekly plans, served LIVE from R2 by `functions/radar-recs.js` rather
   than baked into `dist/` (the radar runs on a weekend cadence independent of
@@ -90,7 +114,17 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   `data/backtest_trades_ovsext.parquet`; drives the portfolio page's
   hold-extension section and its "OVS losers to T+5" filter toggle, which
   swaps the rebooked exits in by trade_id and forces the realized-at-exit
-  basis while on. Evidence: scratch/ovs_hold_extension_*.py).
+  basis while on. Evidence: scratch/ovs_hold_extension_*.py) /
+  `strategies.json` (Strategies tab: `site/research/strategy_catalog.json`
+  merged with ledger-replay stats and live-fill attribution by orderRef tag,
+  plus `sources.fills.untagged_rows`; `build_strategies`, best effort, only a
+  missing catalog fails it).
+- **`live_fills.parquet` input**: the R2-canonical fills store
+  (`scripts/harvest_fills.py`) is an OPTIONAL `CANONICAL_INPUTS` entry in
+  `site_r2_pipeline.py` (`live_fills`), so the deploy's generator/assembler
+  pulls freeze it with the other inputs. Absent, `strategies.json` still
+  ships with every `live: null` and `validate_site_freshness.py` does not
+  fail. Guard: `tests/test_site_r2_pipeline.py`.
 - **Trade charts** (the `charts.html` gallery): `scripts/build_signal_charts.py`
   renders a candlestick per trade (126 td before signal -> trade -> 63 td after
   exit; white/black candles, green/red volume, Signal/Entry/Exit verticals,

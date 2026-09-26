@@ -42,6 +42,9 @@ Outputs (dist/):
                                    to T+5 + with/without realized curves (needs
                                    data/backtest_trades_ovsext.parquet from build_trade_ledger;
                                    best effort)
+  - dist/data/strategies.json      Strategies tab: site/research/strategy_catalog.json merged
+                                   with ledger-replay stats and live fills attribution
+                                   from data/live_fills.parquet (best effort)
   - dist/data/seasonality/         read-only, per-ticker close + simple ATR inputs for the
                                    private-site User Input / presidential-cycle lab
   - dist/data/seasonality/macro.json  Macro Seasonality table (MA-extension pctile ranks +
@@ -119,6 +122,8 @@ EARNINGS = os.path.join(_ROOT, "data", "earnings_calendar.parquet")
 CBOE_PUTCALL = os.path.join(_ROOT, "data", "cboe_putcall.parquet")
 EXPOSURE_STATE = os.path.join(_ROOT, "data", "exposure_state.json")
 SITE_SRC = os.path.join(_ROOT, "site")
+STRATEGY_CATALOG = os.path.join(SITE_SRC, "research", "strategy_catalog.json")
+LIVE_FILLS = os.path.join(_ROOT, "data", "live_fills.parquet")
 
 # Stop-fill classifier: engine books 3 bps slip on every stop fill and 13 bps
 # on a gap-through fill (see pages/strat_backtester._stop_fill_price). The
@@ -2064,6 +2069,7 @@ def build_strategy_stats(df):
     closed["move_pct"] = sign * (exitp - entry) / entry
     atr = closed["ATR"].astype(float).replace(0, np.nan)
     closed["move_atr"] = sign * (exitp - entry) / atr
+    cadence = {str(name): _ledger_cadence(g) for name, g in closed.groupby("Strategy")}
     bins = [-np.inf, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, np.inf]
     labels = ["<-1R", "-1..-0.5R", "-0.5..0R", "0..0.5R", "0.5..1R", "1..2R", ">2R"]
     out = {}
@@ -2092,9 +2098,53 @@ def build_strategy_stats(df):
                 "avg_loser_move_pct": _clean(losers["move_pct"].mean()),
             },
             "outcome_hist": {"labels": labels, "counts": [int(v) for v in hist.values]},
+            # Additive cadence keys (2026-09-26, Strategies tab). Counted on
+            # distinct positions, so OVS scale-out tranches count once.
+            **{k: cadence[str(strat)][k] for k in (
+                "trades_per_year", "trades_per_month", "first_date", "last_date")},
         }
     print(f"  strategy_stats: {len(out)} strategies")
     return out
+
+
+def _ledger_positions(g):
+    """One row per position: (Ticker, Signal Date, Entry Date). OVS books two
+    tranche rows per fill; their R is share-weighted and PnL summed."""
+    keys = [c for c in ("Ticker", "Signal Date", "Entry Date") if c in g.columns]
+    g = g.copy()
+    w = (g["Shares_flat"].astype(float).abs() if "Shares_flat" in g.columns
+         else pd.Series(1.0, index=g.index))
+    g["_w"] = w.where(w > 0, 1.0).fillna(1.0)
+    g["_wr"] = g["R_Multiple"].astype(float) * g["_w"]
+    agg = {"_wr": "sum", "_w": "sum"}
+    for c in ("PnL_flat_750k", "Hold_Days"):
+        if c in g.columns:
+            agg[c] = "sum" if c == "PnL_flat_750k" else "max"
+    pos = g.groupby(keys, dropna=False).agg(agg).reset_index()
+    pos["R"] = pos["_wr"] / pos["_w"]
+    return pos
+
+
+def _ledger_cadence(g):
+    """Trades per year/month over the first-to-last signal span (distinct
+    positions). Spans shorter than a year are floored at one year so a
+    handful of recent signals cannot annualize into a large rate."""
+    pos = _ledger_positions(g)
+    dates = pd.to_datetime(pos["Signal Date"]) if "Signal Date" in pos else pd.Series(dtype="datetime64[ns]")
+    first, last = dates.min(), dates.max()
+    n = int(len(pos))
+    if pd.isna(first) or pd.isna(last):
+        return {"n_positions": n, "trades_per_year": None, "trades_per_month": None,
+                "first_date": None, "last_date": None, "span_years": None}
+    years = max((last - first).days / 365.25, 1.0)
+    return {
+        "n_positions": n,
+        "trades_per_year": round(n / years, 2),
+        "trades_per_month": round(n / years / 12.0, 3),
+        "first_date": first.strftime("%Y-%m-%d"),
+        "last_date": last.strftime("%Y-%m-%d"),
+        "span_years": round(years, 2),
+    }
 
 
 def build_intraday_touches(df, md, nav):
@@ -2473,6 +2523,200 @@ def build_event_sleeve():
     }
 
 
+# ---------------------------------------------------------------- strategies tab
+def _fill_strategy_field(fills):
+    """orderRef strategy (3rd pipe field). harvest_fills stores it parsed as
+    `strategy`; fall back to parsing `order_ref` where that is blank."""
+    idx = fills.index
+    strat = (fills["strategy"].fillna("").astype(str).str.strip()
+             if "strategy" in fills.columns else pd.Series("", index=idx))
+    if "order_ref" in fills.columns:
+        parsed = (fills["order_ref"].fillna("").astype(str).str.split("|")
+                  .str[2].fillna("").astype(str).str.strip())
+        strat = strat.where(strat != "", parsed)
+    return strat
+
+
+def _tag_mask(strat, tags):
+    """Exact match on the orderRef strategy field; a tag ending in * matches
+    by prefix (Pitch-<idea id>)."""
+    mask = pd.Series(False, index=strat.index)
+    for tag in tags or []:
+        tag = str(tag).strip()
+        if not tag:
+            continue
+        if tag.endswith("*"):
+            mask |= strat.str.startswith(tag[:-1])
+        else:
+            mask |= strat.eq(tag)
+    return mask
+
+
+def _day(v):
+    return None if pd.isna(v) else pd.Timestamp(v).strftime("%Y-%m-%d")
+
+
+def _sum_or_none(series):
+    vals = pd.to_numeric(series, errors="coerce").dropna()
+    return round(float(vals.sum()), 2) if len(vals) else None
+
+
+def _live_block(fills, tags, store_first):
+    """Live attribution for one catalog entry from data/live_fills.parquet."""
+    strat = _fill_strategy_field(fills)
+    hit = fills[_tag_mask(strat, tags)]
+    # Never key on the raw `account` column: it carries broker account ids.
+    acct_col = next((c for c in ("account_key", "account_label")
+                     if c in fills.columns), None)
+    has_pnl = "realized_pnl" in fills.columns
+    sessions = (pd.to_datetime(hit["session_date"], errors="coerce")
+                if "session_date" in hit.columns
+                else pd.Series(pd.NaT, index=hit.index))
+    by_account = {}
+    if acct_col in hit.columns:
+        for acct, g in hit.groupby(hit[acct_col].fillna("?").astype(str)):
+            by_account[acct] = {
+                "n_fills": int(len(g)),
+                "realized_pnl": _sum_or_none(g["realized_pnl"]) if has_pnl else None,
+                "commission": (_sum_or_none(g["commission"])
+                               if "commission" in g.columns else None),
+            }
+    if not tags:
+        note = ("No orderRef tag: fills from this product cannot be attributed "
+                "automatically.")
+    elif has_pnl:
+        note = ("realized_pnl sums IBKR's per-execution realized PnL (commission "
+                "report) over fills carrying this strategy's orderRef, so round "
+                "trips are paired by the broker, not here. Exits placed under "
+                "another ref (for example site unified-close orders) or untagged "
+                "are not attributed, so it can understate. Store coverage starts "
+                f"{store_first or 'unknown'}.")
+    else:
+        note = ("The fills store has no realized_pnl column, so round trips "
+                "cannot be paired here; realized_pnl is null.")
+    return {
+        "n_fills": int(len(hit)),
+        "first_fill": _day(sessions.min()) if len(hit) else None,
+        "last_fill": _day(sessions.max()) if len(hit) else None,
+        "symbols": sorted({str(s) for s in hit.get("symbol", pd.Series(dtype=str)).dropna()}),
+        "by_account": by_account,
+        "realized_pnl": (_sum_or_none(hit["realized_pnl"])
+                         if has_pnl and len(hit) else None),
+        "commission": (_sum_or_none(hit["commission"])
+                       if "commission" in hit.columns and len(hit) else None),
+        "coverage_start": store_first,
+        "notes": note,
+    }
+
+
+def _ledger_strategy_stats(g):
+    """Merged ledger-replay stats for one strategy (distinct positions, flat
+    $750k basis)."""
+    g = g[g["R_Multiple"].notna()]
+    if g.empty:
+        return None
+    pos = _ledger_positions(g)
+    cad = _ledger_cadence(g)
+    r = pos["R"].astype(float)
+    pf = total = None
+    if "PnL_flat_750k" in pos.columns:
+        pnl = pos["PnL_flat_750k"].astype(float)
+        loss = float(-pnl[pnl < 0].sum())
+        pf = round(float(pnl[pnl > 0].sum()) / loss, 3) if loss > 0 else None
+        total = round(float(pnl.sum()), 0)
+    first, last = cad["first_date"], cad["last_date"]
+    return {
+        "n_trades": cad["n_positions"],
+        "n_rows": int(len(g)),
+        "span": f"{first[:7]}..{last[:7]}" if first and last else None,
+        "first_date": first,
+        "last_date": last,
+        "span_years": cad["span_years"],
+        "trades_per_year": cad["trades_per_year"],
+        "trades_per_month": cad["trades_per_month"],
+        "win_rate": round(float((r > 0).mean()), 4),
+        "avg_r": round(float(r.mean()), 4),
+        "median_hold_days": (_clean(pos["Hold_Days"].median())
+                             if "Hold_Days" in pos.columns else None),
+        "profit_factor": pf,
+        "total_pnl_flat": total,
+        "basis": "flat_750k",
+    }
+
+
+def build_strategies(catalog_path=STRATEGY_CATALOG, ledger_path=LEDGER,
+                     fills_path=LIVE_FILLS):
+    """Strategies-tab payload: the committed catalog, plus ledger-replay stats
+    for `ledger_replay` entries and live-fill attribution by orderRef tag for
+    every entry. A missing ledger or fills store degrades to null blocks
+    (entries keep their frozen_stats); only a missing catalog fails."""
+    with open(catalog_path, encoding="utf-8") as f:
+        catalog = json.load(f)
+
+    ledger, ledger_src = None, {"available": False,
+                                "path": "data/backtest_trades_full.parquet"}
+    try:
+        ledger = load_ledger(ledger_path)
+        ledger_src.update({
+            "available": True,
+            "first_signal": _clean(ledger["Signal Date"].min()),
+            "last_signal": _clean(ledger["Signal Date"].max()),
+        })
+    except Exception as e:
+        ledger_src["error"] = str(e)[:200]
+        print(f"  strategies: ledger unavailable ({e})")
+
+    fills, fills_src = None, {"available": False, "path": "data/live_fills.parquet"}
+    store_first = None
+    if os.path.exists(fills_path):
+        try:
+            fills = pd.read_parquet(fills_path)
+            sess = (pd.to_datetime(fills["session_date"], errors="coerce")
+                    if "session_date" in fills.columns else pd.Series(dtype="datetime64[ns]"))
+            store_first = _clean(sess.min()) if len(sess.dropna()) else None
+            fills_src.update({
+                "available": True, "rows": int(len(fills)),
+                # Fills with no parseable orderRef strategy cannot be
+                # attributed to any entry; the page should show the share.
+                "untagged_rows": int((_fill_strategy_field(fills) == "").sum()),
+                "first_session": store_first,
+                "last_session": _clean(sess.max()) if len(sess.dropna()) else None,
+            })
+        except Exception as e:
+            fills = None
+            fills_src["error"] = str(e)[:200]
+            print(f"  strategies: fills unreadable ({e})")
+    else:
+        fills_src["error"] = "not present in this build"
+
+    merged = []
+    for entry in catalog.get("strategies", []):
+        row = dict(entry)
+        if entry.get("stats_source") == "ledger_replay" and ledger is not None:
+            g = ledger[ledger["Strategy"].astype(str) == str(entry.get("name"))]
+            row["ledger_stats"] = _ledger_strategy_stats(g) if len(g) else None
+        elif entry.get("stats_source") == "ledger_replay":
+            row["ledger_stats"] = None
+        row["live"] = (_live_block(fills, entry.get("order_ref_tags"), store_first)
+                       if fills is not None else None)
+        merged.append(row)
+
+    n_ledger = sum(1 for r in merged if r.get("ledger_stats"))
+    n_live = sum(1 for r in merged if (r.get("live") or {}).get("n_fills"))
+    print(f"  strategies: {len(merged)} catalog entries, {n_ledger} with ledger "
+          f"stats, {n_live} with live fills")
+    return {
+        "generated_at": datetime.datetime.now(datetime.timezone.utc)
+        .isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "catalog_schema": catalog.get("schema"),
+        "catalog_updated": catalog.get("updated"),
+        "conventions": catalog.get("conventions"),
+        "account_value": float(ACCOUNT_VALUE),
+        "sources": {"ledger": ledger_src, "fills": fills_src},
+        "strategies": merged,
+    }
+
+
 def build_overlay_free_portfolio(df, md, data_dir):
     """Write the complete Portfolio-page bundle for the overlay-free ledger."""
     target = os.path.join(data_dir, "overlay_free")
@@ -2685,7 +2929,7 @@ def main():
              "strategy_stats": False, "earnings_next": False,
              "seasonality": False, "macro_sznl": False, "montecarlo": False,
              "fundamentals": False, "event_sleeve": False,
-             "overlay_free": False}
+             "strategies": False, "overlay_free": False}
     overlay_free_meta = None
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
@@ -2756,6 +3000,7 @@ def main():
     best_effort("ext_lab", build_ext_lab, df)
     best_effort("sizer", build_sizer)
     best_effort("event_sleeve", build_event_sleeve)
+    best_effort("strategies", build_strategies)
     best_effort(
         "fundamentals",
         build_fundamental_site_payload,
