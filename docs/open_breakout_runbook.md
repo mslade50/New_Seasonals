@@ -388,18 +388,22 @@ unobserved and carry over to Monday.
 (for example 23:45 ET), or enable auto-login so a restart comes back unattended.
 Check it before launching anything: the preflight in step (a) below fails if it is not up.
 
-**Risk refresh.** The short gate needs the legacy score for the prior cash session
-(Friday 2026-09-25), and the Sep 25 R2 file only reaches Sep 24. The scheduled task
-`OpenBreakout_RiskRefresh_20260928` runs
-`artifacts/open_breakout_build/refresh_risk.py --session 2026-09-28` at 19:00 ET tonight.
-It writes a new `artifacts/open_breakout_build/risk_<UTC stamp>/` folder with
-`risk_authoritative.parquet` and `refresh.json`, and logs to
-`artifacts/open_breakout_build/refresh_20260928.log`. Read the log (or the new
-`refresh.json`): a good run shows `"session": "2026-09-28"`,
-`"risk_latest": "2026-09-25 00:00:00"`, a `legacy_score` and `short_gate`. A
-`risk_error` means R2 was not updated yet; rerun the same command by hand later in
-the evening. The two `risk_20260925_*` folders from this morning both carry
-`risk_error` and must not be used.
+**Risk refresh.** The short gate needs the legacy score for the prior cash session.
+The one-shot 19:00 task on 2026-09-25 was killed at its time limit and would have been
+too early anyway: R2 received Friday's row at 19:41 ET. Since 2026-09-26 the weekday
+scheduled task `OpenBreakout_RiskRefresh_Nightly` runs
+`artifacts/open_breakout_build/refresh_risk.py --session next` at 20:30 ET
+(`refresh_risk_nightly.cmd`), with a 15 s connect / 60 s read timeout on the R2 call so
+a stalled request cannot hang it. `next` resolves to the next XNYS session. Each run
+writes a new `artifacts/open_breakout_build/risk_<UTC stamp>/` folder with
+`risk_authoritative.parquet` and `refresh.json`, and appends to
+`artifacts/open_breakout_build/refresh_nightly.log`. A good run shows the session
+date, `risk_latest` equal to the prior cash session, a `legacy_score` and `short_gate`.
+A `risk_error` means R2 was not updated yet; rerun the same command by hand later.
+The launchers auto-select the newest `refresh.json` for their `-Session` that has no
+`risk_error`. The 2026-09-28 refresh was run by hand on Saturday 2026-09-26 (score
+76.78, gate OPEN); the two `risk_20260925_*` folders carry `risk_error` and are never
+selected.
 
 **Launchers.** Two dated-by-argument launchers replace the one-off Sep 25 script (kept
 as history):
