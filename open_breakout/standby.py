@@ -15,7 +15,7 @@ from .config import Config, LIVE_PILOT_MAX_CONTRACTS
 from .ibkr import IBKR
 from .inputs import build_manifest, calendar_dates
 from .replay import SimBroker
-from .service import Service
+from .service import Service, own_ref
 from .store import Store
 from .strategy import NY
 
@@ -74,8 +74,39 @@ class OrderGate:
 WORKING_DONE={'Filled','Cancelled','ApiCancelled','Inactive'}
 
 
+async def book_view(transport):
+    """Read-only view of the execution contracts, split by orderRef. OpenBreakout's own position comes from
+    its own executions; the account position and other strategies' working orders are other_book."""
+    config=transport.config
+    execution={m.execution.con_id:m.execution.symbol for m in config.markets}
+    lock=getattr(transport,'snapshot_lock',None) or asyncio.Lock()
+    async with lock:
+        positions=await asyncio.wait_for(transport.ib.reqPositionsAsync(),10)
+        trades=await asyncio.wait_for(transport.ib.reqAllOpenOrdersAsync(),10)
+    own=None;own_error=None
+    for attempt in range(3):
+        try:
+            own={symbol:await asyncio.wait_for(transport.own_position(cid),15) for cid,symbol in execution.items()}
+            own_error=None;break
+        except Exception as exc:
+            # Executions unreadable: our own position is UNKNOWN, never assumed flat.
+            own=None;own_error=f'{type(exc).__name__}: {exc}'
+            if attempt<2:await asyncio.sleep(1)
+    held={symbol:sum(p.position for p in positions if p.account==config.account and p.contract.conId==cid)
+          for cid,symbol in execution.items()}
+    working=[dict(symbol=execution[t.contract.conId],client_id=t.order.clientId,order_id=t.order.orderId,
+                  perm_id=t.order.permId,type=t.order.orderType,action=t.order.action,qty=t.order.totalQuantity,
+                  status=t.orderStatus.status,ref=t.order.orderRef)
+             for t in trades if t.contract.conId in execution and t.orderStatus.status not in WORKING_DONE]
+    other={s:dict(account_position=held[s],other_position=None if own is None else held[s]-own[s],
+                  working_orders=[w for w in working if w['symbol']==s and not own_ref(w['ref'])]) for s in held}
+    return dict(own_positions=own,own_positions_error=own_error,working_orders=[w for w in working if own_ref(w['ref'])],
+                other_book=other,open_orders_seen_any_contract=len(trades))
+
+
 async def preflight(transport,*,wait_seconds=30.,max_age=15.):
-    """Read-only checks: streams, positions, all-client open orders, contracts, account and what-if margin."""
+    """Read-only checks: streams, OpenBreakout's own position and working orders (all clients), contracts,
+    account and what-if margin. Other strategies in the same contracts are reported as other_book only."""
     config=transport.config
     failures=[]
     report=dict(checked_at=datetime.now(timezone.utc).isoformat(),mode=config.mode,account_suffix=config.account[-4:],
@@ -94,22 +125,15 @@ async def preflight(transport,*,wait_seconds=30.,max_age=15.):
     report['market_data_types']={str(k):v for k,v in transport.data_types.items()}
     if any(v!=1 for v in transport.data_types.values()):failures.append('NON_LIVE_MARKET_DATA')
     if not transport.healthy:failures.append('TRANSPORT_UNHEALTHY')
-    execution={m.execution.con_id:m.execution.symbol for m in config.markets}
-    lock=getattr(transport,'snapshot_lock',None) or asyncio.Lock()
-    async with lock:
-        positions=await asyncio.wait_for(transport.ib.reqPositionsAsync(),10)
-        trades=await asyncio.wait_for(transport.ib.reqAllOpenOrdersAsync(),10)
-    held={symbol:sum(p.position for p in positions if p.account==config.account and p.contract.conId==cid)
-          for cid,symbol in execution.items()}
-    report['positions']=held
-    failures.extend(f'NONZERO_POSITION:{s}:{q}' for s,q in held.items() if q)
-    working=[dict(symbol=execution[t.contract.conId],client_id=t.order.clientId,order_id=t.order.orderId,
-                  perm_id=t.order.permId,type=t.order.orderType,action=t.order.action,qty=t.order.totalQuantity,
-                  status=t.orderStatus.status,ref=t.order.orderRef)
-             for t in trades if t.contract.conId in execution and t.orderStatus.status not in WORKING_DONE]
-    report['working_orders']=working
-    report['open_orders_seen_any_contract']=len(trades)
-    failures.extend(f'WORKING_ORDER:{w["symbol"]}:client{w["client_id"]}:{w["type"]}' for w in working)
+    view=await book_view(transport)
+    report.update(view)
+    # Ownership is the orderRef: only OpenBreakout's own position and working orders fail preflight.
+    if view['own_positions'] is None:
+        # Fail closed before any order: flat cannot be verified without our executions.
+        failures.append(f'OWN_POSITION_UNKNOWN:executions request failed ({view["own_positions_error"]})')
+    else:
+        failures.extend(f'OWN_POSITION:{s}:{q}' for s,q in view['own_positions'].items() if q)
+    failures.extend(f'WORKING_ORDER:{w["symbol"]}:client{w["client_id"]}:{w["type"]}' for w in view['working_orders'])
     try:
         values=await asyncio.wait_for(transport.account_values(),15)
         report['net_liquidation']=values['NetLiquidation'];report['excess_liquidity']=values['ExcessLiquidity']
@@ -155,6 +179,15 @@ class Capture:
 
     def close(self):
         if self.handle:self.handle.close();self.handle=None
+
+
+async def record_other_book(runtime,transport,label):
+    """Shadow: informational view of the account's execution contracts; never fails or changes the session."""
+    try:
+        view=await asyncio.wait_for(book_view(transport),30)
+    except Exception as exc:
+        view=dict(error=f'{type(exc).__name__}: {exc}')
+    runtime.set(f'other_book_{label}',{'at':datetime.now(timezone.utc).isoformat(),**view})
 
 
 async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
@@ -205,6 +238,7 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
                     await asyncio.wait_for(transport.connect(),30)
                     transport.halt_callback=feed_error
                     transport.subscribe(on_tick,on_capture)
+                    await record_other_book(runtime,transport,'connect')
                     runtime.set('phase','WAITING_FOR_PREOPEN')
                     print('Live feed connected; recording while waiting for 09:00 ET preparation',flush=True)
                 except Exception as exc:
@@ -234,6 +268,7 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
                 runtime.set('inputs',{'hash':manifest['hash'],'score':manifest['score'],
                     'prior_tr':{k:v['prior_tr'] for k,v in manifest['markets'].items()},
                     'prior_range':range_summary(manifest)})
+                await record_other_book(runtime,transport,'arm')
                 runtime.set('phase','ARMED_SHADOW')
                 print('SHADOW armed for the cash open; broker order transmission disabled',flush=True)
             if service:
@@ -312,7 +347,8 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
     def save_report(label,report):
         name=f'preflight_{label}_{clock().astimezone(NY).strftime("%H%M%S")}.json'
         (root/name).write_text(json.dumps(report,indent=2,default=str),encoding='utf-8')
-        runtime.set(f'preflight_{label}',{'ok':report['ok'],'failures':report['failures'],'file':name})
+        runtime.set(f'preflight_{label}',{'ok':report['ok'],'failures':report['failures'],'file':name,
+                                          'other_book':report.get('other_book')})
     def feed_error(reason):
         runtime.event('FEED_ERROR',{'reason':str(reason)})
         runtime.set('feed_error',str(reason))

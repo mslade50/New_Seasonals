@@ -112,7 +112,8 @@ async def main_async(args):
             report=dict(broker=snapshot,journal_states=states,journal_orders=journal_orders,
                         executions=[dict(id=f.execution.execId,order_id=f.execution.orderId,
                             client_id=f.execution.clientId,con_id=f.contract.conId,qty=f.execution.shares,
-                            price=f.execution.price) for f in fills],
+                            price=f.execution.price,side=f.execution.side,ref=f.execution.orderRef,
+                            time=str(f.execution.time)) for f in fills],
                         action='Inspection only. Halt remains set; no resubmission or position changes.')
             print(json.dumps(report,indent=2))
             return

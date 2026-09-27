@@ -190,7 +190,7 @@ class PartialBroker(SimBroker):
         if o['body']['kind']!='LMT':return super().execute(oid,qty,price)
         cid=o['market'].execution.con_id
         for i,q in enumerate([2,qty-2]):
-            self.positions[cid]=self.positions.get(cid,0)+o['body']['side']*q
+            self.record(cid,o['body']['side']*q,o['body']['ref'],f'PART-{i}')
             self.fill_callback(oid,f'PART-{i}',q,price+i*.25)
             stops=[x for x in self.orders.values() if x['body']['kind']=='STP']
             assert len(stops)==1 and stops[0]['body']['qty']==self.positions[cid]
@@ -220,15 +220,15 @@ def test_restart_blocks_resubmission(config,tmp_path):
         finally:store2.close()
     asyncio.run(run())
 
-def test_foreign_position_blocks_and_lock_excludes_second_process(config,tmp_path):
+def test_lock_excludes_second_process_and_foreign_position_is_ignored(config,tmp_path):
     async def run():
         service,b,store,now=setup_service(config,tmp_path)
         try:
             with pytest.raises(RuntimeError):Store(tmp_path/'session.sqlite',config.fingerprint,DAY)
-            b.positions[config.markets[0].execution.con_id]=1
-            # One discrepancy may be a fill in flight; three consecutive stable checks halt.
-            await service.watchdog();await service.watchdog();assert not service.halted
-            await service.watchdog();assert service.halted
+            # Another strategy's position is not OpenBreakout's business (orderRef ownership, 2026-09-27).
+            b.foreign_positions[config.markets[0].execution.con_id]=1
+            for _ in range(4):await service.watchdog()
+            assert not service.halted and service.mismatches==0
         finally:store.close()
     asyncio.run(run())
 
@@ -321,14 +321,16 @@ def test_stale_execution_quote_prevents_send(config,tmp_path):
         finally:store.close()
     asyncio.run(run())
 
-def test_foreign_client_order_blocks(config,tmp_path):
+def test_openbreakout_order_from_another_client_blocks_and_foreign_ref_does_not(config,tmp_path):
     async def run():
         service,b,store,now=setup_service(config,tmp_path)
+        cid=config.markets[0].execution.con_id
         try:
-            async def snapshot():
-                return dict(positions={},orders=[dict(id=1,client_id=999,con_id=config.markets[0].execution.con_id,ref='OTHER')])
-            b.snapshot=snapshot
-            await service.watchdog();assert service.halted
+            order=dict(id=1,client_id=999,con_id=cid,remaining=1,kind='LMT',side=-1,stop=0)
+            b.foreign_orders=[{**order,'ref':'OTHER'},{**order,'id':2,'ref':f'MNQ|SELL|Legend_EMA|{DAY}|TARGET'}]
+            await service.watchdog();assert not service.halted
+            b.foreign_orders=[{**order,'ref':f'MNQ|SELL|OpenBreakout|{DAY}|NQ-1-STOP'}]
+            await service.watchdog();assert service.halted and 'Unowned OpenBreakout order' in store.get('halt_reason')
         finally:store.close()
     asyncio.run(run())
 
@@ -534,6 +536,13 @@ def test_shadow_fingerprint_unchanged_without_pilot(config,tmp_path):
     assert 'pilot' not in raw and Config.load(tmp_path/'config.json').fingerprint==config.fingerprint
     assert config.pilot_max_contracts==0 and config.authorize() is None
 
+def test_ceiling_halts_key_optional_and_boolean(config,tmp_path):
+    raw=json.loads((tmp_path/'config.json').read_text())
+    assert config.ceiling_halts is False and 'ceiling_halts' not in raw
+    on=load_raw(tmp_path,{**raw,'ceiling_halts':True},'on.json')
+    assert on.ceiling_halts is True and on.fingerprint!=config.fingerprint
+    with pytest.raises(ValueError,match='ceiling_halts'):load_raw(tmp_path,{**raw,'ceiling_halts':1},'bad.json')
+
 def test_live_sizing_clamps_to_one_and_zero_stays_zero(config):
     s=State(DAY,'NQ',40.1,25)
     shadow=size_order(s,config.markets[0],1,20000,20000.25,100000,config)
@@ -612,17 +621,52 @@ def test_stop_cancel_after_timed_exit_fill_does_not_flatten(config,tmp_path):
         finally:store.close()
     asyncio.run(run())
 
-def test_broker_position_mismatch_skips_flatten(config,tmp_path):
+@pytest.mark.parametrize('how,reason',[('account_flat_ceiling_halts','FLATTEN_SKIPPED_POSITION_MISMATCH'),
+                                        ('own_executions_extra','FLATTEN_SKIPPED_POSITION_MISMATCH'),
+                                        ('own_executions_missing','FLATTEN_SKIPPED_OWN_POSITION_UNKNOWN'),
+                                        ('executions_request_failed','FLATTEN_SKIPPED_OWN_POSITION_UNKNOWN')])
+def test_broker_position_mismatch_skips_flatten(config,tmp_path,how,reason):
+    async def run():
+        c=replace(config,ceiling_halts=True) if how=='account_flat_ceiling_halts' else config
+        service,b,store,now=setup_service(c,tmp_path)
+        service.flatten_delay=0
+        cid=config.markets[0].execution.con_id
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ']
+            sent=collect(service)
+            # Account ceiling (flattened by hand, no orderRef) with ceiling_halts, own executions differing from
+            # the journal, or own position UNKNOWN (journaled fills absent / request failed): never flatten.
+            if how=='account_flat_ceiling_halts':b.positions[cid]=0
+            elif how=='own_executions_extra':b.record(cid,1,f'MNQ|BUY|OpenBreakout|{DAY}|NQ-9-ENTRY','X-1')
+            elif how=='own_executions_missing':b.executions.clear()
+            else:b.executions_error='TimeoutError'
+            b.order_error_callback(s.stop_order,201,'Order rejected')
+            await service.drain()
+            assert not flatten_orders(b) and service.halted
+            assert reason in store.get('halt_reason') and 'FLATTEN_SKIPPED' in kinds(store)
+            assert any('FLATTEN BY HAND' in x for x in sent)
+        finally:store.close()
+    asyncio.run(run())
+
+def test_account_flat_by_hand_warns_and_never_flattens(config,tmp_path):
+    """Ceiling breach at flatten time: the account may no longer hold our position (hand flatten), so a
+    speculative flatten could reverse it. Uncertain means no order: warn, halt, FLATTEN BY HAND."""
     async def run():
         service,b,store,now=setup_service(config,tmp_path)
         service.flatten_delay=0
         try:
             await open_nq(service,b,now)
             s=service.states['NQ']
+            sent=collect(service)
             b.positions[config.markets[0].execution.con_id]=0
             b.order_error_callback(s.stop_order,201,'Order rejected')
             await service.drain()
-            assert not flatten_orders(b) and service.halted
+            assert flatten_orders(b)==[]
+            assert 'POSITION_CEILING_WARNING' in kinds(store) and 'FLATTEN_SKIPPED' in kinds(store)
+            assert service.halted
+            assert any('POSITION CEILING WARNING' in x for x in sent)
+            assert any('FLATTEN BY HAND' in x for x in sent)
         finally:store.close()
     asyncio.run(run())
 
@@ -719,33 +763,63 @@ def test_live_session_cli_requires_env_ack(live,tmp_path,monkeypatch):
     with pytest.raises(PermissionError):asyncio.run(main_async(a))
     assert not (tmp_path/'run').exists()
 
-def test_preflight_reports_foreign_orders_positions_and_margin(live):
+class FakePreflight:
+    """Read-only transport double for preflight: account positions, all-client open orders, own executions."""
+    ack='ack';healthy=True;contract_report={'MNQ':{'ok':True}};data_types={1:1}
+    def __init__(self,config,positions,orders,margin,own=None):
+        from types import SimpleNamespace as NS
+        self.config=config
+        now=datetime.now(NY)
+        self.last_seen={f'{m.name}:{k}':now for m in config.markets for k in ('trade','quote')}
+        self.margin=margin;self.own=own or {}
+        async def pos():return positions
+        async def orders_():return orders
+        self.ib=NS(reqPositionsAsync=pos,reqAllOpenOrdersAsync=orders_)
+    async def own_position(self,con_id):return self.own.get(con_id,0)
+    async def account_values(self):return {'NetLiquidation':600000.,'ExcessLiquidity':500000.}
+    async def what_if(self,m,body):
+        from types import SimpleNamespace as NS
+        assert body['qty']==1 and body['kind']=='MKT'
+        return NS(initMarginChange=str(self.margin),maintMarginChange='1',commission=0.,warningText='')
+
+def open_trade(con_id,ref,client=0,order_type='STP',action='SELL'):
+    from types import SimpleNamespace as NS
+    return NS(contract=NS(conId=con_id),order=NS(clientId=client,orderId=5,permId=9,orderType=order_type,action=action,
+              totalQuantity=1,orderRef=ref),orderStatus=NS(status='PreSubmitted'))
+
+def test_preflight_scopes_to_openbreakout_refs_and_reports_other_book(live):
     from types import SimpleNamespace as NS
     from open_breakout.standby import preflight
-    exec_ids=[m.execution.con_id for m in live.markets]
-    class Fake:
-        config=live;ack='ack';healthy=True;contract_report={'MNQ':{'ok':True}};data_types={1:1}
-        def __init__(self,positions,orders,margin):
-            now=datetime.now(NY)
-            self.last_seen={f'{m.name}:{k}':now for m in live.markets for k in ('trade','quote')}
-            self.margin=margin
-            async def pos():return positions
-            async def orders_():return orders
-            self.ib=NS(reqPositionsAsync=pos,reqAllOpenOrdersAsync=orders_)
-        async def account_values(self):return {'NetLiquidation':600000.,'ExcessLiquidity':500000.}
-        async def what_if(self,m,body):
-            assert body['qty']==1 and body['kind']=='MKT'
-            return NS(initMarginChange=str(self.margin),maintMarginChange='1',commission=0.,warningText='')
+    mnq,mes=[m.execution.con_id for m in live.markets]
     async def run():
-        clean=await preflight(Fake([],[],3000.),wait_seconds=0)
+        clean=await preflight(FakePreflight(live,[],[],3000.),wait_seconds=0)
         assert clean['ok'] and set(clean['what_if'])=={'MNQ:BUY','MNQ:SELL','MES:BUY','MES:SELL'}
-        pos=[NS(account=live.account,contract=NS(conId=exec_ids[1]),position=1.)]
-        foreign=[NS(contract=NS(conId=exec_ids[0]),order=NS(clientId=0,orderId=5,permId=9,orderType='STP',action='SELL',
-                    totalQuantity=1,orderRef='manual'),orderStatus=NS(status='PreSubmitted'))]
-        bad=await preflight(Fake(pos,foreign,200000.),wait_seconds=0)
+        # Legend EMA holds 1 MES with its TARGET working: other_book only, preflight passes.
+        pos=[NS(account=live.account,contract=NS(conId=mes),position=1.)]
+        legend=[open_trade(mes,f'MES|SELL|Legend_EMA|{DAY}|TARGET',client=7,order_type='LMT'),
+                open_trade(mnq,'manual')]
+        shared=await preflight(FakePreflight(live,pos,legend,3000.),wait_seconds=0)
+        assert shared['ok'],shared['failures']
+        assert shared['own_positions']=={'MNQ':0,'MES':0} and shared['working_orders']==[]
+        other=shared['other_book']
+        assert other['MES']['account_position']==1 and other['MES']['other_position']==1
+        assert [w['ref'] for w in other['MES']['working_orders']]==[f'MES|SELL|Legend_EMA|{DAY}|TARGET']
+        assert [w['ref'] for w in other['MNQ']['working_orders']]==['manual']
+        # A working OpenBreakout order from any client, or an OpenBreakout-attributed position, fails.
+        ours=[open_trade(mes,f'MES|SELL|OpenBreakout|{DAY}|ES-1-STOP',client=0)]
+        bad=await preflight(FakePreflight(live,pos,ours+legend,200000.,own={mnq:1}),wait_seconds=0)
         assert not bad['ok']
         text=' '.join(bad['failures'])
-        assert 'NONZERO_POSITION:MES' in text and 'WORKING_ORDER:MNQ:client0' in text and 'MARGIN:MNQ:BUY' in text
+        assert 'WORKING_ORDER:MES:client0' in text and 'OWN_POSITION:MNQ:1' in text and 'MARGIN:MNQ:BUY' in text
+        assert 'MES:1' not in text # the Legend position is never a failure
+        # Unreadable executions: flat cannot be verified, so preflight fails closed (before any order).
+        blind=FakePreflight(live,pos,legend,3000.)
+        async def fails(con_id):raise TimeoutError('reqExecutions')
+        blind.own_position=fails
+        closed=await preflight(blind,wait_seconds=0)
+        assert not closed['ok'] and closed['own_positions'] is None
+        assert [f for f in closed['failures'] if f.startswith('OWN_POSITION')]==['OWN_POSITION_UNKNOWN:executions request failed (TimeoutError: reqExecutions)']
+        assert closed['other_book']['MES']['other_position'] is None
     asyncio.run(run())
 
 def test_live_session_arms_after_preflight_and_trades_one_lot(live,tmp_path,monkeypatch):
@@ -1059,8 +1133,9 @@ def test_farm_blips_do_not_halt_and_snapshot_is_serialized(config):
         active=[0];peak=[0]
         async def slow(value):
             active[0]+=1;peak[0]=max(peak[0],active[0]);await asyncio.sleep(.01);active[0]-=1;return value
-        adapter.ib=NS(reqAllOpenOrdersAsync=lambda:slow([]),reqPositionsAsync=lambda:slow([]))
-        await asyncio.gather(adapter.snapshot(),adapter.snapshot(),adapter.snapshot())
+        adapter.ib=NS(reqAllOpenOrdersAsync=lambda:slow([]),reqPositionsAsync=lambda:slow([]),
+                      reqExecutionsAsync=lambda f:slow([]))
+        await asyncio.gather(adapter.snapshot(),adapter.snapshot(),adapter.own_position(1),adapter.snapshot())
         assert peak[0]==1
     asyncio.run(run())
 
@@ -1465,3 +1540,303 @@ def test_prepare_cli_prints_prior_range_fields(config,tmp_path,monkeypatch,capsy
         assert set(p)>={'prior_tr','prior_range_status','atr20','ratio','skip_prior_range','prior_range_reason'}
         assert p['prior_range_status']=='OK' and p['atr20']==pytest.approx(32.4) and p['skip_prior_range'] is False
     assert load_manifest(out,c)['markets']['NQ']['ratio']==pytest.approx(40/32.4)
+
+
+# ---- Shared contracts: orderRef ownership (owner decision 2026-09-27) ----
+
+def legend_order(cid,role='TARGET',oid=77):
+    return dict(id=oid,client_id=5,con_id=cid,ref=f'MNQ|SELL|Legend_EMA|{DAY}|{role}',remaining=1,kind='LMT',side=-1,stop=0)
+
+def exec_fill(exec_id,ref,side,shares,cid,account,time=None,client_id=0,order_id=0):
+    from types import SimpleNamespace as NS
+    return NS(execution=NS(execId=exec_id,acctNumber=account,orderRef=ref,side=side,shares=shares,time=time,
+                           clientId=client_id,orderId=order_id,price=1.),contract=NS(conId=cid))
+
+def kinds(store):
+    return [k for k, in store.db.execute('SELECT kind FROM events')]
+
+def test_ref_strategy_matches_execution_report_parse_ref():
+    from daily_execution_report import parse_ref
+    from open_breakout.service import ref_strategy, own_ref
+    refs=[f'MNQ|BUY|OpenBreakout|{DAY}|NQ-1-STOP',f'MES|BUY|Legend_EMA|{DAY}',f'MES|SELL|Legend_EMA|{DAY}|TARGET',
+          'OB:WHATIF','',None,'a|b|OpenBreakout','x|y| OpenBreakout |d','x|y||d']
+    for ref in refs:
+        assert ref_strategy(ref)==parse_ref(ref)[0]
+    assert own_ref(refs[0]) and not own_ref(refs[1]) and not own_ref(refs[2]) and not own_ref('MNQ|BUY|OpenBreakoutX|d')
+
+def test_attribute_executions_mixed_refs():
+    from open_breakout.ibkr import attribute_executions
+    ob=lambda k,side='BUY':f'MNQ|{side}|OpenBreakout|{DAY}|NQ-{k}-ENTRY'
+    fills=[exec_fill('0001.a.01.01',ob(1),'BOT',1.,101,'U1'),
+           exec_fill('0001.b.01.01',ob(1,'SELL'),'SLD',1.,101,'U1'),
+           exec_fill('0001.c.01.01',ob(2),'BOT',1.,101,'U1'),
+           exec_fill('0001.c.01.01',ob(2),'BOT',1.,101,'U1'), # the same report twice
+           exec_fill('0001.d.01.01',f'MES|BUY|Legend_EMA|{DAY}','BOT',1.,103,'U1'),
+           exec_fill('0001.e.01.01',f'MNQ|SELL|Legend_EMA|{DAY}|TARGET','SLD',2.,101,'U1'),
+           exec_fill('0001.f.01.01','','BOT',5.,101,'U1'), # manual TWS order: neither book
+           exec_fill('0001.g.01.01','OB:WHATIF','BOT',5.,101,'U1'),
+           exec_fill('0001.h.01.01',ob(3),'BOT',1.,101,'U2'), # another account
+           exec_fill('0001.i.01.01',ob(3),'BOT',2.,101,'U1'),
+           exec_fill('0001.i.01.02',ob(3),'BOT',1.,101,'U1')] # IB correction replaces .01
+    own,other,ids=attribute_executions(fills,'U1')
+    assert own=={101:2.} and other=={103:1.,101:-2.}
+    assert ids=={'0001.a.01','0001.b.01','0001.c.01','0001.i.01'}
+    # Earlier sessions (TWS Trade Log may return seven days) are excluded; today's count.
+    from open_breakout.ibkr import session_start
+    today=session_start(at('10:00:00'))
+    old=[exec_fill('0002.a.01.01',ob(1),'BOT',1.,101,'U1',time=today-timedelta(hours=10)),
+         exec_fill('0002.b.01.01',ob(2),'BOT',1.,101,'U1',time=today+timedelta(hours=9.6))]
+    own,_,ids=attribute_executions(old,'U1',today)
+    assert own=={101:1.} and ids=={'0002.b.01'}
+
+def test_ibkr_own_position_from_executions_cached_and_refreshed_on_own_fill(config):
+    from types import SimpleNamespace as NS
+    async def run():
+        pytest.importorskip('ib_insync')
+        from open_breakout.ibkr import IBKR
+        adapter=IBKR(config);cid=config.markets[0].execution.con_id
+        calls=[];fills=[]
+        async def execs(f):calls.append(f);return list(fills)
+        adapter.ib=NS(reqExecutionsAsync=execs)
+        fills.append(exec_fill('1.1.01.01',f'MNQ|BUY|OpenBreakout|{DAY}|NQ-1-ENTRY','BOT',1.,cid,config.account))
+        fills.append(exec_fill('1.2.01.01',f'MNQ|BUY|Legend_EMA|{DAY}','BOT',1.,cid,config.account))
+        assert await adapter.own_position(cid)==1 and len(calls)==1
+        # Account filter only: executions of an earlier process or another client id still count.
+        assert calls[0].acctCode==config.account and calls[0].clientId==0
+        fills.append(exec_fill('1.3.01.01',f'MNQ|SELL|OpenBreakout|{DAY}|NQ-1-STOP','SLD',1.,cid,config.account))
+        assert await adapter.own_position(cid)==1 and len(calls)==1 # cached for one second
+        adapter._fill(None,NS(execution=NS(acctNumber=config.account,clientId=config.client_id,orderId=1,
+                                           execId='1.3.01.01',shares=1.,price=1.)))
+        assert await adapter.own_position(cid)==0 and len(calls)==2 # our own fill invalidates the cache
+    asyncio.run(run())
+
+def test_ibkr_executions_race_redelivery_and_failure(config):
+    from types import SimpleNamespace as NS
+    async def run():
+        pytest.importorskip('ib_insync')
+        from open_breakout.ibkr import IBKR
+        adapter=IBKR(config);cid=config.markets[0].execution.con_id
+        ref=f'MNQ|BUY|OpenBreakout|{DAY}|NQ-1-ENTRY'
+        mine=exec_fill('2.1.01.01',ref,'BOT',1.,cid,config.account,client_id=config.client_id,order_id=11)
+        got=[];adapter.fill_callback=lambda *a:got.append(a)
+        gate=asyncio.Event();answer=[[]]
+        async def execs(f):
+            await gate.wait();return list(answer[0])
+        async def empty():return []
+        adapter.ib=NS(reqExecutionsAsync=execs,reqAllOpenOrdersAsync=empty,reqPositionsAsync=empty)
+        # An own fill lands while a request is in flight: that stale answer is used once, never cached.
+        pending=asyncio.ensure_future(adapter.own_position(cid));await asyncio.sleep(0)
+        adapter._fill(None,mine);gate.set()
+        assert await pending==0 and adapter._exec_books is None
+        # ib_insync suppresses the live execDetailsEvent for an execId a reqExecutions answer delivered first:
+        # an own execution never handed to the journal is re-delivered once (Service.fill dedups by execId).
+        adapter._delivered.clear();got.clear();answer[0]=[mine]
+        assert await adapter.own_position(cid)==1 and got==[(11,'2.1.01.01',1.,1.)]
+        adapter._exec_books=None
+        assert await adapter.own_position(cid)==1 and len(got)==1
+        # A failed or slow executions request is UNKNOWN in the snapshot, never an exception.
+        async def boom(f):raise TimeoutError('slow')
+        adapter.ib.reqExecutionsAsync=boom;adapter._exec_books=None
+        snap=await adapter.snapshot()
+        assert snap['own'] is None and snap['foreign'] is None and 'slow' in snap['executions_error']
+        with pytest.raises(TimeoutError):await adapter.own_position(cid)
+    asyncio.run(run())
+
+@pytest.mark.parametrize('foreign',[1,-1])
+@pytest.mark.parametrize('held',[False,True])
+def test_watchdog_ignores_other_strategy_mid_session(config,tmp_path,capsys,foreign,held):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        cid=config.markets[0].execution.con_id
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            if held:await tick(service,b,now,20010,'09:30:01')
+            sent=collect(service)
+            await service.watchdog()
+            capsys.readouterr()
+            # Legend EMA enters: attributed position plus its working TARGET and TIME legs.
+            b.foreign_positions[cid]=foreign
+            b.foreign_orders=[legend_order(cid),legend_order(cid,'TIME',78)]
+            for _ in range(4):await service.watchdog()
+            s=service.states['NQ']
+            assert not service.halted and service.mismatches==0 and s.qty==(6 if held else 0)
+            assert sent==[] and 'RECONCILE_DISCREPANCY' not in kinds(store) and 'HALT' not in kinds(store)
+            assert store.get('other_book')['MNQ']['position']==foreign
+            b.foreign_positions[cid]=0;b.foreign_orders=[]
+            await service.watchdog();await service.watchdog()
+            lines=[x for x in capsys.readouterr().out.splitlines() if 'Other book' in x]
+            assert len(lines)==2 and 'Legend_EMA' in lines[0] and lines[1].endswith('none')
+            assert not service.halted and store.get('other_book')=={}
+        finally:store.close()
+    asyncio.run(run())
+
+def test_watchdog_halts_on_own_execution_mismatch(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        cid=config.markets[0].execution.con_id
+        try:
+            # OpenBreakout-tagged executions say long 1; the journal says flat.
+            b.record(cid,1,f'MNQ|BUY|OpenBreakout|{DAY}|NQ-9-ENTRY')
+            await service.watchdog();await service.watchdog();assert not service.halted
+            await service.watchdog()
+            assert service.halted and 'executions/journal position mismatch' in store.get('halt_reason')
+        finally:store.close()
+    asyncio.run(run())
+
+@pytest.mark.parametrize('ceiling_halts',[False,True])
+def test_account_ceiling_warns_by_default_and_halts_only_when_configured(live,tmp_path,ceiling_halts):
+    async def run():
+        c=replace(live,ceiling_halts=True) if ceiling_halts else live
+        service,b,store,now=setup_service(c,tmp_path)
+        cid=live.markets[0].execution.con_id
+        try:
+            await open_nq(service,b,now)
+            assert service.states['NQ'].qty==1
+            sent=collect(service)
+            # Legend short 1 nets the account to 0, but its executions are attributed: nothing at all.
+            b.foreign_positions[cid]=-1
+            for _ in range(4):await service.watchdog()
+            assert not service.halted and 'POSITION_CEILING_WARNING' not in kinds(store)
+            # Our long 1 flattened in TWS by hand (no orderRef): own executions 1, account 0.
+            b.foreign_positions[cid]=0;b.positions[cid]=0
+            await service.watchdog();await service.watchdog()
+            assert not service.halted and 'POSITION_CEILING_WARNING' not in kinds(store)
+            await service.watchdog()
+            if ceiling_halts:
+                assert service.halted and 'Account position below' in store.get('halt_reason')
+            else:
+                assert not service.halted and kinds(store).count('POSITION_CEILING_WARNING')==1
+                assert any('POSITION CEILING WARNING' in x for x in sent)
+                for _ in range(3):await service.watchdog()
+                assert not service.halted and kinds(store).count('POSITION_CEILING_WARNING')==1 # once per episode
+                assert not flatten_orders(b) and not [o for o in b.orders.values() if o['status']=='Cancelled']
+        finally:store.close()
+    asyncio.run(run())
+
+@pytest.mark.parametrize('ceiling_halts',[False,True])
+def test_invisible_legend_long_against_our_short_never_halts_by_default(live,tmp_path,ceiling_halts):
+    """reqExecutions may not return another client's executions: Legend's 09:31 long 1 then shows only in the
+    account, which nets our short 1 to 0. Default: a warning, no halt, cancel or flatten."""
+    async def run():
+        c=replace(live,ceiling_halts=True) if ceiling_halts else live
+        service,b,store,now=setup_service(c,tmp_path)
+        cid=live.markets[0].execution.con_id
+        try:
+            await service.watchdog() # 09:30 flat: foreign_base 0
+            await tick(service,b,now,20000,'09:30:00');await tick(service,b,now,19990,'09:30:01')
+            s=service.states['NQ'];assert s.qty==1 and s.side==-1
+            b.foreign_visible=False;b.foreign_positions[cid]=1;b.foreign_orders=[legend_order(cid)]
+            for _ in range(4):await service.watchdog()
+            if ceiling_halts:
+                assert service.halted and 'Account position below' in store.get('halt_reason')
+            else:
+                assert not service.halted and 'POSITION_CEILING_WARNING' in kinds(store)
+                assert b.orders[s.stop_order]['status']=='Submitted' and not flatten_orders(b)
+        finally:store.close()
+    asyncio.run(run())
+
+def test_own_position_unknown_skips_checks_and_alerts_after_threshold(config,tmp_path):
+    async def run():
+        # No ticks while the clock advances: widen the stream-gap tolerance so only UNKNOWN is under test.
+        service,b,store,now=setup_service(replace(config,watchdog_stale_seconds=300.),tmp_path)
+        try:
+            await open_nq(service,b,now)
+            sent=collect(service)
+            # reqExecutions answers without our journaled fills (reconnect, IB limit): own reads 0 vs journal 6.
+            saved=list(b.executions);b.executions.clear()
+            start=now[0]
+            for i in range(29):
+                now[0]=start+timedelta(seconds=i);await service.watchdog()
+            assert not service.halted and service.mismatches==0 and 'OWN_POSITION_UNKNOWN' not in kinds(store)
+            now[0]=start+timedelta(seconds=30);await service.watchdog()
+            assert not service.halted and kinds(store).count('OWN_POSITION_UNKNOWN')==1
+            assert any('OWN POSITION UNKNOWN' in x and 'NOT halted' in x for x in sent)
+            now[0]=start+timedelta(seconds=40);await service.watchdog()
+            assert kinds(store).count('OWN_POSITION_UNKNOWN')==1
+            # Answer carries our fills again: normal reconciliation resumes.
+            b.executions[:]=saved
+            await service.watchdog()
+            assert 'OWN_POSITION_KNOWN' in kinds(store) and service.own_unknown==0
+            assert not service.halted and store.get('heartbeat')['own_known']
+        finally:store.close()
+    asyncio.run(run())
+
+def test_own_position_request_failure_is_unknown_not_halt(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        try:
+            await open_nq(service,b,now)
+            b.executions_error='TimeoutError: reqExecutions'
+            for _ in range(5):await service.watchdog()
+            assert not service.halted and service.own_unknown==5 and not store.get('heartbeat')['own_known']
+            b.executions_error=None
+            await service.watchdog();assert not service.halted and service.own_unknown==0
+            # A genuine own mismatch with a trusted answer still halts after three stable checks.
+            b.record(config.markets[0].execution.con_id,1,f'MNQ|BUY|OpenBreakout|{DAY}|NQ-9-ENTRY','X-1')
+            for _ in range(3):await service.watchdog()
+            assert service.halted and 'executions/journal position mismatch' in store.get('halt_reason')
+        finally:store.close()
+    asyncio.run(run())
+
+def test_unknown_at_start_does_not_poison_foreign_base(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        cid=config.markets[0].execution.con_id
+        try:
+            b.executions_error='TimeoutError'
+            b.positions[cid]=3
+            await service.watchdog()
+            assert str(cid) not in store.get('foreign_base',{})
+            b.executions_error=None;b.positions[cid]=0
+            await service.watchdog()
+            assert store.get('foreign_base')[str(cid)]==0
+        finally:store.close()
+    asyncio.run(run())
+
+def test_carried_other_position_is_baselined_not_halted(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        cid=config.markets[0].execution.con_id
+        try:
+            b.positions[cid]=-2 # a hedge carried from before the session; no orderRef in today's executions
+            await service.watchdog()
+            assert store.get('foreign_base')[str(cid)]==-2
+            await open_nq(service,b,now)
+            for _ in range(4):await service.watchdog()
+            assert service.states['NQ'].qty==6 and not service.halted
+        finally:store.close()
+    asyncio.run(run())
+
+@pytest.mark.parametrize('foreign',[3,-1])
+def test_emergency_flatten_sizes_from_journal_with_foreign_position(config,tmp_path,foreign):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        service.flatten_delay=0
+        cid=config.markets[0].execution.con_id
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ']
+            b.foreign_positions[cid]=foreign;b.foreign_orders=[legend_order(cid)]
+            b.order_error_callback(s.stop_order,201,'Order rejected')
+            await service.drain()
+            flat=flatten_orders(b)
+            assert len(flat)==1 and flat[0][1]['body']['qty']==6 and flat[0][1]['body']['side']==-1
+            assert s.qty==0 and b.positions[cid]==0 and b.foreign_positions[cid]==foreign
+            assert 'FLATTEN_SKIPPED' not in kinds(store)
+        finally:store.close()
+    asyncio.run(run())
+
+def test_1556_check_ignores_foreign_orders_and_position(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        cid=config.markets[0].execution.con_id
+        try:
+            await open_nq(service,b,now)
+            await tick(service,b,now,19999,'09:30:02') # stop fills; journal flat
+            await service.watchdog();assert service.states['NQ'].phase=='FLAT'
+            b.foreign_positions[cid]=1;b.foreign_orders=[legend_order(cid,'TIME')]
+            now[0]=at('15:56:30')
+            for _ in range(4):await service.watchdog()
+            assert not service.halted, store.get('halt_reason')
+        finally:store.close()
+    asyncio.run(run())

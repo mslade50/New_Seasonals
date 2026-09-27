@@ -47,11 +47,13 @@ full synchronous writes and a single-process lock. `ibkr.py` is the optional
 IBKR transport; `replay.py` is an offline quote-fill transport.
 
 There is no dependency on ignored research scripts, the stock scanner, Google
-Sheets, the private site, or the OneDrive broker installation. A chosen execution
-contract must be exclusively owned by this strategy in its account: another
-strategy's position or working order in that conId halts new entries. This release
-does not integrate the stock book's account-wide risk limits or net multiple
-strategies sharing a futures contract.
+Sheets, the private site, or the OneDrive broker installation. Since 2026-09-27
+ownership is the `orderRef`: an order or execution is Open Breakout's if and only if
+its 3rd pipe field is `OpenBreakout`. Other strategies (Legend EMA futures) may hold
+positions and working orders in the same MES/MNQ conIds in the same account; they are
+logged as `other_book` and never halt, skip or cancel anything. See "Shared contracts:
+orderRef ownership (2026-09-27)" at the end. This release does not integrate the stock
+book's account-wide risk limits.
 
 ## Configure
 
@@ -256,8 +258,10 @@ session above keeps running as the comparison baseline.
   $102 per attempt (about $1,000 for six losing attempts). Stops are market orders
   once triggered; gaps and fast markets can exceed these figures.
 - Preflight (read-only) at connect and again at **09:25 ET** before arming: zero
-  MNQ/MES position; no working MNQ/MES order from any API client or TWS
-  (`reqAllOpenOrders`); contract identities; what-if margin for 1-lot BUY and SELL in
+  Open Breakout position in MNQ/MES (from executions tagged `OpenBreakout`); no working
+  MNQ/MES order carrying an `OpenBreakout` ref from any API client or TWS
+  (`reqAllOpenOrders`). Since 2026-09-27 other strategies' MNQ/MES positions and working
+  orders are reported under `other_book` and do not fail it. Also checked: contract identities; what-if margin for 1-lot BUY and SELL in
   each execution contract within the margin limit; all four data streams live and
   fresh. Any failure: no arming, session ends `HALTED_PREFLIGHT`. Until arming, an
   order gate below the adapter lets only what-if previews through.
@@ -278,8 +282,10 @@ session above keeps running as the comparison baseline.
   and alerts "FLATTEN BY HAND". On an explicit rejection with a position open the
   process halts, cancels the stop and timed exit, **waits up to 3 seconds for TWS to
   confirm both cancels** (a filled order or a 161/10148 answer is not a confirmation),
-  takes a fresh position snapshot, and only if the broker still holds exactly the
-  journal position sends **one** market flatten (DAY). Unconfirmed cancels or a position
+  takes a fresh snapshot, and only if Open Breakout's own executions (orderRef) still
+  equal the journal position and the account ceiling holds (see the 2026-09-27 section)
+  sends **one** market flatten (DAY), sized from the journal, never from the account
+  position. Unconfirmed cancels or a position
   mismatch abort the flatten with a "FLATTEN BY HAND" alert. It never sends a second
   flatten. Warning codes (2104, 2106, 2108, 2109, 2158, 399, 404) never flatten. An
   uncertain acknowledgement halts new entries only.
@@ -287,8 +293,9 @@ session above keeps running as the comparison baseline.
   that one signal (no halt, no attempt consumed; a re-entry needs a fresh recross);
   the per-entry what-if is skipped in live (margin was checked at connect and 09:25);
   an entry execution arriving after the IOC looked finished is recorded, protected with
-  a stop and timed exit, then the session halts. The watchdog halts on a broker/journal
-  position or stop discrepancy only after **3 consecutive** stable checks, and on a
+  a stop and timed exit, then the session halts. The watchdog halts on an own-execution/
+  journal position, account-ceiling or own-stop discrepancy only after **3 consecutive**
+  stable checks (orderRef-scoped since 2026-09-27), and on a
   signal stream silent for `watchdog_stale_seconds` (default 30, optional config key);
   the 3-second freshness still applies at entry. Market-data farm messages 2103/2105
   are warnings. From 15:56, any journal position or any working `OpenBreakout` order on
@@ -601,21 +608,113 @@ both windows. Re-run after the roll-rule review: identical values. Hand check: t
 of the 20 hourly TRs in the parity file for 08-26 to 09-24 (Labor Day 09-07 included,
 09-16 and 09-17 excluded) is 404.425 (NQ) and 68.0625 (ES).
 
-## Shared contracts with Legend EMA futures (2026-09-26)
+## Shared contracts: orderRef ownership (2026-09-27)
 
-Legend EMA is being cut over to also trade MES and MNQ in Primary (`legend_ema_fut.py`
-in trading_ibkr, 1 contract cap per market at cutover, entry at 09:31, flat by the 10:30
-time exit and the 10:32 residual check). Open Breakout reconciles the account's whole
-MES/MNQ position against its own journal, so the two collide on a day Legend trades:
-- The 09:25 preflight passes, because Legend has not entered yet.
-- After Legend's 09:31 entry the broker position differs from Open Breakout's journal.
-  The watchdog's position check trips after its 3 consecutive stable checks and halts
-  new Open Breakout entries for the rest of the session.
-- Protection is untouched: any Open Breakout stop and timed exit already working stay
-  in place.
-- Legend is unaffected, since it nets only executions carrying its own orderRefs
-  (`MES|BUY|Legend_EMA|<date>` and its `|TARGET` / `|TIME` legs).
+Owner decision 2026-09-27. This replaces the 2026-09-26 note, which accepted that a
+Legend EMA entry would halt Open Breakout for the rest of the session. Legend EMA
+futures (`legend_ema_fut.py` in trading_ibkr; refs `MES|BUY|Legend_EMA|<date>` with its
+`|TARGET` and `|TIME` legs; 1 contract per market, entry 09:31, flat by the 10:30 time
+exit) trades the same MES/MNQ contracts in the same account. Open Breakout never halts,
+skips, cancels or refuses because of another strategy's position or working orders.
+Legend is unaffected; it already nets only its own refs.
 
-Accepted for the 2026-09-28 pilot. Follow-up: orderRef-scoped reconciliation, so the
-watchdog compares Open Breakout's journal to executions tagged `OpenBreakout` rather
-than to the account position.
+**Rule.** An order or execution is Open Breakout's if and only if its orderRef 3rd pipe
+field is `OpenBreakout` (`service.own_ref`, the same field `daily_execution_report.parse_ref`
+reads). Nothing else in the account is Open Breakout's business, from any client.
+
+**Own position.** `IBKR.own_position(conId)` is the signed sum of the day's executions
+whose orderRef is `OpenBreakout` (`reqExecutions` with `ExecutionFilter(acctCode=account)`,
+no client-id filter, so a previous process's executions with the same ref still count).
+Only executions time-stamped since midnight New York count (TWS can return up to seven
+days). It is cached for at most one second under the snapshot lock; an own fill clears
+the cache, and an answer that was in flight when an own fill landed is used once and
+never cached. An IB execution correction replaces the original by execId stem.
+`reqPositions` stays in the snapshot for the `other_book` view and the account ceiling.
+ib_insync suppresses the live fill event for an execId that a `reqExecutions` answer
+delivered first; the transport therefore re-delivers any own-client execution it has
+not yet handed to the journal (the journal dedups by execId). A fill caught this way
+after the entry IOC looked terminal takes the late-entry path: stop sent, 15:55 exit
+sent, session halted.
+
+**Own position UNKNOWN.** The own position is trusted only when the executions request
+succeeded (no exception, no timeout; 3 s inside the 5 s snapshot) and, once the journal
+holds fills, the answer contains every journaled execId (by stem). Otherwise it is
+UNKNOWN for that watchdog cycle: the own-mismatch and ceiling checks are skipped (the
+mismatch counter neither grows nor resets), `foreign_base` is not captured, and the
+stop/order checks still run. The first unknown cycle writes `OWN_POSITION_UNKNOWN_START`;
+after 30 s of consecutive unknown cycles one loud alert and `OWN_POSITION_UNKNOWN` (not a
+halt); recovery writes `OWN_POSITION_KNOWN`. The heartbeat carries `own_known`. The
+emergency flatten never fires on UNKNOWN: it halts with
+`EMERGENCY_FLATTEN_SKIPPED_OWN_POSITION_UNKNOWN` and alerts FLATTEN BY HAND. Preflight
+retries the executions read 3 times; if it is still unreadable, preflight fails closed
+with `OWN_POSITION_UNKNOWN:...` (flat cannot be verified; this is before any order).
+
+**Account ceiling: alert-only by default.** A breach is the account holding less than
+Open Breakout's own position in its direction. The account figure is taken net of other
+strategies' attributed executions that day and of the non-Open Breakout position
+recorded at the first watchdog where Open Breakout is verifiably flat in that contract
+(live: the 09:25 arming check; `foreign_base` in the `trades.sqlite` meta). On 3
+consecutive stable breaches the service writes `POSITION_CEILING_WARNING` (symbol, own,
+account, foreign, foreign_base) and sends one loud alert per episode. It does not halt,
+cancel or flatten, and it does not block an emergency flatten (which warns and proceeds).
+Reason: if `reqExecutions` does not show Legend's executions to 927481, Legend long 1
+against our short 1 looks exactly like a hand flatten. Config key `ceiling_halts`
+(JSON boolean, default false; absent key keeps the fingerprint) restores the old
+behaviour: the breach halts the watchdog after 3 checks and blocks the emergency flatten.
+
+**What still halts.**
+- Own mismatch: trusted `OpenBreakout` executions differ from the journal on 3
+  consecutive stable watchdog checks.
+- Own stray orders: a working order with an `OpenBreakout` ref on MNQ/MES that is not in
+  this journal, or comes from another client id, halts at once and fails preflight.
+- Own protective stop missing or different (only `OpenBreakout`-ref orders are read).
+- From 15:56: a journal position, or any working `OpenBreakout`-ref order on MNQ/MES
+  (matched on the 3rd ref field, so the `|NQ-1-TIME` suffix legs match).
+- Restart with orders in the journal, the duplicate-process lock and the relaunch
+  guard: unchanged.
+- Emergency flatten: sent only if trusted own executions equal the journal AND the
+  account ceiling holds. A ceiling breach at flatten time can mean the account no
+  longer holds our position (a hand flatten), so a speculative flatten could reverse
+  it; the service then halts with FLATTEN BY HAND instead of sending an order. This
+  is deliberate and independent of `ceiling_halts`. The quantity, when sent, is the
+  journal quantity, never the account position.
+
+**What is now ignored (logged only).** Other strategies' MNQ/MES positions (account
+minus own) and working orders. The watchdog prints one `Other book in execution
+contracts (informational, not OpenBreakout)` line per change and stores the latest view
+as `other_book` in the `trades.sqlite` meta. No alert, no journal event, no halt.
+Preflight reports `own_positions`, `working_orders` (only `OpenBreakout` refs) and
+`other_book` (`account_position`, `other_position`, `working_orders` per symbol); the live
+runtime meta `preflight_connect` / `preflight_arm` carries `other_book` too. The shadow
+records `other_book_connect` and `other_book_arm` in its `runtime.sqlite`. Preflight
+field changes: `positions` became `own_positions`; the failure `NONZERO_POSITION` became
+`OWN_POSITION`.
+
+**Limits, unverified.**
+- Whether `reqExecutions` returns other clients' executions to a non-master API client
+  is not verified: the 2026-09-27 read-only check (a Sunday) saw no executions at all.
+  The live process (client 927481) always sees its own. A read-only `preflight` or
+  `reconcile` on another client id (927482/927485) may not see 927481's executions and
+  would then report an own position of 0.
+- If Legend's executions are not visible to 927481, Legend long 1 while Open Breakout is
+  short 1 nets the account to 0 and raises a `POSITION_CEILING_WARNING` alert (no halt
+  with the default `ceiling_halts: false`). **To confirm on the first shared day**
+  (Monday 2026-09-28, after Legend's 09:31 entry): run read-only
+  `reconcile --client-id 927482` (the 2026-09-28 command in the Monday staging section
+  above); its `executions` list now
+  shows `client_id`, `side`, `ref` and `time`, and `broker.foreign` the attributed other
+  book. If Legend's `Legend_EMA` executions (its client id) and 927481's `OpenBreakout`
+  executions both appear, cross-client visibility holds and the ceiling is accurate;
+  record the answer here. If they do not, keep `ceiling_halts` false.
+- An MNQ/MES trade without a strategy ref (manual TWS) that moves against an open Open
+  Breakout position raises the ceiling warning after 3 checks (a halt only with
+  `ceiling_halts: true`).
+- Execution history covers the Gateway's window (since midnight by default). Open
+  Breakout is flat by 15:55 by design, and the 15:56 check covers the same day.
+
+**Parked `bracket-entry-mode` branch.** It still has the old exclusivity checks in its
+bracket paths (whole-account position reconciliation and all-order ownership on the
+execution conIds). It must adopt this orderRef scoping before it is merged.
+
+Guard tests: `tests/test_open_breakout.py`, section "Shared contracts: orderRef
+ownership".

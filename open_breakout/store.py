@@ -83,6 +83,9 @@ class Store:
         cur = self.db.execute('INSERT OR IGNORE INTO fills VALUES (?,?)',(exec_id,json.dumps(body,allow_nan=False)))
         return cur.rowcount == 1
 
+    def fill_ids(self):
+        return [r[0] for r in self.db.execute('SELECT exec_id FROM fills')]
+
     def close(self):
         if getattr(self,'db',None):
             self.db.close();self.db=None

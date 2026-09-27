@@ -16,6 +16,27 @@ CANCELLED = {'Cancelled','ApiCancelled','Inactive'}
 STRATEGY_REF = 'OpenBreakout'
 MISMATCH_CHECKS = 3
 
+
+def ref_strategy(ref) -> str | None:
+    """Strategy field of 'SYMBOL|ACTION|Strategy|Date[|...]', as daily_execution_report.parse_ref reads it."""
+    parts = str(ref or '').split('|')
+    return (parts[2].strip() or None) if len(parts) >= 4 else None
+
+
+def own_ref(ref) -> bool:
+    """Ownership is the orderRef alone (owner decision 2026-09-27): nothing else in the account is ours."""
+    return ref_strategy(ref) == STRATEGY_REF
+
+
+def exec_key(exec_id) -> str:
+    """IB execId without its correction suffix: a correction replaces the original under the same key."""
+    exec_id = str(exec_id)
+    return exec_id.rpartition('.')[0] or exec_id
+
+
+# Own position UNKNOWN (executions call failed, or it lacks our journaled fills) this long -> loud alert.
+OWN_UNKNOWN_ALERT_SECONDS = 30.
+
 class Service:
     def __init__(self, config, manifest, store, broker, clock=None):
         self.config,self.manifest,self.store,self.broker = config,manifest,store,broker
@@ -32,9 +53,15 @@ class Service:
         self.cancel_timeout = 3.
         self.sibling_timeout = 10.
         self.mismatches = 0
+        self.ceiling_checks = 0
+        self.ceiling_warned = False
+        self.own_unknown = 0
+        self.own_unknown_since = None
+        self.own_unknown_alerted = False
         self.cancel_requested = set()
         self.unexpected = set()
         self.flattened = set(store.get('flattened',[]))
+        self.other_book = store.get('other_book',{})
         self.halted = bool(store.get('halted',False))
         if store.get('manifest_hash',manifest['hash']) != manifest['hash']:
             raise ValueError('Manifest changed for existing journal')
@@ -195,13 +222,32 @@ class Service:
                 self.halt(f'EMERGENCY_FLATTEN_ABORTED_UNCONFIRMED_CANCEL:{market}')
                 self.loud(f'{market} EMERGENCY FLATTEN NOT SENT: exit-order cancels not confirmed by TWS; FLATTEN BY HAND IN TWS')
                 return
+            # Our own executions (orderRef) must equal the journal; other strategies' holdings in the
+            # contract are not ours to check or flatten. The account ceiling is a warning unless ceiling_halts.
+            cid = m.execution.con_id
             snapshot = await asyncio.wait_for(self.broker.snapshot(),5.)
-            held = snapshot['positions'].get(m.execution.con_id,0)
-            if held != s.side*s.qty or not s.qty:
-                self.store.event('FLATTEN_SKIPPED',dict(market=market,broker=held,journal=s.side*s.qty))
-                self.halt(f'EMERGENCY_FLATTEN_SKIPPED_POSITION_MISMATCH:{market}')
-                self.loud(f'{market} EMERGENCY FLATTEN SKIPPED: broker position {held} != journal {s.side*s.qty}; FLATTEN BY HAND IN TWS')
+            own, why = self._own_view(snapshot)
+            if own is None:
+                self.store.event('FLATTEN_SKIPPED',dict(market=market,own=None,reason=why,journal=s.side*s.qty))
+                self.halt(f'EMERGENCY_FLATTEN_SKIPPED_OWN_POSITION_UNKNOWN:{market}')
+                self.loud(f'{market} EMERGENCY FLATTEN NOT SENT: OpenBreakout position cannot be verified ({why}); '
+                          f'journal {s.side*s.qty}; FLATTEN BY HAND IN TWS')
                 return
+            held = own.get(cid,0)
+            breach = self._ceiling_breach(cid,held,snapshot)
+            if held != s.side*s.qty or not s.qty or breach:
+                # A ceiling breach here means the account may no longer hold our position (hand flatten),
+                # so a speculative flatten could reverse it. Uncertain means no order: halt and alert.
+                account = snapshot['positions'].get(cid,0)
+                if breach:
+                    self._ceiling_warning(cid,held,snapshot,'emergency flatten')
+                self.store.event('FLATTEN_SKIPPED',dict(market=market,own=held,account=account,journal=s.side*s.qty,
+                                                        ceiling_breach=bool(breach)))
+                self.halt(f'EMERGENCY_FLATTEN_SKIPPED_POSITION_MISMATCH:{market}')
+                self.loud(f'{market} EMERGENCY FLATTEN SKIPPED: OpenBreakout executions {held} / account {account} '
+                          f'do not support journal {s.side*s.qty}; FLATTEN BY HAND IN TWS')
+                return
+            # Sized from the journal only, never from the account position.
             qty = s.qty
             s.phase = 'FLATTENING';self.store.save(s)
             oid = self._send(s,'FLATTEN',dict(kind='MKT',side=-s.side,qty=qty,tif='DAY'))
@@ -415,24 +461,119 @@ class Service:
     def _expected(self):
         return {m.execution.con_id:self.states[m.name].side*self.states[m.name].qty for m in self.config.markets}
 
+    def _ceiling_breach(self, cid, own, snapshot):
+        """Our attributed fills cannot exceed what the account holds in their direction. The account is
+        taken net of other strategies' attributed executions and of the non-OpenBreakout position seen
+        when this journal was first flat in the contract (a carried hedge, say)."""
+        if not own:
+            return False
+        base = self.store.get('foreign_base',{}).get(str(cid),0)
+        explained = snapshot['positions'].get(cid,0)-(snapshot.get('foreign') or {}).get(cid,0)-base
+        return explained*(1 if own>0 else -1) < abs(own)
+
+    def _ceiling_warning(self, cid, own, snapshot, where):
+        """Alert-only by default (ceiling_halts=false): cross-client execution visibility is unconfirmed, so a
+        breach may be another strategy's position we cannot see. Never halts, cancels or flattens."""
+        symbol = next((m.execution.symbol for m in self.config.markets if m.execution.con_id==cid),str(cid))
+        body = dict(symbol=symbol,con_id=cid,own=own,account=snapshot['positions'].get(cid,0),
+                    foreign=(snapshot.get('foreign') or {}).get(cid,0),
+                    foreign_base=self.store.get('foreign_base',{}).get(str(cid),0),where=where)
+        self.store.event('POSITION_CEILING_WARNING',body)
+        self.loud(f'POSITION CEILING WARNING ({where}) {symbol}: OpenBreakout executions {own} exceed account '
+                  f'{body["account"]} net of other strategies {body["foreign"]} and baseline {body["foreign_base"]}; '
+                  f'not halting; CHECK TWS for a hand trade')
+
+    def _own_view(self, snapshot):
+        """(own positions, None) when trusted, else (None, reason): the executions call failed or timed out,
+        or its answer lacks OpenBreakout fills this journal recorded (reconnect, IB limits)."""
+        own = snapshot.get('own')
+        if own is None:
+            return None, f'executions request failed: {snapshot.get("executions_error") or "no answer"}'
+        journal = {exec_key(i) for i in self.store.fill_ids()}
+        if journal:
+            seen = {exec_key(i) for i in (snapshot.get('own_exec_ids') or [])}
+            missing = journal - seen
+            if missing:
+                return None, f'executions answer lacks {len(missing)} of {len(journal)} journaled OpenBreakout fills'
+        return own, None
+
+    def _track_unknown(self, own, why, expected):
+        if own is not None:
+            if self.own_unknown_alerted:
+                self.store.event('OWN_POSITION_KNOWN',dict(after_checks=self.own_unknown))
+                print('OpenBreakout own position verifiable again; reconciliation resumed',flush=True)
+            self.own_unknown=0;self.own_unknown_since=None;self.own_unknown_alerted=False
+            return
+        self.own_unknown += 1
+        now = self.clock()
+        if self.own_unknown_since is None:
+            self.own_unknown_since = now
+            self.store.event('OWN_POSITION_UNKNOWN_START',dict(reason=why))
+        if not self.own_unknown_alerted and (now-self.own_unknown_since).total_seconds() >= OWN_UNKNOWN_ALERT_SECONDS:
+            self.own_unknown_alerted = True
+            self.store.event('OWN_POSITION_UNKNOWN',dict(checks=self.own_unknown,reason=why,journal=expected))
+            self.loud(f'OpenBreakout OWN POSITION UNKNOWN for {self.own_unknown} checks ({why}); position reconciliation '
+                      f'suspended, NOT halted; journal {expected}; CHECK TWS')
+
+    def _note_other_book(self, snapshot, expected, own):
+        """Informational only: other strategies' position and working orders in our contracts."""
+        if own is None:
+            return # account minus an unknown own position would be misleading; keep the last view
+        view = {}
+        for m in self.config.markets:
+            cid = m.execution.con_id
+            if cid not in expected:
+                continue
+            position = snapshot['positions'].get(cid,0)-(own or {}).get(cid,0)
+            refs = sorted(str(o.get('ref') or '') for o in snapshot['orders'] if o['con_id']==cid and not own_ref(o.get('ref')))
+            if position or refs:
+                view[m.execution.symbol] = dict(position=position,orders=refs)
+        if view != self.other_book:
+            self.other_book = view
+            self.store.set('other_book',view)
+            print(f'Other book in execution contracts (informational, not OpenBreakout): {view or "none"}',flush=True)
+
     async def watchdog(self):
-        """No automatic resubmission on uncertainty; retain resting protection."""
+        """No automatic resubmission on uncertainty; retain resting protection.
+        Scope: orders and executions carrying an OpenBreakout orderRef. Other strategies' positions and
+        working orders in the same contracts are logged, never reconciled."""
         try:
             before = self._expected()
             snapshot = await asyncio.wait_for(self.broker.snapshot(),5.)
             orders=self.store.orders()
             expected = self._expected()
+            ours = [o for o in snapshot['orders'] if o['con_id'] in expected and own_ref(o.get('ref'))]
             # Include client identity: API order IDs are only unique within a client.
-            for o in snapshot['orders']:
-                if o['con_id'] in expected and (o['client_id']!=self.config.client_id or o['id'] not in orders or o['ref']!=orders[o['id']]['body']['ref']):
-                    raise ValueError('Unowned order on configured execution contract')
+            for o in ours:
+                if o['client_id']!=self.config.client_id or o['id'] not in orders or o['ref']!=orders[o['id']]['body']['ref']:
+                    raise ValueError('Unowned OpenBreakout order on configured execution contract')
+            # UNKNOWN own position (None) skips the position checks this cycle; it alerts, never halts.
+            own, own_why = self._own_view(snapshot)
+            self._track_unknown(own, own_why, expected)
+            self._note_other_book(snapshot,expected,own)
             # A fill in flight during the snapshot await makes one comparison meaningless;
             # only a discrepancy on consecutive stable checks halts.
             stable = before == expected
             issues = []
-            if stable:
-                issues += ['Broker/journal position mismatch' for cid,qty in expected.items() if snapshot['positions'].get(cid,0)!=qty]
-            working={o['id']:o for o in snapshot['orders'] if o['client_id']==self.config.client_id}
+            if stable and own is not None:
+                issues += ['OpenBreakout executions/journal position mismatch' for cid,qty in expected.items() if own.get(cid,0)!=qty]
+                breaches = [cid for cid in expected if self._ceiling_breach(cid,own.get(cid,0),snapshot)]
+                if breaches and self.config.ceiling_halts:
+                    issues += ['Account position below OpenBreakout attributed position' for _ in breaches]
+                elif breaches:
+                    self.ceiling_checks += 1
+                    if self.ceiling_checks >= MISMATCH_CHECKS and not self.ceiling_warned:
+                        self.ceiling_warned = True
+                        for cid in breaches:self._ceiling_warning(cid,own.get(cid,0),snapshot,'watchdog')
+                else:
+                    self.ceiling_checks = 0;self.ceiling_warned = False
+                base = self.store.get('foreign_base',{})
+                for cid,qty in expected.items():
+                    # Baseline only from a verified-flat own book, so our own position can never enter it.
+                    if str(cid) not in base and not qty and not own.get(cid,0):
+                        base[str(cid)] = snapshot['positions'].get(cid,0)-snapshot['foreign'].get(cid,0)
+                        self.store.set('foreign_base',base)
+            working={o['id']:o for o in ours if o['client_id']==self.config.client_id}
             late = self.clock().astimezone(NY).time()>=time(15,56)
             for s in self.states.values():
                 if s.phase=='SKIPPED' and not s.qty:
@@ -459,7 +600,7 @@ class Service:
                 if late and s.qty:
                     raise ValueError('Timed exit not complete: inspect broker immediately')
             if late:
-                strays=[o for o in snapshot['orders'] if o['con_id'] in expected and STRATEGY_REF in str(o.get('ref') or '')]
+                strays=ours
                 if strays:
                     raise ValueError('OpenBreakout order still working after 15:56: cancel in TWS')
             if issues:
@@ -467,10 +608,11 @@ class Service:
                 self.store.event('RECONCILE_DISCREPANCY',dict(count=self.mismatches,issues=issues))
                 if self.mismatches >= MISMATCH_CHECKS:
                     raise ValueError(issues[0])
-            elif stable:
+            elif stable and own is not None:
                 self.mismatches = 0
             for state in self.states.values():self.store.save(state)
-            self.store.set('heartbeat',dict(at=self.clock().isoformat(),halted=self.halted,positions=expected))
+            self.store.set('heartbeat',dict(at=self.clock().isoformat(),halted=self.halted,positions=expected,
+                                            own_known=own is not None))
         except Exception as exc:
             self.halt(f'RECONCILE:{exc}')
 

@@ -1,5 +1,6 @@
 """Deterministic quote-fill transport; a test/shadow model, not liquidity evidence."""
 from datetime import time
+from .service import own_ref
 from .strategy import NY, aware
 
 class SimBroker:
@@ -8,6 +9,14 @@ class SimBroker:
         self.fill_callback=lambda *a:None;self.status_callback=lambda *a:None;self.halt_callback=lambda *a:None
         self.order_error_callback=lambda *a:None
         self.orders={};self.quotes={};self.positions={};self.serial=0;self.execution=0;self.error_codes={}
+        # Own executions (conId, signed qty, orderRef); positions above is what OpenBreakout moved in the account.
+        self.executions=[]
+        # Another strategy in the same account: {conId: signed qty} with visible attributed executions,
+        # and working order dicts in snapshot form (id, client_id, con_id, ref, remaining, kind, side, stop).
+        self.foreign_positions={};self.foreign_orders=[]
+        # executions_error: reqExecutions failed. foreign_visible=False: other clients' executions are not
+        # returned to this client (the unconfirmed IB behaviour), so foreign positions show only in the account.
+        self.executions_error=None;self.foreign_visible=True
     def last_error_code(self,oid):return self.error_codes.get(oid)
     def next_id(self):self.serial+=1;return self.serial
     async def equity(self):return self.config.shadow_equity
@@ -34,8 +43,8 @@ class SimBroker:
             self.execute(oid,body['qty'],ask if body['side']==1 else bid)
     def execute(self,oid,qty,price):
         order=self.orders[oid];body=order['body'];cid=order['market'].execution.con_id
-        self.positions[cid]=self.positions.get(cid,0)+body['side']*qty
         self.execution+=1
+        self.record(cid,body['side']*qty,body['ref'],f'SIM-{self.execution}')
         self.fill_callback(oid,f'SIM-{self.execution}',qty,price)
         order['status']='Filled';self.status_callback(oid,'Filled')
         if 'oca' in body:
@@ -50,7 +59,26 @@ class SimBroker:
             triggered=body['kind']=='STP' and (price-body['stop'])*body['side']>=0
             timed=body['kind']=='MKT' and aware(stamp).astimezone(NY).time()>=time(15,55)
             if triggered or timed:self.execute(oid,body['qty'],price)
+    def record(self,cid,signed,ref,exec_id=None):
+        self.positions[cid]=self.positions.get(cid,0)+signed
+        self.executions.append((cid,signed,ref,exec_id))
+    def _own(self):
+        own={}
+        for cid,signed,ref,_ in self.executions:
+            if own_ref(ref):own[cid]=own.get(cid,0)+signed
+        return own
+    def _own_ids(self):
+        return sorted(x for _,_,ref,x in self.executions if x and own_ref(ref))
+    async def own_position(self,con_id):
+        if self.executions_error:raise TimeoutError(self.executions_error)
+        return self._own().get(con_id,0)
     async def snapshot(self):
-        return dict(positions=self.positions.copy(),orders=[dict(id=oid,client_id=self.config.client_id,
+        account={cid:self.positions.get(cid,0)+self.foreign_positions.get(cid,0) for cid in {*self.positions,*self.foreign_positions}}
+        # executions_error simulates a failed/timed-out reqExecutions: own position UNKNOWN (None).
+        failed=bool(self.executions_error)
+        return dict(positions=account,own=None if failed else self._own(),foreign=None if failed else (self.foreign_positions.copy() if self.foreign_visible else {}),
+            own_exec_ids=None if failed else self._own_ids(),executions_error=self.executions_error,
+            orders=[dict(id=oid,client_id=self.config.client_id,
             con_id=o['market'].execution.con_id,ref=o['body']['ref'],remaining=o['body']['qty'],
-            kind=o['body']['kind'],side=o['body']['side'],stop=o['body'].get('stop',0)) for oid,o in self.orders.items() if o['status']=='Submitted'])
+            kind=o['body']['kind'],side=o['body']['side'],stop=o['body'].get('stop',0)) for oid,o in self.orders.items() if o['status']=='Submitted']
+            +[dict(o) for o in self.foreign_orders])

@@ -3,7 +3,50 @@ import asyncio
 from datetime import datetime, timezone
 import math
 from .config import LIVE_PILOT_MAX_CONTRACTS
-from .service import TERMINAL, ACKNOWLEDGED
+from .service import TERMINAL, ACKNOWLEDGED, STRATEGY_REF, ref_strategy, exec_key
+from .strategy import NY
+
+EXEC_CACHE_SECONDS = 1.
+# Inside the watchdog's 5 s snapshot budget; a slow executions call makes own position UNKNOWN, not a halt.
+EXEC_TIMEOUT_SECONDS = 3.
+
+
+def session_start(now=None):
+    """Midnight New York of the current day: reqExecutions can return up to seven days (TWS Trade Log setting)."""
+    local = (now or datetime.now(timezone.utc)).astimezone(NY)
+    return local.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def attribute_executions(fills, account, since=None):
+    """Signed position per conId from execution reports: (OpenBreakout's own, other strategies', own exec keys).
+    Attribution is the execution's orderRef strategy field; executions without one (manual TWS orders)
+    are in neither book. An IB correction reuses the execId stem with a higher suffix and replaces it.
+    Executions before `since` (earlier sessions) are ignored."""
+    latest = {}
+    for f in fills:
+        e = f.execution
+        if e.acctNumber != account:
+            continue
+        stamp = getattr(e, 'time', None)
+        if since is not None and isinstance(stamp, datetime) and stamp.tzinfo and stamp < since:
+            continue
+        key = exec_key(e.execId)
+        suffix = e.execId.rpartition('.')[2]
+        if key not in latest or suffix > latest[key][0]:
+            latest[key] = (suffix, f)
+    own, other, own_ids = {}, {}, set()
+    for key, (_, f) in latest.items():
+        e = f.execution
+        strategy = ref_strategy(e.orderRef)
+        if not strategy:
+            continue
+        book = own if strategy == STRATEGY_REF else other
+        if book is own:
+            own_ids.add(key)
+        cid = f.contract.conId
+        book[cid] = book.get(cid,0)+(e.shares if e.side == 'BOT' else -e.shares)
+    return own, other, own_ids
+
 
 class IBKR:
     def __init__(self,config,session=None):
@@ -18,6 +61,11 @@ class IBKR:
         self.net_liq=self.excess=float('nan')
         # ib_insync keys openOrders/positions requests by a single name; overlapping calls orphan one.
         self.snapshot_lock=asyncio.Lock()
+        self._exec_books=None;self._exec_at=0.
+        # Bumped by every own execution; a request that overlapped one is never cached.
+        self._exec_generation=0
+        # execIds already handed to fill_callback (live or re-delivered from reqExecutions).
+        self._delivered=set()
 
     async def connect(self):
         # Live: structural pilot limits plus the exact session/account acknowledgement.
@@ -57,6 +105,9 @@ class IBKR:
     def _fill(self,trade,fill):
         e=fill.execution
         if e.acctNumber==self.config.account and e.clientId==self.config.client_id:
+            # A new own execution: the next own-position read must not use the cached books.
+            self._exec_books=None;self._exec_generation+=1
+            self._delivered.add(e.execId)
             self.fill_callback(e.orderId,e.execId,e.shares,e.price)
 
     def _status(self,trade):
@@ -166,11 +217,52 @@ class IBKR:
         if not math.isfinite(change) or change<0 or change>self.margin_limit(equity) or result.warningText:
             raise ValueError('Margin preview unavailable, warned, or exceeds limit')
 
+    async def _execution_books(self):
+        """Today's account executions split by orderRef; at most one request per second. Hold snapshot_lock.
+        No clientId filter: executions from an earlier process, or seen from a read-only client, still count."""
+        now=asyncio.get_running_loop().time()
+        if self._exec_books is None or now-self._exec_at>=EXEC_CACHE_SECONDS:
+            from ib_insync import ExecutionFilter
+            generation=self._exec_generation
+            fills=await asyncio.wait_for(self.ib.reqExecutionsAsync(ExecutionFilter(acctCode=self.config.account)),
+                                         EXEC_TIMEOUT_SECONDS)
+            since=session_start()
+            # ib_insync stores every execId a reqExecutions answer carries and then suppresses the LIVE
+            # execDetailsEvent for it. If the answer races ahead of the live report, hand our own
+            # execution to the journal here (Service.fill is idempotent on execId).
+            for f in fills:
+                e=f.execution
+                stamp=getattr(e,'time',None)
+                if (e.acctNumber==self.config.account and e.clientId==self.config.client_id
+                        and e.execId not in self._delivered and not (isinstance(stamp,datetime) and stamp.tzinfo and stamp<since)):
+                    self._fill(None,f)
+            books=attribute_executions(fills,self.config.account,since)
+            if generation!=self._exec_generation:
+                # An own fill landed while the request was in flight: use it once, never cache it.
+                return books
+            self._exec_books=books;self._exec_at=now
+        return self._exec_books
+
+    async def own_position(self,con_id):
+        """OpenBreakout's signed position in a contract from its own executions (orderRef), not reqPositions.
+        Raises when the executions request fails or times out: the caller treats that as UNKNOWN."""
+        async with self.snapshot_lock:
+            own,_,_=await self._execution_books()
+        return own.get(con_id,0)
+
     async def snapshot(self):
         async with self.snapshot_lock:
             trades=await self.ib.reqAllOpenOrdersAsync()
             positions=await self.ib.reqPositionsAsync()
+            try:
+                own,other,ids=await self._execution_books()
+                own,other,ids,error=dict(own),dict(other),sorted(ids),None
+            except Exception as exc:
+                # UNKNOWN own position (None): the service skips the position checks and alerts, never halts on it.
+                own=other=ids=None;error=f'{type(exc).__name__}: {exc}'
+        # positions: whole account (informational and the ceiling); own/foreign: attributed executions.
         return dict(positions={p.contract.conId:p.position for p in positions if p.account==self.config.account},
+                    own=own,foreign=other,own_exec_ids=ids,executions_error=error,
                     orders=[dict(id=t.order.orderId,client_id=t.order.clientId,con_id=t.contract.conId,ref=t.order.orderRef,
                         remaining=t.order.totalQuantity-t.orderStatus.filled,kind=t.order.orderType,
                         side=1 if t.order.action=='BUY' else -1,stop=t.order.auxPrice)
