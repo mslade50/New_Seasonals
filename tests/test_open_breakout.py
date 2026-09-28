@@ -928,6 +928,17 @@ def test_alert_flush_waits_for_pending_posts(monkeypatch):
     a('one');a('two');a.flush(5.)
     assert len(done)==2 and not a.threads
 
+def test_slack_is_opt_in_only(monkeypatch):
+    """Owner decision 2026-09-28: no Slack for Open Breakout unless OPEN_BREAKOUT_SLACK=1."""
+    from open_breakout.alerts import webhook_url
+    monkeypatch.setenv('SLACK_WEBHOOK_URL','https://example.invalid/hook')
+    monkeypatch.delenv('OPEN_BREAKOUT_SLACK',raising=False)
+    assert webhook_url() is None
+    monkeypatch.setenv('OPEN_BREAKOUT_SLACK','0')
+    assert webhook_url() is None
+    monkeypatch.setenv('OPEN_BREAKOUT_SLACK','1')
+    assert webhook_url()=='https://example.invalid/hook'
+
 @pytest.mark.parametrize('code',[10349,161,10148,None])
 def test_synthesized_cancel_without_reject_code_halts_but_never_flattens(config,tmp_path,code):
     async def run():

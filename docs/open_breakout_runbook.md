@@ -300,12 +300,14 @@ session above keeps running as the comparison baseline.
   the 3-second freshness still applies at entry. Market-data farm messages 2103/2105
   are warnings. From 15:56, any journal position or any working `OpenBreakout` order on
   MNQ/MES halts with an alert.
-- Alerts: console always. Every new halt reason (and any halt while a position is open),
-  preflight failure, arming, entry fill, flatten, orphaned exit and process exit also go
-  to the repo's existing `SLACK_WEBHOOK_URL` (from `.env`) on background threads that
-  never block the order path. The process waits up to 5 seconds for pending posts
-  before it exits.
-- **Attended session:** someone must watch TWS and Slack from **09:25 to 11:30 ET** (arming
+- Alerts: console only (the session's `launch.stdout.log` carries every `ALERT` line:
+  new halt reasons, preflight failure, arming, entry fills, flatten, orphaned exit,
+  process exit). Slack posting is OFF for this strategy by owner decision (2026-09-28,
+  after the first live session posted four messages to the shared alerts channel). It
+  is opt-in only: setting `OPEN_BREAKOUT_SLACK=1` in the process environment re-enables
+  posting to the repo's `SLACK_WEBHOOK_URL` on background threads that never block the
+  order path; the launcher does not set it.
+- **Attended session:** someone must watch TWS from **09:25 to 11:30 ET** (arming
   and all entries) and **15:50 to 16:01 ET** (timed exit and final checks).
 
 Preflight evidence (client 927481, nothing placed):

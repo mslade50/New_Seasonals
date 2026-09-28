@@ -13,6 +13,11 @@ ENV_PATH = Path(__file__).resolve().parents[1] / '.env'
 
 
 def webhook_url() -> str | None:
+    """Slack is OPT-IN for this strategy (owner decision 2026-09-28: no Slack alerts for Open Breakout).
+    Only `OPEN_BREAKOUT_SLACK=1` in the process environment enables posting; the repo's shared
+    `SLACK_WEBHOOK_URL` alone never does. Console alerts are unaffected."""
+    if os.environ.get('OPEN_BREAKOUT_SLACK') != '1':
+        return None
     url = os.environ.get('SLACK_WEBHOOK_URL')
     if not url:
         try:
