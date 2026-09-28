@@ -29,9 +29,12 @@ def own_ref(ref) -> bool:
 
 
 def exec_key(exec_id) -> str:
-    """IB execId without its correction suffix: a correction replaces the original under the same key."""
-    exec_id = str(exec_id)
-    return exec_id.rpartition('.')[0] or exec_id
+    """IB execId without its correction suffix: a correction replaces the original under the same key.
+    IB ids are four dotted segments (`00010198.6ab9ed2b.01.01`); the key is the first three. Idempotent:
+    an already-stripped key passes through unchanged (2026-09-28 live: the journal held the full id, the
+    executions answer held keys, and stripping twice made every own fill look missing)."""
+    parts = str(exec_id).split('.')
+    return '.'.join(parts[:3]) if len(parts) >= 4 else str(exec_id)
 
 
 # Own position UNKNOWN (executions call failed, or it lacks our journaled fills) this long -> loud alert.

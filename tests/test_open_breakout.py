@@ -1840,3 +1840,39 @@ def test_1556_check_ignores_foreign_orders_and_position(config,tmp_path):
             assert not service.halted, store.get('halt_reason')
         finally:store.close()
     asyncio.run(run())
+
+
+def test_exec_key_is_idempotent_on_ib_execution_ids():
+    from open_breakout.service import exec_key
+    full='00010198.6ab9ed2b.01.01'
+    assert exec_key(full)=='00010198.6ab9ed2b.01'
+    assert exec_key(exec_key(full))=='00010198.6ab9ed2b.01'
+    assert exec_key('00010198.6ab9ed2b.01.02')==exec_key(full)
+    assert exec_key('SIM-7')=='SIM-7'
+
+def test_own_view_trusts_stem_ids_from_the_executions_answer(config,tmp_path):
+    """2026-09-28 live regression: the journal stores IB's full execId, the executions answer carries stems
+    (attribute_executions keys); stripping twice made every own fill look missing -> OWN_POSITION_UNKNOWN."""
+    from open_breakout.service import exec_key
+    class IbIds(SimBroker):
+        def execute(self,oid,qty,price):
+            order=self.orders[oid];body=order['body'];cid=order['market'].execution.con_id
+            self.execution+=1
+            exec_id=f'00010198.{self.execution:08x}.01.01'
+            self.record(cid,body['side']*qty,body['ref'],exec_id)
+            self.fill_callback(oid,exec_id,qty,price)
+            order['status']='Filled';self.status_callback(oid,'Filled')
+        def _own_ids(self):
+            return sorted({exec_key(x) for _,_,ref,x in self.executions if x and own_ref(ref)})
+    from open_breakout.service import own_ref
+    async def run():
+        service,b,store,now=setup_service(replace(config,watchdog_stale_seconds=300.),tmp_path,IbIds)
+        try:
+            await open_nq(service,b,now)
+            assert store.fill_ids() and all(i.count('.')==3 for i in store.fill_ids())
+            for i in range(3):
+                now[0]=now[0]+timedelta(seconds=1);await service.watchdog()
+            assert 'OWN_POSITION_UNKNOWN_START' not in kinds(store) and service.own_unknown==0
+            assert store.get('heartbeat')['own_known'] and not service.halted
+        finally:store.close()
+    asyncio.run(run())
