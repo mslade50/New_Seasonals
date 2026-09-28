@@ -760,3 +760,58 @@ channel against the owner's wishes (Slack now opt-in only, c352c582).
 Tuesday 2026-09-29 launches the same way with the same launchers and config;
 the runner picks up 5186dd22 and c352c582 automatically. The bracket-entry probe
 remains parked pending the owner's go and the ownership port.
+
+## Daily launch by Task Scheduler (2026-09-28)
+
+The daily launch no longer needs an interactive session. Task **`OpenBreakout_DailyLaunch`**
+(registered by the owner; weekdays **08:12 ET**, interactive logon, limited run level,
+start-when-available, 20-minute limit) runs
+`artifacts/open_breakout_runs/daily_launch.ps1` from the repo root. It:
+
+1. takes today's New York date as the session; a non-XNYS day logs
+   `DAILY_LAUNCH SKIPPED` and exits 0 (`artifacts/open_breakout_build/is_session.py`);
+2. refuses to launch at or after 09:20 ET (a late start-when-available run);
+3. waits up to 10 minutes (30 s polls) for the Gateway port 7496 to listen;
+4. refuses if any `open_breakout` shadow/live session process is running or any
+   `<date>-shadow*` / `<date>-live*` dir already has `runtime.sqlite`;
+5. finds the newest `risk_*/refresh.json` for the session without `risk_error` (same rule
+   as the launchers); if none, runs `refresh_risk.py --session <date>` once and re-checks;
+6. runs the read-only preflight with the live config and client **927485**, the env ack
+   set only for that child, into `preflight-<date>-live.json`, and requires `"ok": true`;
+7. runs `launch-shadow.ps1 -Session <date>` then `launch-live.ps1 -Session <date>` (a
+   shadow launcher failure does not block the live launch but fails step 8);
+8. after 60 s (then polling up to 3 more minutes) requires both sessions alive, connected
+   and with a fresh heartbeat, via `daily_status.ps1`.
+
+Exit codes: 0 ok or not a session day; 1 bad arguments or unexpected error; 2 Gateway port
+not listening after 10 min; 3 a session process is running or a journal exists; 4 no valid
+risk refresh; 5 preflight failed or wrote no report; 6 a launcher failed or the sessions are
+not both running and connected; 7 late start. Every failure ends the log with one line
+`DAILY_LAUNCH FAILED (<code>): <reason>`; success ends with `DAILY_LAUNCH OK`.
+
+Log: `artifacts/open_breakout_runs/daily_launch_<date>.log` (appended; the account number
+is masked; nothing goes to Slack). Check it right after 08:15 ET:
+`Select-String -Path artifacts/open_breakout_runs/daily_launch_*.log -Pattern 'DAILY_LAUNCH (OK|FAILED|SKIPPED)'`.
+On any failure launch by hand as in the Monday 2026-09-28 sequence above.
+
+Status at any time: `powershell -File artifacts/open_breakout_runs/daily_status.ps1`
+(`-Session YYYY-MM-DD`, default today in New York): pid, process alive, phase, heartbeat
+age, connected for each state dir; exit 0 only while both are running and connected.
+
+Rehearsal: `daily_launch.ps1 -DryRun [-Session YYYY-MM-DD]` runs steps 1 to 6 for real
+(read-only; step 5 may add a `risk_*` folder), runs both launchers with `-DryRun`, and
+creates no state dir. Its log is `daily_launch_<date>_dryrun.log` and its preflight file
+`preflight-<date>-live-dryrun.json`. `-Session` is accepted only with `-DryRun`.
+Dry run 2026-09-28 18:40 ET for 2026-09-29: all steps passed (risk refreshed by hand,
+`risk_20260928_224025Z`, risk_latest 2026-09-28, score 76.60, short gate OPEN; preflight ok).
+
+Stop a running session: create a file named `STOP` in its state dir
+(`artifacts/open_breakout_runs/<date>-live/STOP`, and `<date>-shadow/STOP`); it does not
+cancel or flatten anything. Stop future launches:
+`Disable-ScheduledTask -TaskName OpenBreakout_DailyLaunch` (re-enable with
+`Enable-ScheduledTask`). The nightly `OpenBreakout_RiskRefresh_Nightly` task is separate.
+
+The launched python processes are started by the launchers with `Start-Process` (hidden,
+own console) and are meant to outlive the task, which finishes around 08:15 ET. Confirm on
+the first scheduled day that `daily_status.ps1` still shows both sessions alive after the
+task shows Ready. The owner still attends **09:25 to 11:30 ET** and **15:50 to 16:01 ET**.
