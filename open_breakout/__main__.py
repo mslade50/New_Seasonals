@@ -16,6 +16,9 @@ from .service import Service
 from .replay import SimBroker
 
 
+RUNS_ROOT=Path(__file__).resolve().parents[1]/'artifacts'/'open_breakout_runs'
+
+
 def write_new(path,body):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
     with path.open('x',encoding='utf-8') as f:json.dump(body,f,indent=2)
@@ -25,8 +28,15 @@ async def main_async(args):
         # SQLite read-only URI; never creates a missing database or acquires its writer lock.
         path=Path(args.state).resolve()
         with sqlite3.connect(path.as_uri()+'?mode=ro',uri=True) as db:
-            print(json.dumps(dict(meta={k:json.loads(v) for k,v in db.execute('SELECT * FROM meta')},
-                states=[json.loads(x[0]) for x in db.execute('SELECT body FROM states')]),indent=2))
+            body=dict(meta={k:json.loads(v) for k,v in db.execute('SELECT * FROM meta')},
+                      states=[json.loads(x[0]) for x in db.execute('SELECT body FROM states')])
+        inputs=path.parent/'inputs.json'
+        if inputs.exists():
+            # The session manifest's prior-range decision (ratio, prior-day R, flags) beside the journal.
+            from .standby import range_summary
+            manifest=json.loads(inputs.read_text(encoding='utf-8-sig'))
+            body['prior_range']=dict(filter=manifest.get('prior_range_filter'),markets=range_summary(manifest))
+        print(json.dumps(body,indent=2))
         return
     config=Config.load(args.config)
     session=getattr(args,'session',None)
@@ -119,12 +129,13 @@ async def main_async(args):
             return
         if args.command=='prepare':
             import pandas as pd
-            from .standby import fetch_range_bars, range_summary
+            from .standby import fetch_range_bars, range_summary, prior_day_inputs
             bars=await transport.history()
             range_bars,range_error=await fetch_range_bars(transport)
+            prior=prior_day_inputs(config,args.session,getattr(args,'runs_root',None) or RUNS_ROOT)
             body=build_manifest(config,args.session,pd.read_parquet(args.risk_parquet),bars,
                                 now=datetime.now(timezone.utc),roll_verified=args.roll_verified,
-                                range_bars=range_bars,range_error=range_error)
+                                range_bars=range_bars,range_error=range_error,prior_day=prior)
             write_new(args.out,body)
             print(json.dumps(dict(prior_range_filter=body['prior_range_filter'],
                 markets={k:{'prior_tr':v['prior_tr'],**r} for (k,v),r in zip(body['markets'].items(),range_summary(body).values())}),indent=2))
@@ -184,6 +195,9 @@ def main():
         if name=='prepare':
             q.add_argument('--session',required=True);q.add_argument('--risk-parquet',required=True)
             q.add_argument('--out',required=True);q.add_argument('--roll-verified',action='store_true')
+            q.add_argument('--runs-root',help='where <previous session>-live[-N] / -shadow[-N] journals live '
+                                               '(default artifacts/open_breakout_runs)')
+            q.add_argument('--client-id',type=int,help='read-only client ID while the session process is alive (e.g. 927485)')
         if name=='run':q.add_argument('--capture',required=True)
         if name=='replay':q.add_argument('--ticks',required=True)
     for name in ['shadow-session','live-session']:

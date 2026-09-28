@@ -610,6 +610,103 @@ both windows. Re-run after the roll-rule review: identical values. Hand check: t
 of the 20 hourly TRs in the parity file for 08-26 to 09-24 (Labor Day 09-07 included,
 09-16 and 09-17 excluded) is 404.425 (NQ) and 68.0625 (ES).
 
+### 2026-09-28 amendment: skip only after a big win
+
+Owner decision 2026-09-28 evening, live from session 2026-09-29. The prior-range skip now
+applies only when the market's own previous session was also a big win.
+
+**Rule.** With the filter enabled and `require_prior_big_win: true`, per market:
+`skip_prior_range = (prior_range_status == OK and ratio >= threshold) and
+(prior_day_r is not null and prior_day_r >= big_win_r)`. The other market is unaffected.
+
+**Definitions.**
+- `prior_day_r`: the market's summed R over the previous XNYS session's closed trades
+  for the UNFILTERED strategy, read from the shadow journal (research row (v), see below).
+  Per trade, `R = side x (avg exit fill - avg entry fill) / |avg entry fill - stop|` per
+  contract, with fill prices (never marks) and the last journaled protective stop for that
+  attempt. The service moves the stop only when a partial entry fill changes the average
+  entry, so the last journaled stop is the stop for the whole filled entry. An open
+  position at 15:55 exits through its TIME fill and counts like any other exit. Several
+  attempts in a day are summed. Fees are not in this R.
+- Source order (`prior_day_source`):
+  1. The shadow journal, `<runs root>/<previous session>-shadow[-N]/trades.sqlite`, the
+     highest attempt N that has a journal: `shadow_runtime_meta` (its `day_r` summary) or
+     `shadow_journal` (recomputed from its fills and orders).
+  2. Live only, when the shadow journal is missing, has no fills (halted or failed before
+     trading) or is unreadable: the live journal, `<previous session>-live[-N]`, as
+     `own_runtime_meta` or `own_journal`. The note records why the shadow was passed over.
+  3. Neither usable: null.
+  A shadow journal with fills is used even when the shadow halted mid-session; a market
+  whose shadow position the journal never closed is null (no fallback for that market).
+  The shadow session reads its own (shadow) journal only.
+- Why the shadow first: a live session the filter skipped has no trades, so its own
+  journal could never show the big win that arms the next day's skip. That is row (v-r),
+  the weaker realized-prior variant. The owner chose row (v).
+- Each session writes a `day_r` summary per market into its runtime meta when it
+  finishes (SESSION_COMPLETE, halt or any exit). The write never raises, is skipped when
+  the journal was never opened, and never replaces a recorded non-null R with a null.
+  The next prepare prefers that summary and falls back to recomputing from the journal
+  when it is absent (as for every session before 2026-09-29). Journals are opened with a
+  read-only SQLite URI and a 1 s busy timeout; the lookup reads two local files and makes
+  no network call.
+- Big win: `prior_day_r >= big_win_r` (+2.0R).
+
+**Fail open on a missing prior-day R.** No shadow or live journal, prior sessions that
+halted or failed with no fills, no trades, a trade the journal never closed, a journal
+for another day, an unreadable one, or an unknown previous session: `prior_day_r` is
+null, `prior_big_win` is null, and the big-win leg is false. A missing prior-day R never
+causes a skip.
+
+**Fail-closed ratio path unchanged.** `prior_range_status: UNAVAILABLE` still skips the
+market when the filter is enabled, whatever the prior-day R. That path is a data problem
+in the range computation, not a big-win question.
+
+**Manifest and runtime.** Per market, new fields `prior_day_r`, `prior_day_source`
+(`shadow_runtime_meta`, `shadow_journal`, `own_runtime_meta`, `own_journal` or null;
+`load_manifest` rejects any other value and a non-null R without a source),
+`prior_day_note` (session dir and trade count) and `prior_big_win` (bool or null). `prior_range_reason` now names the deciding leg (range leg, big-win leg, or
+fail open). The manifest's `prior_range_filter` copy carries the two new keys only when
+the big-win leg is on. `load_manifest` checks that `prior_big_win` follows `prior_day_r`
+and that the skip flag follows both legs. The shadow (no filter) records every field and
+never skips. The `PRIOR_RANGE_SKIP` event carries ratio, prior_day_r, prior_day_source,
+prior_big_win, threshold and big_win_r; the `ARMED LIVE` alert and the shadow armed line
+print ratio, prior-day R and its source per market and the thresholds in force. `status` on a state dir with an
+`inputs.json` prints a `prior_range` block; `prepare` prints the new fields and takes
+`--runs-root` (default `artifacts/open_breakout_runs`) and `--client-id`.
+
+**Config.** Optional keys in the `prior_range_filter` block:
+`"require_prior_big_win": bool` (default false) and `"big_win_r": number in [0.5, 5]`
+(default 2.0). Absent keys leave the rule and the fingerprint unchanged.
+- `config-20260925-live.json`: `{"enabled": true, "threshold": 1.25, "mode": "skip",
+  "require_prior_big_win": true, "big_win_r": 2.0}`. New live fingerprint
+  `86e8d186c67e8b3944adb15863fed01488441648de845700199b50aefe5f4566` (was `b226b74f...8f77`).
+  `validate` passes; `launch-live.ps1 -DryRun -Session 2026-09-29` accepts it.
+- `config-20260925-shadow.json`: untouched, fingerprint still `50c1ca8c...48ae4`.
+
+**Research row.** `artifacts/research/qqq_open_breakout_20260923/autocorr/lag1_rule/composite/overlap_walkforward/filter_vs_skip/RESULTS.md`,
+variant (v) "range skip only after big win": +35.8R [+2.1, +65.4] against -3.6R for the
+plain range skip, Sharpe 1.54, max DD 39.8R, 374 trades a year, positive in 8 of 9 years.
+All in-sample. Row (v) uses the shadow prior (what the strategy did even on a skipped
+day), and that is what the live runner implements by reading the shadow journal first.
+Reading the live journal alone would be the realized prior, row (v-r) in the same table:
++25.1R [-6.1, +52.4], Sharpe 1.51, max DD 39.7R, 7 of 9 years. The difference: a live
+session the filter skipped has no trades, so it can never be the big win that arms the
+next day's skip. The live journal is only a fallback when the shadow journal is unusable.
+
+**Tuesday 2026-09-29 preview** (read-only, client 927485, taken 2026-09-28 evening with
+the shadow-first source order; the runner recomputes at 09:00 ET):
+
+| Market | prior_tr (09-28) | atr20 (08-27 to 09-25) | ratio | prior_day_r (09-28 shadow; live) | Source | Skip under the amendment | Skip under the plain rule |
+|---|---|---|---|---|---|---|---|
+| NQ | 565.00 | 403.3625 | 1.401 | -1.00; -0.99 (short stopped in both) | shadow_journal | no | yes |
+| ES | 79.75 | 69.40 | 1.149 | -1.00; -1.00 (short stopped in both) | shadow_journal | no | no |
+
+The NQ values differ by the fill prices: live filled at 30637.75 and stopped at 30717.25
+against a 30718.00 stop; the shadow filled at 30638.25 and stopped at 30718.50.
+
+Both markets would be armed Tuesday. NQ is the first session where the amendment changes
+the outcome: the prior session was wide but a loss.
+
 ## Shared contracts: orderRef ownership (2026-09-27)
 
 Owner decision 2026-09-27. This replaces the 2026-09-26 note, which accepted that a

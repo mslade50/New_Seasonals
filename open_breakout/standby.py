@@ -16,7 +16,7 @@ from .ibkr import IBKR
 from .inputs import build_manifest, calendar_dates
 from .replay import SimBroker
 from .service import Service, own_ref
-from .store import Store
+from .store import Store, prior_day_r
 from .strategy import NY
 
 
@@ -28,9 +28,59 @@ async def fetch_range_bars(transport):
         return None,f'{type(exc).__name__}: {exc}'
 
 
+RANGE_FIELDS=('prior_range_status','atr20','ratio','prior_day_r','prior_day_source','prior_big_win',
+              'skip_prior_range','half_prior_range','prior_range_reason')
+
+
 def range_summary(manifest):
-    return {k:{f:v.get(f) for f in ('prior_range_status','atr20','ratio','skip_prior_range','half_prior_range','prior_range_reason')}
-            for k,v in manifest['markets'].items()}
+    return {k:{f:v.get(f) for f in RANGE_FIELDS} for k,v in manifest['markets'].items()}
+
+
+def range_line(manifest):
+    """One line for alerts: ratio and prior-day R per market, and the thresholds in force."""
+    num=lambda x,fmt:'n/a' if x is None else format(x,fmt)
+    parts=[f'{k} ratio {num(v.get("ratio"),".3f")} prior-day R {num(v.get("prior_day_r"),"+.2f")}'
+           +(f' ({v["prior_day_source"]})' if v.get('prior_day_source') else '')
+           for k,v in manifest['markets'].items()]
+    filt=manifest.get('prior_range_filter')
+    if filt is None:
+        rule='filter off'
+    else:
+        rule=(f'threshold {filt["threshold"]}'+(f' and big win {filt["big_win_r"]}R' if filt.get('require_prior_big_win') else '')
+              +('' if filt['enabled'] else ' (disabled)'))
+    return f'range [{"; ".join(parts)}] {rule}'
+
+
+def prior_day_inputs(config,day,runs_root):
+    """Prior-day R per market for the previous XNYS session: the unfiltered shadow journal
+    (<runs_root>/<previous>-shadow[-N]) first, then, in live mode, the live journal (-live[-N]).
+    Never raises into the 09:00 prepare: any failure is a null prior-day R (no skip)."""
+    names=[m.name for m in config.markets]
+    try:
+        previous,_=calendar_dates(day)
+    except Exception as exc:
+        return {m:dict(r=None,source=None,note=f'previous session unknown ({type(exc).__name__}: {exc})') for m in names}
+    return prior_day_r(Path(runs_root),previous,'live' if config.mode=='live' else 'shadow',names)
+
+
+def record_day_r(runtime,ledger,config):
+    """Session's own R per market into the runtime meta, read by the next session's prepare. Never raises.
+    Without an open journal nothing is written (the reader recomputes from the journal file, if any), and a
+    market's non-null R already recorded is never replaced by a null one."""
+    try:
+        if not ledger:
+            return
+        names=[m.name for m in config.markets]
+        summary=ledger.day_r(names)
+        old=runtime.get('day_r')
+        if isinstance(old,dict):
+            for m in names:
+                if summary[m].get('r') is None and isinstance(old.get(m),dict) and old[m].get('r') is not None:
+                    summary[m]=old[m]
+        runtime.set('day_r',summary)
+    except Exception as exc:
+        try:runtime.set('day_r_error',f'{type(exc).__name__}: {exc}')
+        except Exception:pass
 
 
 def session_bounds(day):
@@ -259,7 +309,8 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
                     range_bars,range_error=await fetch_range_bars(transport)
                     risk=pd.read_parquet(risk_path)
                     manifest=build_manifest(config,day,risk,bars,now=clock(),roll_verified=True,
-                                            range_bars=range_bars,range_error=range_error)
+                                            range_bars=range_bars,range_error=range_error,
+                                            prior_day=prior_day_inputs(config,day,root.parent))
                     with path.open('x',encoding='utf-8') as f:json.dump(manifest,f,indent=2)
                 ledger=Store(root/'trades.sqlite',config.fingerprint,day)
                 broker=SimBroker(config,clock)
@@ -270,7 +321,7 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
                     'prior_range':range_summary(manifest)})
                 await record_other_book(runtime,transport,'arm')
                 runtime.set('phase','ARMED_SHADOW')
-                print('SHADOW armed for the cash open; broker order transmission disabled',flush=True)
+                print(f'SHADOW armed for the cash open; broker order transmission disabled; {range_line(manifest)}',flush=True)
             if service:
                 await service.watchdog()
                 if service.halted:
@@ -290,6 +341,7 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
         final='FAILED';runtime.set('last_error',f'{type(exc).__name__}: {exc}')
         raise
     finally:
+        record_day_r(runtime,ledger,config)
         runtime.set('phase',final);runtime.set('finished_at',clock().isoformat())
         runtime.event('FINISH',{'phase':final,'events':capture.count})
         print(f'SHADOW {final}; captured {capture.count} events',flush=True)
@@ -405,7 +457,8 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                     range_bars,range_error=await fetch_range_bars(transport)
                     risk=pd.read_parquet(risk_path)
                     manifest=build_manifest(config,day,risk,bars,now=clock(),roll_verified=True,
-                                            range_bars=range_bars,range_error=range_error)
+                                            range_bars=range_bars,range_error=range_error,
+                                            prior_day=prior_day_inputs(config,day,root.parent))
                     with path.open('x',encoding='utf-8') as f:json.dump(manifest,f,indent=2)
                 runtime.set('inputs',{'hash':manifest['hash'],'score':manifest['score'],
                     'prior_tr':{k:v['prior_tr'] for k,v in manifest['markets'].items()},
@@ -431,7 +484,7 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                 armed=[m.execution.symbol for m in config.markets if service.states[m.name].phase!='SKIPPED']
                 skipped={k:s.note for k,s in service.states.items() if s.phase=='SKIPPED'}
                 alert(f'ARMED LIVE: {", ".join(armed) or "NO MARKET (all skipped; session runs to 16:01 with no orders)"} max 1 contract each; '
-                      f'prior TR {runtime.get("inputs")["prior_tr"]}; score {manifest["score"]:.2f}'
+                      f'prior TR {runtime.get("inputs")["prior_tr"]}; score {manifest["score"]:.2f}; {range_line(manifest)}'
                       +(f'; NOT ARMED {skipped}' if skipped else ''))
             if service:
                 await service.watchdog()
@@ -459,6 +512,7 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
         raise
     finally:
         if gate:gate.open=False
+        record_day_r(runtime,ledger,config)
         runtime.set('phase',final);runtime.set('finished_at',clock().isoformat())
         runtime.event('FINISH',{'phase':final,'events':capture.count})
         print(f'LIVE PILOT {final}; captured {capture.count} events',flush=True)

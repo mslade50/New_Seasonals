@@ -88,7 +88,9 @@ class Service:
             if item.get('half_prior_range') is True and not s.half_size and not s.attempts:
                 s.half_size = True
                 self.store.event('PRIOR_RANGE_HALF',dict(market=name,ratio=item.get('ratio'),atr20=item.get('atr20'),
-                                                         threshold=filt.threshold if filt else None))
+                                                         threshold=filt.threshold if filt else None,
+                                                         prior_day_r=item.get('prior_day_r'),
+                                                         prior_day_source=item.get('prior_day_source')))
             if not skip or s.phase=='SKIPPED' or s.qty or s.attempts or s.opening:
                 continue
             s.phase='SKIPPED'
@@ -96,7 +98,11 @@ class Service:
             s.note=f'PRIOR_RANGE_SKIP: {item.get("prior_range_reason") or "filter enabled without an OK prior-range decision"}'
             self.store.event('PRIOR_RANGE_SKIP',dict(market=name,ratio=item.get('ratio'),atr20=item.get('atr20'),
                                                      prior_tr=item.get('prior_tr'),status=item.get('prior_range_status'),
-                                                     threshold=filt.threshold if filt else None,reason=s.note))
+                                                     threshold=filt.threshold if filt else None,
+                                                     prior_day_r=item.get('prior_day_r'),prior_big_win=item.get('prior_big_win'),
+                                                     prior_day_source=item.get('prior_day_source'),
+                                                     require_prior_big_win=bool(filt and filt.require_prior_big_win),
+                                                     big_win_r=filt.big_win_r if filt else None,reason=s.note))
             print(f'{name} not armed: {s.note}',flush=True)
 
     def halt(self, reason):

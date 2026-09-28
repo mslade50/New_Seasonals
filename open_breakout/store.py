@@ -1,6 +1,7 @@
 """Durable intent journal. No cleanup/pruning; one process owns a session DB."""
 from contextlib import contextmanager
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -86,8 +87,146 @@ class Store:
     def fill_ids(self):
         return [r[0] for r in self.db.execute('SELECT exec_id FROM fills')]
 
+    def day_r(self, markets):
+        return journal_day_r(self.db, markets)
+
     def close(self):
         if getattr(self,'db',None):
             self.db.close();self.db=None
         if self.lock_handle:
             self.lock_handle.close();self.lock_handle=None
+
+
+# ---- Prior-day own R (owner amendment 2026-09-28 to the prior-range filter) ----
+
+def _attempt_key(order):
+    """(market, attempt) from the orderRef tail '<market>-<attempt>-<role>'."""
+    tail = str(order['body'].get('ref') or '').split('|')[-1]
+    parts = tail.rsplit('-', 2)
+    if len(parts) != 3 or not parts[1].isdigit():
+        raise ValueError(f'Unparseable orderRef {order["body"].get("ref")!r}')
+    return order['market'], int(parts[1])
+
+def journal_day_r(db, markets) -> dict[str, dict]:
+    """Per market, summed R over the session's closed trades from journal fills (not marks):
+    R = side x (avg exit fill - avg entry fill) / |avg entry fill - stop| per contract; the stop is the
+    last journaled protective stop for that attempt. r is None with no closed trade."""
+    orders = {r[0]:dict(market=r[1],role=r[2],body=json.loads(r[4])) for r in db.execute('SELECT * FROM orders')}
+    stops = {}
+    for oid,o in orders.items():
+        if o['role'] == 'STOP':
+            stops[oid] = o['body'].get('stop')
+    for (body,) in db.execute("SELECT body FROM events WHERE kind='MODIFY_INTENT' ORDER BY seq"):
+        e = json.loads(body)
+        if e.get('id') in stops and 'stop' in (e.get('body') or {}):
+            stops[e['id']] = e['body']['stop']
+    trades = {}
+    for (body,) in db.execute('SELECT body FROM fills'):
+        f = json.loads(body)
+        o = orders.get(f['order_id'])
+        if o is None:
+            raise ValueError(f'Fill for unjournaled order {f["order_id"]}')
+        t = trades.setdefault(_attempt_key(o), dict(side=0,entry_qty=0,entry_value=0.,exit_qty=0,exit_value=0.,stop=None))
+        if o['role'] == 'ENTRY':
+            t['side'] = o['body']['side'];t['entry_qty'] += f['qty'];t['entry_value'] += f['qty']*f['price']
+        else:
+            t['exit_qty'] += f['qty'];t['exit_value'] += f['qty']*f['price']
+    for oid,o in sorted(orders.items()):
+        if o['role'] == 'STOP' and _attempt_key(o) in trades and stops[oid] is not None:
+            trades[_attempt_key(o)]['stop'] = float(stops[oid])
+    out = {}
+    for name in markets:
+        rs, open_count = [], 0
+        for (market,attempt),t in sorted(trades.items()):
+            if market != name or not t['entry_qty']:
+                continue
+            if t['exit_qty'] != t['entry_qty']:
+                open_count += 1;continue
+            entry, exit_ = t['entry_value']/t['entry_qty'], t['exit_value']/t['exit_qty']
+            if t['stop'] is None or entry == t['stop'] or t['side'] not in (1,-1):
+                raise ValueError(f'{name} attempt {attempt}: no usable stop or side for R')
+            rs.append(t['side']*(exit_-entry)/abs(entry-t['stop']))
+        note = f'{len(rs)} closed trade(s)' if rs else 'no closed trades'
+        if open_count:
+            note += f'; {open_count} not closed in the journal (excluded)'
+        out[name] = dict(r=round(sum(rs),6) if rs else None, trades=len(rs), trades_r=[round(x,6) for x in rs], note=note)
+    return out
+
+def _valid_r(entry):
+    r = entry.get('r') if isinstance(entry, dict) else 'invalid'
+    return r is None or (isinstance(r, (int, float)) and not isinstance(r, bool) and math.isfinite(r))
+
+def _read_only(path):
+    # Read-only URI with a short busy timeout: a locked or corrupt journal raises quickly and is caught.
+    return sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro', uri=True, timeout=1.)
+
+def prior_session_dir(runs_root, previous, mode):
+    """Highest attempt of <previous>-<mode>[-N] that has a trades journal, or None."""
+    best = None
+    for d in Path(runs_root).glob(f'{previous}-{mode}*'):
+        rest = d.name[len(f'{previous}-{mode}'):]
+        if rest and not (rest.startswith('-') and rest[1:].isdigit()):
+            continue
+        n = int(rest[1:]) if rest else 1
+        if (d/'trades.sqlite').exists() and (best is None or n > best[0]):
+            best = (n, d)
+    return None if best is None else best[1]
+
+def _session_r(runs_root, previous, mode, markets):
+    """(per-market {r, note}, 'runtime_meta'|'journal', None) from one session's journal, or
+    (None, None, reason) when it is missing, for another day, has no fills, or is unreadable."""
+    d = prior_session_dir(runs_root, previous, mode)
+    if d is None:
+        return None, None, f'no {mode} journal for {previous}'
+    try:
+        c = _read_only(d/'trades.sqlite')
+        try:
+            day = json.loads((c.execute("SELECT value FROM meta WHERE key='day'").fetchone() or ['null'])[0])
+            if day != previous:
+                return None, None, f'{d.name} journal is for {day}, not {previous}'
+            if not c.execute('SELECT COUNT(*) FROM fills').fetchone()[0]:
+                # Halted before trading, failed, or no signal: nothing this session can say about the day.
+                return None, None, f'{d.name} journal has no fills'
+            runtime = d/'runtime.sqlite'
+            if runtime.exists():
+                try:
+                    rc = _read_only(runtime)
+                    try:
+                        meta = {k:json.loads(v) for k,v in rc.execute("SELECT key,value FROM meta WHERE key IN ('day','day_r')")}
+                    finally:
+                        rc.close()
+                except Exception:
+                    meta = {}
+                summary = meta.get('day_r')
+                if (meta.get('day') == previous and isinstance(summary, dict) and set(markets) <= set(summary)
+                        and all(_valid_r(summary[m]) for m in markets)):
+                    return ({m:dict(r=summary[m].get('r'), note=f'{d.name}: {summary[m].get("note")}') for m in markets},
+                            'runtime_meta', None)
+            result = journal_day_r(c, markets)
+        finally:
+            c.close()
+    except Exception as exc:
+        return None, None, f'{d.name} unreadable ({type(exc).__name__}: {exc})'
+    return {m:dict(r=v['r'], note=f'{d.name}: {v["note"]}') for m,v in result.items()}, 'journal', None
+
+def prior_day_r(runs_root, previous, mode, markets) -> dict[str, dict]:
+    """{market: {r, source, note}} for the previous XNYS session (owner amendment 2026-09-28, research row (v)).
+    The UNFILTERED strategy's result is the prior: the shadow journal first, because a live day the filter
+    skipped has no trades and could never be a big win. A live session ('live' mode) falls back to its own
+    live journal when the shadow journal is missing, has no fills or is unreadable. source is
+    shadow_runtime_meta | shadow_journal | own_runtime_meta | own_journal | None. Never raises; any
+    missing input gives r None, and a missing prior-day R never causes a skip."""
+    def empty(note):
+        return {m:dict(r=None, source=None, note=note) for m in markets}
+    try:
+        order = [('shadow','shadow')] + ([('live','own')] if mode == 'live' else [])
+        reasons = []
+        for session_mode, label in order:
+            result, kind, reason = _session_r(runs_root, previous, session_mode, markets)
+            if result is None:
+                reasons.append(reason);continue
+            fallback = f' (after {"; ".join(reasons)})' if reasons else ''
+            return {m:dict(r=v['r'], source=f'{label}_{kind}', note=v['note']+fallback) for m,v in result.items()}
+        return empty('; '.join(reasons))
+    except Exception as exc:
+        return empty(f'prior-day R unreadable ({type(exc).__name__}: {exc})')

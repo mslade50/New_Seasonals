@@ -6,6 +6,7 @@ import json
 import math
 import pandas as pd
 import exchange_calendars as xcals
+from .config import BIG_WIN_R
 from .strategy import NY, aware
 
 RISK_SERIES = 'legacy_63d_sma10'
@@ -227,8 +228,10 @@ def atr20_from_table(table, previous):
         raise ValueError('Invalid atr20')
     return atr20, window, span
 
-def range_decision(filt, info):
-    """Manifest fields for one market. filt: RangeFilter or None; info: prior_range() dict or an error string."""
+def range_decision(filt, info, prior=None):
+    """Manifest fields for one market. filt: RangeFilter or None; info: prior_range() dict or an error string;
+    prior: the market's prior-day R, {'r': float|None, 'source': PRIOR_DAY_SOURCES|None, 'note': str}
+    (store.prior_day_r: the unfiltered shadow journal first, research row (v))."""
     out = dict(prior_range_status='UNAVAILABLE', atr20=None, ratio=None, skip_prior_range=False,
                half_prior_range=False, prior_range_reason=None)
     if isinstance(info, dict):
@@ -236,17 +239,47 @@ def range_decision(filt, info):
                    atr20_window=info['atr20_window'], roll_excluded=info['roll_excluded'])
     else:
         out['prior_range_reason'] = f'UNAVAILABLE: {info}'
+    # Prior-day R is recorded in every mode; a missing value is never a big win.
+    big_win_r = filt.big_win_r if filt is not None else BIG_WIN_R
+    prior = prior or dict(r=None, source=None, note='not computed')
+    r = prior.get('r')
+    out.update(prior_day_r=r, prior_day_source=prior.get('source'), prior_day_note=prior.get('note'),
+               prior_big_win=None if r is None else bool(r >= big_win_r))
     if filt is None or not filt.enabled:
         return out
+    key = 'skip_prior_range' if filt.mode == 'skip' else 'half_prior_range'
     if out['prior_range_status'] != 'OK':
-        out['skip_prior_range'] = True   # fail closed in both modes
-    elif out['ratio'] >= filt.threshold:
-        key = 'skip_prior_range' if filt.mode == 'skip' else 'half_prior_range'
+        out['skip_prior_range'] = True   # fail closed in both modes, with or without the big-win leg
+    elif not filt.require_prior_big_win:
+        if out['ratio'] >= filt.threshold:
+            out[key] = True
+            out['prior_range_reason'] = f'ratio {out["ratio"]:.4f} >= threshold {filt.threshold}'
+    elif out['ratio'] < filt.threshold:
+        out['prior_range_reason'] = f'ratio {out["ratio"]:.4f} < threshold {filt.threshold}: armed (range leg)'
+    elif out['prior_big_win']:
         out[key] = True
-        out['prior_range_reason'] = f'ratio {out["ratio"]:.4f} >= threshold {filt.threshold}'
+        out['prior_range_reason'] = (f'ratio {out["ratio"]:.4f} >= threshold {filt.threshold} and prior-day R '
+                                     f'{r:+.2f} ({prior.get("source")}) >= big win {big_win_r}')
+    elif r is None:
+        out['prior_range_reason'] = (f'ratio {out["ratio"]:.4f} >= threshold {filt.threshold} but prior-day R '
+                                     f'unavailable ({prior.get("note")}): armed (big-win leg, fail open)')
+    else:
+        out['prior_range_reason'] = (f'ratio {out["ratio"]:.4f} >= threshold {filt.threshold} but prior-day R '
+                                     f'{r:+.2f} ({prior.get("source")}) < big win {big_win_r}: armed (big-win leg)')
     return out
 
-def build_manifest(config, day, risk_frame, bars, *, now, roll_verified=False, range_bars=None, range_error=None):
+def filter_record(filt):
+    """Manifest copy of the filter block; the big-win keys appear only when that leg is on."""
+    if filt is None:
+        return None
+    body = dict(enabled=filt.enabled, threshold=filt.threshold, mode=filt.mode)
+    if filt.require_prior_big_win:
+        body.update(require_prior_big_win=True, big_win_r=filt.big_win_r)
+    return body
+
+def build_manifest(config, day, risk_frame, bars, *, now, roll_verified=False, range_bars=None, range_error=None,
+                   prior_day=None):
+    """prior_day: {market: store.prior_day_r() entry} for the previous session in this mode, or None."""
     previous, before = calendar_dates(day)
     now = aware(now)
     cutoff = datetime.combine(datetime.fromisoformat(day).date(),time(9,30),NY)
@@ -272,18 +305,36 @@ def build_manifest(config, day, risk_frame, bars, *, now, roll_verified=False, r
             except Exception as exc:
                 # Fail closed per market: recorded, and skipped when the filter is enabled.
                 info = f'{type(exc).__name__}: {exc}'
-        markets[m.name].update(range_decision(config.prior_range_filter,info))
-    filt = config.prior_range_filter
+        markets[m.name].update(range_decision(config.prior_range_filter,info,(prior_day or {}).get(m.name)))
     body = dict(day=day,prepared_at=now.isoformat(),previous_session=previous,
                 config_hash=config.fingerprint,risk_series=RISK_SERIES,score=score,
                 roll_verified=True,markets=markets,
-                prior_range_filter=None if filt is None else dict(enabled=filt.enabled,threshold=filt.threshold,mode=filt.mode),
+                prior_range_filter=filter_record(config.prior_range_filter),
                 range_source=RANGE_SOURCE)
     body['hash'] = digest(body)
     return body
 
 def digest(body):
     return hashlib.sha256(json.dumps(body,sort_keys=True,allow_nan=False).encode()).hexdigest()
+
+PRIOR_DAY_SOURCES = ('shadow_runtime_meta','shadow_journal','own_runtime_meta','own_journal')
+
+def check_prior_day(item,big_win_r):
+    """prior_big_win must follow prior_day_r: null with a null R, else R >= big_win_r. Returns prior_big_win."""
+    r,big,source = item.get('prior_day_r'),item.get('prior_big_win'),item.get('prior_day_source')
+    if source not in PRIOR_DAY_SOURCES and source is not None:
+        raise ValueError(f'Unknown prior_day_source {source!r}')
+    if r is not None and source is None:
+        raise ValueError('Prior-day R without a prior_day_source')
+    if r is None:
+        if big is not None:
+            raise ValueError('prior_big_win set without a prior-day R')
+        return None
+    if isinstance(r,bool) or not isinstance(r,(int,float)) or not math.isfinite(r):
+        raise ValueError('Invalid prior-day R')
+    if big is not (r >= big_win_r):
+        raise ValueError('prior_big_win inconsistent with prior-day R and big_win_r')
+    return big
 
 def check_range_fields(config,item):
     """A disabled filter never skips or halves; an enabled one needs a consistent, fail-closed decision."""
@@ -301,8 +352,11 @@ def check_range_fields(config,item):
         if not isinstance(ratio,(int,float)) or not math.isfinite(ratio) or ratio <= 0:
             raise ValueError('Invalid prior-range ratio')
         hit = ratio >= filt.threshold
+        if filt.require_prior_big_win:
+            big = check_prior_day(item,filt.big_win_r)
+            hit = hit and big is True
         if (skip,half) != ((hit,False) if filt.mode=='skip' else (False,hit)):
-            raise ValueError('Prior-range flags inconsistent with ratio and threshold')
+            raise ValueError('Prior-range flags inconsistent with ratio, threshold and prior-day R')
     elif status == 'UNAVAILABLE':
         if not skip:
             raise ValueError('Unavailable prior range must skip the market when the filter is enabled')

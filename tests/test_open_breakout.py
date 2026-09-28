@@ -478,6 +478,19 @@ def test_shadow_standby_full_session_simulates_only(config,tmp_path,monkeypatch)
         fills=db.execute('SELECT COUNT(*) FROM fills').fetchone()[0]
         states=[json.loads(r[0]) for r in db.execute('SELECT body FROM states')]
     assert fills==2 and all(s['qty']==0 for s in states)
+    # Amendment 2026-09-28: the session's own R is written to the runtime meta at completion and equals
+    # a recomputation from the journal; no prior shadow journal for 09-23 means a null prior-day R.
+    from open_breakout.store import journal_day_r
+    with sqlite3.connect(run/'trades.sqlite') as db:
+        recomputed=journal_day_r(db,['NQ','ES'])
+    assert set(meta['day_r'])=={'NQ','ES'} and meta['day_r']==recomputed
+    # Two fills: one NQ round trip (timed exit at 15:55), no ES trade.
+    assert meta['day_r']['NQ']['trades']==1 and isinstance(meta['day_r']['NQ']['r'],float)
+    assert meta['day_r']['ES']['r'] is None and meta['day_r']['ES']['trades']==0
+    inputs=json.loads((run/'inputs.json').read_text())
+    for item in inputs['markets'].values():
+        assert item['prior_day_r'] is None and item['prior_big_win'] is None and item['prior_day_source'] is None
+        assert 'no shadow journal for 2026-09-23' in item['prior_day_note'] and not item['skip_prior_range']
 
 
 # ---- Live one-contract pilot ----
@@ -893,6 +906,8 @@ def test_live_session_arms_after_preflight_and_trades_one_lot(live,tmp_path,monk
     assert len(entries)==1 and entries[0]['qty']==1 and entries[0]['ref'].startswith('MNQ|BUY|OpenBreakout|')
     assert [role for role,_ in orders]==['ENTRY','STOP','TIME']
     assert len(placed)==len(orders) and all(b['account']==LIVE_ACCOUNT for _,b in orders)
+    # Live writes its own day R too: one timed-exit NQ trade, no ES trade.
+    assert meta['day_r']['NQ']['trades']==1 and meta['day_r']['ES']['r'] is None
 
 
 # ---- Adversarial review fixes ----
@@ -1887,3 +1902,320 @@ def test_own_view_trusts_stem_ids_from_the_executions_answer(config,tmp_path):
             assert store.get('heartbeat')['own_known'] and not service.halted
         finally:store.close()
     asyncio.run(run())
+
+
+# ---- Amendment 2026-09-28: range skip only after a big win ----
+
+from open_breakout.store import journal_day_r, prior_day_r, prior_session_dir
+
+BIG=dict(FILTER,require_prior_big_win=True,big_win_r=2.0)
+PREV='2026-09-23'
+
+def trade(market,attempt,side,entries,stop,exits,modified_stop=None):
+    """entries [(qty,price)], exits [(role,qty,price)]; modified_stop: a later MODIFY_INTENT stop."""
+    return dict(market=market,attempt=attempt,side=side,entries=entries,stop=stop,exits=exits,modified_stop=modified_stop)
+
+def write_journal(path,trades,day=PREV,halted=False):
+    s=Store(path,'fp',day)
+    try:
+        oid=0;fid=0
+        def order(t,role,body):
+            nonlocal oid
+            oid+=1
+            s.order(oid,t['market'],role,{**body,'ref':f'MNQ|BUY|OpenBreakout|{day}|{t["market"]}-{t["attempt"]}-{role}'})
+            return oid
+        def fill(order_id,qty,price):
+            nonlocal fid
+            fid+=1;s.add_fill(f'X-{fid}',dict(order_id=order_id,qty=qty,price=price))
+        for t in trades:
+            entry=order(t,'ENTRY',dict(kind='LMT',side=t['side']))
+            stop=order(t,'STOP',dict(kind='STP',side=-t['side'],stop=t['stop']))
+            if t['modified_stop'] is not None:
+                s.event('MODIFY_INTENT',dict(id=stop,body=dict(kind='STP',side=-t['side'],stop=t['modified_stop'])))
+            for qty,price in t['entries']:fill(entry,qty,price)
+            for role,qty,price in t['exits']:
+                fill(stop if role=='STOP' else order(t,role,dict(kind='MKT',side=-t['side'])),qty,price)
+        if halted:s.set('halted',True);s.set('halt_reason','X')
+    finally:s.close()
+
+def write_runtime(path,day_r,day=PREV):
+    s=Store(path,'fp',day)
+    try:
+        if day_r is not None:s.set('day_r',day_r)
+    finally:s.close()
+
+def test_big_win_config_defaults_validation_and_fingerprint(config,tmp_path):
+    plain=filtered(tmp_path)
+    assert plain.prior_range_filter.require_prior_big_win is False and plain.prior_range_filter.big_win_r==2.
+    # Keys absent: same RangeFilter and fingerprint as before the amendment.
+    assert plain.prior_range_filter==RangeFilter(True,1.25,'skip')
+    assert filtered(tmp_path,dict(FILTER),'again.json').fingerprint==plain.fingerprint
+    c=filtered(tmp_path,BIG,'big.json')
+    assert c.prior_range_filter==RangeFilter(True,1.25,'skip',True,2.) and c.fingerprint!=plain.fingerprint
+    assert filtered(tmp_path,{**FILTER,'big_win_r':0.5},'lo.json').prior_range_filter.big_win_r==.5
+    assert filtered(tmp_path,{**FILTER,'require_prior_big_win':True,'big_win_r':5},'hi.json').prior_range_filter.big_win_r==5.
+    for bad in [{**BIG,'require_prior_big_win':'yes'},{**BIG,'require_prior_big_win':1},{**BIG,'big_win_r':.49},
+                {**BIG,'big_win_r':5.01},{**BIG,'big_win_r':True},{**BIG,'big_win_r':'2'},{**BIG,'big_win_r':float('nan')},
+                {**BIG,'extra':1},{'require_prior_big_win':True,'big_win_r':2.}]:
+        with pytest.raises(ValueError):filtered(tmp_path,bad,'bad.json')
+    live_big=load_raw(tmp_path,live_raw(prior_range_filter=BIG),'livebig.json')
+    assert live_big.prior_range_filter.require_prior_big_win and live_big.fingerprint!=load_raw(tmp_path,live_raw(prior_range_filter=FILTER),'l.json').fingerprint
+
+def test_journal_day_r_win_loss_timed_partial_and_attempts(tmp_path):
+    write_journal(tmp_path/'t.sqlite',[
+        trade('NQ',1,1,[(1,100.)],90.,[('TIME',1,125.)]),              # timed-exit win +2.5R
+        trade('NQ',2,-1,[(1,120.)],130.,[('STOP',1,131.)]),            # stopped short, slipped: -1.1R
+        trade('ES',1,-1,[(1,50.)],52.,[('STOP',1,52.)]),               # stopped short: -1R
+        trade('ES',2,1,[(1,100.),(1,102.)],90.,[('TIME',2,111.)],91.), # partials, stop moved to 91: +1R
+    ])
+    import sqlite3
+    with sqlite3.connect(tmp_path/'t.sqlite') as db:
+        out=journal_day_r(db,['NQ','ES','RTY'])
+    assert out['NQ']['r']==pytest.approx(1.4) and out['NQ']['trades']==2 and out['NQ']['trades_r']==pytest.approx([2.5,-1.1])
+    assert out['ES']['r']==pytest.approx(0.) and out['ES']['trades_r']==pytest.approx([-1.,1.])
+    assert out['RTY']['r'] is None and out['RTY']['note']=='no closed trades'
+
+def test_prior_day_r_own_journal_fallback_and_no_trigger_cases(tmp_path):
+    # No shadow journal anywhere here: live falls back to its own live journal.
+    names=['NQ','ES']
+    # Both missing: null, no skip.
+    out=prior_day_r(tmp_path,PREV,'live',names)
+    assert all(v['r'] is None and v['source'] is None and 'no shadow journal' in v['note'] and 'no live journal' in v['note']
+               for v in out.values())
+    # Win on NQ, no ES trades; recomputed from fills (no runtime day_r).
+    d=tmp_path/f'{PREV}-live';write_journal(d/'trades.sqlite',[trade('NQ',1,1,[(1,100.)],90.,[('TIME',1,130.)])])
+    out=prior_day_r(tmp_path,PREV,'live',names)
+    assert out['NQ']['r']==pytest.approx(3.) and out['NQ']['source']=='own_journal' and 'no shadow journal' in out['NQ']['note']
+    assert out['ES']['r'] is None and out['ES']['source']=='own_journal' and 'no closed trades' in out['ES']['note']
+    # A runtime day_r summary is preferred over recomputation.
+    write_runtime(d/'runtime.sqlite',{'NQ':dict(r=-0.5,note='summary'),'ES':dict(r=None,note='none')})
+    out=prior_day_r(tmp_path,PREV,'live',names)
+    assert out['NQ']['r']==-0.5 and out['NQ']['source']=='own_runtime_meta' and out['NQ']['note'].startswith(f'{PREV}-live: summary')
+    assert out['ES']['r'] is None
+    # The highest attempt with a journal wins; an attempt without one is ignored.
+    d2=tmp_path/f'{PREV}-live-2';write_journal(d2/'trades.sqlite',[trade('ES',1,-1,[(1,50.)],52.,[('STOP',1,52.)])])
+    (tmp_path/f'{PREV}-live-3').mkdir();(tmp_path/f'{PREV}-livex').mkdir()
+    assert prior_session_dir(tmp_path,PREV,'live')==d2
+    out=prior_day_r(tmp_path,PREV,'live',names)
+    assert out['ES']['r']==pytest.approx(-1.) and out['NQ']['r'] is None and out['ES']['source']=='own_journal'
+    assert out['ES']['note'].startswith(f'{PREV}-live-2:')
+    # The shadow session never reads the live journal.
+    assert all(v['r'] is None and v['source'] is None for v in prior_day_r(tmp_path,PREV,'shadow',names).values())
+    # Halted with no fills, and halted with a position the journal never closed: no trigger.
+    h=tmp_path/'h';write_journal(h/f'{PREV}-live'/'trades.sqlite',[],halted=True)
+    assert all(v['r'] is None and 'no fills' in v['note'] for v in prior_day_r(h,PREV,'live',names).values())
+    o=tmp_path/'o';write_journal(o/f'{PREV}-live'/'trades.sqlite',[trade('NQ',1,1,[(1,100.)],90.,[])],halted=True)
+    nq=prior_day_r(o,PREV,'live',names)['NQ'];assert nq['r'] is None and 'not closed' in nq['note']
+    # A journal for another day, an invalid runtime summary and an unreadable journal fail open to null.
+    w=tmp_path/'w';write_journal(w/f'{PREV}-live'/'trades.sqlite',[trade('NQ',1,1,[(1,100.)],90.,[('TIME',1,130.)])],day='2026-09-22')
+    assert 'not 2026-09-23' in prior_day_r(w,PREV,'live',names)['NQ']['note']
+    v=tmp_path/'v';write_journal(v/f'{PREV}-live'/'trades.sqlite',[trade('NQ',1,1,[(1,100.)],90.,[('TIME',1,130.)])])
+    write_runtime(v/f'{PREV}-live'/'runtime.sqlite',{'NQ':dict(r='big'),'ES':dict(r=None)})
+    assert prior_day_r(v,PREV,'live',names)['NQ']['source']=='own_journal'
+    u=tmp_path/'u'/f'{PREV}-live';u.mkdir(parents=True);(u/'trades.sqlite').write_bytes(b'not a database')
+    bad=prior_day_r(tmp_path/'u',PREV,'live',names)
+    assert all(x['r'] is None and x['source'] is None and 'unreadable' in x['note'] for x in bad.values())
+
+def test_prior_day_r_prefers_the_unfiltered_shadow_journal(tmp_path):
+    names=['NQ','ES']
+    # Live skipped NQ yesterday (no trades) while the unfiltered shadow won big on it: live reads the shadow.
+    live=tmp_path/f'{PREV}-live';write_journal(live/'trades.sqlite',[trade('ES',1,-1,[(1,50.)],52.,[('STOP',1,52.)])])
+    sh=tmp_path/f'{PREV}-shadow'
+    write_journal(sh/'trades.sqlite',[trade('NQ',1,1,[(6,100.)],90.,[('TIME',6,125.)]),trade('ES',1,-1,[(8,50.)],52.,[('STOP',8,52.5)])])
+    out=prior_day_r(tmp_path,PREV,'live',names)
+    assert out['NQ']['r']==pytest.approx(2.5) and out['NQ']['source']=='shadow_journal' and out['ES']['r']==pytest.approx(-1.25)
+    assert out['NQ']['note'].startswith(f'{PREV}-shadow:')
+    # The shadow session reads the same journal with the same label.
+    assert prior_day_r(tmp_path,PREV,'shadow',names)==out
+    # The shadow's runtime summary is preferred when present.
+    write_runtime(sh/'runtime.sqlite',{'NQ':dict(r=2.4,note='summary'),'ES':dict(r=-1.2,note='summary')})
+    out=prior_day_r(tmp_path,PREV,'live',names)
+    assert out['NQ']['r']==2.4 and out['NQ']['source']=='shadow_runtime_meta'
+    # Highest shadow attempt with a journal; one with no fills (halted before trading) falls back to live.
+    sh2=tmp_path/f'{PREV}-shadow-2';write_journal(sh2/'trades.sqlite',[],halted=True)
+    assert prior_session_dir(tmp_path,PREV,'shadow')==sh2
+    out=prior_day_r(tmp_path,PREV,'live',names)
+    assert out['ES']['r']==pytest.approx(-1.) and out['ES']['source']=='own_journal' and out['NQ']['r'] is None
+    assert f'{PREV}-shadow-2 journal has no fills' in out['NQ']['note']
+    shadow_only=prior_day_r(tmp_path,PREV,'shadow',names)
+    assert all(v['r'] is None and v['source'] is None for v in shadow_only.values())
+    # A shadow that halted after trading: its fills are used; an unclosed position is excluded, not a fallback.
+    h=tmp_path/'h';write_journal(h/f'{PREV}-live'/'trades.sqlite',[trade('NQ',1,1,[(1,100.)],90.,[('TIME',1,99.)])])
+    write_journal(h/f'{PREV}-shadow'/'trades.sqlite',[trade('NQ',1,1,[(6,100.)],90.,[('STOP',6,120.)]),
+                                                      trade('ES',1,1,[(8,50.)],48.,[])],halted=True)
+    out=prior_day_r(h,PREV,'live',names)
+    assert out['NQ']['r']==pytest.approx(2.) and out['NQ']['source']=='shadow_journal'
+    assert out['ES']['r'] is None and out['ES']['source']=='shadow_journal' and 'not closed' in out['ES']['note']
+    # An unreadable shadow journal falls back to live; the reason is kept in the note.
+    u=tmp_path/'u';write_journal(u/f'{PREV}-live'/'trades.sqlite',[trade('NQ',1,1,[(1,100.)],90.,[('TIME',1,130.)])])
+    (u/f'{PREV}-shadow').mkdir();(u/f'{PREV}-shadow'/'trades.sqlite').write_bytes(b'not a database')
+    out=prior_day_r(u,PREV,'live',names)
+    assert out['NQ']['r']==pytest.approx(3.) and out['NQ']['source']=='own_journal' and 'unreadable' in out['NQ']['note']
+
+def test_big_win_on_shadow_skips_live_after_a_live_skip(config,tmp_path):
+    # End to end through build_manifest: the live NQ was skipped yesterday (no trades) but the shadow won +3R.
+    from types import SimpleNamespace as NS
+    from open_breakout.standby import prior_day_inputs
+    c=filtered(tmp_path,{**BIG,'threshold':1.2},'big.json')
+    previous,_=calendar_dates(DAY)
+    runs=tmp_path/'runs'
+    write_journal(runs/f'{previous}-live'/'trades.sqlite',[],day=previous)
+    write_journal(runs/f'{previous}-shadow'/'trades.sqlite',[trade('NQ',1,1,[(4,100.)],90.,[('TIME',4,130.)])],day=previous)
+    prior=prior_day_inputs(NS(mode='live',markets=c.markets),DAY,runs)
+    assert prior['NQ']['source']=='shadow_journal' and prior['NQ']['r']==pytest.approx(3.)
+    risk,bars,rb=range_manifest_inputs(c)
+    b=build_manifest(c,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,range_bars=rb,prior_day=prior)
+    nq=b['markets']['NQ']
+    assert nq['skip_prior_range'] is True and nq['prior_big_win'] is True and nq['prior_day_source']=='shadow_journal'
+    assert '(shadow_journal) >= big win' in nq['prior_range_reason']
+    p=tmp_path/'inputs.json';p.write_text(json.dumps(b));assert load_manifest(p,c)==b
+    for bad in ['/some/path/trades.sqlite','runtime_meta']:
+        with pytest.raises(ValueError,match='prior_day_source'):check_range_fields(c,dict(nq,prior_day_source=bad))
+    with pytest.raises(ValueError,match='without a prior_day_source'):check_range_fields(c,dict(nq,prior_day_source=None))
+    # A holiday or unknown previous session is a null prior-day R, never an exception.
+    odd=prior_day_inputs(NS(mode='live',markets=c.markets),'2026-09-27',runs)
+    assert all(v['r'] is None and 'previous session unknown' in v['note'] for v in odd.values())
+
+def test_record_day_r_never_raises_or_downgrades(tmp_path):
+    from types import SimpleNamespace as NS
+    from open_breakout.standby import record_day_r
+    cfg=NS(markets=[NS(name='NQ'),NS(name='ES')])
+    write_journal(tmp_path/'trades.sqlite',[trade('NQ',1,-1,[(1,100.)],110.,[('STOP',1,110.5)])])
+    runtime=Store(tmp_path/'runtime.sqlite','fp',PREV);ledger=Store(tmp_path/'trades.sqlite','fp',PREV)
+    try:
+        record_day_r(runtime,ledger,cfg)
+        good=runtime.get('day_r');assert good['NQ']['r']==pytest.approx(-1.05) and good['ES']['r'] is None
+        # A second call without a journal (restart that failed before opening it) writes nothing.
+        record_day_r(runtime,None,cfg);assert runtime.get('day_r')==good
+        # A failing journal read records the error and keeps the good value.
+        record_day_r(runtime,NS(day_r=lambda names:1/0),cfg)
+        assert runtime.get('day_r')==good and 'ZeroDivisionError' in runtime.get('day_r_error')
+        # A null never replaces a recorded non-null R.
+        record_day_r(runtime,NS(day_r=lambda names:{m:dict(r=None,trades=0,trades_r=[],note='x') for m in names}),cfg)
+        assert runtime.get('day_r')['NQ']==good['NQ']
+        # A closed runtime store cannot make it raise.
+        dead=NS(get=lambda *a:1/0,set=lambda *a:1/0);record_day_r(dead,ledger,cfg)
+    finally:ledger.close();runtime.close()
+
+OK_INFO=lambda ratio:dict(atr20=10.,ratio=ratio,atr20_window=['a','b'],roll_excluded=[])
+PRIOR=lambda r:dict(r=r,source='shadow_runtime_meta' if r is not None else None,note='n')
+
+@pytest.mark.parametrize('ratio,prior_r,skip',[
+    (1.5,2.5,True),     # wide prior session and a big win: skip
+    (1.25,2.0,True),    # both boundaries inclusive
+    (1.5,1.99,False),   # small win: trade
+    (1.5,-1.0,False),   # loss: trade
+    (1.5,None,False),   # no prior-day R: trade (fail open on this leg)
+    (1.0,3.0,False),    # normal range after a big win: trade
+    (None,3.0,True),    # ratio UNAVAILABLE: fail closed as before
+    (None,None,True),
+])
+def test_big_win_truth_table_and_consistency(ratio,prior_r,skip):
+    filt=RangeFilter(True,1.25,'skip',True,2.)
+    info=OK_INFO(ratio) if ratio is not None else 'only 19 valid prior TRs (need 20)'
+    d=range_decision(filt,info,PRIOR(prior_r))
+    assert d['skip_prior_range'] is skip and d['half_prior_range'] is False
+    assert d['prior_day_r']==prior_r and d['prior_big_win']==(None if prior_r is None else prior_r>=2.)
+    assert d['prior_range_reason']
+    cfg=NS_CONFIG(filt)
+    check_range_fields(cfg,d)
+    with pytest.raises(ValueError):check_range_fields(cfg,dict(d,skip_prior_range=not skip))
+    if prior_r is not None and ratio is not None:
+        with pytest.raises(ValueError,match='prior_big_win'):check_range_fields(cfg,dict(d,prior_big_win=not d['prior_big_win']))
+    # Shadow (filter absent or disabled) records the same fields and never skips.
+    for f in [None,RangeFilter(False,1.25,'skip',True,2.)]:
+        s=range_decision(f,info,PRIOR(prior_r))
+        assert not s['skip_prior_range'] and s['prior_day_r']==prior_r and s['prior_big_win']==d['prior_big_win']
+        check_range_fields(NS_CONFIG(f),s)
+
+def NS_CONFIG(filt):
+    from types import SimpleNamespace as NS
+    return NS(prior_range_filter=filt)
+
+def test_big_win_leg_off_keeps_the_plain_rule():
+    plain=RangeFilter(True,1.25,'skip')
+    d=range_decision(plain,OK_INFO(1.5),PRIOR(-1.))
+    assert d['skip_prior_range'] and d['prior_range_reason']=='ratio 1.5000 >= threshold 1.25' and d['prior_big_win'] is False
+    check_range_fields(NS_CONFIG(plain),d)
+    assert not range_decision(plain,OK_INFO(1.2),PRIOR(3.))['skip_prior_range']
+    # Missing prior fields (a legacy manifest) are a null prior-day R: no skip under the big-win rule.
+    legacy=dict(prior_range_status='OK',ratio=1.5,skip_prior_range=False,half_prior_range=False)
+    check_range_fields(NS_CONFIG(RangeFilter(True,1.25,'skip',True,2.)),legacy)
+    with pytest.raises(ValueError):check_range_fields(NS_CONFIG(RangeFilter(True,1.25,'skip',True,2.)),dict(legacy,skip_prior_range=True))
+    with pytest.raises(ValueError,match='without a prior-day R'):
+        check_range_fields(NS_CONFIG(RangeFilter(True,1.25,'skip',True,2.)),dict(legacy,prior_big_win=False))
+    # Half mode under the big-win rule halves only after a big win.
+    half=RangeFilter(True,1.25,'half',True,2.)
+    assert range_decision(half,OK_INFO(1.5),PRIOR(2.5))['half_prior_range'] and not range_decision(half,OK_INFO(1.5),PRIOR(1.))['half_prior_range']
+
+@pytest.mark.parametrize('prior_r,skip',[(2.4,True),(-1.,False),(None,False)])
+def test_manifest_big_win_rule_roundtrip(config,tmp_path,prior_r,skip):
+    c=filtered(tmp_path,{**BIG,'threshold':1.2},'big.json')
+    risk,bars,rb=range_manifest_inputs(c)
+    prior={'NQ':PRIOR(prior_r),'ES':PRIOR(None)}
+    b=build_manifest(c,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,range_bars=rb,prior_day=prior)
+    assert b['prior_range_filter']=={**BIG,'threshold':1.2}
+    nq,es=b['markets']['NQ'],b['markets']['ES']
+    assert nq['ratio']==pytest.approx(40/32.4) and nq['skip_prior_range'] is skip and nq['prior_day_r']==prior_r
+    assert es['skip_prior_range'] is False and es['prior_big_win'] is None and 'fail open' in es['prior_range_reason']
+    p=tmp_path/'inputs.json';p.write_text(json.dumps(b));assert load_manifest(p,c)==b
+    forged={k:dict(v) for k,v in b['markets'].items()};forged['ES']['skip_prior_range']=True
+    with pytest.raises(ValueError,match='prior-day R'):check_range_fields(c,forged['ES'])
+    # The same prior-day inputs under the plain rule skip both wide markets.
+    plain=filtered(tmp_path,{**FILTER,'threshold':1.2},'plain.json')
+    assert all(v['skip_prior_range'] for v in build_manifest(plain,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,
+                                                             range_bars=rb,prior_day=prior)['markets'].values())
+    assert build_manifest(plain,DAY,risk,bars,now=at('09:00:00'),roll_verified=True,range_bars=rb)['prior_range_filter']=={**FILTER,'threshold':1.2}
+
+def test_big_win_skip_event_carries_ratio_prior_day_r_and_thresholds(config,tmp_path):
+    c=filtered(tmp_path,BIG,'big.json')
+    now=[at('09:29:00')]
+    store=Store(tmp_path/'s.sqlite',c.fingerprint,DAY)
+    try:
+        m=skip_manifest(c,'ES',prior_day_r=2.6,prior_big_win=True,prior_day_source='shadow_runtime_meta')
+        service=Service(c,m,store,SimBroker(c,lambda:now[0]),lambda:now[0])
+        assert service.states['ES'].phase=='SKIPPED' and service.states['NQ'].phase=='FLAT'
+        ev=[json.loads(v) for k,v in store.db.execute('SELECT kind,body FROM events') if k=='PRIOR_RANGE_SKIP']
+        assert len(ev)==1 and ev[0]['ratio']==pytest.approx(40/28.) and ev[0]['prior_day_r']==2.6
+        assert ev[0]['threshold']==1.25 and ev[0]['big_win_r']==2. and ev[0]['require_prior_big_win'] is True
+    finally:store.close()
+    from open_breakout.standby import range_line
+    line=range_line(dict(m,prior_range_filter=BIG))
+    assert range_line(m).endswith('filter off')
+    assert 'ES ratio 1.429 prior-day R +2.60' in line and 'NQ ratio 1.000 prior-day R n/a' in line
+    assert 'threshold 1.25 and big win 2.0R' in line
+
+def test_prepare_cli_and_status_print_prior_day_fields(config,tmp_path,monkeypatch,capsys):
+    from types import SimpleNamespace as NS
+    import open_breakout.ibkr as ibkr_module
+    import open_breakout.__main__ as cli
+    c=filtered(tmp_path,{**BIG,'threshold':1.2},'big.json')
+    risk,bars,rb=range_manifest_inputs(c)
+    rpath=tmp_path/'risk.parquet';risk.to_parquet(rpath)
+    runs=tmp_path/'runs'
+    write_journal(runs/f'{PREV}-shadow'/'trades.sqlite',[trade('NQ',1,1,[(1,100.)],90.,[('TIME',1,130.)])])
+    class Fake:
+        def __init__(self,config,session=None):
+            self.ib=NS(client=NS(placeOrder=lambda *a:None),isConnected=lambda:True)
+        async def connect(self):pass
+        async def history(self):return bars
+        async def range_history(self):return rb
+        def close(self):pass
+    monkeypatch.setattr(ibkr_module,'IBKR',Fake)
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return at('09:00:00').astimezone(tz) if tz else at('09:00:00')
+    monkeypatch.setattr(cli,'datetime',Clock)
+    out=runs/f'{DAY}-shadow'/'inputs.json'
+    asyncio.run(cli.main_async(NS(command='prepare',config=str(tmp_path/'big.json'),session=DAY,
+        risk_parquet=str(rpath),out=str(out),roll_verified=True,client_id=None,runs_root=str(runs))))
+    text=capsys.readouterr().out
+    printed=json.loads(text[:text.rindex('}')+1])
+    nq,es=printed['markets']['NQ'],printed['markets']['ES']
+    assert nq['prior_day_r']==pytest.approx(3.) and nq['prior_big_win'] is True and nq['skip_prior_range'] is True
+    assert nq['prior_day_source']=='shadow_journal' and es['prior_day_r'] is None and es['skip_prior_range'] is False
+    Store(out.parent/'runtime.sqlite','fp',DAY).close()
+    asyncio.run(cli.main_async(NS(command='status',state=str(out.parent/'runtime.sqlite'))))
+    status=json.loads(capsys.readouterr().out)
+    assert status['prior_range']['markets']['NQ']['prior_day_r']==pytest.approx(3.)
+    assert status['prior_range']['filter']['require_prior_big_win'] is True

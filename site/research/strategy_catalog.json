@@ -17,7 +17,9 @@
       "exit": "2.0 ATR stop (arms the session after entry), 8.0 ATR target, or a 63 trading-day time stop, whichever comes first.",
       "sizing": "35 bps nominal x 1.5 x tilt 0.70 = 36.75 bps effective per trade. No fragility band. Per-strategy cap 250 bps/day effective.",
       "risk_controls": "Hard stop, calm-regime entry gate, per-strategy daily cap.",
-      "order_ref_tags": ["52wh Breakout"],
+      "order_ref_tags": [
+        "52wh Breakout"
+      ],
       "doc": null,
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -37,7 +39,9 @@
       "exit": "1.0 ATR stop (arms day 2), 2.0 ATR target, or a 2 trading-day time stop.",
       "sizing": "35 bps nominal x 1.5 x tilt 0.75 = 39.4 bps effective. FAMILY4 fragility band on the 10d-MA 63d dial, with the table picked by the P/C fear state: fear ON gives 1.25x below 50 and 1.0x at 50+, fear OFF gives 1.0x below 50 and 0x at 50+, and a stale or missing P/C reading (older than 3 business days) fails closed to the plain band of 0.25x at 50+. The seasonal-rank size tiers were retired 2026-09-04. Per-strategy cap 250 bps/day.",
       "risk_controls": "Hard stop, fragility band with the P/C fear table, per-strategy daily cap.",
-      "order_ref_tags": ["Weak Close Decent Sznls"],
+      "order_ref_tags": [
+        "Weak Close Decent Sznls"
+      ],
       "doc": "docs/claude_ref/sizing.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -57,7 +61,9 @@
       "exit": "2.5 ATR target above the submitted limit, a 10 trading-day time stop, or the volume-confirmed stop. There is no resting stop order: if a session closes at or below entry - 1.25 ATR on volume at least 1.5x the trailing 20d median, the leg exits market-on-open the next morning (olv_exit_moo.py, both accounts). Quiet closes below the level are held.",
       "sizing": "Liquid tier 35 bps nominal = 52.5 effective; overflow tier 25 nominal = 37.5 effective. Signal-recency ladder: the first signal in the ticker's trailing 21 sessions sizes 0.5x, the second 0.7x, the third and later 1.0x. Signals 10 to 0 trading days before earnings size at 10 nominal = 15 effective, still times the ladder rung. Stacked legs in one single stock are capped at 50% of NAV in entry notional (ETFs exempt). No fragility band since 2026-08-25. Per-strategy cap 250 bps/day.",
       "risk_controls": "Volume-confirmed next-open exit, 10-day time exit, per-ticker 50% NAV notional cap, recency ladder, earnings size override, per-strategy daily cap. No overnight stop, so a single leg can lose 2-3R.",
-      "order_ref_tags": ["Oversold Low Volume"],
+      "order_ref_tags": [
+        "Oversold Low Volume"
+      ],
       "doc": "docs/claude_ref/olv.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -77,7 +83,9 @@
       "exit": "No stop. 2 trading-day time exit. The Primary account splits each entry into two brackets: 40% of shares with a 1 ATR target and 60% with a 2 ATR target (PA is not split). Friday entries exit at the close if more than 0.25 ATR offside at 15:58.",
       "sizing": "Path 1: 40 bps nominal = 60 effective. Path 2: 8 nominal = 12 effective, with an aggregate daily cap on path-2 risk of 0.75% nominal (1.125% effective). Midterm years, 2026 included, run 0.75x. No fragility band, tilt 1.0. Per-strategy cap 250 bps/day.",
       "risk_controls": "Two-path open gate, earnings blackout, Friday entry-day drawdown exit, scale-out, midterm 0.75x, path-2 aggregate cap, per-strategy daily cap.",
-      "order_ref_tags": ["Overbot Vol Spike"],
+      "order_ref_tags": [
+        "Overbot Vol Spike"
+      ],
       "doc": "docs/claude_ref/ovs.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -97,7 +105,9 @@
       "exit": "No stop. 2.0 ATR target or a 1 trading-day time exit.",
       "sizing": "30 bps nominal = 45 effective. No fragility band. Per-strategy cap 250 bps/day.",
       "risk_controls": "One-day clock, earnings blackout, per-strategy daily cap.",
-      "order_ref_tags": ["LT Trend ST OS"],
+      "order_ref_tags": [
+        "LT Trend ST OS"
+      ],
       "doc": null,
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -117,7 +127,9 @@
       "exit": "No stop. 1.5 ATR target or a 5 trading-day time exit.",
       "sizing": "40 bps nominal = 60 effective. Signals 5 to 1 trading days before earnings size at 6 nominal = 9 effective. No fragility band. Per-strategy cap 250 bps/day.",
       "risk_controls": "Five-day clock, dial entry gate, earnings size haircut, per-strategy daily cap.",
-      "order_ref_tags": ["St OS Sznl"],
+      "order_ref_tags": [
+        "St OS Sznl"
+      ],
       "doc": "docs/claude_ref/sizing.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -137,7 +149,9 @@
       "exit": "No stop, no target. 2 trading-day time exit.",
       "sizing": "40 bps nominal x 1.5 x tilt 1.27 = 76.2 effective. No fragility band. The per-strategy cap of 250 bps/day is the only bound on a stack, and it sees same-day staged risk, not open legs.",
       "risk_controls": "Two-day clock, leader exclusion, per-strategy daily cap.",
-      "order_ref_tags": ["3x ETF Overbot Fade"],
+      "order_ref_tags": [
+        "3x ETF Overbot Fade"
+      ],
       "doc": "docs/claude_ref/strategies_3x_and_pilots.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -157,7 +171,9 @@
       "exit": "No stop, no target. 2 trading-day time exit.",
       "sizing": "25 bps nominal = 37.5 effective. Carries the FAMILY4 band by family analogy: the P/C fear table applies (fear ON 1.25x below dial 50 and 1.0x at 50+, fear OFF 1.0x and 0x), and the plain 0.25x at 50+ applies only when P/C is stale. Same-day signal de-rate: each signal sizes at max(0.30, 1 - 0.10 x (n - 1)), where n is the day's signal count. Per-strategy cap 250 bps/day.",
       "risk_controls": "Fragility band, P/C fear table, same-day de-rate, leader exclusion, per-strategy daily cap.",
-      "order_ref_tags": ["3x Bear ETF Overbot Fade"],
+      "order_ref_tags": [
+        "3x Bear ETF Overbot Fade"
+      ],
       "doc": "docs/claude_ref/strategies_3x_and_pilots.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -177,7 +193,9 @@
       "exit": "No stop (stops of 1.0 to 2.0 ATR all destroyed the edge in testing). 2 trading-day time exit.",
       "sizing": "25 bps nominal = 37.5 effective. Exempt from fragility bands and the same-day de-rate on purpose. The per-strategy cap of 250 bps/day bounds the tail.",
       "risk_controls": "Open-gap gate, deep entry limit, two-day clock, per-strategy daily cap.",
-      "order_ref_tags": ["3x Leader Gap Fade"],
+      "order_ref_tags": [
+        "3x Leader Gap Fade"
+      ],
       "doc": "docs/claude_ref/strategies_3x_and_pilots.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -197,7 +215,9 @@
       "exit": "No stop. 2.0 ATR target or a 2 trading-day time exit.",
       "sizing": "35 bps nominal = 52.5 effective. FAMILY4 band with the P/C fear table (fear ON 1.25x below dial 50 and 1.0x at 50+, fear OFF 1.0x and 0x); the plain 0.25x at 50+ applies only when P/C is stale. When SPY QQQ MonFri Reversion fires the same ticker the same day, both sides are clamped to 20 nominal = 30 effective. Per-strategy cap 250 bps/day.",
       "risk_controls": "Two-day clock, fragility band, P/C fear table, overlap clamp, per-strategy daily cap.",
-      "order_ref_tags": ["Indices Oversold Bounce"],
+      "order_ref_tags": [
+        "Indices Oversold Bounce"
+      ],
       "doc": "docs/claude_ref/sizing.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -217,7 +237,9 @@
       "exit": "1.0 ATR stop (arms day 2), 2.0 ATR target, or a 2 trading-day time exit.",
       "sizing": "35 bps nominal x 1.5 x tilt 1.30 = 68.25 effective. FAMILY4 band with the P/C fear table (fear ON 1.25x below dial 50 and 1.0x at 50+, fear OFF 1.0x and 0x); the plain 0.25x at 50+ applies only when P/C is stale. Half size when the T+1 open gaps up more than 0.25 ATR (applied at the open by order_staging). Overlap clamp with Indices Oversold Bounce: 30 effective. Per-strategy cap 250 bps/day.",
       "risk_controls": "Hard stop, Friday gap kill, gap-up half size, fragility band, P/C fear table, overlap clamp, per-strategy daily cap.",
-      "order_ref_tags": ["SPY QQQ MonFri Reversion"],
+      "order_ref_tags": [
+        "SPY QQQ MonFri Reversion"
+      ],
       "doc": "docs/claude_ref/sizing.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -237,7 +259,9 @@
       "exit": "1.0 ATR stop (arms day 2), 8.0 ATR target, or a 63 trading-day time stop.",
       "sizing": "25 bps nominal x 1.5 x tilt 0.87 = 32.6 effective. No fragility band. Per-strategy cap 250 bps/day.",
       "risk_controls": "Hard stop, per-strategy daily cap.",
-      "order_ref_tags": ["Sector BO"],
+      "order_ref_tags": [
+        "Sector BO"
+      ],
       "doc": null,
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -257,7 +281,9 @@
       "exit": "1.0 ATR stop (arms day 2), 2.0 ATR target, or a 2 trading-day time exit.",
       "sizing": "30 bps nominal = 45 effective. FAMILY4 band with the P/C fear table (fear ON 1.25x below dial 50 and 1.0x at 50+, fear OFF 1.0x and 0x); the plain 0.25x at 50+ applies only when P/C is stale. Half size when the T+1 open gaps up more than 0.25 ATR. Per-strategy cap 250 bps/day.",
       "risk_controls": "Hard stop, gap-up half size, fragility band, P/C fear table, per-strategy daily cap.",
-      "order_ref_tags": ["Monday Dip"],
+      "order_ref_tags": [
+        "Monday Dip"
+      ],
       "doc": "docs/claude_ref/sizing.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -277,7 +303,9 @@
       "exit": "No stop. 4.0 ATR target or a 2 trading-day time exit.",
       "sizing": "40 bps nominal x 1.5 x tilt 1.10 = 66 effective. No fragility band. Per-strategy cap 250 bps/day.",
       "risk_controls": "Two-day clock, open-gap confirmation, per-strategy daily cap. An extension can keep extending, so the tail is real.",
-      "order_ref_tags": ["ATR Extended Gap Up"],
+      "order_ref_tags": [
+        "ATR Extended Gap Up"
+      ],
       "doc": "docs/claude_ref/ovs.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -297,7 +325,9 @@
       "exit": "No stop (1.0 ATR is the sizing unit only). 2.0 ATR target or a 5 trading-day time exit.",
       "sizing": "30 bps nominal = 45 effective. FAMILY4 band by analogy, with the P/C fear table (fear ON 1.25x below dial 50 and 1.0x at 50+, fear OFF 1.0x and 0x); the plain 0.25x at 50+ applies only when P/C is stale. Per-strategy cap 250 bps/day.",
       "risk_controls": "200d trend gate, five-day clock, fragility band, P/C fear table, per-strategy daily cap.",
-      "order_ref_tags": ["Monthly Weak Close"],
+      "order_ref_tags": [
+        "Monthly Weak Close"
+      ],
       "doc": "docs/claude_ref/strategies_3x_and_pilots.md",
       "stats_source": "ledger_replay",
       "frozen_stats": null,
@@ -313,39 +343,192 @@
       "instruments": "MNQ and MES micro futures (signals from NQ and ES)",
       "universe_size": 2,
       "captures": "Trades the first move away from the 09:30 open in Nasdaq 100 and S&P 500 futures once price travels 25% of the previous full session's true range. The idea is that a real opening move tends to keep going into the afternoon, so the trade holds to 15:55 unless the stop is hit.",
-      "entry": "Enter on a cross of open +/- 25% of the previous full CME session true range, before 11:30 ET, at most three attempts per market per day and one position at a time. Shorts only when the previous cash session's legacy 63d risk score (10-observation average) is 20 or higher; no long filter. Prior-range skip filter: a market sits out the session when the previous session's true range divided by its prior 20-session average is 1.25 or higher (fails closed when the average cannot be computed).",
+      "entry": "Enter on a cross of open +/- 25% of the previous full CME session true range, before 11:30 ET, at most three attempts per market per day and one position at a time. Shorts only when the previous cash session's legacy 63d risk score (10-observation average) is 20 or higher; no long filter. Prior-range skip filter (amended 2026-09-28): a market sits out the session only when the previous session's true range divided by its prior 20-session average is 1.25 or higher (fails closed when the average cannot be computed) and that market's own previous session was a big win of at least +2R summed.",
       "exit": "Initial stop 25% of the prior true range from the average fill. No break-even move, trailing stop or target. Timed market exit at 15:55 ET.",
       "sizing": "Live pilot: 1 MNQ and 1 MES contract, capped at one contract per market in both code and config. The runner first sizes from a per-trade risk budget of 15 bps NQ / 10 bps ES on the $750k basis (25 bps open-risk and 75 bps daily caps; not GRM-scaled), then applies the one-contract cap; a computed size of 0 means no trade. The research replay risks 100 bps per trade for comparability only.",
-      "risk_controls": "One-contract cap behind layered live guards, stop from the fill, three-attempt cap, 11:30 entry cutoff, short gate, prior-range skip, dedicated client IDs and contracts, preflight before 09:25.",
-      "order_ref_tags": ["OpenBreakout"],
+      "risk_controls": "One-contract cap behind layered live guards, stop from the fill, three-attempt cap, 11:30 entry cutoff, short gate, prior-range skip (ratio 1.25 or higher after an own-market +2R session), dedicated client IDs and contracts, preflight before 09:25.",
+      "order_ref_tags": [
+        "OpenBreakout"
+      ],
       "doc": "docs/open_breakout_runbook.md",
       "stats_source": "research_backtest",
       "frozen_stats": {
         "span": "2018-01..2026-08",
-        "n_trades": 2737,
-        "trades_per_year": 316.4,
-        "trades_per_month": 26.4,
-        "win_rate": 0.379,
-        "avg_r": 0.204,
-        "median_r": -1.013,
-        "profit_factor": 1.33,
-        "sharpe": 1.47,
-        "max_dd_r": -35.9,
-        "usd_per_contract_trade": 18.1,
-        "usd_per_contract_year": 5737,
-        "median_hold": "intraday (median 173 minutes)",
-        "notes": "NQ and ES combined at base costs, with the shipped 1.25 prior-range skip; in-sample 2018-01..2026-08; unfiltered: 390.0 trades/yr, win 38.9%, mean 0.167R. Built by dropping every trade on a market-day with prior full-session TR / ATR20 >= 1.25 from current_candidate/{NQ,ES}_{base,stress}_trades.csv (328 NQ and 309 ES trades dropped at base, matching range_filter_rty). Profit factor is on R. Sharpe is day-level: daily summed R over every eligible session, times sqrt(252). Max drawdown is on cumulative day-level R. Dollars are net per micro contract (fees and slippage included); the year figure is one MNQ plus one MES. Net points per contract per market are in the cases.",
+        "n_trades": 3238,
+        "trades_per_year": 374.3,
+        "trades_per_month": 31.2,
+        "win_rate": 0.391,
+        "avg_r": 0.185,
+        "median_r": -1.01,
+        "profit_factor": 1.3,
+        "sharpe": 1.5,
+        "max_dd_r": -39.8,
+        "usd_per_contract_trade": 15.1,
+        "usd_per_contract_year": 5648,
+        "median_hold": "intraday (median 210 minutes)",
+        "notes": "NQ and ES combined at base costs, with the shipped prior-range skip as amended 2026-09-28 (skip only when ratio >= 1.25 and the prior session was a big win of at least +2R for that market); in-sample 2018-01..2026-08; unfiltered: 390.0 trades/yr, win 38.9%, mean 0.167R, PF 1.27, Sharpe 1.40, max DD -41.8R, 562.3R total; plain 1.25 skip: 316.4 trades/yr, win 37.9%, mean 0.204R, PF 1.33, Sharpe 1.47, max DD -35.9R, 558.6R total. The amended skip is +35.8R vs unfiltered and +39.5R vs the plain skip, in sample and with a 95% interval on the plain-skip gap that spans zero (filter_vs_skip/RESULTS.md, variant (v)). Built by dropping every trade on a market-day where that market's prior full-session TR / ATR20 >= 1.25 and its own prior eligible session summed >= +2R (shadow prior, unfiltered ledger) from current_candidate/{NQ,ES}_{base,stress}_trades.csv: 72 NQ and 64 ES trades dropped at base, 70 and 42 at stress (the stress rows use the stress ledger's prior R). Script and CSV: filter_vs_skip/variant_v_stats/. Profit factor is on R. Sharpe is day-level: daily summed R over every eligible session, times sqrt(252). Max drawdown is on cumulative day-level R. Dollars are net per micro contract (fees and slippage included); the year figure is one MNQ plus one MES. Net points per contract per market are in the cases.",
         "cases": [
-          {"case": "NQ base, skip on", "n_trades": 1434, "trades_per_year": 165.8, "trades_per_month": 13.8, "win_rate": 0.394, "avg_r": 0.278, "median_r": -1.009, "profit_factor": 1.46, "sharpe": 1.82, "max_dd_r": -19.6, "pts_per_trade": 13.84, "pts_per_year": 2294, "long_avg_r": 0.238, "short_avg_r": 0.359},
-          {"case": "NQ stress, skip on", "n_trades": 1482, "trades_per_year": 171.3, "trades_per_month": 14.3, "win_rate": 0.375, "avg_r": 0.178, "median_r": -1.020, "profit_factor": 1.28, "sharpe": 1.23, "max_dd_r": -24.4, "pts_per_trade": 10.36, "pts_per_year": 1775, "long_avg_r": 0.138, "short_avg_r": 0.258},
-          {"case": "ES base, skip on", "n_trades": 1303, "trades_per_year": 150.6, "trades_per_month": 12.6, "win_rate": 0.363, "avg_r": 0.122, "median_r": -1.032, "profit_factor": 1.19, "sharpe": 0.79, "max_dd_r": -26.6, "pts_per_trade": 1.53, "pts_per_year": 230, "long_avg_r": 0.050, "short_avg_r": 0.268},
-          {"case": "ES stress, skip on (still loses)", "n_trades": 1370, "trades_per_year": 158.4, "trades_per_month": 13.2, "win_rate": 0.308, "avg_r": -0.140, "median_r": -1.096, "profit_factor": 0.82, "sharpe": -0.93, "max_dd_r": -205.9, "pts_per_trade": -0.45, "pts_per_year": -72, "long_avg_r": -0.214, "short_avg_r": 0.016},
-          {"case": "Combined stress, skip on", "n_trades": 2852, "trades_per_year": 329.7, "trades_per_month": 27.5, "win_rate": 0.343, "avg_r": 0.025, "median_r": -1.030, "profit_factor": 1.04, "sharpe": 0.19, "max_dd_r": -83.3, "usd_per_contract_trade": 9.7, "usd_per_contract_year": 3192},
-          {"case": "NQ base, unfiltered (reference)", "n_trades": 1762, "trades_per_year": 203.7, "trades_per_month": 17.0, "win_rate": 0.404, "avg_r": 0.231, "median_r": -1.007, "profit_factor": 1.40, "sharpe": 1.78, "max_dd_r": -22.0, "pts_per_trade": 10.58, "pts_per_year": 2155, "long_avg_r": 0.184, "short_avg_r": 0.322},
-          {"case": "ES base, unfiltered (reference)", "n_trades": 1612, "trades_per_year": 186.3, "trades_per_month": 15.5, "win_rate": 0.373, "avg_r": 0.096, "median_r": -1.023, "profit_factor": 1.15, "sharpe": 0.73, "max_dd_r": -23.2, "pts_per_trade": 0.88, "pts_per_year": 164, "long_avg_r": 0.039, "short_avg_r": 0.203}
+          {
+            "case": "NQ base, amended skip",
+            "n_trades": 1690,
+            "trades_per_year": 195.3,
+            "trades_per_month": 16.3,
+            "win_rate": 0.405,
+            "avg_r": 0.247,
+            "median_r": -1.007,
+            "profit_factor": 1.42,
+            "sharpe": 1.83,
+            "max_dd_r": -21.0,
+            "pts_per_trade": 11.51,
+            "pts_per_year": 2248,
+            "usd_per_contract_trade": 23.0,
+            "usd_per_contract_year": 4497,
+            "long_avg_r": 0.195,
+            "short_avg_r": 0.348
+          },
+          {
+            "case": "NQ stress, amended skip",
+            "n_trades": 1741,
+            "trades_per_year": 201.2,
+            "trades_per_month": 16.8,
+            "win_rate": 0.388,
+            "avg_r": 0.16,
+            "median_r": -1.016,
+            "profit_factor": 1.26,
+            "sharpe": 1.25,
+            "max_dd_r": -26.9,
+            "pts_per_trade": 8.5,
+            "pts_per_year": 1710,
+            "usd_per_contract_trade": 17.0,
+            "usd_per_contract_year": 3421,
+            "long_avg_r": 0.109,
+            "short_avg_r": 0.26
+          },
+          {
+            "case": "ES base, amended skip",
+            "n_trades": 1548,
+            "trades_per_year": 178.9,
+            "trades_per_month": 14.9,
+            "win_rate": 0.376,
+            "avg_r": 0.116,
+            "median_r": -1.024,
+            "profit_factor": 1.18,
+            "sharpe": 0.86,
+            "max_dd_r": -23.2,
+            "pts_per_trade": 1.29,
+            "pts_per_year": 230,
+            "usd_per_contract_trade": 6.4,
+            "usd_per_contract_year": 1152,
+            "long_avg_r": 0.048,
+            "short_avg_r": 0.248
+          },
+          {
+            "case": "ES stress, amended skip (still loses)",
+            "n_trades": 1560,
+            "trades_per_year": 180.3,
+            "trades_per_month": 15.0,
+            "win_rate": 0.322,
+            "avg_r": -0.124,
+            "median_r": -1.083,
+            "profit_factor": 0.84,
+            "sharpe": -0.91,
+            "max_dd_r": -206.1,
+            "pts_per_trade": -0.57,
+            "pts_per_year": -103,
+            "usd_per_contract_trade": -2.9,
+            "usd_per_contract_year": -516,
+            "long_avg_r": -0.192,
+            "short_avg_r": 0.014
+          },
+          {
+            "case": "Combined stress, amended skip",
+            "n_trades": 3301,
+            "trades_per_year": 381.5,
+            "trades_per_month": 31.8,
+            "win_rate": 0.357,
+            "avg_r": 0.026,
+            "median_r": -1.026,
+            "profit_factor": 1.04,
+            "sharpe": 0.22,
+            "max_dd_r": -96.6,
+            "usd_per_contract_trade": 7.6,
+            "usd_per_contract_year": 2904
+          },
+          {
+            "case": "NQ base, plain 1.25 skip (reference, rule before 2026-09-28)",
+            "n_trades": 1434,
+            "trades_per_year": 165.7,
+            "trades_per_month": 13.8,
+            "win_rate": 0.394,
+            "avg_r": 0.278,
+            "median_r": -1.009,
+            "profit_factor": 1.46,
+            "sharpe": 1.82,
+            "max_dd_r": -19.6,
+            "pts_per_trade": 13.84,
+            "pts_per_year": 2294,
+            "usd_per_contract_trade": 27.7,
+            "usd_per_contract_year": 4587,
+            "long_avg_r": 0.238,
+            "short_avg_r": 0.359
+          },
+          {
+            "case": "ES base, plain 1.25 skip (reference, rule before 2026-09-28)",
+            "n_trades": 1303,
+            "trades_per_year": 150.6,
+            "trades_per_month": 12.6,
+            "win_rate": 0.363,
+            "avg_r": 0.122,
+            "median_r": -1.032,
+            "profit_factor": 1.19,
+            "sharpe": 0.79,
+            "max_dd_r": -26.6,
+            "pts_per_trade": 1.53,
+            "pts_per_year": 230,
+            "usd_per_contract_trade": 7.6,
+            "usd_per_contract_year": 1150,
+            "long_avg_r": 0.05,
+            "short_avg_r": 0.268
+          },
+          {
+            "case": "NQ base, unfiltered (reference)",
+            "n_trades": 1762,
+            "trades_per_year": 203.7,
+            "trades_per_month": 17.0,
+            "win_rate": 0.404,
+            "avg_r": 0.231,
+            "median_r": -1.007,
+            "profit_factor": 1.4,
+            "sharpe": 1.78,
+            "max_dd_r": -22.0,
+            "pts_per_trade": 10.58,
+            "pts_per_year": 2155,
+            "usd_per_contract_trade": 21.2,
+            "usd_per_contract_year": 4310,
+            "long_avg_r": 0.184,
+            "short_avg_r": 0.322
+          },
+          {
+            "case": "ES base, unfiltered (reference)",
+            "n_trades": 1612,
+            "trades_per_year": 186.3,
+            "trades_per_month": 15.5,
+            "win_rate": 0.373,
+            "avg_r": 0.096,
+            "median_r": -1.023,
+            "profit_factor": 1.15,
+            "sharpe": 0.73,
+            "max_dd_r": -23.2,
+            "pts_per_trade": 0.88,
+            "pts_per_year": 164,
+            "usd_per_contract_trade": 4.4,
+            "usd_per_contract_year": 818,
+            "long_avg_r": 0.039,
+            "short_avg_r": 0.203
+          }
         ]
       },
-      "notes": "Stats are with the shipped prior-range skip (1.25), i.e. the strategy as it trades; the shadow session runs unfiltered as the forward baseline. The skip shipped on an owner override ahead of its pre-registered forward test (prereg 2026-09-25; RTY cross-check NEUTRAL) and in sample removes about 19% of trades. ES at stress costs (4-tick slippage) still loses money with the skip: 1370 trades, 30.8% win rate, mean -0.140R, PF 0.82 on R, day-level Sharpe -0.93, and an 88% drawdown in the compounded replay. ES is thin even at base costs (+0.122R). The 2026-09-25 launch never happened (Gateway outage); 2026-09-28 is the first staged live session."
+      "notes": "Stats are with the shipped prior-range skip as amended 2026-09-28, i.e. the strategy as it trades: a market skips the session only when the prior range ratio is 1.25 or higher and its own prior session was a big win of at least +2R. The shadow session runs unfiltered as the forward baseline. The plain 1.25 skip shipped on an owner override ahead of its pre-registered forward test (prereg 2026-09-25; RTY cross-check NEUTRAL); the 2026-09-28 amendment is also an owner decision on in-sample evidence (filter_vs_skip variant (v)) and in sample removes about 4% of trades instead of 19%. ES at stress costs (4-tick slippage) still loses money with the amended skip: 1560 trades, 32.2% win rate, mean -0.124R, PF 0.84 on R, day-level Sharpe -0.91. ES is thin even at base costs (+0.122R). The 2026-09-25 launch never happened (Gateway outage); 2026-09-28 is the first staged live session. As of the research cut-off (2026-08-28) the combined book sits at its deepest drawdown in the sample under every filter state: 39.8R below the 2026-04-22 peak for the amended rule (41.8R unfiltered); September 2026 is not in the file."
     },
     {
       "id": "legend_ema",
@@ -361,7 +544,9 @@
       "exit": "Target limit just inside the EMA (ETF: EMA minus $0.01; futures: the highest tick below the EMA), revised at 09:46, 10:01 and 10:16 as completed 15-minute bars extend the EMA; otherwise a market exit at 10:30. No stop. On futures the target (GTD limit) and the 10:30 market leg are independent orders with no OCA group, and the runner cancels the survivor. A 10:32 check trades any residual of the quantity entered back to flat.",
       "sizing": "ETF leg at full size: 40 percent of NAV for SPY and 30 percent for QQQ, shares = floor(NLV x pct / decision price), capped at 1000 shares. Futures leg: contracts = round-half-up(NLV x 40 percent for MES or 30 percent for MNQ / (price x multiplier)), multiplier 5 for MES and 2 for MNQ, capped at 1 MES and 1 MNQ at cutover; the owner default later is 20 MES and 10 MNQ, and the code refuses any cap above its hard ceiling of 40 MES and 20 MNQ. NLV is read live from the Primary account rather than the $750k book basis. The caps are fat-finger ceilings, not the size.",
       "risk_controls": "No stop; the 10:30 time exit bounds the hold. Share and contract cap ceilings, refusal when NLV is missing or non-finite, activation flag per leg, append-only journal per leg for idempotence. It runs independently of the systematic book: another book's position or order in SPY, QQQ, MES or MNQ does not block an entry, and it refuses only when its own orderRef or journal already shows today's entry. Exits and the 10:32 check net only its own executions.",
-      "order_ref_tags": ["Legend_EMA"],
+      "order_ref_tags": [
+        "Legend_EMA"
+      ],
       "doc": "docs/briefs/2026-09-22/legend_ema_fresh_runner_spec.md",
       "stats_source": "research_backtest",
       "frozen_stats": {
@@ -377,8 +562,22 @@
         "median_hold": "59 minutes",
         "notes": "Long side of the Databento futures-signal backtest executed in the ETFs (primary variant, ex-dividend days excluded, net of 2 bps round trip). ES signal to SPY: 28 trades, 57.1% win, +19.6 bps average, PF 3.24, date-clustered t 1.20. NQ signal to QQQ: 45 trades, 64.4% win, +12.5 bps, PF 1.81, t 1.49. No R multiple because there is no stop.",
         "cases": [
-          {"case": "SPY long (ES signal)", "n_trades": 28, "win_rate": 0.571, "avg_bps": 19.6, "profit_factor": 3.24, "t_stat": 1.20},
-          {"case": "QQQ long (NQ signal)", "n_trades": 45, "win_rate": 0.644, "avg_bps": 12.5, "profit_factor": 1.81, "t_stat": 1.49}
+          {
+            "case": "SPY long (ES signal)",
+            "n_trades": 28,
+            "win_rate": 0.571,
+            "avg_bps": 19.6,
+            "profit_factor": 3.24,
+            "t_stat": 1.2
+          },
+          {
+            "case": "QQQ long (NQ signal)",
+            "n_trades": 45,
+            "win_rate": 0.644,
+            "avg_bps": 12.5,
+            "profit_factor": 1.81,
+            "t_stat": 1.49
+          }
         ]
       },
       "notes": "Live since 2026-09-23 is the ETF leg. The futures leg cutover (legend_ema_fut.py) is in progress as of 2026-09-26, at 1 MES and 1 MNQ. The ETF leg started with MAX_SHARES set to one share while the exit-sizing fixes in docs/briefs/2026-09-23/legend_ema_size_fixes.md were open; since 2026-09-24 the cap is a fat-finger ceiling and the NAV percentages set the size. Both legs keep the strategy tag Legend_EMA and the orderRef SYMBOL|ACTION|Legend_EMA|YYYY-MM-DD (for example MES|BUY|Legend_EMA|2026-10-01); exit legs append |TARGET or |TIME. Legend and Open Breakout share MES and MNQ in Primary: Open Breakout's position reconciliation halts its new entries on a day Legend holds a futures position (accepted for the 2026-09-28 pilot; orderRef-scoped reconciliation is the follow-up). Neither long cell is individually significant (t 1.2 and 1.5). The runners are legend_ema.py and legend_ema_fut.py in trading_ibkr, not this repo. Source: artifacts/legend-etf-execution-backtest-20260901/."
@@ -397,7 +596,9 @@
       "exit": "Positions unwind at the next monthly rebalance when an ETF fails the signal. No stops.",
       "sizing": "30% of the $750k basis deployed (cut from 60% on 2026-07-17). Inverse-volatility weights across eligible ETFs, each slot capped at 20%; unused slots sit in cash. Not GRM-scaled.",
       "risk_controls": "20% slot cap, rebalance band, and a month-entry fragility cash gate: the whole sleeve stays in cash when the latest month-end 10d MA of the 63d dial is above 50 (fails closed on a missing or stale dial).",
-      "order_ref_tags": ["Trend Sleeve"],
+      "order_ref_tags": [
+        "Trend Sleeve"
+      ],
       "doc": "docs/claude_ref/strategies_3x_and_pilots.md",
       "stats_source": "research_backtest",
       "frozen_stats": {
@@ -430,7 +631,14 @@
       "exit": "State-driven exits on a scheduled date, market-on-close or market-on-open. No stops and no dial conditioning, by design.",
       "sizing": "Percent of the fixed $750k ACCOUNT_VALUE in notional, not live NLV and not GRM-scaled: T1 25%, T2 10%, T3 15%, T4 25%, V2 5%, V4 10%. event_moo caps a day's basket at 3 rows and $350k notional.",
       "risk_controls": "Per-trade kill rules from the prereg (cumulative NAV loss or consecutive losers), a SPY 21d rank filter on T2, a washout skip on T3, universe limited to SPY, IWM and SVXY, fail-closed basket validation.",
-      "order_ref_tags": ["T1_FOMC_DRIFT", "T2_FOMC_MIDTERM_SHORT", "T3_SEP_POSTQUAD_SHORT", "T4_DEC_POSTOPEX_LONG", "V2_NOVDEC_VOL", "V4_POSTOPEX_VOL"],
+      "order_ref_tags": [
+        "T1_FOMC_DRIFT",
+        "T2_FOMC_MIDTERM_SHORT",
+        "T3_SEP_POSTQUAD_SHORT",
+        "T4_DEC_POSTOPEX_LONG",
+        "V2_NOVDEC_VOL",
+        "V4_POSTOPEX_VOL"
+      ],
       "doc": "docs/claude_ref/event_sleeve.md",
       "stats_source": "frozen_evidence",
       "frozen_stats": {
@@ -446,12 +654,96 @@
         "notes": "Roughly 16 windows in a midterm year and 22 in other years, from the prereg's expected counts. Per-component evidence is a verbatim transcription of event_sleeve.BACKTEST_EVIDENCE, never recomputed."
       },
       "components": [
-        {"id": "T1_FOMC_DRIFT", "name": "FOMC drift", "ticker": "SPY", "side": "long", "nav_frac": 0.25, "window": "MOC 4 sessions before a scheduled FOMC decision to MOO on decision day; non-midterm years only", "trades_per_year": 8, "n": 150, "avg_bps": 38.2, "t": 2.51, "hit": 0.67, "span": "SPY 2000+, lag-1 basis", "conviction": "standard"},
-        {"id": "T2_FOMC_MIDTERM_SHORT", "name": "FOMC midterm short", "ticker": "SPY", "side": "short", "nav_frac": 0.10, "window": "Same FOMC window in midterm years, only when the SPY 21d return rank (252d, lag-1) is under 50", "trades_per_year": 4, "n": 28, "avg_bps": 63.4, "t": 1.53, "hit": 0.54, "span": "SPY midterm-year windows 2000+, lag-1", "conviction": "pilot"},
-        {"id": "T3_SEP_POSTQUAD_SHORT", "name": "September post-quad short", "ticker": "IWM", "side": "short", "nav_frac": 0.15, "window": "September opex MOC to the last September session MOC; skipped when IWM z10 (lag-1) is under -1", "trades_per_year": 1, "n": 24, "avg_bps": 185.0, "t": 2.27, "hit": 0.67, "span": "IWM Sep-opex windows 2000+, lag-1", "conviction": "standard"},
-        {"id": "T4_DEC_POSTOPEX_LONG", "name": "December post-opex long", "ticker": "IWM", "side": "long", "nav_frac": 0.25, "window": "December opex MOC to year-end MOC", "trades_per_year": 1, "n": 26, "avg_bps": 85.3, "t": 2.30, "hit": 0.65, "span": "IWM Dec-opex windows 2000+, close basis", "conviction": "standard"},
-        {"id": "V2_NOVDEC_VOL", "name": "Nov-Dec short vol", "ticker": "SVXY", "side": "long", "nav_frac": 0.05, "window": "First November session MOC to year-end MOC; non-midterm years only", "trades_per_year": 1, "n": 11, "avg_bps": 1110.0, "t": null, "hit": 0.91, "span": "non-midterm Nov-Dec windows, -0.5x basis", "conviction": "standard"},
-        {"id": "V4_POSTOPEX_VOL", "name": "Post-opex short vol", "ticker": "SVXY", "side": "long", "nav_frac": 0.10, "window": "Every monthly opex MOC to +3 sessions MOC, except September and while V2 holds", "trades_per_year": 11, "n": 164, "avg_bps": 108.0, "t": 3.55, "hit": 0.72, "span": "all monthly opex ex-Sep, synthetic -0.5x validated 0.9967 vs real; hit rate is the 2021-06+ era", "conviction": "standard"}
+        {
+          "id": "T1_FOMC_DRIFT",
+          "name": "FOMC drift",
+          "ticker": "SPY",
+          "side": "long",
+          "nav_frac": 0.25,
+          "window": "MOC 4 sessions before a scheduled FOMC decision to MOO on decision day; non-midterm years only",
+          "trades_per_year": 8,
+          "n": 150,
+          "avg_bps": 38.2,
+          "t": 2.51,
+          "hit": 0.67,
+          "span": "SPY 2000+, lag-1 basis",
+          "conviction": "standard"
+        },
+        {
+          "id": "T2_FOMC_MIDTERM_SHORT",
+          "name": "FOMC midterm short",
+          "ticker": "SPY",
+          "side": "short",
+          "nav_frac": 0.1,
+          "window": "Same FOMC window in midterm years, only when the SPY 21d return rank (252d, lag-1) is under 50",
+          "trades_per_year": 4,
+          "n": 28,
+          "avg_bps": 63.4,
+          "t": 1.53,
+          "hit": 0.54,
+          "span": "SPY midterm-year windows 2000+, lag-1",
+          "conviction": "pilot"
+        },
+        {
+          "id": "T3_SEP_POSTQUAD_SHORT",
+          "name": "September post-quad short",
+          "ticker": "IWM",
+          "side": "short",
+          "nav_frac": 0.15,
+          "window": "September opex MOC to the last September session MOC; skipped when IWM z10 (lag-1) is under -1",
+          "trades_per_year": 1,
+          "n": 24,
+          "avg_bps": 185.0,
+          "t": 2.27,
+          "hit": 0.67,
+          "span": "IWM Sep-opex windows 2000+, lag-1",
+          "conviction": "standard"
+        },
+        {
+          "id": "T4_DEC_POSTOPEX_LONG",
+          "name": "December post-opex long",
+          "ticker": "IWM",
+          "side": "long",
+          "nav_frac": 0.25,
+          "window": "December opex MOC to year-end MOC",
+          "trades_per_year": 1,
+          "n": 26,
+          "avg_bps": 85.3,
+          "t": 2.3,
+          "hit": 0.65,
+          "span": "IWM Dec-opex windows 2000+, close basis",
+          "conviction": "standard"
+        },
+        {
+          "id": "V2_NOVDEC_VOL",
+          "name": "Nov-Dec short vol",
+          "ticker": "SVXY",
+          "side": "long",
+          "nav_frac": 0.05,
+          "window": "First November session MOC to year-end MOC; non-midterm years only",
+          "trades_per_year": 1,
+          "n": 11,
+          "avg_bps": 1110.0,
+          "t": null,
+          "hit": 0.91,
+          "span": "non-midterm Nov-Dec windows, -0.5x basis",
+          "conviction": "standard"
+        },
+        {
+          "id": "V4_POSTOPEX_VOL",
+          "name": "Post-opex short vol",
+          "ticker": "SVXY",
+          "side": "long",
+          "nav_frac": 0.1,
+          "window": "Every monthly opex MOC to +3 sessions MOC, except September and while V2 holds",
+          "trades_per_year": 11,
+          "n": 164,
+          "avg_bps": 108.0,
+          "t": 3.55,
+          "hit": 0.72,
+          "span": "all monthly opex ex-Sep, synthetic -0.5x validated 0.9967 vs real; hit rate is the 2021-06+ era",
+          "conviction": "standard"
+        }
       ],
       "notes": "First live fill: V4 SVXY on 2026-08-21. 2026 is a midterm year, so T1 and V2 are inactive and T2 is the FOMC leg. The orderRef strategy field is the trade id."
     },
@@ -469,7 +761,9 @@
       "exit": "Every idea carries a time stop in trading days, with an optional ATR target and stop.",
       "sizing": "ATR-risk sanity bounds, never notional: 60 bps per idea and 150 bps per day, plus the runner's approved-basket limit. ATR here is Wilder-14, not the book's simple mean.",
       "risk_controls": "Grammar validation in pitch_grammar.py, at most one grade C idea, mandatory time stop, activation flag on the runner, pessimistic grading of declined ideas too.",
-      "order_ref_tags": ["Pitch-*"],
+      "order_ref_tags": [
+        "Pitch-*"
+      ],
       "doc": "docs/claude_ref/daily_pitch.md",
       "stats_source": "live_journal",
       "frozen_stats": null,
@@ -509,7 +803,9 @@
       "exit": "Stop legs trail weekly to the level the radar engine publishes; radar_trail_sync.py applies it after the upload step.",
       "sizing": "The engine sizes against its own $250,000 book. A plan's bps are bps of that book, not of live NLV (36 bps there is about 14 bps of Primary). Never rescaled here.",
       "risk_controls": "Primary only, staging blocked on a plan older than 10 days, field whitelist, refusals instead of derived numbers.",
-      "order_ref_tags": ["Momentum_Radar"],
+      "order_ref_tags": [
+        "Momentum_Radar"
+      ],
       "doc": "docs/claude_ref/radar.md",
       "stats_source": "none",
       "frozen_stats": null,

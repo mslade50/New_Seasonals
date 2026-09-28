@@ -56,19 +56,32 @@ class Market:
     max_contracts: int
 
 RANGE_MODES = {'skip', 'half'}
+RANGE_KEYS = {'enabled', 'threshold', 'mode'}
+RANGE_OPTIONAL = {'require_prior_big_win', 'big_win_r'}
+BIG_WIN_R = 2.
 
 @dataclass(frozen=True)
 class RangeFilter:
-    """Prior-range filter (prereg 2026-09-25): ratio = prior_tr / atr20; act when ratio >= threshold."""
+    """Prior-range filter (prereg 2026-09-25): ratio = prior_tr / atr20; act when ratio >= threshold.
+    With require_prior_big_win (owner amendment 2026-09-28) it acts only when the market's own prior
+    session also summed to at least big_win_r R in this mode's journal."""
     enabled: bool
     threshold: float
     mode: str
+    require_prior_big_win: bool = False
+    big_win_r: float = BIG_WIN_R
 
     @classmethod
     def parse(cls, value, mode):
-        if not isinstance(value, dict) or set(value) != {'enabled', 'threshold', 'mode'}:
-            raise ValueError('prior_range_filter must be {"enabled": bool, "threshold": number, "mode": "skip"|"half"}')
+        if not isinstance(value, dict) or not RANGE_KEYS <= set(value) or set(value) - RANGE_KEYS - RANGE_OPTIONAL:
+            raise ValueError('prior_range_filter must be {"enabled": bool, "threshold": number, "mode": "skip"|"half"} '
+                             'with optional "require_prior_big_win": bool, "big_win_r": number')
         enabled, threshold, how = value['enabled'], value['threshold'], value['mode']
+        require, big_win = value.get('require_prior_big_win', False), value.get('big_win_r', BIG_WIN_R)
+        if not isinstance(require, bool):
+            raise ValueError('prior_range_filter.require_prior_big_win must be a JSON boolean')
+        if isinstance(big_win, bool) or not isinstance(big_win, (int, float)) or not math.isfinite(big_win) or not .5 <= big_win <= 5.:
+            raise ValueError('prior_range_filter.big_win_r must be a number in [0.5, 5.0]')
         if not isinstance(enabled, bool):
             raise ValueError('prior_range_filter.enabled must be a JSON boolean')
         if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold) or not 1. <= threshold <= 3.:
@@ -79,7 +92,7 @@ class RangeFilter:
             # Half of the one-contract pilot floors to zero: only skip is meaningful live.
             raise ValueError(f'prior_range_filter.mode "half" is not allowed in live mode: half of the '
                              f'{LIVE_PILOT_MAX_CONTRACTS}-contract pilot floors to 0; use "skip"')
-        return cls(enabled, float(threshold), how)
+        return cls(enabled, float(threshold), how, require, float(big_win))
 
 @dataclass(frozen=True)
 class Config:

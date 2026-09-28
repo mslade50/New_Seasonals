@@ -236,8 +236,9 @@ def test_build_strategies_without_ledger_or_fills(tmp_path):
         if row["stats_source"] == "ledger_replay":
             assert row["ledger_stats"] is None
     rows = _by_id(payload)
-    # 2737 = NQ+ES base with the shipped 1.25 prior-range skip (was 3374 unfiltered).
-    assert rows["open_breakout"]["frozen_stats"]["n_trades"] == 2737
+    # 3238 = NQ+ES base with the prior-range skip as amended 2026-09-28 (ratio >= 1.25
+    # AND own prior session >= +2R); was 2737 under the plain 1.25 skip, 3374 unfiltered.
+    assert rows["open_breakout"]["frozen_stats"]["n_trades"] == 3238
     out = tmp_path / "strategies.json"
     build_site.write_json(payload, str(out))
     assert out.exists()
