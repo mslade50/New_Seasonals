@@ -720,3 +720,43 @@ execution conIds). It must adopt this orderRef scoping before it is merged.
 
 Guard tests: `tests/test_open_breakout.py`, section "Shared contracts: orderRef
 ownership".
+
+## Session 2026-09-28 outcome (first live session)
+
+Launched 08:12 ET by the assistant: shadow PID 1480 (client 927480), live PID 28108
+(client 927481), both from this checkout at commit 0722f978 plus the untracked
+config. Preflight passed at connect and at 09:25. Prior TR NQ 320.5 / ES 66.25,
+ATR20 404.4 / 68.1, ratios 0.79 / 0.97, so the prior-range skip did not apply.
+Legacy score 76.78, short gate open. Both sessions reached SESSION_COMPLETE; the
+processes exited on their own after 16:01. No halts, no skips, no stray orders.
+
+| Market | Open | Entry | Stop | Exit | Points | 1 contract | Shadow full size |
+|---|---|---|---|---|---|---|---|
+| NQ short 1 MNQ | 30719.25 | 30637.75 at 09:35:45 | 30718.00 | 30717.25 at 12:27 (stop) | -79.5 | -$160 | 6 MNQ at 30638.25, stop 30718.5, about -$960 |
+| ES short 1 MES | 7772.50 | 7756.00 at 10:38:17 | 7772.75 | 7772.75 at 12:26 (stop) | -16.75 | -$84 | 8 MES at 7755.75, stop 7772.5, about -$670 |
+
+One attempt per market; the entry window closed at 11:30 before either stop-out, so
+no re-entry. Day P&L at one contract each about -$245 including four commissions
+of $0.61. Shadow and live took the same two trades; live fills were a tick better
+on NQ and within a tick on ES. A read-only reconcile from client 927482 after the
+close: MNQ 0, MES 0, no working OpenBreakout orders, journal and broker agree.
+
+Verified at the broker today: IOC marketable-limit entries fill in about 100 ms;
+STP and GTC MKT goodAfterTime orders are accepted immediately and rest PreSubmitted;
+a stop fill cancels the timed exit through OCA type 2 within 60 ms (code 202 on the
+sibling), both times; the 09:25 preflight, the second-client reconcile and the
+executions listing work, and `reqExecutions` from another client returns this
+client's fills (cross-client visibility confirmed).
+
+Still unverified: the real shape of an order rejection, and the 15:55 exit firing
+and surviving on a day a position is still open into the close.
+
+Two defects found, neither affecting orders, both fixed and committed the same day:
+the own-position self-check reported UNKNOWN all session because the executions
+answer carried three-segment execution ids while the journal held four
+(`exec_key` now idempotent, 5186dd22); and Slack alerts posted to the shared
+channel against the owner's wishes (Slack now opt-in only, c352c582).
+
+Tuesday 2026-09-29 launches the same way with the same launchers and config;
+the runner picks up 5186dd22 and c352c582 automatically. The bracket-entry probe
+remains parked pending the owner's go and the ownership port.
