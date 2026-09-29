@@ -111,8 +111,14 @@ def test_dev_run_writes_locally_and_never_uploads(tmp_path, monkeypatch):
     assert json.loads(out.read_text(encoding="utf-8"))["ideas"][0]["idea_id"] == "2026-09-23-1"
     assert not (tmp_path / "prod_pitch_today.json").exists()
     # An explicit receipt is a dev run even against the production journal path.
-    assert dp.publish_site_payload(dp.site_payload(ASOF, []), pj.JOURNAL_PATH.with_name(
-        "never_written.jsonl"), Args(delivery_receipt=str(tmp_path / "r.json")), ASOF)
+    # The production path is redirected to tmp so the dev write lands there,
+    # never in the repo's data/ directory.
+    prod_journal = tmp_path / "prod" / "pitch_journal.jsonl"
+    monkeypatch.setattr(pj, "JOURNAL_PATH", prod_journal)
+    assert dp.publish_site_payload(dp.site_payload(ASOF, []), pj.JOURNAL_PATH,
+                                   Args(delivery_receipt=str(tmp_path / "r.json")), ASOF)
+    assert (prod_journal.parent / "pitch_journal.pitch_today.json").exists()
+    assert not (tmp_path / "prod_pitch_today.json").exists()
 
 
 def test_production_run_uploads_to_the_function_key(tmp_path, monkeypatch):
