@@ -9,6 +9,9 @@
 const FILLABLE_COMMAND_TYPES = new Set([
   "entry_bracket",
   "close_only",
+  // The position-row Close... ticket. Its result carries the close order_id,
+  // but the avg price arrives on later book snapshots.
+  "close_resize",
   "flatten",
   "trim_readd",
   "add_to_position",

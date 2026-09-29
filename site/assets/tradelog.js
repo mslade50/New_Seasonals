@@ -1,17 +1,24 @@
 /* tradelog.js — executed-trades log (both accounts).
 
-   Reads /exec-fills (Pages proxy -> broker DO /fills): per-execution rows the
-   agent's book pushes accumulated across days, deduped by IBKR exec_id. The
-   page aggregates executions into one row per order (account + perm_id + side)
+   Two sources, merged per execution:
+     - /exec-fills (Pages proxy -> broker DO /fills): the live rolling window
+       (14 days), refreshed every 30s.
+     - data/tradelog_history.json (optional build payload): every execution in
+       the R2-canonical fills store (harvest_fills.py, after each close), so the
+       log reaches back past the broker's window.
+   Rows key on account + IB execution family (exec_id minus its .NN revision);
+   the live row wins field by field, history fills anything it lacks. The page
+   aggregates executions into one row per order (account + perm_id + side)
    with a share-weighted average price, or shows raw executions via the toggle.
-   Filters: trailing window (today / 7d / 14d) + account (all / primary / pa).
-   Times display in ET; polling refreshes in place every 30s. */
+   Filters: trailing window (today / 7d / 30d / 90d / all) + account.
+   Times display in ET. */
 "use strict";
 
 document.addEventListener("DOMContentLoaded", initTradeLog);
 
 const TL_REFRESH_MS = 30_000;
-const tlState = { days: 7, account: "all", fills: [], raw: false, error: null, lastSuccessfulAt: null };
+const tlState = { days: 7, account: "all", fills: [], live: [], history: [], historyMeta: null,
+  raw: false, error: null, lastSuccessfulAt: null };
 let tlTable = null;
 let TL_FUT_SPECS = {};
 
@@ -27,6 +34,26 @@ function fillNotionalUSD(fill) {
     return multiplier > 0 && Number.isFinite(multiplier) ? qty * price * multiplier : null;
   }
   return !fill.sec_type || fill.sec_type === "STK" ? qty * price : null;
+}
+
+// IBKR corrections reuse an execution id with the digits after the last
+// period incremented; one family is one execution (broker + harvester rule).
+function execFamily(id) {
+  return String(id || "").replace(/\.\d+$/, "");
+}
+
+function mergeFillSources(history, live) {
+  const byKey = new Map();
+  const keyOf = (f) => `${f.account_key || ""}|${execFamily(f.exec_id)}`;
+  for (const f of history || []) if (f && f.exec_id) byKey.set(keyOf(f), { ...f });
+  for (const f of live || []) {
+    if (!f || !f.exec_id) continue;
+    const key = keyOf(f), prior = byKey.get(key) || {};
+    const next = { ...prior };
+    for (const [k, v] of Object.entries(f)) if (v != null && v !== "") next[k] = v;
+    byKey.set(key, next);
+  }
+  return [...byKey.values()];
 }
 
 function stratFromRef(ref) {
@@ -108,7 +135,8 @@ function rawRows(fills) {
 }
 
 function tlCutoffDate(days) {
-  // trailing window in ET calendar days; days=1 -> today only
+  // trailing window in ET calendar days; days=1 -> today only, 0 -> everything
+  if (!days) return "";
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const d = new Date(today + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() - (days - 1));
@@ -171,8 +199,10 @@ function renderShell() {
     <div class="tbl-controls" style="gap:10px; flex-wrap:wrap; align-items:center;">
       <div class="seg" id="tlWin">
         <button data-d="1">Today</button>
-        <button data-d="7" class="on">7 days</button>
-        <button data-d="14">14 days</button>
+        <button data-d="7" class="on">7d</button>
+        <button data-d="30">30d</button>
+        <button data-d="90">90d</button>
+        <button data-d="0">All</button>
       </div>
       <div class="seg" id="tlAcct">
         <button data-a="all" class="on">All</button>
@@ -204,10 +234,14 @@ function renderData() {
   const rows = filteredRows();
   document.getElementById("tlKpis").innerHTML = rows.length ? kpiHtml(rows) : "";
   const note = document.getElementById("tlNote");
-  if (tlState.error) note.textContent = tlState.error;
+  const hm = tlState.historyMeta;
+  const coverage = hm && hm.first_session
+    ? `History from ${hm.first_session} (stored daily after the close) + live last 14 days`
+    : "Live last 14 days only — no stored history in this build";
+  if (tlState.error) note.textContent = `${tlState.error} · ${coverage}`;
   else if (!tlState.fills.length) note.textContent =
     "No executions recorded yet — the ring accumulates from the agent's next trading session.";
-  else note.textContent = "";
+  else note.textContent = coverage;
   if (!tlTable) {
     tlTable = makeTable(document.getElementById("tlTable"), {
       columns: TL_COLUMNS, rows, pageSize: 50, search: true,
@@ -219,15 +253,18 @@ function renderData() {
 async function tlLoad() {
   const data = await fetchJSONOrNull("/exec-fills");
   if (data && Array.isArray(data.fills)) {
-    tlState.fills = data.fills;
+    tlState.live = data.fills;
+    tlState.fills = mergeFillSources(tlState.history, tlState.live);
     tlState.error = null;
     tlState.lastSuccessfulAt = new Date();
-  } else if (data && data.configured === false) {
-    tlState.error = "Execution broker not configured for this deploy.";
   } else {
-    tlState.error = tlState.fills.length
-      ? "Refresh failed. Showing previously received fills."
+    // A failed refresh never drops what is already on screen; before any live
+    // window arrives, stored history still renders on its own.
+    tlState.error = data && data.configured === false
+      ? "Execution broker not configured for this deploy."
+      : tlState.fills.length ? "Refresh failed. Showing previously received fills."
       : "Could not reach the execution broker.";
+    if (!tlState.fills.length) tlState.fills = mergeFillSources(tlState.history, tlState.live);
   }
   const stamp = tlState.lastSuccessfulAt;
   setAsof(stamp
@@ -236,10 +273,27 @@ async function tlLoad() {
   renderData();
 }
 
+// Stored history is part of the site build, so it loads once per page view.
+// Best effort: any failure leaves the live window working on its own.
+async function tlLoadHistory() {
+  try {
+    const meta = await fetchSiteMeta(2);
+    if (!(meta && meta.payloads && meta.payloads.tradelog_history)) return;
+    const data = await fetchSitePayload(meta, "data/tradelog_history.json");
+    if (data && Array.isArray(data.fills)) {
+      tlState.history = data.fills;
+      tlState.historyMeta = { first_session: data.first_session, last_session: data.last_session };
+    }
+  } catch (e) {
+    console.warn("trade log history unavailable", e);
+  }
+}
+
 async function initTradeLog() {
   renderNav("tradelog.html");
   renderShell();
   TL_FUT_SPECS = await fetchJSONOrNull("assets/futures_specs.json") || {};
+  await tlLoadHistory();
   await tlLoad();
   setInterval(tlLoad, TL_REFRESH_MS);
 }

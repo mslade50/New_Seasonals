@@ -107,6 +107,16 @@ exploration surface, not yet aligned).
 
 `scripts/harvest_fills.py` -> `data/live_fills.parquet` (R2 key
 `live_fills.parquet`, R2-CANONICAL, gitignored) + `live_fills_status.json`.
+Consumers: the Strategies tab attribution and, from 2026-09-29, the Trade Log's
+full history (`build_tradelog_history`, see `private_site.md`).
+
+**Activity-row fill backfill (broker DO).** Command results often return before
+IBKR prices the order; `execution-broker/src/fill-reconcile.mjs`
+`reconcileCommandFills` fills the Activity row in from later book snapshots,
+for command types in `FILLABLE_COMMAND_TYPES`. `close_resize` (the position
+row's Close... ticket) was missing until 2026-09-29, so closes never showed a
+fill price. Takes effect only after the Worker is redeployed
+(`deploy_broker.yml`, dispatch). Guard: `tests/test_execution_fill_reconcile.py`.
 Runs as the `harvest_fills` job in the `postclose` pipeline, LOCAL-ONLY (no
 GitHub workflow backup: the ring sits behind the broker's read token).
 

@@ -87,3 +87,88 @@ console.log("OK");
                          capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert "OK" in out.stdout
+
+
+def test_tradelog_history_payload_from_canonical_fills(tmp_path):
+    """build_tradelog_history ships every stored execution (not just the DO's
+    14-day window) with the page's fields, and never the raw broker account id."""
+    import sys
+    for path in (ROOT, ROOT / "scripts"):   # build_site's own import convention
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+    from scripts import build_site
+    from scripts.harvest_fills import normalize
+
+    rows = [
+        {"exec_id": "0001.01", "time": "2025-01-06T14:31:00+00:00", "account": "U1234567",
+         "account_key": "primary", "account_label": "Primary (TWS)", "symbol": "OXY",
+         "sec_type": "STK", "side": "BOT", "qty": 100, "price": 50.25, "perm_id": 11,
+         "order_ref": "OXY|BUY|Oversold Low Volume|2025-01-03", "commission": 1.0},
+        {"exec_id": "0002.01", "time": "2026-09-28T19:59:00+00:00", "account": "DU7654321",
+         "account_key": "pa", "account_label": "DU7654321", "symbol": "MES", "sec_type": "FUT",
+         "side": "SLD", "qty": 2, "price": 6698.25, "perm_id": 22, "con_id": 9001,
+         "expiry": "202612", "realized_pnl": 117.5},
+        {"exec_id": "0003.01", "time": "2026-09-28T20:00:00+00:00", "account": "U1234567",
+         "symbol": "XLE", "sec_type": "STK", "side": "BOT", "qty": 1, "price": 86.7},
+    ]
+    path = tmp_path / "live_fills.parquet"
+    normalize(rows).to_parquet(path, index=False)
+
+    out = build_site.build_tradelog_history(fills_path=str(path))
+    assert out["schema"] == 1
+    assert out["first_session"] == "2025-01-06" and out["last_session"] == "2026-09-28"
+    # the row without an account_key is dropped rather than falling back to the raw id
+    assert out["rows"] == 2 and [r["exec_id"] for r in out["fills"]] == ["0001.01", "0002.01"]
+    first, second = out["fills"]
+    assert first["time"] == "2025-01-06T14:31:00Z"
+    assert first["account_label"] == "Primary (TWS)" and first["perm_id"] == 11
+    assert first["order_ref"].split("|")[2] == "Oversold Low Volume"
+    assert second["con_id"] == 9001 and second["realized_pnl"] == 117.5
+    assert "account_label" not in second          # id-shaped label withheld
+    blob = json.dumps(out)
+    assert "U1234567" not in blob and "DU7654321" not in blob
+    assert '"account"' not in blob
+
+    assert build_site.build_tradelog_history(fills_path=str(tmp_path / "absent.parquet")) is None
+    src = (ROOT / "scripts" / "build_site.py").read_text(encoding="utf-8")
+    assert 'best_effort("tradelog_history", build_tradelog_history)' in src
+    assert '"tradelog_history": False' in src
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_history_and_live_window_merge_per_execution():
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const sandbox = { document: { addEventListener() {} }, console };
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(__COMMON_JS__, "utf8"), sandbox);
+vm.runInContext(fs.readFileSync(__TRADELOG_JS__, "utf8"), sandbox);
+const history = [
+  {exec_id: "old.01", time: "2025-01-06T14:31:00Z", account_key: "primary", symbol: "OXY", qty: 100, price: 50},
+  {exec_id: "dup.01", time: "2026-09-28T14:31:00Z", account_key: "primary", symbol: "SPY", qty: 10, price: 600,
+   commission: 1.25},
+  {exec_id: "dup.01", time: "2026-09-28T14:31:00Z", account_key: "pa", symbol: "SPY", qty: 3, price: 600},
+];
+const live = [
+  // IBKR correction of the stored execution: replaces it, keeps stored commission
+  {exec_id: "dup.02", time: "2026-09-28T14:31:00Z", account_key: "primary", symbol: "SPY", qty: 12, price: 601,
+   commission: null},
+  {exec_id: "new.01", time: "2026-09-29T14:31:00Z", account_key: "primary", symbol: "XLE", qty: 5, price: 86},
+];
+const merged = sandbox.mergeFillSources(history, live);
+const byId = Object.fromEntries(merged.map((f) => [f.account_key + ":" + f.exec_id, f]));
+if (merged.length !== 4) throw new Error("expected 4 executions, got " + merged.length);
+const spy = byId["primary:dup.02"];
+if (!spy || spy.qty !== 12 || spy.price !== 601 || spy.commission !== 1.25) throw new Error("live override wrong");
+if (!byId["pa:dup.01"]) throw new Error("same exec id on another account must stay separate");
+if (!byId["primary:old.01"] || !byId["primary:new.01"]) throw new Error("history/live rows lost");
+if (sandbox.tlCutoffDate(0) !== "") throw new Error("All must have no cutoff");
+if (sandbox.mergeFillSources([], live).length !== 2) throw new Error("live-only merge wrong");
+console.log("OK");
+"""
+    script = (script.replace("__COMMON_JS__", json.dumps(str(COMMON_JS)))
+              .replace("__TRADELOG_JS__", json.dumps(str(TRADELOG_JS))))
+    out = subprocess.run([shutil.which("node"), "-e", script], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert "OK" in out.stdout

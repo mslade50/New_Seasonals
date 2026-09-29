@@ -105,6 +105,17 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   and loses any day the agent never ran. Page aggregates per order
   (account+perm_id+side, VWAP) with a raw-fills toggle; strategy = 3rd pipe
   field of orderRef (same contract as `daily_execution_report.py`).
+  **Indefinite history (2026-09-29):** `build_tradelog_history` (best effort)
+  publishes every row of the R2-canonical `data/live_fills.parquet` (see
+  `ledger_and_fills.md`, "Live fills store") as `dist/data/tradelog_history.json`
+  (flag `tradelog_history`). Whitelisted fields only; the raw broker `account`
+  id is never shipped, id-shaped labels are dropped and rows without an
+  `account_key` are skipped. The page loads it once and merges the live DO
+  window over it per account + IB execution family (exec_id minus `.NN`), live
+  fields winning, history filling nulls. Windows: Today / 7d / 30d / 90d / All.
+  History reaches back only as far as the store (first harvest 2026-09-02, so
+  about 2026-08-19); older fills exist only in IBKR statements. The DO keeps its
+  14-day retention on purpose (it re-reads the retained set on every book push).
   Guard: `tests/test_tradelog_site.py`.
 - **Execution tab on phones** (2026-09-29, `assets/execution.js` + `style.css`,
   <=700px only; desktop/tablet unchanged): the mode banner, connection strip,

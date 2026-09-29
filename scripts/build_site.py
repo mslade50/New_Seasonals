@@ -70,6 +70,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import sys
 
@@ -2653,6 +2654,64 @@ def _ledger_strategy_stats(g):
     }
 
 
+# Trade Log history: fields the page renders. The raw broker `account` id is
+# deliberately absent (the site never renders account ids); rows key on
+# account_key / account_label like the broker DO's /fills rows.
+TRADELOG_HISTORY_FIELDS = (
+    "exec_id", "account_key", "account_label", "symbol", "sec_type", "currency",
+    "side", "qty", "price", "perm_id", "con_id", "expiry", "expiry_full",
+    "order_ref", "commission", "realized_pnl",
+)
+_ACCOUNT_ID_RE = re.compile(r"\b(?:DU|DF|U|F)\d{5,}\b")
+
+
+def build_tradelog_history(fills_path=LIVE_FILLS):
+    """Trade Log payload: every execution in the R2-canonical fills store
+    (scripts/harvest_fills.py, harvested after each close) so the page can show
+    history beyond the broker DO's 14-day /fills window. The page merges the
+    live window over these rows by account + IB execution family. Absent store
+    -> None (no payload; the page falls back to the live window only)."""
+    if not os.path.exists(fills_path):
+        print("  tradelog_history: no data/live_fills.parquet in this build, skipped")
+        return None
+    fills = pd.read_parquet(fills_path)
+    missing = {"exec_id", "time_utc"} - set(fills.columns)
+    if missing:
+        raise ValueError(f"live_fills.parquet missing {sorted(missing)}")
+    times = pd.to_datetime(fills["time_utc"], utc=True, errors="coerce")
+    fills = fills.assign(_t=times).dropna(subset=["_t", "exec_id"]).sort_values("_t")
+    rows = []
+    for rec in fills.to_dict("records"):
+        row = {"time": rec["_t"].strftime("%Y-%m-%dT%H:%M:%SZ")}
+        for col in TRADELOG_HISTORY_FIELDS:
+            raw = rec.get(col)
+            if raw is None or pd.isna(raw):
+                continue
+            value = _clean(raw)
+            if value is None or value == "":
+                continue
+            if col == "account_label" and _ACCOUNT_ID_RE.search(str(value)):
+                continue   # never ship an id-shaped label; the page falls back to account_key
+            if col in ("perm_id", "con_id"):
+                value = int(value)
+            row[col] = value
+        if not row.get("account_key"):
+            continue       # unattributable to an account tab; never fall back to the raw id
+        rows.append(row)
+    sess = fills["session_date"] if "session_date" in fills.columns else pd.Series(dtype="string")
+    sess = sess.dropna().astype(str)
+    print(f"  tradelog_history: {len(rows)} executions"
+          + (f", {sess.min()} .. {sess.max()}" if len(sess) else ""))
+    return {
+        "schema": 1,
+        "source": "data/live_fills.parquet (R2 canonical, harvested after each close)",
+        "first_session": sess.min() if len(sess) else None,
+        "last_session": sess.max() if len(sess) else None,
+        "rows": len(rows),
+        "fills": rows,
+    }
+
+
 def build_strategies(catalog_path=STRATEGY_CATALOG, ledger_path=LEDGER,
                      fills_path=LIVE_FILLS):
     """Strategies-tab payload: the committed catalog, plus ledger-replay stats
@@ -3031,7 +3090,8 @@ def main():
              "strategy_stats": False, "earnings_next": False,
              "seasonality": False, "macro_sznl": False, "montecarlo": False,
              "fundamentals": False, "event_sleeve": False,
-             "strategies": False, "overlay_free": False, "intraday_daily": False}
+             "strategies": False, "overlay_free": False, "intraday_daily": False,
+             "tradelog_history": False}
     overlay_free_meta = None
     sd = None
     if args.no_mtm:
@@ -3104,6 +3164,7 @@ def main():
     best_effort("sizer", build_sizer)
     best_effort("event_sleeve", build_event_sleeve)
     best_effort("strategies", build_strategies)
+    best_effort("tradelog_history", build_tradelog_history)
     if sd is None and flags["strategy_daily"]:
         # --no-mtm dev build: combine against the swing series already in dist
         try:

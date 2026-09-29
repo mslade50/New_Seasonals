@@ -171,6 +171,45 @@ console.log("OK");
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_close_resize_backfills_the_close_order_price():
+    """The Close... ticket (close_resize) returns before IBKR prices the close;
+    later executions of that exact close order must fill in the Activity row."""
+    script = f"""
+import {{ commandFillMatch, reconcileCommandFills }} from {json.dumps(HELPERS.as_uri())};
+const cmd = {{id:"c9", type:"close_resize", account:"primary", created_at:1_000,
+  payload:{{symbol:"AAPL", sec_type:"STK", con_id:265598, action:"SELL", qty:120}}}};
+const match = commandFillMatch(cmd);
+if (!match || match.side !== "SELL" || match.expected_qty !== 120 || match.client_id !== 123)
+  throw new Error("close_resize match metadata: " + JSON.stringify(match));
+const command = {{...cmd, fill_match: match,
+  result:{{ok:true, detail:"Close Submitted: 0/120 filled; exits allocated to 0",
+    fill:{{status:"Submitted", filled:0, order_id:701, exits_resized_to:0}}}}}};
+const fills = [
+  {{exec_id:"x1", order_id:701, account_key:"primary", client_id:123, time:"1970-01-01T00:00:02Z",
+    symbol:"AAPL", sec_type:"STK", side:"SLD", qty:70, price:226.9}},
+  {{exec_id:"x2", order_id:701, account_key:"primary", client_id:123, time:"1970-01-01T00:00:03Z",
+    symbol:"AAPL", sec_type:"STK", side:"SLD", qty:50, price:227.1}},
+  // same order id from another client and an unrelated buy never count
+  {{exec_id:"x3", order_id:701, account_key:"primary", client_id:999, time:"1970-01-01T00:00:03Z",
+    symbol:"AAPL", sec_type:"STK", side:"SLD", qty:10, price:1}},
+  {{exec_id:"x4", order_id:701, account_key:"primary", client_id:123, time:"1970-01-01T00:00:03Z",
+    symbol:"AAPL", sec_type:"STK", side:"BOT", qty:10, price:1}},
+];
+const out = reconcileCommandFills([command], fills, 50);
+const f = out.commands[0].result.fill;
+if (!out.changed || f.filled !== 120 || Math.abs(f.avg_fill - (70*226.9 + 50*227.1)/120) > 1e-9
+    || f.status !== "Filled" || f.exits_resized_to !== 0)
+  throw new Error("close_resize not reconciled: " + JSON.stringify(f));
+// A pre-deploy row without fill_match still reconciles off its order id + client id.
+const legacy = reconcileCommandFills([{{...command, fill_match: undefined}}], fills.slice(0, 3), 51);
+if (legacy.commands[0].result.fill.filled !== 120)
+  throw new Error("legacy close_resize row not reconciled");
+console.log("OK");
+"""
+    assert "OK" in _run_node(script)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_futures_alias_and_option_spread_backfill():
     script = f"""
 import {{ commandFillMatch, reconcileCommandFills }} from {json.dumps(HELPERS.as_uri())};
