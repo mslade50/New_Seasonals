@@ -4,12 +4,14 @@ Status (2026-09-28 evening): **live at normal sizing from Tuesday 2026-09-29** (
 decision 2026-09-28). Monday 2026-09-28 was the first live session at one contract per
 market (1 MNQ / 1 MES, both shorts stopped, mechanics verified). From 2026-09-29 the live
 session (client 927481, launched 08:12 ET by Task Scheduler) uses the regular risk sizing
-(15 bp NQ / 10 bp ES of the $750,000 basis, 25 bp open / 75 bp daily caps), capped at
-**10 contracts per market** (config `max_contracts: 10` and `pilot.max_contracts_per_market:
-10`) under a code ceiling `LIVE_HARD_MAX_CONTRACTS = 20`. See "Live sizing (from
-2026-09-29)" below. Live routing exists only behind layered guards: `mode: live` +
-`allow_live` + a non-DU account + every `max_contracts <= 20` (and the pilot ceiling,
-when present, in 1..20) + the exact session/account acknowledgement
+(15 bp NQ / 10 bp ES of the $750,000 basis, 25 bp open / 75 bp daily caps) with **no
+per-market contract cap** (owner decision, later the same evening): the configs carry
+`max_contracts: 60` as a fat-finger ceiling under the code ceiling
+`LIVE_HARD_MAX_CONTRACTS = 60`, and the 09:25 preflight margin-gates the planned sizes,
+sizing DOWN proportionally (margin day cap) rather than refusing to arm. See "Live sizing
+(from 2026-09-29)" and its amendments below. Live routing exists only behind layered
+guards: `mode: live` + `allow_live` + a non-DU account + every `max_contracts <= 60` (and
+the pilot ceiling, when present, in 1..60) + the exact session/account acknowledgement
 `OPEN_BREAKOUT_LIVE_ACK`, and only through the `live-session` command after a passing
 09:25 ET preflight. `shadow-session` still refuses live configs.
 
@@ -263,6 +265,7 @@ them; `launch-live.ps1` no longer requires a pilot block.
   per-contract margins (MNQ $6,728, MES $3,486 on the BUY side) and the $112,703 limit, 16
   MNQ alone is the most that fits. At NQ TR 100 / ES TR 20 the plan is 20 MNQ + 23 MES,
   about $134,567 + $80,187 = **$214,754, well over the limit: the session would not arm.**
+  (Superseded the same night: the margin day cap below sizes such a day down to 10 / 12.)
   Replaying the last 12 months of prior ranges at those margins, about 10 of 237 sessions
   (4%) would have failed the gate (2026 to date: 1 of 161), mostly holiday-adjacent quiet
   days. Margins scale with price and volatility, so this is an estimate.
@@ -280,6 +283,46 @@ them; `launch-live.ps1` no longer requires a pilot block.
 
 - **Rollback:** set both `max_contracts` back to 10 (or 1) in `config-20260925-live.json`,
   or add `"pilot": {"max_contracts_per_market": N}`; either changes only the live fingerprint.
+
+**Amendment, 2026-09-28 night (owner decision): margin day cap, size down instead of fail.**
+The 09:25 planned-margin gate no longer halts the session when the planned sizes do not fit.
+It sizes the session down. This supersedes "the session would not arm" in the bullets above.
+
+- **Rule** (`standby.preflight` -> `apply_margin_day_cap` / `margin_day_caps`): after the
+  planned-size what-ifs, if the summed worse-side initial margin exceeds the limit
+  (`max_margin_fraction` x min(ExcessLiquidity, NetLiquidation)), each market gets a
+  whole-contract `margin_day_cap`. The limit is split in proportion to each market's planned
+  margin, so both scale by the same factor limit / total: cap = floor(planned x factor). A
+  market that floors to 0 gets 1 if its one-contract what-if fits beside the other market's
+  capped margin, else 0: it is not armed (`MARGIN_DAY_CAP_ZERO`) and the other market trades.
+  The capped sizes are then what-iffed again and must fit. If they do not (margins are not
+  linear), one contract comes off one market at a time, alternating, at most 10 times; after
+  that, or when nothing is left to reduce, `MARGIN_TOTAL:<total>><limit>` fails closed as before.
+  A single planned side over the limit is part of the same size-down (no longer a
+  `MARGIN_PLANNED` failure); a warning, an unusable or a negative what-if still fails.
+- **Entries:** `Service.enter` clamps each entry to the market's cap for the whole session,
+  after the risk budget, the open/daily caps and the effective ceiling, before `send()` (which
+  still refuses anything outside 1..60). It applies to both sides and all three attempts. The
+  cap is per session: every arming recomputes it; no cap needed means `None` and no change.
+- **Records:** the preflight report and runtime meta (`preflight_arm`) carry `margin_day_cap`
+  (None or per symbol), `planned_qty`, `capped_qty`, `margin_total_planned`,
+  `margin_total_capped` (and `margin_total`, the total at the sizes that will trade); runtime
+  meta `margin_day_cap` holds the caps per market name. Journal events: `MARGIN_DAY_CAP` at
+  arming (caps, sizes, totals, limit), `MARGIN_DAY_CAP_ZERO` for an unarmed market,
+  `SIZED_DOWN_MARGIN` on each entry the cap reduces (market, side, attempt, planned, qty).
+  The ARMED alert reads e.g. `planned 20 MNQ / 23 MES, margin-capped to 10 / 12 at today's
+  ranges, max 60/60; margin $109,120 of limit $112,703 (uncapped $214,754)`; with no cap it
+  is unchanged (`planned 3 MNQ / 7 MES ... planned margin $44,589 of limit $112,703`).
+- **Calm-range example** (NQ TR 100 / ES TR 20, the 2026-09-28 evening BUY margins MNQ
+  $6,728.37 / MES $3,486.38, limit $112,703.36): planned 20 MNQ + 23 MES = $134,567 + $80,187 =
+  $214,754; factor 0.5248; caps floor(10.50) = **10 MNQ** and floor(12.07) = **12 MES**:
+  $67,284 + $41,837 = **$109,120**, inside the limit. Both markets trade at about half size
+  instead of the session not arming.
+- **Tuesday 2026-09-29 is unaffected:** 3 MNQ / 7 MES plan about $44,589 of $112,703, so no
+  cap. The connect-time reference what-if (10/10, warnings only) is unchanged and never
+  computes a day cap; only the 09:25 arming (or a reconnect after 09:00) does.
+- Tests: `test_margin_day_cap_*` and `test_live_session_arms_after_preflight_and_trades[margin_capped]`
+  in `tests/test_open_breakout.py`.
 
 The bullets below describe the 10-cap state of 2026-09-28 evening and are kept as history
 where they conflict with the amendment above.

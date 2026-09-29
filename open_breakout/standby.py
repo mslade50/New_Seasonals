@@ -198,28 +198,47 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
         report['margin_limit']=limit
     except Exception as exc:
         failures.append(f'ACCOUNT_VALUES:{exc}');limit=float('nan')
-    async def preview(m,side,qty,problems,tag):
-        """One MKT what-if; returns (row, initial margin change or None when unusable)."""
+    async def preview(m,side,qty,problems,tag,within_limit=True):
+        """One MKT what-if; returns (row, initial margin change or None when unusable). Sized previews at
+        the planned basis pass within_limit=False: over the limit there is a size-down, not a failure."""
         key=f'{m.execution.symbol}:{"BUY" if side==1 else "SELL"}'
         try:
             r=await transport.what_if(m,dict(kind='MKT',side=side,qty=qty,tif='DAY',ref='OB:WHATIF'))
             change=float(r.initMarginChange)
             row=dict(qty=qty,init_margin_change=change,maint_margin_change=float(r.maintMarginChange),
                      commission=r.commission,warning=r.warningText or '')
-            if not math.isfinite(change) or change<0 or not change<=limit or r.warningText:
+            if not math.isfinite(change) or change<0 or (within_limit and not change<=limit) or r.warningText:
                 problems.append(f'{tag}:{key}:{change}');return row,None
             return row,change
         except Exception as exc:
             problems.append(f'{tag}:{key}:{exc}');return dict(qty=qty,error=str(exc)),None
+    async def sized_check(qtys,problems,tag,within_limit):
+        """What-if each side at qtys[sym][action]; returns (rows, worse side per market, summed total or None)."""
+        rows={};worst={};complete=True
+        for m in config.markets:
+            sym=m.execution.symbol
+            for side in (1,-1):
+                action='BUY' if side==1 else 'SELL'
+                qty=qtys[sym][action]
+                if qty<1:
+                    rows[f'{sym}:{action}']=dict(qty=0,init_margin_change=0.);worst.setdefault(sym,0.);continue
+                row,change=await preview(m,side,qty,problems,tag,within_limit)
+                rows[f'{sym}:{action}']=row
+                if change is None:complete=False
+                else:worst[sym]=max(worst.get(sym,0.),change)
+        total=sum(worst.values()) if complete and len(worst)==len(config.markets) else None
+        return rows,worst,total
     # Basic check (contract tradeable, no warning, one lot fits): one contract each side, always failing.
-    one={}
+    one={};one_worst={}
     for m in config.markets:
         for side in (1,-1):
-            row,_=await preview(m,side,1,failures,'MARGIN')
+            row,change=await preview(m,side,1,failures,'MARGIN')
             one[f'{m.execution.symbol}:{"BUY" if side==1 else "SELL"}']=row
+            if change is not None:one_worst[m.execution.symbol]=max(one_worst.get(m.execution.symbol,0.),change)
     report['what_if_one_contract']=one
     # Sized check. With the manifest (09:25 arming, or a reconnect after 09:00): the PLANNED sizes that
-    # size_order would send now, and the summed worse side must fit the limit, or arming fails. Without it
+    # size_order would send now; when their summed worse side exceeds the limit, a per-market margin day cap
+    # sizes the session down to fit (owner decision 2026-09-28; it no longer fails the session). Without it
     # (connect at ~08:15, the launcher's read-only preflight): at REFERENCE_WHATIF_CONTRACTS (clamped to the
     # effective cap), as a warning only. The fat-finger cap (60) is not a meaningful size to preview.
     planned=None
@@ -232,32 +251,77 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
     basis='planned' if planned is not None else 'reference'
     problems=failures if basis=='planned' else warnings
     tag='MARGIN_PLANNED' if basis=='planned' else 'MARGIN_AT_REFERENCE'
-    sized={};worst={};complete=True
-    for m in config.markets:
-        sym=m.execution.symbol
-        for side in (1,-1):
-            action='BUY' if side==1 else 'SELL'
-            qty=planned[sym][action] if planned is not None else min(REFERENCE_WHATIF_CONTRACTS,config.max_contracts_for(m))
-            if qty<1:
-                sized[f'{sym}:{action}']=dict(qty=0,init_margin_change=0.);worst.setdefault(sym,0.);continue
-            row,change=await preview(m,side,qty,problems,tag)
-            sized[f'{sym}:{action}']=row
-            if change is None:complete=False
-            else:worst[sym]=max(worst.get(sym,0.),change)
-    total=sum(worst.values()) if complete and len(worst)==len(config.markets) else None
+    if planned is not None:
+        qtys={s:{k:planned[s][k] for k in ('BUY','SELL')} for s in planned}
+    else:
+        qtys={m.execution.symbol:dict.fromkeys(('BUY','SELL'),min(REFERENCE_WHATIF_CONTRACTS,config.max_contracts_for(m)))
+              for m in config.markets}
+    sized,worst,total=await sized_check(qtys,problems,tag,basis!='planned')
     report['what_if_basis']=basis
     report['what_if']=sized
     report['what_if_qty']={m.execution.symbol:{k:sized[f'{m.execution.symbol}:{k}']['qty'] for k in ('BUY','SELL')} for m in config.markets}
     report['max_contracts']={m.execution.symbol:config.max_contracts_for(m) for m in config.markets}
+    report['margin_day_cap']=None
     if planned is not None:
         report['planned']=planned
         report['planned_qty']={s:max(v['BUY'],v['SELL']) for s,v in planned.items()}
+        report['margin_total_planned']=total
     # None when a market's sized what-if was unusable (listed above).
     report['margin_total']=total
     if total is not None and not total<=limit:
-        problems.append(f'{"MARGIN_TOTAL" if basis=="planned" else "MARGIN_TOTAL_AT_REFERENCE"}:{total:.2f}>{limit:.2f}')
+        if basis=='planned':
+            await apply_margin_day_cap(report,worst,one_worst,limit,sized_check,failures)
+        else:
+            warnings.append(f'MARGIN_TOTAL_AT_REFERENCE:{total:.2f}>{limit:.2f}')
     report['ok']=not failures
     return report
+
+
+MARGIN_CAP_MAX_REDUCTIONS = 10
+
+
+def margin_day_caps(planned_qty,worst,one_worst,limit):
+    """Per-market whole-contract caps so the summed worse-side margin fits `limit`. The limit is split in
+    proportion to each market's planned margin, so every market scales by the same factor limit/total, and
+    floored. A market floored to 0 gets 1 if its one-contract what-if fits beside the other markets' capped
+    margin (linear estimate), else 0 (not armed). A market planning 0 needs no cap (None)."""
+    factor=limit/sum(worst.values())
+    caps={s:(min(q,math.floor(q*factor+1e-9)) if q>0 else None) for s,q in planned_qty.items()}
+    est=lambda s:caps[s]*worst[s]/planned_qty[s] if caps[s] else 0.
+    for s,q in planned_qty.items():
+        if caps[s]==0:
+            others=sum(est(o) for o in caps if o!=s)
+            caps[s]=1 if one_worst.get(s,math.inf)+others<=limit else 0
+    return caps
+
+
+async def apply_margin_day_cap(report,worst,one_worst,limit,sized_check,failures):
+    """09:25: size the session down instead of failing it. Caps from margin_day_caps(), then a re-what-if at
+    the capped sizes that must fit; if it does not (nonlinear margins), one contract off one market at a time,
+    alternating, at most MARGIN_CAP_MAX_REDUCTIONS times, else MARGIN_TOTAL fails closed as before."""
+    planned=report['planned'];planned_qty=report['planned_qty']
+    caps=margin_day_caps(planned_qty,worst,one_worst,limit)
+    order=list(planned_qty)
+    reductions=0;turn=0;total=None
+    while True:
+        qtys={s:{k:(planned[s][k] if caps[s] is None else min(planned[s][k],caps[s])) for k in ('BUY','SELL')} for s in order}
+        rows,_,total=await sized_check(qtys,failures,'MARGIN_CAPPED',False)
+        if total is None or total<=limit:
+            break
+        reducible=[s for s in order if caps[s] is not None and caps[s]>1]
+        if not reducible or reductions>=MARGIN_CAP_MAX_REDUCTIONS:
+            failures.append(f'MARGIN_TOTAL:{total:.2f}>{limit:.2f}')
+            break
+        pick=next(order[(turn+i)%len(order)] for i in range(len(order)) if order[(turn+i)%len(order)] in reducible)
+        turn=order.index(pick)+1
+        caps[pick]-=1;reductions+=1
+    report['margin_day_cap']=caps
+    report['margin_day_cap_zero']=sorted(s for s,c in caps.items() if c==0)
+    report['margin_day_cap_reductions']=reductions
+    report['what_if_capped']=rows
+    report['capped_qty']={s:max(v['BUY'],v['SELL']) for s,v in qtys.items()}
+    report['margin_total_capped']=total
+    report['margin_total']=total
 
 
 def planned_sizes(config,manifest,quote,equity):
@@ -284,15 +348,22 @@ def armed_line(config,report,states,prior_tr,score,manifest):
     """ARMED alert: planned contracts at today's ranges (from the 09:25 preflight) and the effective caps."""
     armed=[m for m in config.markets if states[m.name].phase!='SKIPPED']
     skipped={k:s.note for k,s in states.items() if s.phase=='SKIPPED'}
+    day_cap=report.get('margin_day_cap')
     if armed:
         planned=report.get('planned_qty') or {}
         sizes=' / '.join(f'{planned.get(m.execution.symbol,"?")} {m.execution.symbol}' for m in armed)
+        if day_cap:
+            capped=report.get('capped_qty') or {}
+            sizes+=', margin-capped to '+' / '.join(str(capped.get(m.execution.symbol,'?')) for m in armed)
         caps='/'.join(str(config.max_contracts_for(m)) for m in armed)
         head=f"planned {sizes} at today's ranges, max {caps}"
     else:
         head='NO MARKET (all skipped; session runs to 16:01 with no orders)'
     money=lambda x:'n/a' if not isinstance(x,(int,float)) else f'${x:,.0f}'
-    return (f'ARMED LIVE: {head}; planned margin {money(report.get("margin_total"))} of limit {money(report.get("margin_limit"))}; '
+    margin=(f'margin {money(report.get("margin_total"))} of limit {money(report.get("margin_limit"))} '
+            f'(uncapped {money(report.get("margin_total_planned"))})' if day_cap else
+            f'planned margin {money(report.get("margin_total"))} of limit {money(report.get("margin_limit"))}')
+    return (f'ARMED LIVE: {head}; {margin}; '
             f'prior TR {prior_tr}; score {score:.2f}; {range_line(manifest)}'
             +(f'; NOT ARMED {skipped}' if skipped else ''))
 
@@ -492,7 +563,11 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
         runtime.set(f'preflight_{label}',{'ok':report['ok'],'failures':report['failures'],'warnings':report.get('warnings',[]),
                                           'file':name,'other_book':report.get('other_book'),
                                           'what_if_basis':report.get('what_if_basis'),'what_if_qty':report.get('what_if_qty'),
-                                          'margin_total':report.get('margin_total'),'margin_limit':report.get('margin_limit')})
+                                          'margin_total':report.get('margin_total'),'margin_limit':report.get('margin_limit'),
+                                          'margin_day_cap':report.get('margin_day_cap'),'planned_qty':report.get('planned_qty'),
+                                          'capped_qty':report.get('capped_qty'),
+                                          'margin_total_planned':report.get('margin_total_planned'),
+                                          'margin_total_capped':report.get('margin_total_capped')})
     def feed_error(reason):
         runtime.event('FEED_ERROR',{'reason':str(reason)})
         runtime.set('feed_error',str(reason))
@@ -568,7 +643,13 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                     final='HALTED_PREFLIGHT';break
                 ledger=Store(root/'trades.sqlite',config.fingerprint,day)
                 ledger.set('live_ack',ack)
-                service=Service(config,manifest,ledger,transport,clock)
+                # Margin day cap (per session, recomputed at every arming): market name -> whole contracts.
+                day_cap=report.get('margin_day_cap')
+                name_caps={m.name:day_cap.get(m.execution.symbol) for m in config.markets} if day_cap else None
+                runtime.set('margin_day_cap',name_caps)
+                detail={k:report.get(k) for k in ('planned_qty','capped_qty','margin_total_planned','margin_total_capped',
+                                                  'margin_limit','margin_day_cap_reductions')} if day_cap else None
+                service=Service(config,manifest,ledger,transport,clock,margin_day_cap=name_caps,margin_detail=detail)
                 service.notify=alert
                 await service.watchdog()
                 if service.halted:

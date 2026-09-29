@@ -46,7 +46,7 @@ def prior_range_skip(config, item) -> bool:
 OWN_UNKNOWN_ALERT_SECONDS = 30.
 
 class Service:
-    def __init__(self, config, manifest, store, broker, clock=None):
+    def __init__(self, config, manifest, store, broker, clock=None, margin_day_cap=None, margin_detail=None):
         self.config,self.manifest,self.store,self.broker = config,manifest,store,broker
         self.clock = clock or (lambda:datetime.now(timezone.utc))
         self.markets = {m.name:m for m in config.markets}
@@ -77,6 +77,9 @@ class Service:
         if store.orders():
             self.halt('RESTART_REQUIRES_READ_ONLY_RECONCILIATION')
         self._apply_prior_range()
+        # 09:25 margin day cap for this session (market name -> whole contracts); None: no cap was needed.
+        self.margin_day_cap = {k:v for k,v in (margin_day_cap or {}).items() if v is not None}
+        self._apply_margin_day_cap(margin_detail)
         for state in self.states.values(): store.save(state)
         broker.fill_callback = self.fill
         broker.status_callback = self.status
@@ -107,6 +110,22 @@ class Service:
                                                      prior_day_source=item.get('prior_day_source'),
                                                      require_prior_big_win=bool(filt and filt.require_prior_big_win),
                                                      big_win_r=filt.big_win_r if filt else None,reason=s.note))
+            print(f'{name} not armed: {s.note}',flush=True)
+
+    def _apply_margin_day_cap(self, detail):
+        """Journal the arming's margin day cap; a market capped to 0 is not armed (MARGIN_DAY_CAP_ZERO)."""
+        if not self.margin_day_cap:
+            return
+        self.store.set('margin_day_cap',self.margin_day_cap)
+        self.store.event('MARGIN_DAY_CAP',dict(caps=self.margin_day_cap,**(detail or {})))
+        for name,cap in self.margin_day_cap.items():
+            s = self.states[name]
+            if cap>=1 or s.phase=='SKIPPED' or s.qty or s.attempts or s.opening:
+                continue
+            s.phase='SKIPPED'
+            s.long_armed=s.short_armed=False
+            s.note='MARGIN_DAY_CAP_ZERO: one contract does not fit the margin limit beside the other market'
+            self.store.event('MARGIN_DAY_CAP_ZERO',dict(market=name,reason=s.note))
             print(f'{name} not armed: {s.note}',flush=True)
 
     def halt(self, reason):
@@ -358,9 +377,18 @@ class Service:
                         s.phase='FLAT';self.store.save(s);return
                     self.store.event('SIZED_DOWN_RISK_CAP',{'market':s.market,'planned':plan['qty'],'qty':fit,'room':room})
                     plan = {**plan,'qty':fit,'risk':fit*plan['per_contract']}
+                # Margin day cap from the 09:25 preflight: a whole-session clamp after budget and risk caps.
+                cap = self.margin_day_cap.get(s.market)
+                if cap is not None and plan['qty']>cap:
+                    if cap<1:
+                        self.store.event('SKIP_MARGIN_DAY_CAP',{'market':s.market,'planned':plan['qty']})
+                        s.phase='FLAT';self.store.save(s);return
+                    self.store.event('SIZED_DOWN_MARGIN',{'market':s.market,'side':side,'attempt':s.attempts+1,
+                                                          'planned':plan['qty'],'qty':cap,'margin_day_cap':cap})
+                    plan = {**plan,'qty':cap,'risk':cap*plan['per_contract']}
                 if self.config.mode!='live':
                     # Live margin is checked read-only at connect (reference size, warning) and at the 09:25 arming
-                    # preflight (at the planned sizes, failing); no per-entry what-if in live.
+                    # preflight (planned sizes; over the limit a margin day cap sizes down); no per-entry what-if in live.
                     await asyncio.wait_for(self.broker.check_margin(m,plan,equity),10.)
                 # Revalidate after asynchronous account/margin checks. Never chase a stale signal.
                 try:self.fresh_quote(s.market)

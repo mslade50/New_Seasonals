@@ -1240,15 +1240,19 @@ def test_preflight_at_arming_uses_planned_sizes_and_fails_only_above_limit(tmp_p
         assert r['margin_total']==pytest.approx(3*6728.37+7*3486.375)
         assert sorted(seen)==sorted([(s,d,q) for s,q in (('MNQ',3),('MES',7)) for d in (1,-1)]
                                     +[(s,d,1) for s in ('MNQ','MES') for d in (1,-1)])
-        # $11k per contract: 33k + 77k = 110k > 100k, each market alone fits: MARGIN_TOTAL fails arming.
+        assert r['margin_day_cap'] is None and 'capped_qty' not in r and r['margin_total_planned']==r['margin_total']
+        # $11k per contract: 33k + 77k = 110k > 100k. Since 2026-09-28 night this sizes down (margin day cap)
+        # instead of failing: factor 100/110, floor(3 x .909)=2 MNQ, floor(7 x .909)=6 MES -> 22k + 66k = 88k.
         heavy=await preflight(FakePreflight(live,[],[],margin_log([],per=11000.)),manifest=m,wait_seconds=0)
-        assert not heavy['ok'] and heavy['failures']==['MARGIN_TOTAL:110000.00>100000.00']
-        # $9k per contract: planned 27k + 63k = 90k fits, although the cap (180k) would not.
+        assert heavy['ok'] and heavy['failures']==[] and heavy['margin_day_cap']=={'MNQ':2,'MES':6}
+        assert heavy['margin_total_planned']==pytest.approx(110000.) and heavy['margin_total']==pytest.approx(88000.)
+        # $9k per contract: planned 27k + 63k = 90k fits, although the cap (180k) would not: no day cap.
         fits=await preflight(FakePreflight(live,[],[],margin_log([],per=9000.)),manifest=m,wait_seconds=0)
-        assert fits['ok'] and fits['margin_total']==pytest.approx(90000.)
-        # A planned side above the limit on its own fails too.
+        assert fits['ok'] and fits['margin_total']==pytest.approx(90000.) and fits['margin_day_cap'] is None
+        # A planned side above the limit on its own (MES 7 x 15k = 105k) is sized down too, not failed:
+        # 45k + 105k = 150k, factor 2/3 -> 2 MNQ / 4 MES = 90k.
         one=await preflight(FakePreflight(live,[],[],margin_log([],per=15000.)),manifest=m,wait_seconds=0)
-        assert not one['ok'] and 'MARGIN_PLANNED:MES:BUY:105000.0' in one['failures']
+        assert one['ok'] and one['margin_day_cap']=={'MNQ':2,'MES':4} and one['margin_total']==pytest.approx(90000.)
         # A market the prior-range filter does not arm plans zero and is not previewed at size.
         skip=tuesday_manifest(live,skip_prior_range=True,prior_range_status='OK')
         seen.clear()
@@ -1296,6 +1300,141 @@ def test_armed_line_reports_planned_sizes_and_caps(tmp_path,monkeypatch):
     none={k:NS(phase='SKIPPED',note='x') for k in ('NQ','ES')}
     assert 'NO MARKET' in armed_line(live,report,none,{},76.8,m)
 
+# ---- Margin day cap (owner decision 2026-09-28 night: size down at 09:25 instead of failing) ----
+
+LIVE_LIMIT=112703.36 # 20% of the 2026-09-28 evening ExcessLiquidity
+
+def limited(fake,limit):
+    async def values():return {'NetLiquidation':10*limit,'ExcessLiquidity':limit/.2}
+    fake.account_values=values;return fake
+
+def test_margin_day_cap_calm_range_sizes_both_markets_down_proportionally(tmp_path,monkeypatch):
+    monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
+    from types import SimpleNamespace as NS
+    from open_breakout.standby import preflight, armed_line
+    live=load_raw(tmp_path,normal_raw())
+    m=tuesday_manifest(live,100.,20.)
+    seen=[]
+    async def run():
+        r=await preflight(limited(FakePreflight(live,[],[],margin_log(seen)),LIVE_LIMIT),manifest=m,wait_seconds=0)
+        assert r['ok'],r['failures']
+        assert r['margin_limit']==pytest.approx(LIVE_LIMIT) and r['planned_qty']=={'MNQ':20,'MES':23}
+        # 20 x 6,728.37 + 23 x 3,486.375 = 214,754.02; factor 112,703.36 / 214,754.02 = 0.5248:
+        # floor(20 x .5248) = 10 MNQ, floor(23 x .5248) = 12 MES -> 67,283.70 + 41,836.50 = 109,120.20.
+        assert r['margin_total_planned']==pytest.approx(214754.02)
+        assert r['margin_day_cap']=={'MNQ':10,'MES':12} and r['capped_qty']=={'MNQ':10,'MES':12}
+        assert r['margin_total']==r['margin_total_capped']==pytest.approx(109120.2)
+        assert r['margin_day_cap_zero']==[] and r['margin_day_cap_reductions']==0
+        # Planned sizes stay reported unchanged; the capped sizes were re-what-iffed, both sides.
+        assert r['what_if_qty']=={'MNQ':{'BUY':20,'SELL':20},'MES':{'BUY':23,'SELL':23}}
+        assert {(s,d,q) for s,q in (('MNQ',10),('MES',12)) for d in (1,-1)}<=set(seen)
+        both={'NQ':NS(phase='FLAT',note=''),'ES':NS(phase='FLAT',note='')}
+        line=armed_line(live,r,both,{'NQ':100.,'ES':20.},76.8,m)
+        assert line.startswith("ARMED LIVE: planned 20 MNQ / 23 MES, margin-capped to 10 / 12 at today's ranges, max 60/60; "
+                               "margin $109,120 of limit $112,703 (uncapped $214,754);")
+    asyncio.run(run())
+
+def test_margin_day_cap_zero_when_one_contract_does_not_fit(tmp_path,monkeypatch):
+    """NQ TR 2000 plans 1 MNQ at $95k; ES plans 7 MES at $3k. 116k > 100k: MES 6 (18k), and 1 MNQ beside it
+    (113k) does not fit, so MNQ is capped to 0 and not armed while MES trades 6."""
+    monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
+    from open_breakout.standby import preflight, armed_line
+    live=load_raw(tmp_path,normal_raw())
+    m=tuesday_manifest(live,2000.,79.75)
+    per={'MNQ':95000.,'MES':3000.}
+    async def run():
+        r=await preflight(FakePreflight(live,[],[],lambda mk,b:b['qty']*per[mk.execution.symbol]),manifest=m,wait_seconds=0)
+        assert r['ok'],r['failures']
+        assert r['planned_qty']=={'MNQ':1,'MES':7} and r['margin_day_cap']=={'MNQ':0,'MES':6}
+        assert r['margin_day_cap_zero']==['MNQ'] and r['margin_total']==pytest.approx(18000.)
+        assert r['what_if_capped']['MNQ:BUY']['qty']==0
+        # The service does not arm MNQ; MES trades at the cap.
+        now=[at('09:30:00')]
+        b=SimBroker(live,lambda:now[0])
+        store=Store(tmp_path/'s.sqlite',live.fingerprint,DAY)
+        service=Service(live,m,store,b,lambda:now[0],margin_day_cap={'NQ':0,'ES':6},margin_detail={'margin_limit':1e5})
+        try:
+            assert service.states['NQ'].phase=='SKIPPED' and service.states['NQ'].note.startswith('MARGIN_DAY_CAP_ZERO')
+            for market,base in [('NQ',25000),('ES',6000)]:
+                await tick(service,b,now,base,'09:30:00',market)
+            for market,base in [('NQ',25000),('ES',6000)]:
+                await tick(service,b,now,base+600 if market=='NQ' else base+30,'09:30:01',market)
+            entries={o['market'].name:o['body']['qty'] for o in b.orders.values() if o['body']['kind']=='LMT'}
+            assert entries=={'ES':6}
+            ev=events(store)
+            assert [e['body']['market'] for e in ev if e['kind']=='MARGIN_DAY_CAP_ZERO']==['NQ']
+            cap=[e['body'] for e in ev if e['kind']=='MARGIN_DAY_CAP']
+            assert len(cap)==1 and cap[0]['caps']=={'NQ':0,'ES':6} and cap[0]['margin_limit']==1e5
+            assert [(e['body']['market'],e['body']['planned'],e['body']['qty']) for e in ev if e['kind']=='SIZED_DOWN_MARGIN']==[('ES',7,6)]
+            line=armed_line(live,r,service.states,{},76.8,m)
+            assert "planned 7 MES, margin-capped to 6 at today's ranges, max 60;" in line and 'NOT ARMED' in line and 'MARGIN_DAY_CAP_ZERO' in line
+        finally:store.close()
+    asyncio.run(run())
+
+def test_margin_day_cap_iterative_reduction_and_fail_closed(tmp_path,monkeypatch):
+    monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
+    from open_breakout.standby import preflight, MARGIN_CAP_MAX_REDUCTIONS
+    assert MARGIN_CAP_MAX_REDUCTIONS==10
+    live=load_raw(tmp_path,normal_raw())
+    m=tuesday_manifest(live,100.,20.)
+    def surcharge(extra,at_least,at_most=99):
+        return lambda mk,b:b['qty']*IB_MARGIN[(mk.execution.symbol,b['side'])]+(extra if at_least<=b['qty']<=at_most else 0.)
+    async def run():
+        # Nonlinear: +$15k per market at 5+ contracts. Planned 244,754 -> caps 8 / 9 (linear estimate), which
+        # re-what-if at 115,204 > 100k; one contract off alternately: MNQ 7 (108,476), MES 8 (104,990), MNQ 6
+        # (98,261) fits after three reductions.
+        r=await preflight(FakePreflight(live,[],[],surcharge(15000.,5)),manifest=m,wait_seconds=0)
+        assert r['ok'],r['failures']
+        assert r['margin_day_cap']=={'MNQ':6,'MES':8} and r['margin_day_cap_reductions']==3
+        assert r['margin_total']==pytest.approx(6*6728.37+8*3486.375+30000.)
+        # $60k per market at any size: even 1 + 1 (133k) never fits; reductions stop and arming fails closed.
+        bad=await preflight(FakePreflight(live,[],[],surcharge(60000.,1)),manifest=m,wait_seconds=0)
+        assert not bad['ok'] and bad['margin_day_cap_reductions']<=MARGIN_CAP_MAX_REDUCTIONS
+        assert [f for f in bad['failures'] if f.startswith('MARGIN_TOTAL:')]==[f'MARGIN_TOTAL:{bad["margin_total"]:.2f}>100000.00']
+        # +$88k per market at 3-15 contracts only (planned 20/23 is linear): caps 9 / 10 re-what-if far over,
+        # and ten alternate reductions reach 4 / 5, still over: the limit fails closed although 2 / 2 would fit.
+        steep=await preflight(FakePreflight(live,[],[],surcharge(88000.,3,15)),manifest=m,wait_seconds=0)
+        assert steep['margin_day_cap']=={'MNQ':4,'MES':5}
+        assert not steep['ok'] and steep['margin_day_cap_reductions']==MARGIN_CAP_MAX_REDUCTIONS
+        assert any(f.startswith('MARGIN_TOTAL:') for f in steep['failures'])
+    asyncio.run(run())
+
+def test_margin_day_cap_clamps_entries_both_sides_and_attempts(config,tmp_path):
+    async def run():
+        now=[at('09:30:00')]
+        b=SimBroker(config,lambda:now[0])
+        store=Store(tmp_path/'session.sqlite',config.fingerprint,DAY)
+        service=Service(config,manifest(config),store,b,lambda:now[0],margin_day_cap={'NQ':2,'ES':None})
+        try:
+            assert service.margin_day_cap=={'NQ':2}
+            await tick(service,b,now,20000,'09:30:00')
+            await tick(service,b,now,20010,'09:30:01') # long, planned 6 -> 2
+            s=service.states['NQ'];assert s.side==1 and s.qty==2 and s.planned_risk==pytest.approx(2*23.7)
+            await tick(service,b,now,19999,'09:30:02');await service.watchdog() # stopped
+            assert s.qty==0
+            await tick(service,b,now,19990,'09:30:03') # short, second attempt, planned 6 -> 2
+            assert s.side==-1 and s.qty==2 and s.attempts==2
+            entries=[o['body'] for o in b.orders.values() if o['body']['kind']=='LMT']
+            assert [(e['side'],e['qty']) for e in entries]==[(1,2),(-1,2)]
+            down=[e['body'] for e in events(store) if e['kind']=='SIZED_DOWN_MARGIN']
+            assert [(d['side'],d['attempt'],d['planned'],d['qty']) for d in down]==[(1,1,6,2),(-1,2,6,2)]
+            assert [e['body']['caps'] for e in events(store) if e['kind']=='MARGIN_DAY_CAP']==[{'NQ':2}]
+            assert store.get('margin_day_cap')=={'NQ':2} and not service.halted
+        finally:store.close()
+    asyncio.run(run())
+
+def test_no_margin_day_cap_leaves_sizing_and_journal_unchanged(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        try:
+            assert service.margin_day_cap=={}
+            await tick(service,b,now,20000,'09:30:00');await tick(service,b,now,20010,'09:30:01')
+            assert service.states['NQ'].qty==6
+            assert not [e for e in events(store) if e['kind'].startswith(('MARGIN_DAY_CAP','SIZED_DOWN_MARGIN'))]
+            assert store.get('margin_day_cap') is None
+        finally:store.close()
+    asyncio.run(run())
+
 def test_live_send_refuses_above_effective_cap(tmp_path,monkeypatch):
     monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
     async def run():
@@ -1315,13 +1454,13 @@ def test_live_send_refuses_above_effective_cap(tmp_path,monkeypatch):
             assert len(sent)==1
     asyncio.run(run())
 
-@pytest.mark.parametrize('sizing',['one_lot','normal'])
+@pytest.mark.parametrize('sizing',['one_lot','normal','margin_capped'])
 def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,capsys,sizing):
     import sqlite3
     from types import SimpleNamespace as NS
     from open_breakout import standby
     from open_breakout.__main__ import main_async
-    if sizing=='normal':
+    if sizing in {'normal','margin_capped'}:
         live=load_raw(tmp_path,normal_raw()) # overwrites live.json with the 2026-09-29 shape
     clock=[at('08:59:59')]
     class ClockDateTime(datetime):
@@ -1349,7 +1488,10 @@ def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,
         async def history(self):
             return {m.name:pd.concat([minutes('2026-09-22'),minutes('2026-09-23')]) for m in live.markets}
         async def account_values(self):return {'NetLiquidation':600000.,'ExcessLiquidity':500000.}
-        async def what_if(self,m,body):return NS(initMarginChange='3000',maintMarginChange='2000',commission=0.,warningText='')
+        async def what_if(self,m,body):
+            # margin_capped: $3,000 per contract, so the planned 47 + 13 (180k) exceeds the 100k limit.
+            margin=3000*body['qty'] if sizing=='margin_capped' else 3000
+            return NS(initMarginChange=str(margin),maintMarginChange='2000',commission=0.,warningText='')
         def send(self,oid,market,body):
             self.config.authorize(self.session)
             self.ib.client.placeOrder(oid,None,NS(whatIf=False))
@@ -1398,6 +1540,22 @@ def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,
         assert meta['day_r']['NQ']['trades']==1 and meta['day_r']['ES']['r'] is None
         assert len(armed)==1 and "planned 1 MNQ / 0 MES at today's ranges, max 1/1" in armed[0]
         assert meta['preflight_connect']['what_if_basis']=='reference' and meta['preflight_arm']['what_if_basis']=='planned'
+    elif sizing=='margin_capped':
+        # Planned 47 / 13 at $3k each = 180k > 100k: factor 5/9 -> 26 MNQ / 7 MES = 99k; the session arms and
+        # both entries are clamped to the day cap (stop and timed exit follow the fill).
+        arm=meta['preflight_arm']
+        assert arm['ok'] and arm['margin_day_cap']=={'MNQ':26,'MES':7} and arm['capped_qty']=={'MNQ':26,'MES':7}
+        assert arm['planned_qty']=={'MNQ':47,'MES':13}
+        assert arm['margin_total_planned']==pytest.approx(180000.) and arm['margin_total']==pytest.approx(99000.)
+        assert meta['margin_day_cap']=={'NQ':26,'ES':7}
+        assert sorted((b['ref'].split('|')[0],b['qty']) for b in entries)==[('MES',7),('MNQ',26)]
+        assert sorted(b['qty'] for role,b in orders if role in {'STOP','TIME'})==[7,7,26,26]
+        assert len(armed)==1 and ("planned 47 MNQ / 13 MES, margin-capped to 26 / 7 at today's ranges, max 60/60; "
+                                  "margin $99,000 of limit $100,000 (uncapped $180,000)") in armed[0]
+        with sqlite3.connect(run/'trades.sqlite') as db:
+            ev=[(k,json.loads(b)) for k,b in db.execute('SELECT kind,body FROM events ORDER BY seq')]
+        assert [b['caps'] for k,b in ev if k=='MARGIN_DAY_CAP']==[{'NQ':26,'ES':7}]
+        assert sorted((b['market'],b['planned'],b['qty']) for k,b in ev if k=='SIZED_DOWN_MARGIN')==[('ES',13,7),('NQ',47,26)]
     else:
         # $750k basis, prior TR 40 (stop 10 pts): MNQ 1125/23.70 -> 47 and MES 750/56.70 -> 13, unclamped (no
         # per-market cap since 2026-09-28 late; 60 is the fat-finger ceiling). 1,113.90 + 737.10 fits the 25bp
@@ -1411,6 +1569,8 @@ def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,
         assert len(armed)==1 and "planned 47 MNQ / 13 MES at today's ranges, max 60/60" in armed[0]
         assert meta['preflight_arm']['what_if_qty']=={'MNQ':{'BUY':47,'SELL':47},'MES':{'BUY':13,'SELL':13}}
         assert meta['preflight_arm']['margin_total']==pytest.approx(6000.)
+        assert meta['preflight_arm']['margin_day_cap'] is None and meta['margin_day_cap'] is None
+        assert "planned 47 MNQ / 13 MES at today's ranges, max 60/60; planned margin $6,000 of limit $100,000;" in armed[0]
 
 
 # ---- Adversarial review fixes ----
