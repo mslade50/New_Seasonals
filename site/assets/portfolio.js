@@ -54,6 +54,11 @@ const S = {
   // ramp:  boost at 0 -> 1.0 at thr, then linear down to floor at 100.
   // This generic non-OVS lab does NOT reproduce production frag_risk_bands.
   frag: { dial: "off", ma: 10, thr: 50, floor: 0.5, boost: 1.0, shape: "step" },
+  // Intraday book (intraday_daily.json, research replay, daily P&L only).
+  // null = payload absent: the page is the swing ledger exactly as before.
+  intraday: null,
+  book: "swing",          // "combined" | "swing" | "intraday" (Book scope control)
+  corrCache: null,        // per-strategy daily series on one calendar for correlations
 };
 const MID_EXEMPT = new Set(["Overbot Vol Spike"]);
 const FRAG_EXEMPT = MID_EXEMPT;   // research lab convention: leave OVS at native size
@@ -193,14 +198,23 @@ function liveOnlyStrategiesHtml(catalog) {
     return `${n} fill${n === 1 ? "" : "s"}` + (live.first_fill ? ` since ${fmt.date(live.first_fill)}` : "")
       + (symbols ? ` (${symbols})` : "");
   };
+  // strategies that the intraday book replays link to that view on this page
+  const inBook = new Set(intradayRoster().filter(s => S.intraday.series[s.key]).map(s => s.id));
+  const bookLink = s => inBook.has(s.id)
+    ? ' <a class="cap" href="index.html?scope=intraday">(in the Intraday book)</a>' : "";
   const body = rows.map(s => `<tr>
-    <td class="l"><a href="strategies.html#${encodeURIComponent(anchor(s.id))}">${esc(s.name || s.id)}</a></td>
+    <td class="l"><a href="strategies.html#${encodeURIComponent(anchor(s.id))}">${esc(s.name || s.id)}</a>${bookLink(s)}</td>
     <td class="l">${esc(s.family)}</td>
     <td class="l">${esc(String(s.status || "").toUpperCase())}</td>
     <td class="l">${esc(fills(s.live))}</td></tr>`).join("");
+  const lead = rows.some(s => inBook.has(s.id))
+    ? `These trade live but are not in the ledger replay. The ones marked "in the Intraday book" appear
+      in the Intraday and Combined views above from a research replay; the rest are not on this page.
+      Full definitions and stats are on the Strategies tab.`
+    : `These trade live but are not in the ledger replay, so none of the views on this page
+      include them. Full definitions and stats are on the Strategies tab.`;
   return `<div class="card" style="margin-top:14px"><b>Live-only strategies (no ledger replay)</b>
-    <div class="cap">These trade live but are not in the ledger replay, so none of the views on this page
-      include them. Full definitions and stats are on the Strategies tab.</div>
+    <div class="cap">${lead}</div>
     <div class="tblwrap"><table class="tbl"><thead><tr><th class="l">Strategy</th><th class="l">Family</th>
       <th class="l">Status</th><th class="l">Live fills</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
@@ -224,7 +238,11 @@ async function init() {
       const base = BOOK_MODE === "overlay_free" ? "data/overlay_free/" : "data/";
       const maybe = (name, path) => flags[name]
         ? fetchSitePayload(meta, path || `${base}${name}.json`) : null;
-      const [trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm, olab] =
+      // Intraday book is optional and production-only; a failed fetch just
+      // leaves the page as the swing ledger.
+      const intraP = BOOK_MODE === "production" && flags.intraday_daily
+        ? fetchSitePayload(meta, "data/intraday_daily.json").catch(() => null) : null;
+      const [trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm, olab, intra] =
         await Promise.all([
           fetchSitePayload(meta, `${base}trades.json`),
           maybe("strategy_daily"),
@@ -239,10 +257,11 @@ async function init() {
           maybe("ext_lab"),
           maybe("trade_mtm"),
           maybe("overlay_lab"),
+          intraP,
         ]);
-      return { bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm, olab };
+      return { bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm, olab, intra };
     });
-    const { meta, bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm, olab } = snapshot;
+    const { meta, bookMeta, trades, sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm, olab, intra } = snapshot;
     const health = meta.freshness;
     S.meta = bookMeta;
     S.trades = rowsFromColumnar(trades);
@@ -284,7 +303,9 @@ async function init() {
       S.midMask = new Uint8Array(sd.dates.length);
       sd.dates.forEach((d, i) => { if (isMidYearStr(d)) S.midMask[i] = 1; });
     }
+    setupIntraday(intra);
     buildPortfolioMode(bookMeta);
+    buildBookScope();
     buildOverlayLab();
     setAsof(`${BOOK_MODE === "overlay_free" ? "overlay-free" : "production"} ledger thru ` +
             `${bookMeta.ledger_last_signal} · built ${meta.built_at}`);
@@ -349,6 +370,289 @@ function buildPortfolioMode(bookMeta) {
   document.querySelectorAll("[data-overlay-only]").forEach(el => {
     el.style.display = isOverlayFree ? "" : "none";
   });
+}
+
+/* ================= intraday book (Book scope control) =================
+   intraday_daily.json has the strategy_daily shape (dates, series keyed
+   "Name||Intraday", flat $750k dollars) but daily P&L only: no trades, R,
+   direction, ticker or hold. Swing + intraday combine day by day over the
+   union of dates; a missing day counts 0 for the side without data. With no
+   payload S.intraday stays null and every path below is skipped. */
+const BOOK_SCOPES = [["combined", "Combined"], ["swing", "Swing"], ["intraday", "Intraday"]];
+const NA_TRADE = "Not available for the intraday book: the replay carries daily P&amp;L only, " +
+  "no per-trade R, entry date or hold time.";
+
+function setupIntraday(payload) {
+  S.intraday = null;
+  S.book = "swing";
+  S.corrCache = null;
+  if (!payload || !Array.isArray(payload.dates) || !payload.series ||
+      !Array.isArray(payload.strategies) || !payload.strategies.length) return false;
+  const n = payload.dates.length;
+  for (const k of Object.keys(payload.series))
+    if (!Array.isArray(payload.series[k]) || payload.series[k].length !== n) return false;
+  S.intraday = payload;
+  const q = /(?:^|[?&])scope=(combined|swing|intraday)(?:&|$)/.exec(BOOK_QUERY);
+  S.book = q ? q[1] : "combined";
+  return true;
+}
+
+function intradayRoster() { return S.intraday ? S.intraday.strategies : []; }
+function intradayNames() {
+  return intradayRoster().filter(s => S.intraday.series[s.key]).map(s => s.name);
+}
+
+/* The replay has no tier, direction or ticker, so those filters exclude it. */
+function intradayFiltered() {
+  return S.f.tier === "All" && S.f.dir === "All" && !tickerTokens();
+}
+
+function intradayWindow(dates, ignoreDates) {
+  let i0 = 0, i1 = dates.length - 1;
+  if (!ignoreDates && S.f.from) i0 = lowerBound(dates, S.f.from);
+  if (!ignoreDates && S.f.to) i1 = upperBound(dates, S.f.to) - 1;
+  return [i0, i1];
+}
+
+/* intraday daily pnl for the current strategy/date filters. Leverage and the
+   per-strategy dial apply; the midterm scalar and fragility lab are swing-only. */
+function intradaySeries(ignoreDates) {
+  const dates = S.intraday.dates;
+  const empty = { dates: [], pnl: [], exact: true };
+  if (!intradayFiltered() || !dates.length) return empty;
+  const [i0, i1] = intradayWindow(dates, ignoreDates);
+  if (i1 < i0) return empty;
+  const pnl = new Float64Array(i1 - i0 + 1);
+  for (const s of intradayRoster()) {
+    const arr = S.intraday.series[s.key];
+    if (!arr || !S.f.strategies.has(s.name)) continue;
+    const m = multFor(s.name);
+    if (m === 0) continue;
+    for (let i = i0; i <= i1; i++) pnl[i - i0] += arr[i] * m;
+  }
+  return { dates: dates.slice(i0, i1 + 1), pnl: Array.from(pnl), exact: true };
+}
+
+/* day-by-day sum over the union of two sorted date series */
+function mergeSeries(a, b) {
+  if (!b.dates.length) return a;
+  if (!a.dates.length) return b;
+  const dates = [], pnl = [];
+  let i = 0, j = 0;
+  const na = a.dates.length, nb = b.dates.length;
+  while (i < na || j < nb) {
+    if (j >= nb || (i < na && a.dates[i] < b.dates[j])) { dates.push(a.dates[i]); pnl.push(a.pnl[i++]); }
+    else if (i >= na || b.dates[j] < a.dates[i]) { dates.push(b.dates[j]); pnl.push(b.pnl[j++]); }
+    else { dates.push(a.dates[i]); pnl.push(a.pnl[i++] + b.pnl[j++]); }
+  }
+  return { dates, pnl, exact: a.exact };
+}
+
+function bookTrades(ignoreDates) {
+  return S.intraday && S.book === "intraday" ? [] : filteredTrades(ignoreDates);
+}
+
+function bookSeries(trades, ignoreDates) {
+  if (!S.intraday || S.book === "swing") return dailySeries(trades, ignoreDates);
+  const intra = intradaySeries(ignoreDates);
+  if (S.book === "intraday") return intra;
+  return mergeSeries(dailySeries(trades, ignoreDates), intra);
+}
+
+function buildBookScope() {
+  const host = document.getElementById("bookScope");
+  const note = document.getElementById("bookScopeNote");
+  if (!host || !S.intraday) return;
+  host.style.display = "";
+  if (note) note.style.display = "";
+  host.innerHTML = "<label>Book scope</label>";
+  const seg = document.createElement("span");
+  seg.className = "seg";
+  for (const [val, label] of BOOK_SCOPES) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.classList.toggle("on", val === S.book);
+    b.addEventListener("click", () => {
+      seg.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+      b.classList.add("on");
+      setBook(val);
+    });
+    seg.appendChild(b);
+  }
+  host.appendChild(seg);
+  renderBookNote();
+}
+
+function setBook(val) {
+  if (!S.intraday || !BOOK_SCOPES.some(([v]) => v === val)) return false;
+  S.book = val;
+  apply();
+  renderCorrelation();
+  return true;
+}
+
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderBookNote() {
+  const note = document.getElementById("bookScopeNote");
+  if (!note || !S.intraday) return;
+  const P = S.intraday;
+  const starts = intradayRoster().map(s => {
+    if (!P.series[s.key]) return `${escHtml(s.name)} has no replay series yet` +
+      (s.notes ? ` (${escHtml(s.notes)})` : "");
+    const from = (Array.isArray(s.span) && s.span[0]) || P.dates[0];
+    return `${escHtml(s.name)} from ${escHtml(from)}`;
+  });
+  const swingStart = (S.dateIdx && S.dateIdx.length) ? S.dateIdx[0] : (S.meta && S.meta.date_min);
+  const parts = [
+    `Intraday series are a ${escHtml(P.label || "research replay at live sizing")}: daily P&amp;L only, ` +
+      "dollars on the same flat $750k basis as the swing book.",
+    `Combined adds the two books day by day. It starts at the first swing date (${escHtml(swingStart)}); ` +
+      `intraday contributes from its own start (${starts.join("; ")}) and counts 0 before it.`,
+    "Trade-based views (trade KPIs, R charts, trade log, stop fills) and the fixed full-book sections " +
+      "further down cover swing trades only.",
+  ];
+  if (!intradayFiltered())
+    parts.push("<b>The tier, direction or ticker filter is excluding the intraday book</b> " +
+      "(the replay has no per-trade rows).");
+  note.innerHTML = '<span class="badge warn">RESEARCH REPLAY</span> ' + parts.join(" ");
+}
+
+/* one calendar (swing dates + intraday dates) with every strategy's daily
+   pnl, summed across tiers, plus both book totals. Each series carries the
+   span it is defined on so a pair correlates only over its overlap. */
+function corrCalendar() {
+  if (S.corrCache) return S.corrCache;
+  const P = S.intraday;
+  const sd = S.sd;
+  const dates = [...new Set([...(sd ? sd.dates : []), ...P.dates])].sort();
+  const idx = new Map(dates.map((d, i) => [d, i]));
+  const series = new Map();
+  const put = (name, srcDates, arr, lo, hi) => {
+    let rec = series.get(name);
+    if (!rec) { rec = { vals: new Float64Array(dates.length), lo, hi }; series.set(name, rec); }
+    for (let i = 0; i < srcDates.length; i++) rec.vals[idx.get(srcDates[i])] += Number(arr[i] || 0);
+  };
+  if (sd && sd.dates.length) {
+    const lo = sd.dates[0], hi = sd.dates[sd.dates.length - 1];
+    for (const [k, arr] of Object.entries(sd.series)) put(k.split("||")[0], sd.dates, arr, lo, hi);
+    if (sd.total_flat) put("book:swing", sd.dates, sd.total_flat, lo, hi);
+  }
+  if (P.dates.length) {
+    const lo0 = P.dates[0], hi0 = P.dates[P.dates.length - 1];
+    for (const s of intradayRoster()) {
+      const arr = P.series[s.key];
+      if (!arr) continue;
+      const lo = (Array.isArray(s.span) && s.span[0]) || lo0;
+      const hi = (Array.isArray(s.span) && s.span[1]) || hi0;
+      put(s.name, P.dates, arr, lo, hi);
+    }
+    put("book:intraday", P.dates, P.total_flat || [], lo0, hi0);
+  }
+  S.corrCache = { dates, series };
+  return S.corrCache;
+}
+
+/* Pearson correlation of two daily series over their overlapping span,
+   zero days included (same calendar method as the ledger build's matrix). */
+function pairCorr(a, b) {
+  const C = corrCalendar();
+  const A = C.series.get(a), B = C.series.get(b);
+  if (!A || !B) return null;
+  const lo = A.lo > B.lo ? A.lo : B.lo, hi = A.hi < B.hi ? A.hi : B.hi;
+  if (lo > hi) return null;
+  const i0 = lowerBound(C.dates, lo), i1 = upperBound(C.dates, hi);
+  const n = i1 - i0;
+  if (n < 3) return null;
+  let sa = 0, sb = 0;
+  for (let i = i0; i < i1; i++) { sa += A.vals[i]; sb += B.vals[i]; }
+  const ma = sa / n, mb = sb / n;
+  let cov = 0, va = 0, vb = 0;
+  for (let i = i0; i < i1; i++) {
+    const da = A.vals[i] - ma, db = B.vals[i] - mb;
+    cov += da * db; va += da * da; vb += db * db;
+  }
+  if (!va || !vb) return null;
+  return { r: cov / Math.sqrt(va * vb), n, lo, hi };
+}
+
+/* correlation payload for the Combined / Intraday views: swing pairs from the
+   ledger build's matrix, intraday rows and columns computed here. */
+function extendedCorr(book) {
+  const intra = intradayNames();
+  const swingNames = S.corr ? S.corr.strategies : [];
+  const names = book === "intraday" ? intra : [...swingNames, ...intra];
+  if (names.length < 2) return null;
+  const swingIdx = new Map(swingNames.map((s, i) => [s, i]));
+  const matrix = names.map((a, i) => names.map((b, j) => {
+    if (i === j) return 1;
+    if (swingIdx.has(a) && swingIdx.has(b)) return S.corr.matrix[swingIdx.get(a)][swingIdx.get(b)];
+    const p = pairCorr(a, b);
+    return p ? +p.r.toFixed(3) : null;
+  }));
+  const diversification = names.map((s, i) => {
+    let sum = 0, n = 0, mx = null, mw = null;
+    matrix[i].forEach((v, j) => {
+      if (j === i || v == null) return;
+      sum += v; n++;
+      if (mx == null || v > mx) { mx = v; mw = names[j]; }
+    });
+    return { strategy: s, avg_corr: n ? +(sum / n).toFixed(3) : null, max_corr: mx, max_with: mw };
+  }).sort((a, b) => (a.avg_corr == null ? 9 : a.avg_corr) - (b.avg_corr == null ? 9 : b.avg_corr));
+  return { strategies: names, matrix, diversification };
+}
+
+function bookCorrSentence() {
+  const p = pairCorr("book:swing", "book:intraday");
+  if (!p) return "Swing vs intraday, book level: not available (the two books share no daily P&L history).";
+  const a = Math.abs(p.r);
+  const words = a < 0.1 ? "close to uncorrelated"
+    : `${a < 0.3 ? "weakly" : a < 0.6 ? "moderately" : "strongly"}${p.r < 0 ? " negatively" : ""} correlated`;
+  return `Swing vs intraday, book level: daily P&L correlation ${p.r.toFixed(2)}, ${words}, ` +
+    `over ${p.lo} to ${p.hi} (${p.n.toLocaleString()} sessions, both full books at native size). ` +
+    "Intraday rows and columns in the matrix use the same zero-days-included method over each " +
+    "pair's overlapping span; swing pairs are the ledger build's own matrix.";
+}
+
+function naOn(el, msg) {
+  if (!el) return;
+  Plotly.purge(el);
+  el.innerHTML = `<p class="cap">${msg}</p>`;
+  el._na = true;
+}
+function naOff(el) {
+  if (el && el._na) { el.innerHTML = ""; el._na = false; }
+}
+/* trade-based chart: rendered for swing / combined, "not available" for intraday */
+function tradeChart(ids, render) {
+  const na = !!(S.intraday && S.book === "intraday");
+  for (const id of [].concat(ids)) {
+    const el = document.getElementById(id);
+    if (na) naOn(el, NA_TRADE); else naOff(el);
+  }
+  if (!na) render();
+}
+
+function intradayStratRows() {
+  const P = S.intraday;
+  const on = intradayFiltered();
+  const [i0, i1] = intradayWindow(P.dates, false);
+  return intradayRoster()
+    .filter(s => !P.series[s.key] || S.f.strategies.has(s.name))
+    .map(s => {
+      const arr = P.series[s.key];
+      let pnl = null;
+      if (arr && on) {
+        pnl = 0;
+        const m = multFor(s.name);
+        for (let i = i0; i <= i1; i++) pnl += arr[i] * m;
+      }
+      return { Strategy: s.name, Book: "Intraday", Tier: "Intraday", Trades: null, Win: null,
+        TotR: null, AvgR: null, PF: null, PnL: pnl, Share: null, AvgHold: null };
+    });
 }
 
 /* ================= overlay lab ================= */
@@ -492,7 +796,9 @@ function renderOverlayLab() {
 
 /* ================= filters ================= */
 function allStrategyNames() {
-  return [...new Set(S.meta.strategies.map(s => s.Strategy))].sort();
+  const names = S.meta.strategies.map(s => s.Strategy);
+  if (S.intraday) names.push(...intradayNames());
+  return [...new Set(names)].sort();
 }
 
 function buildFilterBar() {
@@ -1131,20 +1437,23 @@ function dailyMetrics(ds) {
 
 /* ================= render ================= */
 function apply() {
-  const tr = filteredTrades();
-  const ds = dailySeries(tr);
+  // bookTrades / bookSeries are filteredTrades / dailySeries unless the
+  // intraday payload shipped (Book scope control).
+  const tr = bookTrades();
+  const ds = bookSeries(tr);
   const tm = tradeMetrics(tr);
   const dm = dailyMetrics(ds);
-  renderKPIs(tm, dm, ds.exact);
+  if (S.intraday) renderBookNote();
+  renderKPIs(tm, dm, ds.exact, ds);
   renderEquity(ds, dm);
-  renderCumR(tr);
+  tradeChart("cumRChart", () => renderCumR(tr));
   renderMonthly(ds);
   // rolling Sharpe needs 252d of warmup, so it computes on the date-unbounded
   // stream (same strategy/tier/dir/ticker filters) and only displays the window
-  renderRolling(dailySeries(filteredTrades(true), true));
-  renderHist(tr);
-  renderSeasonality(tr);
-  renderHoldBuckets(tr);
+  renderRolling(bookSeries(bookTrades(true), true));
+  tradeChart("histChart", () => renderHist(tr));
+  tradeChart(["monthSeasChart", "weekdaySeasChart"], () => renderSeasonality(tr));
+  tradeChart("holdChart", () => renderHoldBuckets(tr));
   renderStratTable(tr);
   renderYearTable(tr, ds);
   renderTradeLog(tr);
@@ -1156,20 +1465,24 @@ function kpiCard(label, value, cls, sub) {
     <div class="v ${cls || ""}">${value}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
 }
 
-function renderKPIs(tm, dm, exact) {
+function renderKPIs(tm, dm, exact, ds) {
   const el = document.getElementById("kpis");
   const basisNote = document.getElementById("basisNote");
   basisNote.style.display = exact ? "none" : "inline-block";
   const scaled = S.sizing === "scaled";
-  el.innerHTML = [
-    kpiCard("Trades", tm.n.toLocaleString()),
-    kpiCard("Win Rate", tm.winRate == null ? "-" : fmt.pct(tm.winRate, 1)),
-    kpiCard("Total R", fmt.num(tm.totR, 0), clsSign(tm.totR)),
-    kpiCard("Avg R", tm.avgR == null ? "-" : fmt.num(tm.avgR, 3), clsSign(tm.avgR)),
-    kpiCard("Profit Factor", tm.pf == null ? "-" : fmt.num(tm.pf, 2)),
-    kpiCard("Expectancy", tm.expectancy == null ? "-" : fmt.money(tm.expectancy), clsSign(tm.expectancy), "per trade @ $750k alloc"),
-    kpiCard("SQN", tm.sqn == null ? "-" : fmt.num(tm.sqn, 2)),
-    kpiCard("Payoff", tm.payoff == null ? "-" : fmt.num(tm.payoff, 2), null, "avg win / avg loss"),
+  // Intraday book: trade-based KPIs are not defined (daily P&L only).
+  const tOnly = !!(S.intraday && S.book === "intraday");
+  const tv = v => tOnly ? "n/a" : v;
+  const ts = sub => tOnly ? "no per-trade data (intraday replay)" : sub;
+  const cards = [
+    kpiCard("Trades", tv(tm.n.toLocaleString()), undefined, ts()),
+    kpiCard("Win Rate", tv(tm.winRate == null ? "-" : fmt.pct(tm.winRate, 1)), undefined, ts()),
+    kpiCard("Total R", tv(fmt.num(tm.totR, 0)), clsSign(tm.totR), ts()),
+    kpiCard("Avg R", tv(tm.avgR == null ? "-" : fmt.num(tm.avgR, 3)), clsSign(tm.avgR), ts()),
+    kpiCard("Profit Factor", tv(tm.pf == null ? "-" : fmt.num(tm.pf, 2)), undefined, ts()),
+    kpiCard("Expectancy", tv(tm.expectancy == null ? "-" : fmt.money(tm.expectancy)), clsSign(tm.expectancy), ts("per trade @ $750k alloc")),
+    kpiCard("SQN", tv(tm.sqn == null ? "-" : fmt.num(tm.sqn, 2)), undefined, ts()),
+    kpiCard("Payoff", tv(tm.payoff == null ? "-" : fmt.num(tm.payoff, 2)), null, ts("avg win / avg loss")),
     kpiCard("Total PnL", dm.totPnl == null ? "-" : fmt.money(dm.totPnl), clsSign(dm.totPnl),
             scaled ? "compounded, $10k start" : "flat, $10k base"),
     kpiCard(scaled ? "CAGR" : "Ann Return",
@@ -1181,10 +1494,22 @@ function renderKPIs(tm, dm, exact) {
     kpiCard("Max Drawdown", dm.maxDD == null ? "-" : fmt.pct(dm.maxDD, 1), "neg",
             scaled ? "compounded path" : "flat path"),
     kpiCard("MAR", dm.mar == null ? "-" : fmt.num(dm.mar, 2)),
-    kpiCard("Tail Ratio", tm.tail == null ? "-" : fmt.num(tm.tail, 2), null, "|p95 / p5| of R"),
-    kpiCard("Max Consec Losses", tm.maxConsecL),
-    kpiCard("Avg Hold", tm.avgHold == null ? "-" : fmt.num(tm.avgHold, 1), null, "trading days"),
-  ].join("");
+    kpiCard("Tail Ratio", tv(tm.tail == null ? "-" : fmt.num(tm.tail, 2)), null, ts("|p95 / p5| of R")),
+    kpiCard("Max Consec Losses", tv(tm.maxConsecL), undefined, ts()),
+    kpiCard("Avg Hold", tv(tm.avgHold == null ? "-" : fmt.num(tm.avgHold, 1)), null, ts("trading days")),
+  ];
+  if (S.intraday && ds) {
+    // daily-P&L KPIs, defined for every book
+    const n = ds.pnl.length;
+    const annUsd = n ? ds.pnl.reduce((x, v) => x + v, 0) / n * 252 : null;
+    const active = ds.pnl.filter(v => v !== 0);
+    const up = active.length ? active.filter(v => v > 0).length / active.length : null;
+    cards.push(
+      kpiCard("Avg Annual $", annUsd == null ? "-" : fmt.money(annUsd), clsSign(annUsd), "flat $750k basis"),
+      kpiCard("Up Days", up == null ? "-" : fmt.pct(up, 1), null, "of days with P&L"),
+    );
+  }
+  el.innerHTML = cards.join("");
 }
 
 function renderEquity(ds, dm) {
@@ -1436,21 +1761,36 @@ function renderStratTable(tr) {
       AvgHold: m.avgHold,
     };
   });
-  makeTable(el, {
-    columns: [
-      { key: "Strategy", label: "Strategy", align: "l" },
-      { key: "Tier", label: "Tier", align: "l" },
-      { key: "Trades", label: "Trades", fmt: v => v.toLocaleString() },
-      { key: "Win", label: "Win %", fmt: v => fmt.pct(v, 1) },
-      { key: "TotR", label: "Total R", fmt: v => fmt.num(v, 1), cls: clsSign },
-      { key: "AvgR", label: "Avg R", fmt: v => fmt.num(v, 3), cls: clsSign },
-      { key: "PF", label: "PF", fmt: v => v == null ? "" : fmt.num(v, 2) },
-      { key: "PnL", label: "PnL ($)", fmt: v => fmt.money(v), cls: clsSign },
-      { key: "Share", label: "% of R", fmt: v => v == null ? "" : fmt.pct(v, 1) },
-      { key: "AvgHold", label: "Avg Hold", fmt: v => v == null ? "" : fmt.num(v, 1) },
-    ],
-    rows, defaultSort: { key: "TotR", dir: -1 },
-  });
+  let columns = [
+    { key: "Strategy", label: "Strategy", align: "l" },
+    { key: "Tier", label: "Tier", align: "l" },
+    { key: "Trades", label: "Trades", fmt: v => v.toLocaleString() },
+    { key: "Win", label: "Win %", fmt: v => fmt.pct(v, 1) },
+    { key: "TotR", label: "Total R", fmt: v => fmt.num(v, 1), cls: clsSign },
+    { key: "AvgR", label: "Avg R", fmt: v => fmt.num(v, 3), cls: clsSign },
+    { key: "PF", label: "PF", fmt: v => v == null ? "" : fmt.num(v, 2) },
+    { key: "PnL", label: "PnL ($)", fmt: v => fmt.money(v), cls: clsSign },
+    { key: "Share", label: "% of R", fmt: v => v == null ? "" : fmt.pct(v, 1) },
+    { key: "AvgHold", label: "Avg Hold", fmt: v => v == null ? "" : fmt.num(v, 1) },
+  ];
+  let defaultSort = { key: "TotR", dir: -1 };
+  if (S.intraday) {
+    // Book column; intraday rows carry daily-P&L dollars only, trade stats n/a
+    for (const r of rows) r.Book = "Swing";
+    if (S.book === "intraday") { rows.length = 0; defaultSort = { key: "PnL", dir: -1 }; }
+    if (S.book !== "swing") rows.push(...intradayStratRows());
+    const naCell = '<span class="cap">n/a</span>';
+    const tradeKeys = new Set(["Trades", "Win", "TotR", "AvgR", "PF", "Share", "AvgHold"]);
+    columns = columns.map(c => {
+      if (tradeKeys.has(c.key))
+        return { ...c, fmt: (v, r) => r.Book === "Intraday" ? naCell : c.fmt(v, r) };
+      if (c.key === "PnL")
+        return { ...c, fmt: (v, r) => r.Book === "Intraday" && v == null ? naCell : c.fmt(v, r) };
+      return c;
+    });
+    columns.splice(1, 0, { key: "Book", label: "Book", align: "l" });
+  }
+  makeTable(el, { columns, rows, defaultSort });
 }
 
 function renderYearTable(tr, ds) {
@@ -1483,19 +1823,23 @@ function renderYearTable(tr, ds) {
       MaxDD: maxDD, Sharpe: sd ? m / sd * Math.sqrt(252) : null,
     };
   });
-  makeTable(el, {
-    columns: [
-      { key: "Year", label: "Year", align: "l" },
-      { key: "Trades", label: "Trades" },
-      { key: "Win", label: "Win %", fmt: v => fmt.pct(v, 1) },
-      { key: "TotR", label: "Total R", fmt: v => fmt.num(v, 1), cls: clsSign },
-      { key: "PnL", label: "PnL ($10k base)", fmt: v => fmt.money(v), cls: clsSign },
-      { key: "Ret", label: "Return %", fmt: v => fmt.pct(v, 1), cls: clsSign },
-      { key: "MaxDD", label: "Max DD", fmt: v => fmt.pct(v, 1), cls: () => "neg" },
-      { key: "Sharpe", label: "Sharpe", fmt: v => v == null ? "" : fmt.num(v, 2) },
-    ],
-    rows,
-  });
+  let columns = [
+    { key: "Year", label: "Year", align: "l" },
+    { key: "Trades", label: "Trades" },
+    { key: "Win", label: "Win %", fmt: v => fmt.pct(v, 1) },
+    { key: "TotR", label: "Total R", fmt: v => fmt.num(v, 1), cls: clsSign },
+    { key: "PnL", label: "PnL ($10k base)", fmt: v => fmt.money(v), cls: clsSign },
+    { key: "Ret", label: "Return %", fmt: v => fmt.pct(v, 1), cls: clsSign },
+    { key: "MaxDD", label: "Max DD", fmt: v => fmt.pct(v, 1), cls: () => "neg" },
+    { key: "Sharpe", label: "Sharpe", fmt: v => v == null ? "" : fmt.num(v, 2) },
+  ];
+  if (S.intraday && S.book === "intraday") {
+    // no per-trade rows in the intraday replay
+    for (const r of rows) { r.Trades = null; r.Win = null; r.TotR = null; }
+    columns = columns.map(c => ["Trades", "Win", "TotR"].includes(c.key)
+      ? { ...c, fmt: () => '<span class="cap">n/a</span>', cls: undefined } : c);
+  }
+  makeTable(el, { columns, rows });
 }
 
 function renderTradeLog(tr) {
@@ -1657,11 +2001,33 @@ function renderStatic() {
     ], plotLayout({ height: 300, yaxis: { ticksuffix: "%" } }), PLOT_CFG);
   } else expEl.innerHTML = '<p class="cap">No exposure series in this build.</p>';
 
-  // correlation
+  renderCorrelation();
+
+  renderDrawdownAnatomy();
+  renderSectorRisk();
+  renderGateLab();
+  renderExtLab();
+}
+
+/* strategy correlation: the ledger build's swing matrix; the Book scope
+   control adds intraday rows/columns (Combined) or shows intraday only. */
+function renderCorrelation() {
   const corrEl = document.getElementById("corrChart");
   const divEl = document.getElementById("divTable");
-  if (S.corr) {
-    const c = S.corr;
+  let c = S.corr;
+  if (S.intraday) {
+    const note = document.getElementById("bookCorrNote");
+    if (note) { note.style.display = ""; note.textContent = bookCorrSentence(); }
+    if (S.book !== "swing") c = extendedCorr(S.book);
+    if (!c && S.book === "intraday") {
+      naOn(corrEl, "Fewer than two intraday strategies have a replay series, so there is no " +
+        "intraday matrix. The book-level swing vs intraday number is below.");
+      divEl.innerHTML = "";
+      return;
+    }
+    naOff(corrEl);
+  }
+  if (c) {
     const z = c.matrix.map((row, i) => row.map((v, j) => i === j ? null : v));
     Plotly.react(corrEl, [{
       z, x: c.strategies, y: c.strategies, type: "heatmap",
@@ -1684,15 +2050,13 @@ function renderStatic() {
       ],
       rows: c.diversification,
     });
+  } else if (S.intraday) {
+    naOn(corrEl, "No correlation matrix in this build.");
+    divEl.innerHTML = "";
   } else {
     corrEl.innerHTML = '<p class="cap">No correlation matrix in this build.</p>';
     divEl.innerHTML = "";
   }
-
-  renderDrawdownAnatomy();
-  renderSectorRisk();
-  renderGateLab();
-  renderExtLab();
 }
 
 /* ---------- sector-gate history: with vs without (gate_lab.json) ---------- */
@@ -1862,6 +2226,12 @@ function renderStopFills() {
   const kEl = document.getElementById("sfKpis");
   const chEl = document.getElementById("sfChart");
   const capEl = document.getElementById("sfCaption");
+  if (S.intraday && S.book === "intraday") {
+    kEl.innerHTML = `<p class="cap">${NA_TRADE}</p>`;
+    Plotly.purge(chEl);
+    if (S.sfTable) S.sfTable.setRows([]);
+    return;
+  }
   const toks = tickerTokens();
   const { strategies, dir, from, to } = S.f;
   // Date range matches the trade log's basis (entry date) so the two adjacent
