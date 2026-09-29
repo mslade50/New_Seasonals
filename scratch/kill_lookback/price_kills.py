@@ -264,6 +264,8 @@ def main() -> int:
     ap.add_argument("--prices", default=str(ROOT / "data" / "master_prices.parquet"))
     ap.add_argument("--yf", action="store_true", help="download prices from Yahoo instead")
     ap.add_argument("--out", default=str(HERE / "results"))
+    ap.add_argument("--end", default=None,
+                    help="last session to use (drop later bars, e.g. today's partial intraday bar)")
     a = ap.parse_args()
 
     kills = {k["kill_id"]: k for k in map(json.loads, open(HERE / "kills.jsonl"))}
@@ -276,6 +278,9 @@ def main() -> int:
     tickers = {l["ticker"] for s in specs if s.get("tradeable") for l in s.get("legs") or []}
     tickers |= {l["ticker"] for s in ships for l in s["legs"]}
     px = load_yf(tickers) if a.yf else load_parquet(Path(a.prices), tickers)
+    if a.end:
+        px = {t: df.loc[:pd.Timestamp(a.end)] for t, df in px.items()}
+        px = {t: df for t, df in px.items() if not df.empty}
     last = max(df.index.max() for df in px.values()) if px else None
     print(f"priced from {'Yahoo' if a.yf else a.prices}; last bar {last}; "
           f"{len(px)}/{len(tickers)} tickers found")
