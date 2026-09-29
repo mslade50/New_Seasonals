@@ -331,10 +331,11 @@ async function initExecution() {
   applyStagePrefill();               // seasonal deep link: prefill the bracket ticket
   applyRadarPrefill();               // radar deep link: verbatim levels from the book engine
   applyPitchPrefill();               // pitch deep link: one Daily Pitch leg
+  await poll();
   // Phones put the book above the ticket; a staged deep link still opens on it.
+  // After the first poll, so the rendered book does not push the ticket away.
   if ((stage || radarStage || pitchStage) && window.matchMedia
       && window.matchMedia("(max-width: 700px)").matches) execJump("ticket");
-  await poll();
   pollTimer = setInterval(poll, 4000);
 }
 
