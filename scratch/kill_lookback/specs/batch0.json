@@ -1,0 +1,1971 @@
+[
+ {
+  "kill_id": "2026-08-07-k01",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "MOC on NFP close (today) -> +3td per n1/n2/n4 and watchlist entry 'NFP close to +3td'"
+ },
+ {
+  "kill_id": "2026-08-07-k02",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "DX-Y.NYB",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "short dollar leg of NFP rates-floor trigger; n4 sweeps DX-Y.NYB at h=5 (N2 UUP h=5); MOC NFP close"
+ },
+ {
+  "kill_id": "2026-08-07-k03",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "UUP",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "n2/n4: UUP short h=5 on NFP rates-floor trigger, MOC NFP close"
+ },
+ {
+  "kill_id": "2026-08-07-k04",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLU",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "n4 'Equity leg (XLU h=3)'; MOC NFP close"
+ },
+ {
+  "kill_id": "2026-08-07-k05",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "IEF",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "IEF version of TLT bond leg (h=3 per n2/n4); MOC NFP close"
+ },
+ {
+  "kill_id": "2026-08-07-k06",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "LQD",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "HYG",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "n2 section: h=5 forward joint credit-divergence state; equal-dollar pair; MOC NFP close"
+ },
+ {
+  "kill_id": "2026-08-07-k07",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "IWM",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "n2 section I: IWM +5td at the rates trigger; MOC NFP close"
+ },
+ {
+  "kill_id": "2026-08-07-k08",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "HYG",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "h=5 stated in reason; MOC NFP close"
+ },
+ {
+  "kill_id": "2026-08-07-k09",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLU",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c1_xlu_washout_outright: trigger close D (08-06), entry MOC D+1 = pitch date, H=5"
+ },
+ {
+  "kill_id": "2026-08-07-k10",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLU",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "SPY",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c4_xlu_vs_spy: equal dollar, entry MOC D+1, 5td"
+ },
+ {
+  "kill_id": "2026-08-07-k11",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 2,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c9: MOC NFP close -> MOC close before CPI (08-12) = 08-11 close, h=2"
+ },
+ {
+  "kill_id": "2026-08-07-k12",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "USO",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-07"
+  },
+  "horizon_td": 1,
+  "gate_live": true,
+  "spec_confidence": "low",
+  "basis": "killed before any check; horizon from book's LT Trend ST OS (1-day hold); MOC pitch date default"
+ },
+ {
+  "kill_id": "2026-08-10-k01",
+  "tradeable": false,
+  "why_not": "no direction prior: c1 pre-specified h=1 PPI-session fingerprint on SPY with no sign; measured null",
+  "legs": [],
+  "entry": null,
+  "horizon_td": null,
+  "gate_live": null,
+  "spec_confidence": "low",
+  "basis": "c1_ppi_spy.py: 'NO direction prior'; would be entry close 08-12, h=1 if a side existed"
+ },
+ {
+  "kill_id": "2026-08-10-k02",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 1,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "c2: anchor 2td before PPI 08-13, lag=1 entry = close before print (08-12), first horizon h=1 of (1,3,5); long duration"
+ },
+ {
+  "kill_id": "2026-08-10-k03",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 3,
+  "gate_live": false,
+  "spec_confidence": "medium",
+  "basis": "c3 H=3, anchor offset -2 lag=1 = entry CPI-eve close 08-11; MOVE-level premise false"
+ },
+ {
+  "kill_id": "2026-08-10-k04",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "d5 ungated parent, k=2 (entry today 08-10 close, the executable form), h=3"
+ },
+ {
+  "kill_id": "2026-08-10-k05",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "LQD",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "HYG",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 21,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "d1 unanchored price-state version, H=21, lag=1 entry = pitch-date close; equal-dollar pair"
+ },
+ {
+  "kill_id": "2026-08-10-k06",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "GDX",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "GLD",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "c6 H=10, entry MOC D+1 = pitch date; equal-dollar as titled (beta-neutral 1.78 was the kill test)"
+ },
+ {
+  "kill_id": "2026-08-10-k07",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SLV",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c7 H=10, entry MOC D+1 = pitch date"
+ },
+ {
+  "kill_id": "2026-08-10-k08",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLE",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "c5 H=3; long XLE washout into CPI (08-12 inside hold); entry pitch-date close"
+ },
+ {
+  "kill_id": "2026-08-10-k09",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "GDX",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c4d live cell k=3: entry 08-10 close (D+1), H=3"
+ },
+ {
+  "kill_id": "2026-08-10-k10",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "c8/c8b: pre-specified h=5, lag=1 entry pitch date; pitched mechanism 'no put wall -> fragile tape' predicts negative, so SHORT"
+ },
+ {
+  "kill_id": "2026-08-10-k11",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "c9: long SPY, lag=1 entry pitch date, h=10 listed first (h-scan unlabelled)"
+ },
+ {
+  "kill_id": "2026-08-10-k12",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "DX-Y.NYB",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c11: long DX futures, h=5 pre-specified, lag=1 entry pitch date"
+ },
+ {
+  "kill_id": "2026-08-10-k13",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLU",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c10: 'exact cell the pitch would ship (gated, h=5)', entry pitch date"
+ },
+ {
+  "kill_id": "2026-08-10-k14",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "EWZ",
+    "side": "SHORT",
+    "weight": 1.0
+   },
+   {
+    "ticker": "SPY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "d3b: surviving/killed form is SHORT EWZ / LONG SPY equal dollar (info reading), h=5 headline, entry pitch date"
+ },
+ {
+  "kill_id": "2026-08-10-k15",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "HD",
+    "side": "LONG",
+    "weight": 0.1667
+   },
+   {
+    "ticker": "LOW",
+    "side": "LONG",
+    "weight": 0.1667
+   },
+   {
+    "ticker": "TGT",
+    "side": "LONG",
+    "weight": 0.1667
+   },
+   {
+    "ticker": "TJX",
+    "side": "LONG",
+    "weight": 0.1667
+   },
+   {
+    "ticker": "WMT",
+    "side": "LONG",
+    "weight": 0.1667
+   },
+   {
+    "ticker": "ROST",
+    "side": "LONG",
+    "weight": 0.1667
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 4,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "d2: anchor a = first cluster print HD 08-18; entry lag=1 MOC a-5 = 08-11, exit a-1 = 08-17, H=4; 2026 reporters HD/LOW/TGT/TJX/WMT/ROST (08-18..08-20 per 08-17 e1 script)"
+ },
+ {
+  "kill_id": "2026-08-10-k16",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-10"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "e1: long TLT MOC at tdom 6 = 2026-08-10, H_MAIN=5"
+ },
+ {
+  "kill_id": "2026-08-10-k17",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 1,
+  "gate_live": true,
+  "spec_confidence": "low",
+  "basis": "e2: MOC session before next 08:30 print (CPI 08-12) with MOO exit on print session; MOO exit not representable, so close-to-close h=1"
+ },
+ {
+  "kill_id": "2026-08-11-k01",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SVXY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "CPI-eve MOC entry, exit +3td as titled"
+ },
+ {
+  "kill_id": "2026-08-11-k02",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "HYG",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "CPI-eve MOC entry, h=3 cell quoted in reason and surface map"
+ },
+ {
+  "kill_id": "2026-08-11-k03",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SLV",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "a4_c4_slv_basket: entry close D+1 = 08-11, H=5"
+ },
+ {
+  "kill_id": "2026-08-11-k04",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "GLD",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "a4_c11_gld_marginal H=5, entry close D+1 = 08-11"
+ },
+ {
+  "kill_id": "2026-08-11-k05",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "IBB",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 2,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "surface map quoted IBB +0.21 at h=2 as the pitched cell; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-11-k06",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLE",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "a2_c3: 'C3 PITCHED: long XLE, USO 1d >= +5%, h=3', lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-11-k07",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLE",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "a2_c5_short_battery: fade XLE on crude thrust with CPI inside hold, H=3, entry CPI-eve close"
+ },
+ {
+  "kill_id": "2026-08-11-k08",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "UNG",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "a2_c6_ung H=5, entry CPI-eve close"
+ },
+ {
+  "kill_id": "2026-08-11-k09",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "IWM",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-11"
+  },
+  "horizon_td": 1,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "a3_c7: anchor JH-14, lag=1 entry 13 sessions before JH 08-28 = 08-11 close, H=1"
+ },
+ {
+  "kill_id": "2026-08-11-k10",
+  "tradeable": false,
+  "why_not": "nearest-neighbour analogue across a multi-dimensional feature vector; no direction was pitched",
+  "legs": [],
+  "entry": null,
+  "horizon_td": null,
+  "gate_live": null,
+  "spec_confidence": "low",
+  "basis": "a3_c10_nearest_neighbour.py; SPY forward excess measured both ways"
+ },
+ {
+  "kill_id": "2026-08-12-k01",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "IEF",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 1,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "PPI-eve MOC tonight -> MOC on PPI print 08-13 (h=1); IEF is first of the two alternatives"
+ },
+ {
+  "kill_id": "2026-08-12-k02",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "SPY",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 1,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "a4_c3: PPI-eve entry h=1; equal-dollar spread (reason quotes equal-dollar -16.14 bps)"
+ },
+ {
+  "kill_id": "2026-08-12-k03",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "USO",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 1,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "b1_c5: entry MOC on PPI eve, exit PPI close h=1; USO first of USO/DBC"
+ },
+ {
+  "kill_id": "2026-08-12-k04",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SVXY",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 1,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "b2_c6: anchor k=2, entry PPI-eve MOC, exit print close h=1"
+ },
+ {
+  "kill_id": "2026-08-12-k05",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "USO",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "b3_c7: fade USO thrust from 63d base; episode detail at h=3 SHORT USO; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-12-k06",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "GDX",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "reason: short entered tonight at h=3 (exits 08-17 close)"
+ },
+ {
+  "kill_id": "2026-08-12-k07",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLU",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c9: outright first, h=3 quoted first; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-12-k08",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SMH",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c10: SMH outright rank63<=2, h=3 per surface map; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-12-k09",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c11: long SPY h=5 as titled on the map; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-12-k10",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "EWZ",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c12: outright first, h=3 per map; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-12-k11",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-12"
+  },
+  "horizon_td": 1,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "a5_c4: full battery at h=1 (recon's only positive horizon); lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-13-k01",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "IHI",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-13"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c6b/r1: continuation long IHI, identical h=5 lag-1 MOC long"
+ },
+ {
+  "kill_id": "2026-08-13-k02",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "IHI",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-13"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c6: fade pitched, short IHI h=3; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-13-k03",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SVXY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-13"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "a1/a1c: long SVXY carry; reason's intersection cell headline h=10 (h=5 also shown); lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-13-k04",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SVXY",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-13"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "a1: short-SVXY expression quoted at h=5; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-13-k05",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-13"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "a2_c5: long SPY first leg, MOC tonight (lag=0 map form) on month-last inflation print 08-13; reason quotes h=10 excess"
+ },
+ {
+  "kill_id": "2026-08-13-k06",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "b1_c4_jh: anchor JH-11 = 08-13, entry lag=1 08-14 close, h=10 exits on JH 08-28 close"
+ },
+ {
+  "kill_id": "2026-08-13-k07",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "GLD",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "b1_c4_jh leg 4b, entry 08-14 close, h=10 to JH close"
+ },
+ {
+  "kill_id": "2026-08-13-k08",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "DX-Y.NYB",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "b1_c4_jh leg 4c (DX futures), entry 08-14 close, h=10 to JH close"
+ },
+ {
+  "kill_id": "2026-08-13-k09",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-13"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "low",
+  "basis": "b2_c9: h=5 cell +0.716% implies long SPY; direction not stated by title; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-13-k10",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLU",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "XLV",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-13"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "c7: equal-dollar pair, h=3 quoted first; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-13-k11",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "FXI",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "EEM",
+    "side": "SHORT",
+    "weight": 1.025
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-13"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "c8: beta-neutral at measured 1.025, h=3 per script; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-13-k12",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "DIA",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "SPY",
+    "side": "SHORT",
+    "weight": "beta"
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-13"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "c10: DIA vs SPY beta-neutral, h=3; cell as specified fires only today"
+ },
+ {
+  "kill_id": "2026-08-14-k01",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "a1_c1: measured long SPY, h=5 first of (5,10); lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-14-k02",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SVXY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "a2_c1b: long SVXY, cost quoted at h=5; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-14-k03",
+  "tradeable": false,
+  "why_not": "nearest-neighbour analogue; answer depends on K and no direction pitched",
+  "legs": [],
+  "entry": null,
+  "horizon_td": null,
+  "gate_live": null,
+  "spec_confidence": "low",
+  "basis": "a3_c7_nearest_neighbour.py"
+ },
+ {
+  "kill_id": "2026-08-14-k04",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "HIG",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "ALL",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "TRV",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "AIG",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "MET",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "PGR",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "CB",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "AFL",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "PRU",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "LNC",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "WRB",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "CINF",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "L",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "GL",
+    "side": "LONG",
+    "weight": 0.0714
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "b2: equal-weight 14-name insurer basket (INSURERS list), H=5, lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-14-k05",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "HIG",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "ALL",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "TRV",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "AIG",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "MET",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "PGR",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "CB",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "AFL",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "PRU",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "LNC",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "WRB",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "CINF",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "L",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "GL",
+    "side": "LONG",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "XLF",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "b2 S1: basket minus XLF, h=5; 14 insurers equal weight vs 1.0 XLF"
+ },
+ {
+  "kill_id": "2026-08-14-k06",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "HIG",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "ALL",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "TRV",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "AIG",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "MET",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "PGR",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "CB",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "AFL",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "PRU",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "LNC",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "WRB",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "CINF",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "L",
+    "side": "SHORT",
+    "weight": 0.0714
+   },
+   {
+    "ticker": "GL",
+    "side": "SHORT",
+    "weight": 0.0714
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "b2c: SHORT 14-name basket at h=10 (the surviving form); lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-14-k07",
+  "tradeable": false,
+  "why_not": "single strongest insurer by rank63 on the trigger day is computed at runtime and not recorded; no price data to recover the name",
+  "legs": [],
+  "entry": null,
+  "horizon_td": null,
+  "gate_live": null,
+  "spec_confidence": "low",
+  "basis": "b2_insurance_breadth.py C9 selection rule"
+ },
+ {
+  "kill_id": "2026-08-14-k08",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLE",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "USO",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "b5: continuation form A listed first, h=3 first of (3,5,10); equal dollar; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-14-k09",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TJX",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 2,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "c3: K=4 TJX geometry, entry 08-14 close, exit 08-18 (pE-1), h=2; ROST (prints 08-20) omitted since its exit differs"
+ },
+ {
+  "kill_id": "2026-08-14-k10",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SMH",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 7,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c4: entry MOC 08-14, exit 08-25 = NVDA print-1, h=7"
+ },
+ {
+  "kill_id": "2026-08-14-k11",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "c6: entry Friday before opex week (08-14 close), exit opex 08-21, H=5"
+ },
+ {
+  "kill_id": "2026-08-14-k12",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-14"
+  },
+  "horizon_td": 10,
+  "gate_live": false,
+  "spec_confidence": "high",
+  "basis": "c8 H=10; MOVE level premise not met (33rd pctile vs <=10)"
+ },
+ {
+  "kill_id": "2026-08-17-k01",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "a1 H_MAIN=10; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-17-k02",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "TLT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 10,
+  "gate_live": false,
+  "spec_confidence": "high",
+  "basis": "a2_c1b: same TLT trade h=10; freshness leg fails (depth 5)"
+ },
+ {
+  "kill_id": "2026-08-17-k03",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "a3_c2: SPY first of SPY/QQQ; h=10 exit per reason ('read at a different exit' vs 08-07's 21)"
+ },
+ {
+  "kill_id": "2026-08-17-k04",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SPY",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "low",
+  "basis": "a4_c12: conditioner check with no stated direction; only pulse was the short side at h=5"
+ },
+ {
+  "kill_id": "2026-08-17-k05",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SMH",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "QQQ",
+    "side": "SHORT",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "p1 H_MAIN=5; equal-dollar spread as headline (beta-neutral 1.19 also tested)"
+ },
+ {
+  "kill_id": "2026-08-17-k06",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XLE",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "p2 H_MAIN=5; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-17-k07",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "EWZ",
+    "side": "LONG",
+    "weight": 1.0
+   },
+   {
+    "ticker": "EEM",
+    "side": "SHORT",
+    "weight": 1.13
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "p3 H_MAIN=5; beta-neutral at measured 1.13"
+ },
+ {
+  "kill_id": "2026-08-17-k08",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SVXY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 10,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "v1/v1b: carry continuation long SVXY, v1b H=10; lag=1 MOC pitch date"
+ },
+ {
+  "kill_id": "2026-08-17-k09",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "SVXY",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "low",
+  "basis": "v2: long SVXY at shared anchor vix_expiry-2 = opex-4 = 08-17 close; h=5 inferred from grid SVXY h5 cell"
+ },
+ {
+  "kill_id": "2026-08-17-k10",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "IWM",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 4,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "v3/v3c: lag-1 entry Monday 08-17 (opex-4), exit opex 08-21 = h=4"
+ },
+ {
+  "kill_id": "2026-08-17-k11",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "XRT",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 3,
+  "gate_live": true,
+  "spec_confidence": "high",
+  "basis": "e1: form (a) XRT, H=3, entry MOC 08-17"
+ },
+ {
+  "kill_id": "2026-08-17-k12",
+  "tradeable": true,
+  "why_not": null,
+  "legs": [
+   {
+    "ticker": "GDX",
+    "side": "LONG",
+    "weight": 1.0
+   }
+  ],
+  "entry": {
+   "type": "close",
+   "date": "2026-08-17"
+  },
+  "horizon_td": 5,
+  "gate_live": true,
+  "spec_confidence": "medium",
+  "basis": "e2: lag=1 entry 08-17; h=5 first of (5,10)"
+ }
+]
