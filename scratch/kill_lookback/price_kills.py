@@ -120,7 +120,14 @@ def price_spec(spec: dict, px: dict[str, pd.DataFrame]) -> dict:
 
     # daily-return panel for weights / vol / drift, all strictly before entry
     rets = {l["ticker"]: px[l["ticker"]]["Close"].dropna().pct_change() for l in legs}
-    lead_r = rets[legs[0]["ticker"]]
+    # "beta" hedges are fitted against the primary-side basket (numeric weights,
+    # normalised), not just the first name, so multi-name legs hedge correctly.
+    prim_side = str(legs[0]["side"]).upper() in ("LONG", "BUY")
+    prim = [(l, float(l.get("weight", 1.0))) for l in legs
+            if (str(l["side"]).upper() in ("LONG", "BUY")) == prim_side
+            and not isinstance(l.get("weight", 1.0), str)]
+    pw = sum(w for _, w in prim) or 1.0
+    lead_r = sum(rets[l["ticker"]] * (w / pw) for l, w in prim) if prim else rets[legs[0]["ticker"]]
     weights, sides = [], []
     for i, l in enumerate(legs):
         w = l.get("weight", 1.0)
