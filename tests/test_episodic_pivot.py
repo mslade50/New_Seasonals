@@ -563,6 +563,15 @@ def test_discovery_five_percent_and_volume_boundaries(gap, volume, expected):
     )
 
 
+@pytest.mark.parametrize("price,expected", [(1.0, False), (4.99, False), (5.0, True), (5.01, True)])
+def test_discovery_five_dollar_premarket_price_floor(price, expected):
+    snapshot = _snapshot(
+        previous_close=price / 1.25, last=price, bid=price - 0.01, ask=price,
+        reported_change_pct=25.0,
+    )
+    assert bool(nominate_candidates([snapshot], as_of=AS_OF, policy=DEFAULT_POLICY)) is expected
+
+
 def test_stale_or_delayed_snapshot_is_visible_but_not_stageable():
     snapshot = _snapshot(
         observed_at="2026-08-24T12:20:00Z", market_data_status="DELAYED"

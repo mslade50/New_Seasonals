@@ -16,7 +16,10 @@ fresh yfinance daily enrichment and the existing positive-mover/ATR review queue
 The public query matches NASDAQ/NYSE, common stock/depositary receipts, regular
 price >= $1 and premarket volume >= 100,000. It has no change-percent predicate;
 the unchanged downstream nomination requires absolute move >= 5% and premarket
-price >= $1, then verified prior ATR > 4% before positive-mover news research.
+price >= $5 (owner change September 29), then verified prior ATR > 4% before
+positive-mover news research. The broad regular-close >= $1 upstream filter is
+unchanged so stocks gapping through $5 are not lost; the shared policy excludes
+premarket prices below $5 before enrichment/research and again at email validation.
 
 The raw request and response are retained. `totalCount` must equal all returned
 rows, below the 10,000-row ceiling; duplicate/malformed/stale-date/inconsistent

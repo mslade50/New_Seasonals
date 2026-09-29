@@ -44,7 +44,7 @@ retrospective, or duplicate reports during maintenance.
 ### Previous automated inclusion contract (2026-09-15; research method superseded)
 
 The focused long-candidate email requires a verified premarket gain of **at least
-5%**, **at least 100,000 premarket shares**, price at least $1, verified prior
+5%**, **at least 100,000 premarket shares**, premarket price at least $5, verified prior
 ATR(14)% strictly above 4%, and a source-vetted fresh material catalyst. There is
 no dollar-move bypass and no minimum number of names to fill. The volume floor
 is absolute shares, not a claim of above-average time-matched premarket volume.
@@ -203,7 +203,7 @@ Discovery is intentionally broad:
 - the move and volume must be observed in the target session's premarket by either the validated morning TradingView screen or a fresh targeted read-only IBKR capture; an after-hours row by itself is only a queue seed and cannot pass;
 - absolute extended-hours move of at least 5%, in either direction;
 - same-session extended-hours volume at least 100,000 shares;
-- price at least $1; and
+- premarket price at least $5 (owner change September 29); and
 - newest snapshot per symbol and target session retained under a deterministic candidate ID, then the top 25 sorted by session share and estimated dollar volume are researched.
 
 The saved TradingView screens intentionally keep only the price, session-volume, primary-listing, and stock-type universe constraints. The mandatory 5% move threshold is applied in versioned code after the full CSV export is validated.

@@ -26,7 +26,7 @@ python scripts/run_episodic_pivot_shadow.py --snapshot <daily-snapshot> --prepar
 ```
 
 The queue is frozen against the snapshot. It selects **every** positive mover
-passing >=5%, >=100,000 premarket shares, >=$1 and verified prior ATR >4%.
+passing >=5%, >=100,000 premarket shares, premarket price >=$5 and verified prior ATR >4%.
 There is no 25-name research cutoff. Negative movers are excluded. Rank by estimated premarket dollar
 volume, then move, then ticker. Never invent market observations or edit the
 queue. Retain the same snapshot for completion; source time is shown in email.
