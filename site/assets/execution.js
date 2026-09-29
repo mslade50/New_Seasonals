@@ -5,7 +5,8 @@
      - Positions panel  (live read-only book from the agent) + row actions
      - Open Orders panel (live working orders) + Cancel
      - Scheduled closing orders (legs that fire at today's close)
-     - New Order ticket alongside the book on desktop, above it on small screens
+     - New Order ticket alongside the book on desktop, above it on tablets,
+       below it on phones (<=700px; rows render as cards there)
      - Expandable hedge, futures sizing, and activity panels
 
    Commands execute LIVE when the agent is armed (mode banner amber) and DRY-RUN
@@ -330,24 +331,29 @@ async function initExecution() {
   applyStagePrefill();               // seasonal deep link: prefill the bracket ticket
   applyRadarPrefill();               // radar deep link: verbatim levels from the book engine
   applyPitchPrefill();               // pitch deep link: one Daily Pitch leg
+  // Phones put the book above the ticket; a staged deep link still opens on it.
+  if ((stage || radarStage || pitchStage) && window.matchMedia
+      && window.matchMedia("(max-width: 700px)").matches) execJump("ticket");
   await poll();
   pollTimer = setInterval(poll, 4000);
 }
 
 function shell() {
   return `
+    <div class="exec-sticky">
     <div id="modeBanner"></div>
     <div id="connBar"></div>
-    <div class="exec-tabs" style="margin:10px 0 4px">
+    <div class="exec-tabs" role="group" aria-label="Account">
       <button class="btn" data-acct="primary">Primary</button>
       <button class="btn ghost" data-acct="pa">PA</button>
     </div>
     <nav class="exec-jumps" aria-label="Execution sections">
+      <a href="#positions">Positions</a><a href="#orders">Orders</a>
       <a href="#ticket" onclick="execJump('ticket')">New order</a>
-      <a href="#positions">Positions</a><a href="#orders">Working orders</a>
       <a href="#hedge-tools" onclick="execJump('hedge-tools')">Hedge</a>
       <a href="#activity-tools" onclick="execJump('activity-tools')">Activity</a>
     </nav>
+    </div>
     <div class="exec-workspace">
     <div class="exec-book-panels">
       <section id="positions" aria-label="Positions"></section>
@@ -516,15 +522,15 @@ function rejectUnknownMutation(msgId) {
 function renderModeBanner() {
   const mode = execMode();
   if (mode === "live") {
-    return `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
+    return `<div class="card exec-mode exec-mode-live" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
       [WARN] LIVE ARMED &mdash; orders ARE transmitted to IBKR.</div>`;
   }
   if (mode === "unknown") {
-    return `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
-      [WARN] MODE UNKNOWN &mdash; assume LIVE. No fresh book confirms dry-run (book missing/stale or agent offline).
-      Controls remain available. Confirmations assume live execution; the broker validates the request when received.</div>`;
+    return `<div class="card exec-mode exec-mode-unknown" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
+      [WARN] MODE UNKNOWN &mdash; assume LIVE.<span class="exec-mode-detail"> No fresh book confirms dry-run (book missing/stale or agent offline).
+      Controls remain available. Confirmations assume live execution; the broker validates the request when received.</span></div>`;
   }
-  return `<div class="card" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
+  return `<div class="card exec-mode exec-mode-dry" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
     [DRY-RUN] Actions are validated and previewed, but <u>nothing is transmitted</u> to IBKR.</div>`;
 }
 
@@ -538,7 +544,7 @@ function renderConnBar() {
   const nlv = ab && ab.nlv != null ? `NLV ${fmt.money(ab.nlv)}` : "";
   const ageMs = bookAgeMs();
   const age = ageMs != null ? `· book ${Math.round(ageMs / 1000)}s ago` : "";
-  return `<div class="card" style="display:flex;align-items:center;gap:12px;padding:10px 14px">
+  return `<div class="card exec-conn" style="display:flex;align-items:center;gap:12px;padding:10px 14px">
     <span style="font:700 15px inherit;display:flex;align-items:center;gap:8px">${dot(tone)} ${label}</span>
     <span class="cap" style="margin-left:auto">${nlv} ${age}</span></div>`;
 }
@@ -1368,19 +1374,19 @@ function renderPositions() {
          <button class="btn xs ghost exec-readd" aria-pressed="${readdOn}" onclick='execToggleReadd(${posJson(p)})' title="When enabled, re-add confirmed closed shares at the broker average cost with a DAY limit and attached exits">Re-add</button>` : ""}
          ${protectBtn}`) + reconcileBtn;
     const priceDigits = p.sec_type === "CASH" ? 5 : 2;
-    return `<tr>
-      <td class="l" style="font-weight:600">${sym}</td>
-      <td class="${long ? "pos" : "neg"}" style="font-weight:600">${fmt.num(p.position, 0)}</td>
-      <td>${quotedAverageCost(p) != null ? fmt.num(quotedAverageCost(p), priceDigits) : "&mdash;"}</td>
-      <td>${p.market_price != null ? fmt.num(p.market_price, priceDigits) : "&mdash;"}</td>
-      <td>${p.market_value != null ? fmt.money(p.market_value) : "&mdash;"}</td>
-      <td class="${clsSign(p.unrealized_pnl)}" style="font-weight:600">${p.unrealized_pnl != null ? fmt.money(p.unrealized_pnl) : "&mdash;"}</td>
-      <td class="${clsSign(pct)}">${pct != null ? fmt.pct(pct, 1) : "&mdash;"}</td>
+    return `<tr class="exec-pos-row ${long ? "is-long" : "is-short"}">
+      <td class="l exec-c-sym" style="font-weight:600">${sym}</td>
+      <td class="${long ? "pos" : "neg"}" data-label="Pos" style="font-weight:600">${fmt.num(p.position, 0)}</td>
+      <td data-label="Avg">${quotedAverageCost(p) != null ? fmt.num(quotedAverageCost(p), priceDigits) : "&mdash;"}</td>
+      <td data-label="Last">${p.market_price != null ? fmt.num(p.market_price, priceDigits) : "&mdash;"}</td>
+      <td data-label="Mkt val">${p.market_value != null ? fmt.money(p.market_value) : "&mdash;"}</td>
+      <td class="${clsSign(p.unrealized_pnl)} exec-c-pnl" data-label="uP&amp;L" style="font-weight:600">${p.unrealized_pnl != null ? fmt.money(p.unrealized_pnl) : "&mdash;"}</td>
+      <td class="${clsSign(pct)}" data-label="uP&amp;L %">${pct != null ? fmt.pct(pct, 1) : "&mdash;"}</td>
       <td class="l exec-position-actions"><div>${actions}
         <button class="btn xs ghost" onclick='execShowOrders(${posJson(p)})' title="Open working orders for this symbol">Orders</button>
       </div></td></tr>`;
   }).join("");
-  return head + `<div class="tblwrap"><table class="tbl"><thead><tr>
+  return head + `<div class="tblwrap"><table class="tbl exec-cards exec-cards-pos"><thead><tr>
     <th class="l">Symbol</th><th>Pos</th><th>Avg</th><th>Last</th><th>Mkt Val</th><th>uP&amp;L $</th><th>uP&amp;L %</th><th class="l">Actions</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -1439,17 +1445,17 @@ function orderRow(o) {
   const px = orderPx(o);
   if (orderEdit.key && orderEdit.key === orderKey(o) && (o.perm_id || o.order_id)) return orderEditRow(o);
   const canModify = !!(o.perm_id || o.order_id);   // no id yet: IBKR can't address the order to modify it
-  return `<tr>
-    <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
-    <td class="l ${buy ? "pos" : "neg"}" style="font-weight:600">${esc(o.action)}</td>
-    <td>${fmt.num(o.qty, 0)}</td>
-    <td class="l">${esc(o.order_type)}</td>
-    <td>${px != null ? fmt.num(px, o.sec_type === "CASH" ? 5 : 2) : "&mdash;"}</td>
-    <td class="l">${esc(o.tif || "")}</td>
-    <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
-    <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
-    <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
-    <td class="l" style="white-space:nowrap">${canModify ? `<button class="btn xs ghost" data-mutation onclick='execModifyStart("${orderKey(o)}")'>Modify</button> ` : ""}<button class="btn xs ghost" data-mutation onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}",${o.con_id || 0},${o.client_id == null ? "null" : o.client_id})'>Cancel</button></td>
+  return `<tr class="exec-order-row">
+    <td class="l exec-c-sym" style="font-weight:600">${esc(contractDisplay(o))}</td>
+    <td class="l ${buy ? "pos" : "neg"}" data-label="Side" style="font-weight:600">${esc(o.action)}</td>
+    <td data-label="Qty">${fmt.num(o.qty, 0)}</td>
+    <td class="l" data-label="Type">${esc(o.order_type)}</td>
+    <td data-label="Price">${px != null ? fmt.num(px, o.sec_type === "CASH" ? 5 : 2) : "&mdash;"}</td>
+    <td class="l" data-label="TIF">${esc(o.tif || "")}</td>
+    <td class="l${o.good_after ? "" : " exec-c-empty"}" data-label="Start" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
+    <td class="l${o.good_till ? "" : " exec-c-empty"}" data-label="End" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
+    <td class="l" data-label="Status" style="color:#8c95a2">${esc(o.status || "")}</td>
+    <td class="l exec-c-act" style="white-space:nowrap">${canModify ? `<button class="btn xs ghost" data-mutation onclick='execModifyStart("${orderKey(o)}")'>Modify</button> ` : ""}<button class="btn xs ghost" data-mutation onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}",${o.con_id || 0},${o.client_id == null ? "null" : o.client_id})'>Cancel</button></td>
   </tr>`;
 }
 // Inline edit row: qty always; limit price on *LMT orders; stop trigger on STP*.
@@ -1463,17 +1469,17 @@ function orderEditRow(o) {
     (hasStp ? `<span class="cap" style="display:inline">stop</span> <input id="me_stp" value="${o.aux != null ? esc(String(o.aux)) : ""}" style="width:70px"> ` : "") +
     (hasLmt ? `<span class="cap" style="display:inline">lmt</span> <input id="me_lmt" value="${o.lmt != null ? esc(String(o.lmt)) : ""}" style="width:70px">` : "") +
     (!hasStp && !hasLmt ? "&mdash;" : "");
-  return `<tr style="background:rgba(77,163,255,.08)">
-    <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
-    <td class="l" style="font-weight:600">${esc(o.action)}</td>
-    <td><input id="me_qty" value="${o.qty != null ? esc(String(o.qty)) : ""}" style="width:60px"></td>
-    <td class="l">${esc(o.order_type)}</td>
-    <td class="l" style="white-space:nowrap">${pxCell}</td>
-    <td class="l">${esc(o.tif || "")}</td>
-    <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
-    <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
-    <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
-    <td class="l" style="white-space:nowrap">
+  return `<tr class="exec-order-row is-editing" style="background:rgba(77,163,255,.08)">
+    <td class="l exec-c-sym" style="font-weight:600">${esc(contractDisplay(o))}</td>
+    <td class="l" data-label="Side" style="font-weight:600">${esc(o.action)}</td>
+    <td data-label="Qty"><input id="me_qty" value="${o.qty != null ? esc(String(o.qty)) : ""}" style="width:60px"></td>
+    <td class="l" data-label="Type">${esc(o.order_type)}</td>
+    <td class="l exec-c-wide" data-label="Price" style="white-space:nowrap">${pxCell}</td>
+    <td class="l" data-label="TIF">${esc(o.tif || "")}</td>
+    <td class="l${o.good_after ? "" : " exec-c-empty"}" data-label="Start" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
+    <td class="l${o.good_till ? "" : " exec-c-empty"}" data-label="End" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
+    <td class="l" data-label="Status" style="color:#8c95a2">${esc(o.status || "")}</td>
+    <td class="l exec-c-act" style="white-space:nowrap">
       <button class="btn xs" data-mutation onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
       <button class="btn xs ghost" onclick='execModifyAbort()'>&times;</button></td>
   </tr>`;
@@ -1598,12 +1604,12 @@ function ordersSection(title, list, ab) {
       : (bw.best != null || bw.worst != null)
         ? ` &nbsp;&middot;&nbsp; ${pnlSpan("best", bw.best)} &middot; ${pnlSpan("worst", bw.worst)}`
         : "";
-    body += `<tr id="${esc(orderGroupId(sym))}" tabindex="-1" style="cursor:pointer;background:rgba(255,255,255,.03)" onclick="toggleOrderGroup('${esc(sym)}')">
+    body += `<tr class="exec-group" id="${esc(orderGroupId(sym))}" tabindex="-1" aria-expanded="${open}" style="cursor:pointer;background:rgba(255,255,255,.03)" onclick="toggleOrderGroup('${esc(sym)}')">
       <td class="l" colspan="10" style="font-weight:600">${caret} ${esc(sym)}
         <span class="cap" style="font-weight:400;display:inline">&nbsp;(${legs.length})${preview ? " &nbsp;&middot;&nbsp; " + preview : ""}${bwFrag}</span></td></tr>`;
     if (open) body += legs.map(orderRow).join("");
   }
-  return h + `<div class="tblwrap"><table class="tbl"><thead><tr>
+  return h + `<div class="tblwrap"><table class="tbl exec-cards exec-cards-orders"><thead><tr>
     <th class="l">Symbol</th><th class="l">Side</th><th>Qty</th><th class="l">Type</th><th>Price</th><th class="l">TIF</th><th class="l">Start</th><th class="l">End</th><th class="l">Status</th><th class="l"></th>
     </tr></thead><tbody>${body}</tbody></table></div>`;
 }
@@ -1673,17 +1679,17 @@ function renderClosers() {
           : o.qty * px * mult;
       const conditional = (o.parent_id || 0) && ids.has(o.parent_id);   // parent entry still working
       return `<tr>
-        <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
-        <td class="l ${buy ? "pos" : "neg"}" style="font-weight:600">${esc(o.action)}</td>
-        <td>${fmt.num(o.qty, 0)}</td>
-        <td class="l">${esc(t)}${t.startsWith("STP") ? ` @ ${fmt.num(px, o.sec_type === "CASH" ? 5 : 2)}` : ""}</td>
-        <td class="l">${at === "MOC" ? "MOC" : at + " ET"}</td>
-        <td class="l" style="color:#8c95a2">${untilFrag(at)}</td>
-        <td>${val != null ? fmt.money(val) : "&mdash;"}</td>
-        <td class="l" style="color:${conditional ? "#ffc14d" : "#8c95a2"}">${conditional ? "only if entry fills first" : esc(o.status || "")}</td>
+        <td class="l exec-c-sym" style="font-weight:600">${esc(contractDisplay(o))}</td>
+        <td class="l ${buy ? "pos" : "neg"}" data-label="Side" style="font-weight:600">${esc(o.action)}</td>
+        <td data-label="Qty">${fmt.num(o.qty, 0)}</td>
+        <td class="l" data-label="Type">${esc(t)}${t.startsWith("STP") ? ` @ ${fmt.num(px, o.sec_type === "CASH" ? 5 : 2)}` : ""}</td>
+        <td class="l" data-label="Fires">${at === "MOC" ? "MOC" : at + " ET"}</td>
+        <td class="l" data-label="Due" style="color:#8c95a2">${untilFrag(at)}</td>
+        <td data-label="Est. value">${val != null ? fmt.money(val) : "&mdash;"}</td>
+        <td class="l exec-c-wide" data-label="Note" style="color:${conditional ? "#ffc14d" : "#8c95a2"}">${conditional ? "only if entry fills first" : esc(o.status || "")}</td>
       </tr>`;
     }).join("");
-  return head + `<div class="tblwrap"><table class="tbl"><thead><tr>
+  return head + `<div class="tblwrap"><table class="tbl exec-cards"><thead><tr>
     <th class="l">Symbol</th><th class="l">Side</th><th>Qty</th><th class="l">Type</th><th class="l">Fires</th><th class="l"></th><th>Est. value</th><th class="l">Note</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -3009,14 +3015,14 @@ function renderActivity() {
   const trailLabel = m === "live" ? "LIVE" : m === "dry-run" ? "dry-run, places nothing" : "mode unknown — may be LIVE";
   if (!cmds.length) return "";
   const rows = cmds.map((c) => `<tr style="vertical-align:top">
-      <td class="l" style="color:#8c95a2">${esc(clockTime(c.created_at))}</td>
-      <td class="l" style="font-weight:600">${esc(c.type || "")}</td>
-      <td class="l">${esc(c.account || "")}</td>
-      <td class="l">${stateBadge(c.state)}</td>
-      <td class="l">${resultCell(c)}</td></tr>`).join("");
+      <td class="l" data-label="Time" style="color:#8c95a2">${esc(clockTime(c.created_at))}</td>
+      <td class="l" data-label="Type" style="font-weight:600">${esc(c.type || "")}</td>
+      <td class="l" data-label="Acct">${esc(c.account || "")}</td>
+      <td class="l" data-label="State">${stateBadge(c.state)}</td>
+      <td class="l exec-c-full" data-label="Result">${resultCell(c)}</td></tr>`).join("");
   return `<div style="font:700 14px inherit;margin-bottom:6px">Activity / audit
       <span class="cap" style="display:inline;font-weight:400">· ${trailLabel} · last ${cmds.length}</span></div>
-    <div class="tblwrap"><table class="tbl"><thead><tr>
+    <div class="tblwrap"><table class="tbl exec-cards"><thead><tr>
     <th class="l">time</th><th class="l">type</th><th class="l">acct</th><th class="l">state</th><th class="l">result / order preview</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
 }

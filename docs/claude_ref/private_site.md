@@ -106,6 +106,16 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   (account+perm_id+side, VWAP) with a raw-fills toggle; strategy = 3rd pipe
   field of orderRef (same contract as `daily_execution_report.py`).
   Guard: `tests/test_tradelog_site.py`.
+- **Execution tab on phones** (2026-09-29, `assets/execution.js` + `style.css`,
+  <=700px only; desktop/tablet unchanged): the mode banner, connection strip,
+  account switch and section jumps sit in one sticky `.exec-sticky` strip (the
+  site topbar un-sticks there); the book renders ABOVE the ticket (tablets
+  701-1199px keep ticket-first), and a radar/seasonal/pitch deep-link prefill
+  jumps to the ticket. Positions, order legs, scheduled closes and activity
+  render as cards from the same table markup via `data-label` cells and
+  `exec-c-*` hooks (`exec-c-sym`, `-pnl`, `-act`, `-wide`, `-full`, `-empty`);
+  there is one render path, no mobile-only JS. Inputs are 16px (no iOS focus
+  zoom), buttons >=38-40px tall. Order logic, confirmations and payloads are untouched.
 - **Hedge panel (Exec tab, display-only)** (`assets/execution.js`, 2026-08-25):
   attributes each selected account's live stock positions to strategy-tagged
   working brackets, marks them, applies 63d or 252d SPY betas, nets counted

@@ -146,6 +146,102 @@ tr[id^="exec-orders-"]:focus { outline: 2px solid var(--accent); outline-offset:
   .exec-workspace { grid-template-columns: minmax(0, 1fr); }
   .exec-ticket { grid-row: 1; position: static; }
 }
+.exec-sticky .exec-tabs { margin: 10px 0 4px; }
+#orders input { background: #141a26; color: var(--text); border: 1px solid var(--border);
+  border-radius: 5px; padding: 4px 6px; font-size: 12px; }
+#orders input:focus { border-color: var(--accent); outline: none; }
+
+/* Execution on phones: book first, a sticky mode/account strip, rows as cards,
+   16px inputs (no iOS focus zoom) and 40px touch targets on anything that acts. */
+@media (max-width: 700px) {
+  body[data-page="execution"] .topbar { position: static; }
+  body[data-page="execution"] .topbar .asof { display: none; }
+  body[data-page="execution"] h1, body[data-page="execution"] .wrap > .sub { display: none; }
+  body[data-page="execution"] .wrap > .cap { margin: 0 0 8px; }
+  .exec-sticky {
+    position: sticky; top: 0; z-index: 40; margin: 0 -12px 10px; padding: 8px 12px 6px;
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: center;
+    background: rgba(11,14,20,.96); border-bottom: 1px solid var(--border); backdrop-filter: blur(6px);
+  }
+  .exec-sticky #modeBanner, .exec-sticky #connBar { grid-column: 1 / -1; }
+  .exec-sticky .exec-mode { padding: 6px 10px !important; font-size: 12.5px !important; line-height: 1.35; }
+  .exec-sticky .exec-mode-detail { display: none; }
+  .exec-sticky .exec-conn { padding: 6px 10px !important; gap: 8px !important; }
+  .exec-sticky .exec-conn > span:first-child { font-size: 13px !important; }
+  .exec-sticky .exec-conn .cap { margin: 0; text-align: right; }
+  .exec-sticky .exec-tabs { display: inline-flex; margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .exec-sticky .exec-tabs .btn { margin: 0; border: 0; border-radius: 0; min-height: 36px; padding: 6px 16px; font-weight: 700; }
+  .exec-sticky .exec-tabs .btn:not(.ghost) { background: var(--accent); color: #06121f; }
+  .exec-jumps { flex-wrap: nowrap; gap: 4px; margin: 0; overflow-x: auto; scrollbar-width: none; }
+  .exec-jumps::-webkit-scrollbar { display: none; }
+  .exec-jumps a { flex: 0 0 auto; padding: 8px 10px; border-radius: 7px; background: var(--card); font-size: 13px; }
+  body[data-page="execution"] :is(section, aside, details) { scroll-margin-top: 150px; }
+
+  /* book above the ticket */
+  .exec-workspace { gap: 16px; }
+  .exec-ticket { grid-row: auto; padding: 12px; }
+  .exec-book-panels > section + section { margin-top: 16px; }
+
+  /* touch + no focus zoom */
+  body[data-page="execution"] :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    font-size: 16px !important; min-height: 40px;
+  }
+  body[data-page="execution"] .btn { min-height: 40px; padding: 8px 12px; font-size: 13.5px; }
+  body[data-page="execution"] .btn.xs { min-height: 38px; padding: 7px 11px; font-size: 13px; border-radius: 7px; }
+  #cmdType { flex: 1 1 100%; width: 100%; }
+  #cmdSend { width: 100%; min-height: 48px; font-size: 15px; font-weight: 700; }
+  #cmdMsg { display: block; margin: 8px 0 0 !important; }
+  .exec-extra > summary { padding: 4px 0; }
+  .exec-extra #fs_symbol, .exec-extra [id^="fs_"]:not(#fs_msg):not(#fs_result):not(#fs_go) { width: calc(50% - 50px) !important; }
+
+  /* tables -> cards */
+  table.tbl.exec-cards, table.tbl.exec-cards tbody { display: block; width: 100%; }
+  table.tbl.exec-cards thead { display: none; }
+  table.tbl.exec-cards tbody tr {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px;
+    padding: 12px; margin-bottom: 10px; background: var(--card);
+    border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  table.tbl.exec-cards tbody tr:hover { background: var(--card); }
+  table.tbl.exec-cards td {
+    display: block; padding: 0; border: 0; text-align: left !important; white-space: normal !important;
+    min-width: 0; font-size: 14px;
+  }
+  table.tbl.exec-cards td[data-label]::before {
+    content: attr(data-label); display: block; margin-bottom: 1px;
+    color: var(--faint); font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .4px;
+  }
+  table.tbl.exec-cards td.exec-c-sym { grid-column: 1 / -1; font-size: 16px; }
+  table.tbl.exec-cards td.exec-c-wide { grid-column: span 2; }
+  table.tbl.exec-cards td.exec-c-full { grid-column: 1 / -1; }
+  table.tbl.exec-cards td.exec-c-empty { display: none; }
+  table.tbl.exec-cards td.exec-c-act, table.tbl.exec-cards td.exec-position-actions {
+    grid-column: 1 / -1; width: auto; min-width: 0; padding-top: 8px; border-top: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  table.tbl.exec-cards td.exec-c-act .btn, table.tbl.exec-cards td.exec-position-actions .btn { flex: 1 1 0; min-width: 72px; }
+  table.tbl.exec-cards td.exec-position-actions > div { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+
+  /* position card: symbol + uP&L headline, then 5 stats, then actions */
+  table.tbl.exec-cards-pos tbody tr { grid-template-columns: repeat(3, minmax(0, 1fr)); border-left-width: 3px; }
+  table.tbl.exec-cards-pos tr.is-long { border-left-color: var(--green); }
+  table.tbl.exec-cards-pos tr.is-short { border-left-color: var(--red); }
+  table.tbl.exec-cards-pos td.exec-c-sym { grid-column: 1 / 3; order: -2; align-self: center; }
+  table.tbl.exec-cards-pos td.exec-c-pnl { order: -1; text-align: right !important; font-size: 17px; }
+  table.tbl.exec-cards-pos td.exec-c-pnl::before { text-align: right; }
+
+  /* order groups: a tappable header per contract; its legs as compact cards */
+  table.tbl.exec-cards-orders tbody tr.exec-group {
+    display: block; padding: 12px; margin: 0 0 8px; background: var(--card2) !important;
+  }
+  table.tbl.exec-cards-orders tr.exec-group td { font-size: 15px; }
+  table.tbl.exec-cards-orders tr.exec-group .cap { display: block !important; margin-top: 4px; line-height: 1.5; }
+  table.tbl.exec-cards-orders tr.exec-order-row { margin: -2px 0 10px 10px; }
+  table.tbl.exec-cards-orders tr.exec-order-row td.exec-c-sym { display: none; }
+  table.tbl.exec-cards-orders tr.is-editing input { width: 100% !important; margin-top: 2px; }
+  table.tbl.exec-cards-orders tr.is-editing td.exec-c-wide .cap { display: block !important; }
+}
+
 .hedge-card { border-color: rgba(77,163,255,.28); }
 .hedge-card.is-stale { opacity: .55; filter: grayscale(.45); }
 .hedge-head { display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap; margin-bottom: 10px; }
