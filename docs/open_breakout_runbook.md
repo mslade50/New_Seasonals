@@ -235,6 +235,55 @@ Owner decision (2026-09-28 evening): from Tuesday 2026-09-29 the live book is si
 **normally**, no longer a one-contract pilot. Everything else in the live section below
 (protection, flatten, preflight gates, alerts, attendance) is unchanged.
 
+**Amendment, 2026-09-28 late evening (owner decision): no per-market contract cap.** The
+10-contract cap is removed before the first normal-size session. Size is set by the risk
+budgets (15 bp NQ / 10 bp ES of $750k), the 25 bp open-risk and 75 bp daily caps, and the
+09:25 planned-size margin gate. What remains is a fat-finger ceiling:
+`LIVE_HARD_MAX_CONTRACTS = 60` in `open_breakout/config.py`, and `max_contracts: 60` for both
+markets in `config-20260925-live.json` (the `pilot` block is removed; it stays optional in
+code, 1..60 when present). The shadow config also carries 60/60 so its simulated sizes follow
+the live rule. `IBKR.send()` still refuses any live quantity outside 1..effective cap (60).
+Launchers: `launch-live.ps1` and `launch-shadow.ps1` accept `max_contracts` 1..60 and print
+them; `launch-live.ps1` no longer requires a pilot block.
+
+- **Where 60 sits:** at the calmest prior ranges of the last 12 months (NQ TR ~100, ES
+  ~20) the budget sizes 20 MNQ ($53.70 per contract) and 23 MES ($31.70), so 60 does not
+  bind at today's index levels. In the full 2018-2026 replay it bound on 12 of 3,238 trades,
+  all MNQ on 2018-2020 holiday-adjacent sessions (NQ prior TR 25.5-29, budget 61-67) when
+  NQ traded at a third of today's level. MES never exceeded 44.
+- **Connect-time what-if (~08:15 and daily-launch step 6):** it previews a fixed
+  **reference size of 10 per market** (`standby.REFERENCE_WHATIF_CONTRACTS`, clamped to the
+  effective cap), `what_if_basis: reference`, warnings `MARGIN_AT_REFERENCE:...` /
+  `MARGIN_TOTAL_AT_REFERENCE:...`, never a failure. The prior TR is not available then (it
+  comes from the 09:00 history pull, which can take minutes), and a what-if at 60 would mean
+  nothing. The 09:25 planned-size gate is unchanged and is the real guard.
+- **The 09:25 margin gate is now the only thing between a tight-range day and a large
+  order** (live runs no per-entry what-if). A failure halts the whole session
+  (`HALTED_PREFLIGHT`, both markets, no retry); it fails closed. At the 2026-09-28 evening
+  per-contract margins (MNQ $6,728, MES $3,486 on the BUY side) and the $112,703 limit, 16
+  MNQ alone is the most that fits. At NQ TR 100 / ES TR 20 the plan is 20 MNQ + 23 MES,
+  about $134,567 + $80,187 = **$214,754, well over the limit: the session would not arm.**
+  Replaying the last 12 months of prior ranges at those margins, about 10 of 237 sessions
+  (4%) would have failed the gate (2026 to date: 1 of 161), mostly holiday-adjacent quiet
+  days. Margins scale with price and volatility, so this is an estimate.
+- **Tuesday 2026-09-29 is unchanged:** at NQ prior TR 565 / ES 79.75 the plan is 3 MNQ /
+  7 MES (the 10 cap did not bind there), planned margin about $44,589 of $112,703.
+- **Fingerprints from 2026-09-29 (after this amendment):** live
+  `0d0876ae95114bee96b49973615d0780cd123bdca881e98eb54dce3be88fdce8` (was `44b60282...ce952`);
+  shadow `fb28fcec5128e0b825866b868e4dcb2a2f707479f638afaa4b1529b4dd15c97a` (was
+  `50c1ca8c...48ae4`; the shadow change is accepted, it only makes simulated sizes match live).
+- **Research replay** (`scripts/build_intraday_replay.py`, cap 60, open/daily caps kept):
+  2018-01..2026-08 sum $541,441 (was $435,263 at cap 10), day Sharpe 1.64 (1.65), max DD
+  -$33,244 (-$33,221), 374.3 trades/yr, last 12 months $30,590 ($30,466). Average contracts
+  12.9 MNQ / 13.0 MES; sizes p50/p90/max 10/26/60 MNQ and 11/23/44 MES. Most of the gain is
+  2018-2020, when ranges in points were small; the last 12 months barely change.
+
+- **Rollback:** set both `max_contracts` back to 10 (or 1) in `config-20260925-live.json`,
+  or add `"pilot": {"max_contracts_per_market": N}`; either changes only the live fingerprint.
+
+The bullets below describe the 10-cap state of 2026-09-28 evening and are kept as history
+where they conflict with the amendment above.
+
 - **Sizing:** the regular whole-contract risk sizing, the same code path as the shadow:
   per-contract risk = |limit - stop| x multiplier + 2 x $0.85 fees + a 4-tick exit reserve
   (MNQ $2/pt, MES $5/pt, tick 0.25; the stop distance rounds outward to the tick), and
@@ -991,6 +1040,10 @@ Re-run 20:05 ET after the planned-size margin change: all steps passed; step 6 n
 it would be a warning, never a failure). A read-only arm-style check on client 927485 with
 Tuesday's staging TRs (565.0 / 79.75) planned 3 MNQ / 7 MES and summed planned margin
 $44,619 (MNQ BUY $20,203 + MES BUY $24,416) against $112,697: ok.
+Re-run 20:57 ET after the cap removal (60 fat-finger ceiling): all steps passed; step 6
+logged `preflight margin: basis=reference qty={"MNQ":{"BUY":10,"SELL":10},"MES":{"BUY":10,"SELL":10}}
+total=101915.2 limit=112697.44 warnings=` (`preflight-2026-09-29-live-dryrun-4.json`); both
+launchers printed MNQ 60 / MES 60, live fingerprint `0d0876ae...dce8`, shadow `fb28fcec...c97a`.
 
 Stop a running session: create a file named `STOP` in its state dir
 (`artifacts/open_breakout_runs/<date>-live/STOP`, and `<date>-shadow/STOP`); it does not

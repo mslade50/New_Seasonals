@@ -40,7 +40,10 @@ OB_TICK = 0.25
 OB_STOP_FRAC = 0.25
 OB_FEE_SIDE = 0.85
 OB_EXIT_RESERVE_TICKS = 4
-OB_MAX_CONTRACTS = 10
+# Live fat-finger ceiling (open_breakout.config.LIVE_HARD_MAX_CONTRACTS); no per-market cap since the owner
+# decision of 2026-09-28 late. It binds only on 12 MNQ trades in 2018-2020 (NQ prior TR 25-29 at a third
+# of today's index level); capped_at_max and budget_above_max report it.
+OB_MAX_CONTRACTS = 60
 OB_DAILY_BPS = 75.0
 OB_OPEN_BPS = 25.0
 
@@ -152,16 +155,22 @@ def open_breakout() -> tuple[dict, dict]:
         "kept_trades": len(t), "kept_sum_r": float(t.net_r.sum()),
         "one_micro_usd": float(t.usd_per_micro.sum()),
         "sized_trades": traded, "zero_size_trades": int(len(t) - traded),
-        "capped_at_10": int((t.contracts == OB_MAX_CONTRACTS).sum()),
+        "capped_at_max": int((t.contracts == OB_MAX_CONTRACTS).sum()),
+        "budget_above_max": int((np.floor(BASIS * t.market.map(lambda m: OB_MARKETS[m]["bps"]) / 1e4
+                                          / t.per_contract) > OB_MAX_CONTRACTS).sum()),
         "cap_cut": int((t.contracts < t.planned).sum()),
         "max_contracts": int(t.contracts.max()),
         "avg_contracts": {m: float(t.loc[(t.market == m) & (t.contracts > 0), "contracts"].mean()) for m in OB_MARKETS},
+        "size_dist": {m: {q: float(t.loc[(t.market == m) & (t.contracts > 0), "contracts"].quantile(p))
+                          for q, p in (("p50", .5), ("p90", .9), ("max", 1.0))} for m in OB_MARKETS},
+        "min_prior_tr": {m: float(t.loc[t.market == m, "prior_tr"].min()) for m in OB_MARKETS},
         "max_open_risk_ok": bool(risk.max() <= open_cap + 1e-6),
     }
     entry = {
         "id": "open_breakout", "name": "Open Breakout", "book": "intraday",
         "instruments": "MNQ/MES on NQ/ES signals", "span": list(OB_SPAN),
-        "sizing": ("15 bps NQ / 10 bps ES of $750k, whole micro contracts, cap 10 per market; amended prior-range "
+        "sizing": ("15 bps NQ / 10 bps ES of $750k, whole micro contracts, 25 bps open / 75 bps daily risk caps, "
+                   "no per-market contract cap (fat-finger ceiling 60); amended prior-range "
                    "skip (ratio >= 1.25 and prior session >= +2R own R); shorts gated on legacy score >= 20"),
         "costs": "base: ledger fees and slippage",
         "_series": (daily, by_m, len(t)),

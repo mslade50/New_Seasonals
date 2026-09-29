@@ -359,7 +359,7 @@ class Service:
                     self.store.event('SIZED_DOWN_RISK_CAP',{'market':s.market,'planned':plan['qty'],'qty':fit,'room':room})
                     plan = {**plan,'qty':fit,'risk':fit*plan['per_contract']}
                 if self.config.mode!='live':
-                    # Live margin is checked read-only at connect (at the cap, warning) and at the 09:25 arming
+                    # Live margin is checked read-only at connect (reference size, warning) and at the 09:25 arming
                     # preflight (at the planned sizes, failing); no per-entry what-if in live.
                     await asyncio.wait_for(self.broker.check_margin(m,plan,equity),10.)
                 # Revalidate after asynchronous account/margin checks. Never chase a stale signal.

@@ -115,7 +115,7 @@ def size_order(state, market, side, bid, ask, equity, config):
     if state.half_size:
         qty //= 2
     if config.mode == 'live':
-        # Live ceiling (market cap, pilot ceiling, hard ceiling) after all sizing; a computed 0 remains no trade.
+        # Live ceiling (market cap, pilot ceiling if any, fat-finger ceiling) after all sizing; 0 stays no trade.
         qty = min(qty, config.max_contracts_for(market))
     return dict(side=side, qty=qty, limit=limit, risk=qty*per_contract, stop_distance=state.distance,
                 per_contract=per_contract)

@@ -19,6 +19,11 @@ from .service import Service, own_ref, prior_range_skip
 from .store import Store, prior_day_r
 from .strategy import NY, State, size_order
 
+# Connect-time (pre-manifest) what-if size, warning only. The prior TR needs the 09:00 history pull, so the
+# ~08:15 preflight previews a fixed reference size (clamped to the effective cap); the 09:25 planned-size
+# what-if is the gate.
+REFERENCE_WHATIF_CONTRACTS = 10
+
 
 async def fetch_range_bars(transport):
     """Prior-range history; a failure is recorded in the manifest (fail closed per market), not raised."""
@@ -158,7 +163,7 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
     """Read-only checks: streams, OpenBreakout's own position and working orders (all clients), contracts,
     account and what-if margin. Other strategies in the same contracts are reported as other_book only.
     Margin: one contract each side always; then the planned sizes when the manifest exists (fails), else
-    the effective cap (warnings only)."""
+    a fixed reference size (warnings only)."""
     config=transport.config
     failures=[];warnings=[]
     report=dict(checked_at=datetime.now(timezone.utc).isoformat(),mode=config.mode,account_suffix=config.account[-4:],
@@ -215,7 +220,8 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
     report['what_if_one_contract']=one
     # Sized check. With the manifest (09:25 arming, or a reconnect after 09:00): the PLANNED sizes that
     # size_order would send now, and the summed worse side must fit the limit, or arming fails. Without it
-    # (connect at ~08:15, the launcher's read-only preflight): at the effective cap, as a warning only.
+    # (connect at ~08:15, the launcher's read-only preflight): at REFERENCE_WHATIF_CONTRACTS (clamped to the
+    # effective cap), as a warning only. The fat-finger cap (60) is not a meaningful size to preview.
     planned=None
     if manifest is not None:
         try:
@@ -223,15 +229,15 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
             planned=planned_sizes(config,manifest,transport.quote,values_equity)
         except Exception as exc:
             failures.append(f'PLANNED_SIZE:{type(exc).__name__}: {exc}')
-    basis='planned' if planned is not None else 'cap'
+    basis='planned' if planned is not None else 'reference'
     problems=failures if basis=='planned' else warnings
-    tag='MARGIN_PLANNED' if basis=='planned' else 'MARGIN_AT_CAP'
+    tag='MARGIN_PLANNED' if basis=='planned' else 'MARGIN_AT_REFERENCE'
     sized={};worst={};complete=True
     for m in config.markets:
         sym=m.execution.symbol
         for side in (1,-1):
             action='BUY' if side==1 else 'SELL'
-            qty=planned[sym][action] if planned is not None else config.max_contracts_for(m)
+            qty=planned[sym][action] if planned is not None else min(REFERENCE_WHATIF_CONTRACTS,config.max_contracts_for(m))
             if qty<1:
                 sized[f'{sym}:{action}']=dict(qty=0,init_margin_change=0.);worst.setdefault(sym,0.);continue
             row,change=await preview(m,side,qty,problems,tag)
@@ -249,7 +255,7 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
     # None when a market's sized what-if was unusable (listed above).
     report['margin_total']=total
     if total is not None and not total<=limit:
-        problems.append(f'{"MARGIN_TOTAL" if basis=="planned" else "MARGIN_TOTAL_AT_CAP"}:{total:.2f}>{limit:.2f}')
+        problems.append(f'{"MARGIN_TOTAL" if basis=="planned" else "MARGIN_TOTAL_AT_REFERENCE"}:{total:.2f}>{limit:.2f}')
     report['ok']=not failures
     return report
 

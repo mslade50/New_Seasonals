@@ -58,7 +58,8 @@ def test_config_boundaries(config,tmp_path,monkeypatch):
     # The pilot block is optional since 2026-09-29; a market cap above the hard ceiling is never live-authorizable.
     monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} U_REAL')
     assert live.authorize(DAY)==f'LIVE {DAY} U_REAL'
-    over=replace(live,markets=(replace(live.markets[0],max_contracts=21),live.markets[1]))
+    assert replace(live,markets=(replace(live.markets[0],max_contracts=60),live.markets[1])).authorize(DAY)
+    over=replace(live,markets=(replace(live.markets[0],max_contracts=61),live.markets[1]))
     with pytest.raises(PermissionError,match='LIVE_HARD_MAX_CONTRACTS'):over.authorize(DAY)
     raw=json.loads((ROOT/'config/open_breakout.example.json').read_text(encoding='utf-8-sig'))
     raw['port']='7497'
@@ -601,7 +602,7 @@ def test_ibkr_paper_order_fields_and_live_release(config,monkeypatch):
         adapter.send(18,m,body)
         assert sent[1].goodAfterTime.endswith('America/New_York') and sent[1].ocaGroup==sent[0].ocaGroup
         live=replace(config,mode='live',account='U_REAL',allow_live=True)
-        live=replace(live,markets=(replace(live.markets[0],max_contracts=21),live.markets[1]))
+        live=replace(live,markets=(replace(live.markets[0],max_contracts=61),live.markets[1]))
         monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {live.account}')
         with pytest.raises(PermissionError,match='LIVE_HARD_MAX_CONTRACTS'):await IBKR(live,session=DAY).connect()
     asyncio.run(run())
@@ -770,7 +771,8 @@ def live(tmp_path,monkeypatch):
 
 def test_live_config_requires_exact_session_ack(tmp_path,monkeypatch):
     from open_breakout.config import LIVE_HARD_MAX_CONTRACTS
-    assert LIVE_HARD_MAX_CONTRACTS==20
+    # Fat-finger ceiling only since the owner decision of 2026-09-28 late (no per-market contract cap).
+    assert LIVE_HARD_MAX_CONTRACTS==60
     c=load_raw(tmp_path,live_raw())
     assert c.mode=='live' and c.pilot_max_contracts==1
     monkeypatch.delenv('OPEN_BREAKOUT_LIVE_ACK',raising=False)
@@ -784,12 +786,12 @@ def test_live_config_requires_exact_session_ack(tmp_path,monkeypatch):
     assert c.authorize(DAY)==f'LIVE {DAY} {LIVE_ACCOUNT}'
 
 @pytest.mark.parametrize('mutate',[
-    lambda r:r['markets'][0].update(max_contracts=21),
-    lambda r:r['markets'][1].update(max_contracts=21),
+    lambda r:r['markets'][0].update(max_contracts=61),
+    lambda r:r['markets'][1].update(max_contracts=61),
     lambda r:r['markets'][0].update(max_contracts=0),
     lambda r:r['markets'][0].update(max_contracts=2.0),
     lambda r:r.update(account='DU1234567'),
-    lambda r:r.update(pilot={'max_contracts_per_market':21}),
+    lambda r:r.update(pilot={'max_contracts_per_market':61}),
     lambda r:r.update(pilot={'max_contracts_per_market':0}),
     lambda r:r.update(pilot={'max_contracts_per_market':10.0}),
     lambda r:r.update(pilot={'max_contracts_per_market':True}),
@@ -800,8 +802,9 @@ def test_live_config_structural_rejections(tmp_path,mutate):
     raw=live_raw();mutate(raw)
     with pytest.raises((PermissionError,ValueError)):load_raw(tmp_path,raw)
 
-def normal_raw(pilot=10,caps=(10,10)):
-    """Live sizing from 2026-09-29: the live config shape (10/10 caps, pilot ceiling 10, $750k base, 15/10 bp)."""
+def normal_raw(pilot=None,caps=(60,60)):
+    """Live sizing from 2026-09-29: the live config shape (no pilot block, fat-finger ceiling 60/60 since the
+    owner decision of 2026-09-28 late, $750k base, 15/10 bp)."""
     raw=live_raw(shadow_equity=750000,max_daily_risk_bps=75,max_open_risk_bps=25)
     if pilot is None:raw.pop('pilot')
     else:raw['pilot']={'max_contracts_per_market':pilot}
@@ -810,21 +813,37 @@ def normal_raw(pilot=10,caps=(10,10)):
 
 def test_live_effective_caps_pilot_optional_and_hard_ceiling(tmp_path):
     from open_breakout.config import LIVE_HARD_MAX_CONTRACTS
+    # The live shape: no pilot block, 60/60 (the fat-finger ceiling).
     c=load_raw(tmp_path,normal_raw())
-    assert [c.max_contracts_for(m) for m in c.markets]==[10,10] and c.pilot_max_contracts==10
+    assert [c.max_contracts_for(m) for m in c.markets]==[60,60] and c.pilot_max_contracts==0
     # Pilot block optional: the market caps rule, still under the hard ceiling.
     c=load_raw(tmp_path,normal_raw(pilot=None,caps=(20,7)),'nopilot.json')
     assert c.pilot_max_contracts==0 and [c.max_contracts_for(m) for m in c.markets]==[20,7]
-    # Pilot lower than the market caps wins.
+    # A pilot block, when present, is accepted up to 60 and still applied.
+    c=load_raw(tmp_path,normal_raw(pilot=60),'pilot60.json')
+    assert c.pilot_max_contracts==60 and [c.max_contracts_for(m) for m in c.markets]==[60,60]
     c=load_raw(tmp_path,normal_raw(pilot=3),'pilot3.json')
     assert [c.max_contracts_for(m) for m in c.markets]==[3,3]
     # Hard ceiling applies even to a config object built around validation.
-    over=replace(c,pilot_max_contracts=0,markets=tuple(replace(m,max_contracts=50) for m in c.markets))
+    over=replace(c,pilot_max_contracts=0,markets=tuple(replace(m,max_contracts=100) for m in c.markets))
     assert [over.max_contracts_for(m) for m in over.markets]==[LIVE_HARD_MAX_CONTRACTS]*2
     with pytest.raises(PermissionError):over.validate_live()
     # Shadow/paper keep their own caps (no live clamp).
     shadow=replace(c,mode='shadow')
-    assert [shadow.max_contracts_for(m) for m in shadow.markets]==[10,10]
+    assert [shadow.max_contracts_for(m) for m in shadow.markets]==[60,60]
+
+def test_repo_live_and_shadow_configs_carry_the_fat_finger_ceiling():
+    """The launcher configs: no pilot block in live, 60 per market in both (shadow simulates the live rule)."""
+    from open_breakout.config import LIVE_HARD_MAX_CONTRACTS
+    runs=ROOT/'artifacts/open_breakout_runs'
+    live_p,shadow_p=runs/'config-20260925-live.json',runs/'config-20260925-shadow.json'
+    if not live_p.exists() or not shadow_p.exists():pytest.skip('launcher configs not present in this checkout')
+    live_cfg=json.loads(live_p.read_text(encoding='utf-8-sig'))
+    shadow_cfg=json.loads(shadow_p.read_text(encoding='utf-8-sig'))
+    assert 'pilot' not in live_cfg and live_cfg['mode']=='live'
+    for raw in (live_cfg,shadow_cfg):
+        assert [m['max_contracts'] for m in raw['markets']]==[LIVE_HARD_MAX_CONTRACTS]*2
+    assert Config.load(shadow_p).max_contracts_for(Config.load(shadow_p).markets[0])==60
 
 def test_live_config_fingerprint_changes_with_caps_but_shadow_does_not(config,tmp_path):
     one=load_raw(tmp_path,live_raw(),'one.json')
@@ -857,10 +876,12 @@ def test_live_sizing_clamps_to_pilot_ceiling_and_zero_stays_zero(config):
     ten=replace(config,mode='live',pilot_max_contracts=10)
     assert size_order(s,config.markets[0],1,20000,20000.25,100000,ten)['qty']==6
     assert size_order(s,config.markets[0],1,20000,20000.25,100000,replace(ten,pilot_max_contracts=4))['qty']==4
-    # Risk size far above every cap: min(market cap 10, pilot, hard ceiling 20).
-    assert size_order(s,config.markets[0],1,20000,20000.25,10**7,ten)['qty']==10
-    big=replace(ten,pilot_max_contracts=0,markets=tuple(replace(m,max_contracts=50) for m in ten.markets))
-    assert size_order(s,big.markets[0],1,20000,20000.25,10**8,big)['qty']==20
+    # Risk size far above every cap: min(market cap, pilot, hard ceiling 60).
+    assert size_order(s,config.markets[0],1,20000,20000.25,10**7,ten)['qty']==min(10,config.markets[0].max_contracts)
+    big=replace(ten,pilot_max_contracts=0,markets=tuple(replace(m,max_contracts=100) for m in ten.markets))
+    assert size_order(s,big.markets[0],1,20000,20000.25,10**8,big)['qty']==60
+    # Shadow at the same market cap is not clamped by the live ceiling.
+    assert size_order(s,big.markets[0],1,20000,20000.25,10**8,replace(big,mode='shadow'))['qty']==100
 
 @pytest.mark.parametrize('side',[1,-1])
 def test_live_normal_sizing_at_2026_09_29_ranges(tmp_path,side):
@@ -1173,25 +1194,28 @@ def margin_log(seen,per=None):
         return body['qty']*(per if per is not None else IB_MARGIN[(m.execution.symbol,body['side'])])
     return f
 
-def test_preflight_at_connect_previews_cap_as_warning_only(tmp_path,monkeypatch):
+def test_preflight_at_connect_previews_reference_size_as_warning_only(tmp_path,monkeypatch):
     monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
-    from open_breakout.standby import preflight
+    from open_breakout.standby import preflight, REFERENCE_WHATIF_CONTRACTS
+    assert REFERENCE_WHATIF_CONTRACTS==10
     live=load_raw(tmp_path,normal_raw())
+    assert [live.max_contracts_for(m) for m in live.markets]==[60,60]
     seen=[]
     async def run():
-        # Limit: min(500k excess, 600k NLV) x 0.2 = 100k. At the 10/10 cap: 67,283.70 + 34,863.75 > 100k.
+        # Limit: min(500k excess, 600k NLV) x 0.2 = 100k. The fat-finger cap (60) is never previewed; the
+        # reference size 10/10 is: 67,283.70 + 34,863.75 > 100k, a warning only.
         r=await preflight(FakePreflight(live,[],[],margin_log(seen)),wait_seconds=0)
-        assert r['ok'] and r['failures']==[] and r['what_if_basis']=='cap'
+        assert r['ok'] and r['failures']==[] and r['what_if_basis']=='reference'
         assert r['margin_total']==pytest.approx(10*6728.37+10*3486.375) and r['margin_limit']==pytest.approx(100000.)
-        assert r['warnings']==[f'MARGIN_TOTAL_AT_CAP:{10*6728.37+10*3486.375:.2f}>100000.00']
+        assert r['warnings']==[f'MARGIN_TOTAL_AT_REFERENCE:{10*6728.37+10*3486.375:.2f}>100000.00']
         assert r['what_if_qty']=={'MNQ':{'BUY':10,'SELL':10},'MES':{'BUY':10,'SELL':10}}
         # The one-contract basic check runs as well, both sides.
         assert sorted(seen)==sorted([(s,d,q) for s in ('MNQ','MES') for d in (1,-1) for q in (1,10)])
         assert set(r['what_if_one_contract'])=={'MNQ:BUY','MNQ:SELL','MES:BUY','MES:SELL'}
-        # Even a single market over the limit at the cap is a warning, not a failure.
+        # Even a single market over the limit at the reference size is a warning, not a failure.
         big=await preflight(FakePreflight(live,[],[],margin_log([],per=20000.)),wait_seconds=0)
-        assert big['ok'] and any(w.startswith('MARGIN_AT_CAP:MNQ:BUY') for w in big['warnings'])
-        # A pilot ceiling below the market caps is what gets previewed.
+        assert big['ok'] and any(w.startswith('MARGIN_AT_REFERENCE:MNQ:BUY') for w in big['warnings'])
+        # An effective cap below the reference size (a pilot ceiling) is what gets previewed.
         three=load_raw(tmp_path,normal_raw(pilot=3,caps=(10,8)),'three.json')
         seen.clear()
         r3=await preflight(FakePreflight(three,[],[],margin_log(seen)),wait_seconds=0)
@@ -1237,7 +1261,7 @@ def test_preflight_at_arming_uses_planned_sizes_and_fails_only_above_limit(tmp_p
         assert not r['ok'] and any(f.startswith('PLANNED_SIZE:KeyError') for f in r['failures'])
     asyncio.run(run())
 
-@pytest.mark.parametrize('nq_tr,es_tr',[(565.,79.75),(40.,40.),(2000.,300.),(123.5,17.25)])
+@pytest.mark.parametrize('nq_tr,es_tr',[(565.,79.75),(40.,40.),(2000.,300.),(123.5,17.25),(100.,20.)])
 def test_planned_size_equals_size_order(tmp_path,monkeypatch,nq_tr,es_tr):
     monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
     from open_breakout.standby import planned_sizes
@@ -1252,6 +1276,9 @@ def test_planned_size_equals_size_order(tmp_path,monkeypatch,nq_tr,es_tr):
             assert plan[mk.execution.symbol][action]==want['qty']<=live.max_contracts_for(mk)
     if (nq_tr,es_tr)==(565.,79.75):
         assert (plan['MNQ']['BUY'],plan['MES']['BUY'])==(3,7)
+    if (nq_tr,es_tr)==(100.,20.):
+        # Calmest sample ranges: budget-implied sizes stay well under the 60 fat-finger ceiling.
+        assert max(plan['MNQ']['BUY'],plan['MES']['BUY'])<60
 
 def test_armed_line_reports_planned_sizes_and_caps(tmp_path,monkeypatch):
     from types import SimpleNamespace as NS
@@ -1262,10 +1289,10 @@ def test_armed_line_reports_planned_sizes_and_caps(tmp_path,monkeypatch):
     report=dict(planned_qty={'MNQ':3,'MES':7},margin_total=44589.4,margin_limit=112703.36)
     both={'NQ':NS(phase='FLAT',note=''),'ES':NS(phase='FLAT',note='')}
     line=armed_line(live,report,both,{'NQ':565.,'ES':79.75},76.8,m)
-    assert line.startswith("ARMED LIVE: planned 3 MNQ / 7 MES at today's ranges, max 10/10; planned margin $44,589 of limit $112,703;")
+    assert line.startswith("ARMED LIVE: planned 3 MNQ / 7 MES at today's ranges, max 60/60; planned margin $44,589 of limit $112,703;")
     one={'NQ':NS(phase='FLAT',note=''),'ES':NS(phase='SKIPPED',note='PRIOR_RANGE_SKIP: x')}
     line=armed_line(live,report,one,{},76.8,m)
-    assert "planned 3 MNQ at today's ranges, max 10;" in line and "NOT ARMED {'ES': 'PRIOR_RANGE_SKIP: x'}" in line
+    assert "planned 3 MNQ at today's ranges, max 60;" in line and "NOT ARMED {'ES': 'PRIOR_RANGE_SKIP: x'}" in line
     none={k:NS(phase='SKIPPED',note='x') for k in ('NQ','ES')}
     assert 'NO MARKET' in armed_line(live,report,none,{},76.8,m)
 
@@ -1274,7 +1301,7 @@ def test_live_send_refuses_above_effective_cap(tmp_path,monkeypatch):
     async def run():
         pytest.importorskip('ib_insync')
         from open_breakout.ibkr import IBKR
-        for pilot,cap in [(10,10),(3,3),(None,10)]:
+        for pilot,cap in [(10,10),(3,3),(None,60),(60,60)]:
             live=load_raw(tmp_path,normal_raw(pilot=pilot),f'cap{pilot}.json')
             adapter=IBKR(live,session=DAY)
             m=live.markets[0];adapter.contracts[m.execution.con_id]=object()
@@ -1370,17 +1397,19 @@ def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,
         # Live writes its own day R too: one timed-exit NQ trade, no ES trade.
         assert meta['day_r']['NQ']['trades']==1 and meta['day_r']['ES']['r'] is None
         assert len(armed)==1 and "planned 1 MNQ / 0 MES at today's ranges, max 1/1" in armed[0]
-        assert meta['preflight_connect']['what_if_basis']=='cap' and meta['preflight_arm']['what_if_basis']=='planned'
+        assert meta['preflight_connect']['what_if_basis']=='reference' and meta['preflight_arm']['what_if_basis']=='planned'
     else:
-        # $750k basis, prior TR 40 (stop 10 pts): MNQ 1125/23.70 -> 47 and MES 750/56.70 -> 13, both capped at 10.
-        assert sorted((b['ref'].split('|')[0],b['qty']) for b in entries)==[('MES',10),('MNQ',10)]
+        # $750k basis, prior TR 40 (stop 10 pts): MNQ 1125/23.70 -> 47 and MES 750/56.70 -> 13, unclamped (no
+        # per-market cap since 2026-09-28 late; 60 is the fat-finger ceiling). 1,113.90 + 737.10 fits the 25bp
+        # open cap ($1,875), so neither is sized down.
+        assert sorted((b['ref'].split('|')[0],b['qty']) for b in entries)==[('MES',13),('MNQ',47)]
         assert sorted(role for role,_ in orders)==['ENTRY','ENTRY','STOP','STOP','TIME','TIME']
         # Stop and timed exit carry the filled quantity.
-        assert all(b['qty']==10 for role,b in orders if role in {'STOP','TIME'})
+        assert sorted(b['qty'] for role,b in orders if role in {'STOP','TIME'})==[13,13,47,47]
         assert meta['day_r']['NQ']['trades']==1 and meta['day_r']['ES']['trades']==1
-        assert meta['settings']['effective_max_contracts']=={'MNQ':10,'MES':10}
-        assert len(armed)==1 and "planned 10 MNQ / 10 MES at today's ranges, max 10/10" in armed[0]
-        assert meta['preflight_arm']['what_if_qty']=={'MNQ':{'BUY':10,'SELL':10},'MES':{'BUY':10,'SELL':10}}
+        assert meta['settings']['effective_max_contracts']=={'MNQ':60,'MES':60}
+        assert len(armed)==1 and "planned 47 MNQ / 13 MES at today's ranges, max 60/60" in armed[0]
+        assert meta['preflight_arm']['what_if_qty']=={'MNQ':{'BUY':47,'SELL':47},'MES':{'BUY':13,'SELL':13}}
         assert meta['preflight_arm']['margin_total']==pytest.approx(6000.)
 
 

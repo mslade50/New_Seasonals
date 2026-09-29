@@ -13,7 +13,12 @@ FAMILY = {'NQ': 'NQ', 'MNQ': 'NQ', 'ES': 'ES', 'MES': 'ES'}
 # Absolute code-level ceiling per market for live routing, whatever the config says. The effective live
 # cap is min(market max_contracts, pilot.max_contracts_per_market if present, this). Normal sizing from
 # 2026-09-29 (owner decision 2026-09-28); the 2026-09-25..28 pilot was one contract.
-LIVE_HARD_MAX_CONTRACTS = 20
+# Fat-finger ceiling only (owner decision 2026-09-28 late: no per-market contract cap). Sizing is the risk
+# budgets, the open/daily risk caps and the 09:25 planned-size margin gate. At the calmest ranges of the
+# last 12 months (NQ prior TR ~100, ES ~20) the budget-implied size is about 20-23 per market, so 60 does not
+# bind at today's index levels and only stops a corrupt input (a near-zero TR or a bad quote). In the full
+# 2018-2026 replay it bound on 12 of 3,238 trades (MNQ 61-67 on 2018-2020 holiday sessions, NQ TR 25-29).
+LIVE_HARD_MAX_CONTRACTS = 60
 # Historical one-contract pilot size, kept only for the artifacts/open_breakout_build mechanics scripts
 # that import it. It is NOT a live cap and nothing in the order path reads it.
 LIVE_PILOT_MAX_CONTRACTS = 1
