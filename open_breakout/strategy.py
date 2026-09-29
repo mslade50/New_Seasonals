@@ -5,7 +5,6 @@ from datetime import datetime, time
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 import math
 from zoneinfo import ZoneInfo
-from .config import LIVE_PILOT_MAX_CONTRACTS
 
 NY = ZoneInfo('America/New_York')
 
@@ -116,6 +115,7 @@ def size_order(state, market, side, bid, ask, equity, config):
     if state.half_size:
         qty //= 2
     if config.mode == 'live':
-        # Pilot clamp after all sizing; a computed 0 remains no trade.
-        qty = min(qty, LIVE_PILOT_MAX_CONTRACTS)
-    return dict(side=side, qty=qty, limit=limit, risk=qty*per_contract, stop_distance=state.distance)
+        # Live ceiling (market cap, pilot ceiling, hard ceiling) after all sizing; a computed 0 remains no trade.
+        qty = min(qty, config.max_contracts_for(market))
+    return dict(side=side, qty=qty, limit=limit, risk=qty*per_contract, stop_distance=state.distance,
+                per_contract=per_contract)

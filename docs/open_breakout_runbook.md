@@ -1,17 +1,17 @@
 # NQ / ES opening breakout: IBKR service
 
-Status (2026-09-25): **Friday 2026-09-25 did not trade.** The 7496 Gateway restarted
-around 07:00 ET and was not back before the open, so the shadow failed and the live
-pilot was never launched; no orders were placed. **Monday 2026-09-28 is staged**
-(shadow on client 927480 plus the live one-contract pilot, 1 MNQ / 1 MES, client
-927481) with dated launchers; nothing is launched yet. See "Session 2026-09-25 outcome
-and Monday 2026-09-28 staging" at the end. Live routing now exists
-only behind layered guards: `mode: live` + `allow_live` + a non-DU account + the
-`pilot` block + every `max_contracts == 1` + the code constant
-`LIVE_PILOT_MAX_CONTRACTS = 1` + the exact session/account acknowledgement
-`OPEN_BREAKOUT_LIVE_ACK`, and only through the `live-session` command after a
-passing 09:25 ET preflight. `shadow-session` still refuses live configs. See the
-dated sections below for both sessions.
+Status (2026-09-28 evening): **live at normal sizing from Tuesday 2026-09-29** (owner
+decision 2026-09-28). Monday 2026-09-28 was the first live session at one contract per
+market (1 MNQ / 1 MES, both shorts stopped, mechanics verified). From 2026-09-29 the live
+session (client 927481, launched 08:12 ET by Task Scheduler) uses the regular risk sizing
+(15 bp NQ / 10 bp ES of the $750,000 basis, 25 bp open / 75 bp daily caps), capped at
+**10 contracts per market** (config `max_contracts: 10` and `pilot.max_contracts_per_market:
+10`) under a code ceiling `LIVE_HARD_MAX_CONTRACTS = 20`. See "Live sizing (from
+2026-09-29)" below. Live routing exists only behind layered guards: `mode: live` +
+`allow_live` + a non-DU account + every `max_contracts <= 20` (and the pilot ceiling,
+when present, in 1..20) + the exact session/account acknowledgement
+`OPEN_BREAKOUT_LIVE_ACK`, and only through the `live-session` command after a passing
+09:25 ET preflight. `shadow-session` still refuses live configs.
 
 ## Frozen candidate
 
@@ -229,7 +229,87 @@ transmission method is disabled inside this process. All modeled fills remain in
 the local simulator and journal.
 
 
+## Live sizing (from 2026-09-29)
+
+Owner decision (2026-09-28 evening): from Tuesday 2026-09-29 the live book is sized
+**normally**, no longer a one-contract pilot. Everything else in the live section below
+(protection, flatten, preflight gates, alerts, attendance) is unchanged.
+
+- **Sizing:** the regular whole-contract risk sizing, the same code path as the shadow:
+  per-contract risk = |limit - stop| x multiplier + 2 x $0.85 fees + a 4-tick exit reserve
+  (MNQ $2/pt, MES $5/pt, tick 0.25; the stop distance rounds outward to the tick), and
+  qty = floor(budget / per-contract risk) with budget 15 bp (NQ) / 10 bp (ES) of the
+  $750,000 basis. The 25 bp open-risk and 75 bp daily-reserved caps then shrink an
+  entry to the whole contracts that still fit, using the same per-contract risk
+  (event `SIZED_DOWN_RISK_CAP`), and skip it only when not one contract fits
+  (`SKIP_RISK_CAP`). A computed 0 is still no trade. At 15/10 bp the two budgets sum
+  to exactly the 25 bp open cap and three attempts each to the 75 bp daily cap, so
+  neither cap binds with this config (changed 2026-09-28 night from skip-only).
+- **Caps:** after that sizing, live clamps to the effective ceiling
+  `min(market max_contracts, pilot.max_contracts_per_market if present, LIVE_HARD_MAX_CONTRACTS)`
+  = min(10, 10, 20) = **10 per market**. `IBKR.send()` refuses any live order (entry,
+  stop, timed exit, flatten) whose quantity is not a whole number in 1..effective cap.
+  Config validation refuses a live config with any `max_contracts` above 20 or a pilot
+  ceiling outside 1..20. The `pilot` block is optional in code; the live config keeps it
+  (value 10) because `launch-live.ps1` requires it (1..20) and prints the effective caps.
+- **Preflight margin** (revised 2026-09-28 night; the limit is 20% of
+  min(ExcessLiquidity, NetLiquidation)):
+  - Always: a one-contract BUY and SELL what-if per market (contract tradeable, no
+    warning, within the limit). Failure `MARGIN:<sym>:<side>:...` blocks.
+  - **09:25 arming preflight: the PLANNED sizes.** `standby.planned_sizes()` runs the
+    real `size_order` for each market and side with the manifest's prior TR, the current
+    mid quote, the configured risk bp, fees and exit reserve, clamped to the effective
+    cap (a market the prior-range filter does not arm plans 0). Each planned side is
+    previewed (`MARGIN_PLANNED:...` if unusable or over the limit) and the worse side of
+    each market, summed, must fit the limit, else `MARGIN_TOTAL:<total>><limit>` and no
+    arming. A missing quote fails closed (`PLANNED_SIZE:...`). The report carries
+    `what_if_basis: planned`, `planned`, `planned_qty`, `what_if_qty`, `margin_total`,
+    `margin_limit`; the ARMED alert reads e.g. `planned 3 MNQ / 7 MES at today's ranges,
+    max 10/10; planned margin $44,589 of limit $112,703`. A reconnect after 09:00 (the
+    manifest exists) uses the planned sizes too.
+  - **Connect (~08:15) and the 08:12 daily-launch step 6, before the 09:00 manifest:**
+    previews at the effective cap (10/10) for **information only**:
+    `what_if_basis: cap`, and any over-limit result is a `warnings` entry
+    (`MARGIN_TOTAL_AT_CAP:...`, `MARGIN_AT_CAP:...`), never a failure.
+  - The per-entry what-if stays skipped in live.
+- **Tuesday 2026-09-29 exposure at the prior ranges** (NQ prior TR 565.0, ES 79.75; the
+  runner re-fetches TR at 09:00): NQ stop 0.25 x 565 = 141.25 pts, MNQ per-contract
+  risk 282.50 + 1.70 + 2.00 = **$286.20**, budget $1,125 -> **3 MNQ** ($858.60). ES stop
+  0.25 x 79.75 = 19.9375 pts, rounded outward to 20.00, MES per-contract risk 100.00 +
+  1.70 + 5.00 = **$106.70**, budget $750 -> **7 MES** ($746.90). Both open at once:
+  $1,605.50, inside the 25 bp open cap ($1,875). Three losing attempts each:
+  $4,816.50, inside the 75 bp daily cap ($5,625). Neither market reaches the 10 cap at
+  these ranges (for reference, Monday's shadow at TR 320.5 / 66.25 sized 6 MNQ / 8 MES).
+  Stops are market orders once triggered; gaps can exceed these figures.
+- **Preflight margin at max (dry run 2026-09-28 19:48 ET, client 927485, overnight
+  margins):** 10 MNQ BUY $67,284 / SELL $61,167; 10 MES BUY $34,864 / SELL $28,606;
+  summed worse sides **$102,147 against a limit of $112,703** (20% of ExcessLiquidity
+  $563,517; NLV $613,580). That thin headroom is why the gate moved to the planned
+  sizes: at Tuesday's 3 MNQ / 7 MES the same per-contract margins sum to about
+  $44,589 (3 x $6,728 + 7 x $3,486), roughly 40% of the limit. The at-cap total is now
+  only a connect-time warning.
+- **Partial fills at size** (tests in `tests/test_open_breakout.py`): an IOC that fills
+  4 of 6 gets a stop and a 15:55 timed exit for 4; a second partial on the same order
+  re-averages the entry, moves the stop off the new average and resizes the same stop
+  order in place; a zero fill consumes the attempt and keeps the daily reservation; an
+  emergency flatten sizes to the journal quantity; a partial stop fill (OCA type 2
+  reduces the timed exit at IB) reduces the journal, cancels nothing and reconciles;
+  any quantity still held at 15:56 halts with an alert. Added 2026-09-28 night: a
+  rejected in-place stop modify halts and alerts (explicit reject code: emergency
+  flatten of the journal quantity; otherwise no flatten, loud hand-check alert); an
+  entry execution reported after the 15:55 exit was sent resizes that exit in place and
+  halts for review; a working timed exit larger than the journal position (OCA reduce
+  missing) is a reconcile discrepancy that halts after three checks.
+- Rollback to one contract: set `pilot.max_contracts_per_market` (and both
+  `max_contracts`) back to 1 in `config-20260925-live.json`; that changes the live
+  fingerprint and nothing else. Live fingerprint from 2026-09-29:
+  `44b60282af425838dea8563c0b1fcf10bb55f9c6dd44790c54fcc011f10ce952` (was
+  `86e8d186...4566`); shadow unchanged `50c1ca8c...48ae4`.
+
 ## Live pilot: 2026-09-25 session
+
+The one-contract cap below applied 2026-09-25 to 2026-09-28; see "Live sizing (from
+2026-09-29)" above for the current caps and preflight.
 
 Owner decision (2026-09-24): trade **one MNQ and one MES contract live** on Friday
 2026-09-25 if, and only if, a valid strategy signal occurs. There is no paper Gateway
@@ -261,7 +341,7 @@ session above keeps running as the comparison baseline.
   Open Breakout position in MNQ/MES (from executions tagged `OpenBreakout`); no working
   MNQ/MES order carrying an `OpenBreakout` ref from any API client or TWS
   (`reqAllOpenOrders`). Since 2026-09-27 other strategies' MNQ/MES positions and working
-  orders are reported under `other_book` and do not fail it. Also checked: contract identities; what-if margin for 1-lot BUY and SELL in
+  orders are reported under `other_book` and do not fail it. Also checked: contract identities; what-if margin for 1-lot (from 2026-09-29 also the planned sizes, summed, at 09:25; at-cap warning at connect; see Live sizing) BUY and SELL in
   each execution contract within the margin limit; all four data streams live and
   fresh. Any failure: no arming, session ends `HALTED_PREFLIGHT`. Until arming, an
   order gate below the adapter lets only what-if previews through.
@@ -291,7 +371,7 @@ session above keeps running as the comparison baseline.
   uncertain acknowledgement halts new entries only.
 - Other live safeguards: a stale or dislocated execution quote at entry time skips
   that one signal (no halt, no attempt consumed; a re-entry needs a fresh recross);
-  the per-entry what-if is skipped in live (margin was checked at connect and 09:25);
+  the per-entry what-if is skipped in live (margin was checked at connect and at the planned sizes at 09:25);
   an entry execution arriving after the IOC looked finished is recorded, protected with
   a stop and timed exit, then the session halts. The watchdog halts on an own-execution/
   journal position, account-ceiling or own-stop discrepancy only after **3 consecutive**
@@ -574,8 +654,9 @@ entry mode only (main has no bracket mode).
 **Config.** Optional top-level key
 `"prior_range_filter": {"enabled": bool, "threshold": 1.0 to 3.0, "mode": "skip" | "half"}`.
 Absent means disabled and leaves the fingerprint unchanged. `half` (the prereg's A2:
-half the computed contracts, floored) is rejected in live mode because half of the
-one-contract pilot is zero.
+half the computed contracts, floored) is rejected in live mode (originally because half of
+the one-contract pilot is zero; still rejected at normal sizing from 2026-09-29, since only
+the skip variant is approved for live).
 - `config-20260925-live.json`: `{"enabled": true, "threshold": 1.25, "mode": "skip"}`.
   New live fingerprint `b226b74f63fa57874790fcb371c113b5824e1ec25dc7979162982ed26d678f77`
   (was `c08a3222...bbbf38`). `validate` passes; `launch-live.ps1 -DryRun` accepts it.
@@ -854,8 +935,9 @@ answer carried three-segment execution ids while the journal held four
 (`exec_key` now idempotent, 5186dd22); and Slack alerts posted to the shared
 channel against the owner's wishes (Slack now opt-in only, c352c582).
 
-Tuesday 2026-09-29 launches the same way with the same launchers and config;
-the runner picks up 5186dd22 and c352c582 automatically. The bracket-entry probe
+Tuesday 2026-09-29 launches the same way with the same launchers, but at normal
+sizing (owner decision 2026-09-28 evening; see "Live sizing (from 2026-09-29)"); the
+runner picks up 5186dd22 and c352c582 automatically. The bracket-entry probe
 remains parked pending the owner's go and the ownership port.
 
 ## Daily launch by Task Scheduler (2026-09-28)
@@ -901,6 +983,14 @@ creates no state dir. Its log is `daily_launch_<date>_dryrun.log` and its prefli
 `preflight-<date>-live-dryrun.json`. `-Session` is accepted only with `-DryRun`.
 Dry run 2026-09-28 18:40 ET for 2026-09-29: all steps passed (risk refreshed by hand,
 `risk_20260928_224025Z`, risk_latest 2026-09-28, score 76.60, short gate OPEN; preflight ok).
+Re-run 19:48 ET after the normal-sizing change: all steps passed, preflight what-if at
+10 MNQ / 10 MES ok (`preflight-2026-09-29-live-dryrun-2.json`), launcher printed
+effective caps MNQ 10 / MES 10 and live fingerprint `44b60282...0ce952`.
+Re-run 20:05 ET after the planned-size margin change: all steps passed; step 6 now logs
+`preflight margin: basis=cap ...` (at-cap total $102,201 vs limit $112,697, no warning;
+it would be a warning, never a failure). A read-only arm-style check on client 927485 with
+Tuesday's staging TRs (565.0 / 79.75) planned 3 MNQ / 7 MES and summed planned margin
+$44,619 (MNQ BUY $20,203 + MES BUY $24,416) against $112,697: ok.
 
 Stop a running session: create a file named `STOP` in its state dir
 (`artifacts/open_breakout_runs/<date>-live/STOP`, and `<date>-shadow/STOP`); it does not

@@ -1,5 +1,5 @@
 """One-session runners. Shadow: record, prepare before open, simulate only.
-Live pilot: same schedule, read-only preflight at connect and 09:25 ET, broker orders only after arming."""
+Live: same schedule, read-only preflight at connect and 09:25 ET, broker orders only after arming."""
 import asyncio
 from datetime import datetime, time, timezone, timedelta
 import gzip
@@ -11,13 +11,13 @@ import os
 import sys
 import pandas as pd
 from .alerts import Alerts, webhook_url
-from .config import Config, LIVE_PILOT_MAX_CONTRACTS
+from .config import Config, LIVE_HARD_MAX_CONTRACTS
 from .ibkr import IBKR
 from .inputs import build_manifest, calendar_dates
 from .replay import SimBroker
-from .service import Service, own_ref
+from .service import Service, own_ref, prior_range_skip
 from .store import Store, prior_day_r
-from .strategy import NY
+from .strategy import NY, State, size_order
 
 
 async def fetch_range_bars(transport):
@@ -101,7 +101,7 @@ def validate_launch(config,day,now):
 
 def validate_live_launch(config,day,now):
     if config.mode!='live' or not config.allow_live:
-        raise PermissionError('live-session requires a live pilot configuration')
+        raise PermissionError('live-session requires a live configuration')
     ack=config.authorize(day)
     prepare,opening,closing=session_bounds(day)
     if now>=opening or now<opening-timedelta(days=1):
@@ -154,14 +154,16 @@ async def book_view(transport):
                 other_book=other,open_orders_seen_any_contract=len(trades))
 
 
-async def preflight(transport,*,wait_seconds=30.,max_age=15.):
+async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
     """Read-only checks: streams, OpenBreakout's own position and working orders (all clients), contracts,
-    account and what-if margin. Other strategies in the same contracts are reported as other_book only."""
+    account and what-if margin. Other strategies in the same contracts are reported as other_book only.
+    Margin: one contract each side always; then the planned sizes when the manifest exists (fails), else
+    the effective cap (warnings only)."""
     config=transport.config
-    failures=[]
+    failures=[];warnings=[]
     report=dict(checked_at=datetime.now(timezone.utc).isoformat(),mode=config.mode,account_suffix=config.account[-4:],
                 port=config.port,client_id=config.client_id,live_ack_verified=transport.ack is not None,
-                contracts=transport.contract_report,failures=failures)
+                contracts=transport.contract_report,failures=failures,warnings=warnings)
     needed={f'{m.name}:{k}' for m in config.markets for k in ('trade','quote')}
     deadline=asyncio.get_running_loop().time()+wait_seconds
     while not needed<=set(transport.last_seen) and asyncio.get_running_loop().time()<deadline:
@@ -191,22 +193,102 @@ async def preflight(transport,*,wait_seconds=30.,max_age=15.):
         report['margin_limit']=limit
     except Exception as exc:
         failures.append(f'ACCOUNT_VALUES:{exc}');limit=float('nan')
-    margins={}
+    async def preview(m,side,qty,problems,tag):
+        """One MKT what-if; returns (row, initial margin change or None when unusable)."""
+        key=f'{m.execution.symbol}:{"BUY" if side==1 else "SELL"}'
+        try:
+            r=await transport.what_if(m,dict(kind='MKT',side=side,qty=qty,tif='DAY',ref='OB:WHATIF'))
+            change=float(r.initMarginChange)
+            row=dict(qty=qty,init_margin_change=change,maint_margin_change=float(r.maintMarginChange),
+                     commission=r.commission,warning=r.warningText or '')
+            if not math.isfinite(change) or change<0 or not change<=limit or r.warningText:
+                problems.append(f'{tag}:{key}:{change}');return row,None
+            return row,change
+        except Exception as exc:
+            problems.append(f'{tag}:{key}:{exc}');return dict(qty=qty,error=str(exc)),None
+    # Basic check (contract tradeable, no warning, one lot fits): one contract each side, always failing.
+    one={}
     for m in config.markets:
-        for side,action in [(1,'BUY'),(-1,'SELL')]:
-            key=f'{m.execution.symbol}:{action}'
-            try:
-                r=await transport.what_if(m,dict(kind='MKT',side=side,qty=1,tif='DAY',ref='OB:WHATIF'))
-                change=float(r.initMarginChange)
-                margins[key]=dict(init_margin_change=change,maint_margin_change=float(r.maintMarginChange),
-                                  commission=r.commission,warning=r.warningText or '')
-                if not math.isfinite(change) or change<0 or not change<=limit or r.warningText:
-                    failures.append(f'MARGIN:{key}:{change}')
-            except Exception as exc:
-                margins[key]=dict(error=str(exc));failures.append(f'MARGIN:{key}:{exc}')
-    report['what_if']=margins
+        for side in (1,-1):
+            row,_=await preview(m,side,1,failures,'MARGIN')
+            one[f'{m.execution.symbol}:{"BUY" if side==1 else "SELL"}']=row
+    report['what_if_one_contract']=one
+    # Sized check. With the manifest (09:25 arming, or a reconnect after 09:00): the PLANNED sizes that
+    # size_order would send now, and the summed worse side must fit the limit, or arming fails. Without it
+    # (connect at ~08:15, the launcher's read-only preflight): at the effective cap, as a warning only.
+    planned=None
+    if manifest is not None:
+        try:
+            values_equity=config.shadow_equity if config.mode=='live' else report['net_liquidation']
+            planned=planned_sizes(config,manifest,transport.quote,values_equity)
+        except Exception as exc:
+            failures.append(f'PLANNED_SIZE:{type(exc).__name__}: {exc}')
+    basis='planned' if planned is not None else 'cap'
+    problems=failures if basis=='planned' else warnings
+    tag='MARGIN_PLANNED' if basis=='planned' else 'MARGIN_AT_CAP'
+    sized={};worst={};complete=True
+    for m in config.markets:
+        sym=m.execution.symbol
+        for side in (1,-1):
+            action='BUY' if side==1 else 'SELL'
+            qty=planned[sym][action] if planned is not None else config.max_contracts_for(m)
+            if qty<1:
+                sized[f'{sym}:{action}']=dict(qty=0,init_margin_change=0.);worst.setdefault(sym,0.);continue
+            row,change=await preview(m,side,qty,problems,tag)
+            sized[f'{sym}:{action}']=row
+            if change is None:complete=False
+            else:worst[sym]=max(worst.get(sym,0.),change)
+    total=sum(worst.values()) if complete and len(worst)==len(config.markets) else None
+    report['what_if_basis']=basis
+    report['what_if']=sized
+    report['what_if_qty']={m.execution.symbol:{k:sized[f'{m.execution.symbol}:{k}']['qty'] for k in ('BUY','SELL')} for m in config.markets}
+    report['max_contracts']={m.execution.symbol:config.max_contracts_for(m) for m in config.markets}
+    if planned is not None:
+        report['planned']=planned
+        report['planned_qty']={s:max(v['BUY'],v['SELL']) for s,v in planned.items()}
+    # None when a market's sized what-if was unusable (listed above).
+    report['margin_total']=total
+    if total is not None and not total<=limit:
+        problems.append(f'{"MARGIN_TOTAL" if basis=="planned" else "MARGIN_TOTAL_AT_CAP"}:{total:.2f}>{limit:.2f}')
     report['ok']=not failures
     return report
+
+
+def planned_sizes(config,manifest,quote,equity):
+    """Contracts size_order would send right now, per market and side: the manifest's prior TR, the current
+    mid quote, configured risk bps, fees and exit reserve, clamped to the effective cap. A market the prior-range
+    filter does not arm plans 0."""
+    out={}
+    for m in config.markets:
+        item=manifest['markets'][m.name]
+        row=dict(prior_tr=item['prior_tr'],skipped=prior_range_skip(config,item))
+        if row['skipped']:
+            row.update(BUY=0,SELL=0);out[m.execution.symbol]=row;continue
+        bid,ask,_=quote(m.name)
+        mid=(float(bid)+float(ask))/2
+        state=State(manifest['day'],m.name,item['prior_tr'],manifest['score'],half_size=item.get('half_prior_range') is True)
+        for side,action in [(1,'BUY'),(-1,'SELL')]:
+            plan=size_order(state,m,side,mid,mid,equity,config)
+            row[action]=int(plan['qty']);row[f'{action}_risk']=plan['risk']
+        row['mid']=mid;out[m.execution.symbol]=row
+    return out
+
+
+def armed_line(config,report,states,prior_tr,score,manifest):
+    """ARMED alert: planned contracts at today's ranges (from the 09:25 preflight) and the effective caps."""
+    armed=[m for m in config.markets if states[m.name].phase!='SKIPPED']
+    skipped={k:s.note for k,s in states.items() if s.phase=='SKIPPED'}
+    if armed:
+        planned=report.get('planned_qty') or {}
+        sizes=' / '.join(f'{planned.get(m.execution.symbol,"?")} {m.execution.symbol}' for m in armed)
+        caps='/'.join(str(config.max_contracts_for(m)) for m in armed)
+        head=f"planned {sizes} at today's ranges, max {caps}"
+    else:
+        head='NO MARKET (all skipped; session runs to 16:01 with no orders)'
+    money=lambda x:'n/a' if not isinstance(x,(int,float)) else f'${x:,.0f}'
+    return (f'ARMED LIVE: {head}; planned margin {money(report.get("margin_total"))} of limit {money(report.get("margin_limit"))}; '
+            f'prior TR {prior_tr}; score {score:.2f}; {range_line(manifest)}'
+            +(f'; NOT ARMED {skipped}' if skipped else ''))
 
 
 class Capture:
@@ -383,6 +465,7 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
     capture=Capture(root/'captures')
     alert=Alerts(f'OpenBreakout LIVE {day}',webhook_url())
     transport=None;gate=None;service=None;ledger=None;manifest=None
+    caps={m.execution.symbol:config.max_contracts_for(m) for m in config.markets}
     runtime.set('pid',os.getpid());runtime.set('mode','live');runtime.set('session',day)
     runtime.set('live_ack',ack);runtime.set('python',sys.executable);runtime.set('alerts',alert.channel)
     runtime.set('source_hashes',{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(__file__).parent.glob('*.py')})
@@ -391,16 +474,19 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
     runtime.set('settings',{'capital_base':config.shadow_equity,'risk_bps':{m.name:m.risk_bps for m in config.markets},
                          'execution':{m.name:m.execution.symbol for m in config.markets},'port':config.port,
                          'client_id':config.client_id,'max_contracts':{m.name:m.max_contracts for m in config.markets},
-                         'pilot_max_contracts':config.pilot_max_contracts,'code_cap':LIVE_PILOT_MAX_CONTRACTS})
+                         'pilot_max_contracts':config.pilot_max_contracts,'code_cap':LIVE_HARD_MAX_CONTRACTS,
+                         'effective_max_contracts':caps})
     runtime.set('phase','CONNECTING')
     runtime.event('START',{'pid':os.getpid(),'session':day,'orders_enabled':'after 09:25 preflight','live_ack':ack})
-    print(f'LIVE PILOT starting; session {day}; PID {os.getpid()}; max {LIVE_PILOT_MAX_CONTRACTS} contract per market; '
+    print(f'LIVE starting; session {day}; PID {os.getpid()}; max contracts per market {caps}; '
           f'orders blocked until the 09:25 ET preflight passes; alerts {alert.channel}',flush=True)
     def save_report(label,report):
         name=f'preflight_{label}_{clock().astimezone(NY).strftime("%H%M%S")}.json'
         (root/name).write_text(json.dumps(report,indent=2,default=str),encoding='utf-8')
-        runtime.set(f'preflight_{label}',{'ok':report['ok'],'failures':report['failures'],'file':name,
-                                          'other_book':report.get('other_book')})
+        runtime.set(f'preflight_{label}',{'ok':report['ok'],'failures':report['failures'],'warnings':report.get('warnings',[]),
+                                          'file':name,'other_book':report.get('other_book'),
+                                          'what_if_basis':report.get('what_if_basis'),'what_if_qty':report.get('what_if_qty'),
+                                          'margin_total':report.get('margin_total'),'margin_limit':report.get('margin_limit')})
     def feed_error(reason):
         runtime.event('FEED_ERROR',{'reason':str(reason)})
         runtime.set('feed_error',str(reason))
@@ -435,14 +521,16 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                     transport.close();transport=None
                     runtime.set('heartbeat',{'at':clock().isoformat(),'events':capture.count})
                     await asyncio.sleep(10);continue
-                report=await preflight(transport)
+                # manifest is None at the first connect; a reconnect after 09:00 checks the planned sizes.
+                report=await preflight(transport,manifest=manifest)
                 save_report('connect',report)
                 if not report['ok']:
                     runtime.set('last_error',f'PREFLIGHT_FAILED:{report["failures"]}')
                     alert(f'PREFLIGHT FAILED at connect; not arming: {report["failures"]}')
                     final='HALTED_PREFLIGHT';break
                 runtime.set('phase','WAITING_FOR_PREOPEN')
-                print('Live feed connected and preflight passed; orders blocked until 09:25 ET arming',flush=True)
+                print('Live feed connected and preflight passed; orders blocked until 09:25 ET arming'
+                      +(f'; warnings {report["warnings"]}' if report['warnings'] else ''),flush=True)
             if manifest is None and now>=prepare:
                 if now>=opening:raise RuntimeError('Opening missed before inputs prepared')
                 runtime.set('phase','PREPARING')
@@ -466,7 +554,7 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                 runtime.set('phase','PREPARED_WAITING_TO_ARM')
             if manifest is not None and service is None and now>=arm_at:
                 if now>=opening:raise RuntimeError('Opening missed before arming')
-                report=await preflight(transport)
+                report=await preflight(transport,manifest=manifest)
                 save_report('arm',report)
                 if not report['ok']:
                     runtime.set('last_error',f'PREFLIGHT_FAILED:{report["failures"]}')
@@ -481,11 +569,7 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                     runtime.set('last_error',ledger.get('halt_reason'));final='HALTED';break
                 gate.open=True
                 runtime.set('phase','ARMED_LIVE')
-                armed=[m.execution.symbol for m in config.markets if service.states[m.name].phase!='SKIPPED']
-                skipped={k:s.note for k,s in service.states.items() if s.phase=='SKIPPED'}
-                alert(f'ARMED LIVE: {", ".join(armed) or "NO MARKET (all skipped; session runs to 16:01 with no orders)"} max 1 contract each; '
-                      f'prior TR {runtime.get("inputs")["prior_tr"]}; score {manifest["score"]:.2f}; {range_line(manifest)}'
-                      +(f'; NOT ARMED {skipped}' if skipped else ''))
+                alert(armed_line(config,report,service.states,runtime.get('inputs')['prior_tr'],manifest['score'],manifest))
             if service:
                 await service.watchdog()
                 if service.halted and not reported:
@@ -515,9 +599,9 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
         record_day_r(runtime,ledger,config)
         runtime.set('phase',final);runtime.set('finished_at',clock().isoformat())
         runtime.event('FINISH',{'phase':final,'events':capture.count})
-        print(f'LIVE PILOT {final}; captured {capture.count} events',flush=True)
+        print(f'LIVE {final}; captured {capture.count} events',flush=True)
         if final!='SESSION_COMPLETE':
-            alert(f'LIVE PILOT PROCESS EXITING: {final}')
+            alert(f'LIVE PROCESS EXITING: {final}')
         if transport:
             transport.halt_callback=lambda reason:None
             transport.close()

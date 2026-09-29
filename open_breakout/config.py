@@ -10,7 +10,12 @@ import os
 
 SPECS = {'NQ': (20., .25), 'MNQ': (2., .25), 'ES': (50., .25), 'MES': (5., .25)}
 FAMILY = {'NQ': 'NQ', 'MNQ': 'NQ', 'ES': 'ES', 'MES': 'ES'}
-# Hard code-level cap for live routing; config caps may be lower, never higher.
+# Absolute code-level ceiling per market for live routing, whatever the config says. The effective live
+# cap is min(market max_contracts, pilot.max_contracts_per_market if present, this). Normal sizing from
+# 2026-09-29 (owner decision 2026-09-28); the 2026-09-25..28 pilot was one contract.
+LIVE_HARD_MAX_CONTRACTS = 20
+# Historical one-contract pilot size, kept only for the artifacts/open_breakout_build mechanics scripts
+# that import it. It is NOT a live cap and nothing in the order path reads it.
 LIVE_PILOT_MAX_CONTRACTS = 1
 ACK_ENV = 'OPEN_BREAKOUT_LIVE_ACK'
 
@@ -89,9 +94,8 @@ class RangeFilter:
         if how not in RANGE_MODES:
             raise ValueError('prior_range_filter.mode must be "skip" or "half"')
         if how == 'half' and mode == 'live':
-            # Half of the one-contract pilot floors to zero: only skip is meaningful live.
-            raise ValueError(f'prior_range_filter.mode "half" is not allowed in live mode: half of the '
-                             f'{LIVE_PILOT_MAX_CONTRACTS}-contract pilot floors to 0; use "skip"')
+            # Only the prereg's skip variant is approved for live (set during the one-contract pilot).
+            raise ValueError('prior_range_filter.mode "half" is not allowed in live mode; use "skip"')
         return cls(enabled, float(threshold), how, require, float(big_win))
 
 @dataclass(frozen=True)
@@ -147,8 +151,8 @@ class Config:
             if not isinstance(pilot, dict) or set(pilot) != {'max_contracts_per_market'}:
                 raise ValueError('pilot block must be {"max_contracts_per_market": <int>}')
             pilot_max = pilot['max_contracts_per_market']
-            if not isinstance(pilot_max, int) or isinstance(pilot_max, bool) or pilot_max < 1:
-                raise ValueError('pilot.max_contracts_per_market must be a positive integer')
+            if not isinstance(pilot_max, int) or isinstance(pilot_max, bool) or not 1 <= pilot_max <= LIVE_HARD_MAX_CONTRACTS:
+                raise ValueError(f'pilot.max_contracts_per_market must be an integer in [1, {LIVE_HARD_MAX_CONTRACTS}]')
         if raw['mode'] not in {'shadow','paper','live'}:
             raise ValueError('mode must be shadow, paper or live')
         range_filter = RangeFilter.parse(raw['prior_range_filter'], raw['mode']) if 'prior_range_filter' in raw else None
@@ -194,18 +198,25 @@ class Config:
             config.validate_live()
         return config
 
+    def max_contracts_for(self, market):
+        """Contract ceiling for one market. Live: min(max_contracts, pilot ceiling if present, hard ceiling)."""
+        if self.mode != 'live':
+            return market.max_contracts
+        caps = [market.max_contracts, LIVE_HARD_MAX_CONTRACTS]
+        if self.pilot_max_contracts:
+            caps.append(self.pilot_max_contracts)
+        return min(caps)
+
     def validate_live(self):
-        """Structural live-pilot limits; the session acknowledgement is checked in authorize()."""
+        """Structural live limits; the session acknowledgement is checked in authorize()."""
         if not self.allow_live:
             raise PermissionError('Live mode requires allow_live=true')
         if self.account.startswith('DU'):
             raise PermissionError('Live mode cannot use a DU paper account')
-        if not self.pilot_max_contracts:
-            raise PermissionError('Live mode requires the pilot block')
-        if self.pilot_max_contracts > LIVE_PILOT_MAX_CONTRACTS:
-            raise PermissionError(f'pilot.max_contracts_per_market exceeds {LIVE_PILOT_MAX_CONTRACTS}')
-        if any(m.max_contracts != 1 or m.max_contracts > LIVE_PILOT_MAX_CONTRACTS for m in self.markets):
-            raise PermissionError(f'Live mode requires max_contracts == {LIVE_PILOT_MAX_CONTRACTS} for every market')
+        if self.pilot_max_contracts and not 1 <= self.pilot_max_contracts <= LIVE_HARD_MAX_CONTRACTS:
+            raise PermissionError(f'pilot.max_contracts_per_market must be in [1, {LIVE_HARD_MAX_CONTRACTS}]')
+        if any(m.max_contracts > LIVE_HARD_MAX_CONTRACTS for m in self.markets):
+            raise PermissionError(f'Live mode requires max_contracts <= LIVE_HARD_MAX_CONTRACTS ({LIVE_HARD_MAX_CONTRACTS}) for every market')
 
     def authorize(self, session=None):
         """Checked before connecting and again before every broker mutation. Returns the live acknowledgement."""

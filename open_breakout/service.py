@@ -37,6 +37,11 @@ def exec_key(exec_id) -> str:
     return '.'.join(parts[:3]) if len(parts) >= 4 else str(exec_id)
 
 
+def prior_range_skip(config, item) -> bool:
+    """A manifest market is not armed today. Fails closed if an enabled filter meets a manifest without an OK decision."""
+    return item.get('skip_prior_range',False) is True or (config.range_filter_on and item.get('prior_range_status')!='OK')
+
+
 # Own position UNKNOWN (executions call failed, or it lacks our journaled fills) this long -> loud alert.
 OWN_UNKNOWN_ALERT_SECONDS = 30.
 
@@ -83,8 +88,7 @@ class Service:
         filt = self.config.prior_range_filter
         for name,s in self.states.items():
             item = self.manifest['markets'][name]
-            # Fail closed if an enabled filter meets a manifest without an OK decision.
-            skip = item.get('skip_prior_range',False) is True or (self.config.range_filter_on and item.get('prior_range_status')!='OK')
+            skip = prior_range_skip(self.config, item)
             if item.get('half_prior_range') is True and not s.half_size and not s.attempts:
                 s.half_size = True
                 self.store.event('PRIOR_RANGE_HALF',dict(market=name,ratio=item.get('ratio'),atr20=item.get('atr20'),
@@ -342,8 +346,21 @@ class Service:
                 plan = size_order(s,m,side,bid,ask,equity,self.config)
                 if plan['qty']<1:
                     s.phase='FLAT';self.store.save(s);return
+                # Daily and pooled open risk caps, in the same per-contract risk units as sizing: size down to
+                # the room left (never above the plan), and skip only when not one contract fits.
+                daily = self.store.get('daily_reserved',0.)
+                opened = sum(x.planned_risk for x in self.states.values())
+                room = min(equity*self.config.max_daily_risk_bps/10000-daily,equity*self.config.max_open_risk_bps/10000-opened)
+                fit = math.floor(room/plan['per_contract']+1e-9) if room>0 else 0
+                if fit<plan['qty']:
+                    if fit<1:
+                        self.store.event('SKIP_RISK_CAP',{'market':s.market,'planned':plan['qty'],'room':room})
+                        s.phase='FLAT';self.store.save(s);return
+                    self.store.event('SIZED_DOWN_RISK_CAP',{'market':s.market,'planned':plan['qty'],'qty':fit,'room':room})
+                    plan = {**plan,'qty':fit,'risk':fit*plan['per_contract']}
                 if self.config.mode!='live':
-                    # Live pilot margin is checked at connect and at the 09:25 preflight.
+                    # Live margin is checked read-only at connect (at the cap, warning) and at the 09:25 arming
+                    # preflight (at the planned sizes, failing); no per-entry what-if in live.
                     await asyncio.wait_for(self.broker.check_margin(m,plan,equity),10.)
                 # Revalidate after asynchronous account/margin checks. Never chase a stale signal.
                 try:self.fresh_quote(s.market)
@@ -351,9 +368,10 @@ class Service:
                     self._skip(s,exc);return
                 if self.halted or self.clock().astimezone(NY).time()>=time(11,30):
                     raise ValueError('Entry window closed or service halted')
+                # Re-read under the entry lock after the awaits above (belt and braces; the lock serializes entries).
                 daily = self.store.get('daily_reserved',0.)
                 opened = sum(x.planned_risk for x in self.states.values())
-                if daily+plan['risk']>equity*self.config.max_daily_risk_bps/10000 or opened+plan['risk']>equity*self.config.max_open_risk_bps/10000:
+                if daily+plan['risk']>equity*self.config.max_daily_risk_bps/10000+1e-6 or opened+plan['risk']>equity*self.config.max_open_risk_bps/10000+1e-6:
                     self.store.event('SKIP_RISK_CAP',{'market':s.market});s.phase='FLAT';self.store.save(s);return
                 # Reserve risk and attempt before invoking transport. Conservative daily
                 # budget is retained even for a zero-fill IOC or an uncertain outcome.
@@ -456,6 +474,13 @@ class Service:
                           account=self.config.account,ref=self._ref(s,'STOP'))
                 s.stop_order=self._send(s,'STOP',body,s.stop_order or None)
                 self.store.save(s)
+                if s.time_order and s.market not in self.flattened:
+                    # An entry execution after the 15:55 exit was sent (late report or re-delivery): resize that
+                    # exit in place so it closes the whole position, then halt for review.
+                    self._send(s,'TIME',dict(kind='MKT',side=-s.side,qty=s.qty,tif='GTC',oca=s.oca,
+                        good_after=f'{s.day.replace("-","")} 15:55:00 America/New_York',
+                        account=self.config.account,ref=self._ref(s,'TIME')),s.time_order)
+                    late=late or f'ENTRY_EXECUTION_AFTER_TIMED_EXIT:{s.market}:{order_id}'
                 self.notify(f'{s.market} ENTRY FILL ({self.config.mode}): {"BUY" if s.side==1 else "SELL"} {qty} '
                             f'{self.markets[s.market].execution.symbol} @ {price}; stop {s.stop} sent (order {s.stop_order})')
                 if late:
@@ -598,6 +623,10 @@ class Service:
                     stop=working.get(s.stop_order)
                     if not stop or stop['remaining']!=s.qty or stop['kind']!='STP' or stop['side']!=-s.side or stop['stop']!=s.stop:
                         issues.append('Broker protective stop differs from journal')
+                    timed=working.get(s.time_order) if s.time_order else None
+                    # OCA type 2 must have reduced the 15:55 exit after a partial stop fill; larger would reverse.
+                    if timed and timed['remaining']>s.qty:
+                        issues.append('Broker timed exit exceeds journal position')
                 if s.opening and local.time()<time(11,30) and (self.clock()-aware(s.last_timestamp)).total_seconds()>self.config.watchdog_stale_seconds:
                     raise ValueError('Signal stream stale')
                 if s.phase=='CLOSING':

@@ -55,9 +55,11 @@ def test_config_boundaries(config,tmp_path,monkeypatch):
     with pytest.raises(PermissionError):replace(paper,port=7496).authorize()
     live=replace(config,mode='live',account='U_REAL',allow_live=True)
     with pytest.raises(PermissionError):live.authorize(DAY)
-    # A replaced config without the pilot block/one-lot caps is never live-authorizable.
+    # The pilot block is optional since 2026-09-29; a market cap above the hard ceiling is never live-authorizable.
     monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} U_REAL')
-    with pytest.raises(PermissionError,match='pilot'):live.authorize(DAY)
+    assert live.authorize(DAY)==f'LIVE {DAY} U_REAL'
+    over=replace(live,markets=(replace(live.markets[0],max_contracts=21),live.markets[1]))
+    with pytest.raises(PermissionError,match='LIVE_HARD_MAX_CONTRACTS'):over.authorize(DAY)
     raw=json.loads((ROOT/'config/open_breakout.example.json').read_text(encoding='utf-8-sig'))
     raw['port']='7497'
     p=tmp_path/'bad.json';p.write_text(json.dumps(raw))
@@ -207,6 +209,218 @@ def test_each_partial_is_protected_and_stop_tracks_average(config,tmp_path):
         finally:store.close()
     asyncio.run(run())
 
+# ---- Partial fills at size (normal live sizing from 2026-09-29) ----
+
+class IOCPartial(SimBroker):
+    """The IOC entry executes `parts` (qty, price offset) and the rest is cancelled, as IB reports a partial IOC."""
+    parts=[(4,0.)]
+    def send(self,oid,market,body):
+        if body['kind']!='LMT':return super().send(oid,market,body)
+        self.orders[oid]=dict(body=body.copy(),market=market,status='Submitted')
+        self.status_callback(oid,'Submitted')
+        bid,ask,_=self.quote(market.name)
+        for i,(q,off) in enumerate(self.parts):
+            self.record(market.execution.con_id,body['side']*q,body['ref'],f'IOC-{oid}-{i}')
+            self.fill_callback(oid,f'IOC-{oid}-{i}',q,(ask if body['side']==1 else bid)+off)
+        self.orders[oid]['status']='Cancelled';self.status_callback(oid,'Cancelled')
+
+def events(store):
+    return [dict(kind=k,body=json.loads(b)) for k,b in store.db.execute('SELECT kind,body FROM events ORDER BY seq')]
+
+def partial_service(config,tmp_path,parts):
+    broker=type('Parts',(IOCPartial,),{'parts':parts})
+    return setup_service(config,tmp_path,broker)
+
+def test_ioc_partial_fill_protects_filled_qty_only(config,tmp_path):
+    async def run():
+        service,b,store,now=partial_service(config,tmp_path,[(4,0.)])
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ'];orders=store.orders()
+            entry=[o for o in orders.values() if o['role']=='ENTRY']
+            assert len(entry)==1 and entry[0]['body']['qty']==6 # sized 6, IOC filled 4
+            assert s.qty==4 and s.phase=='OPEN' and s.attempts==1 and not service.halted
+            assert orders[s.stop_order]['body']['qty']==4 and b.orders[s.stop_order]['body']['qty']==4
+            assert orders[s.time_order]['body']['qty']==4 and b.orders[s.time_order]['body']['qty']==4
+            assert s.stop==20000 and s.entry==20010
+            # Risk reserved for the full order stays reserved (conservative).
+            assert s.planned_risk==store.get('daily_reserved')>0
+            for _ in range(4):await service.watchdog()
+            assert not service.halted and service.mismatches==0
+            # The 15:55 exit closes exactly the 4 held; the stop is cancelled and the journal goes flat.
+            now[0]=at('15:55:00');b.update_quote('NQ',20009.75,20010,now[0]);await service.drain()
+            await service.watchdog()
+            assert s.qty==0 and s.phase=='FLAT' and b.positions[config.markets[0].execution.con_id]==0
+            assert b.status(s.stop_order)=='Cancelled' and not service.halted
+        finally:store.close()
+    asyncio.run(run())
+
+def test_second_partial_updates_average_and_resizes_same_stop(config,tmp_path):
+    async def run():
+        service,b,store,now=partial_service(config,tmp_path,[(2,0.),(3,1.)])
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ'];orders=store.orders()
+            stops=[k for k,o in orders.items() if o['role']=='STOP']
+            # One stop order id, modified in place for the second partial.
+            assert stops==[s.stop_order] and s.qty==5
+            assert s.entry==pytest.approx((2*20010+3*20011)/5)
+            # Average 20010.6 - 10 = 20000.6, rounded outward (down for a long) to 20000.5.
+            assert s.stop==20000.5 and b.orders[s.stop_order]['body']['stop']==20000.5
+            assert b.orders[s.stop_order]['body']['qty']==5 and orders[s.time_order]['body']['qty']==5
+            modified=[e for e in events(store) if e['kind']=='MODIFY_INTENT']
+            assert len(modified)==1 and modified[0]['body']['id']==s.stop_order and modified[0]['body']['body']['qty']==5
+            for _ in range(4):await service.watchdog()
+            assert not service.halted
+        finally:store.close()
+    asyncio.run(run())
+
+def test_zero_fill_at_size_consumes_attempt_and_reserves_risk(config,tmp_path):
+    async def run():
+        service,b,store,now=partial_service(config,tmp_path,[])
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ']
+            assert s.qty==0 and s.phase=='FLAT' and s.attempts==1 and not s.stop_order and not s.time_order
+            assert store.get('daily_reserved')>0 and s.planned_risk==0 and not service.halted
+        finally:store.close()
+    asyncio.run(run())
+
+class ModifyRejected(IOCPartial):
+    """The second partial's in-place stop modify is rejected; ib_insync marks the trade Cancelled with the code."""
+    parts=[(2,0.),(3,1.)];code=201
+    def send(self,oid,market,body):
+        if body['kind']=='STP' and oid in self.orders:
+            self.error_codes[oid]=self.code
+            self.order_error_callback(oid,self.code,'modify rejected')
+            self.orders[oid]['status']='Cancelled';self.status_callback(oid,'Cancelled')
+            return
+        return super().send(oid,market,body)
+
+@pytest.mark.parametrize('code',[201,10326])
+def test_rejected_stop_modify_on_second_partial_halts_and_alerts(config,tmp_path,code):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path,type('M',(ModifyRejected,),{'code':code}))
+        service.flatten_delay=0;sent=collect(service)
+        try:
+            await open_nq(service,b,now);await service.drain()
+            s=service.states['NQ']
+            assert service.halted and any('HALTED' in x for x in sent)
+            modified=[e for e in events(store) if e['kind']=='MODIFY_INTENT']
+            assert len(modified)==1 and modified[0]['body']['body']['qty']==5
+            flat=flatten_orders(b)
+            if code==201:
+                # Explicit rejection: exits cancelled, then one flatten sized to the whole journal position.
+                assert len(flat)==1 and flat[0][1]['body']['qty']==5 and s.qty==0
+                assert any('EMERGENCY FLATTEN SENT' in x for x in sent)
+            else:
+                # No explicit rejection code: no automatic flatten; halted with a loud hand-check alert.
+                assert not flat and s.qty==5
+                assert any('PROTECTIVE STOP CANCELLED' in x for x in sent)
+        finally:store.close()
+    asyncio.run(run())
+
+def test_entry_execution_after_timed_exit_resizes_it_and_halts(config,tmp_path):
+    async def run():
+        service,b,store,now=partial_service(config,tmp_path,[(4,0.)])
+        cid=config.markets[0].execution.con_id
+        sent=collect(service)
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ'];stop,timed=s.stop_order,s.time_order
+            assert s.qty==4 and b.orders[timed]['body']['qty']==4
+            # A late report of 2 more on the same IOC (re-delivered by reqExecutions).
+            b.record(cid,2,b.orders[s.entry_order]['body']['ref'],'LATE-1')
+            service.fill(s.entry_order,'LATE-1',2,20010.)
+            assert s.qty==6 and s.stop_order==stop and s.time_order==timed
+            assert b.orders[stop]['body']['qty']==6 and b.orders[timed]['body']['qty']==6
+            assert b.orders[timed]['body']['ref']==store.orders()[timed]['body']['ref']
+            assert service.halted and 'ENTRY_EXECUTION_AFTER_TIMED_EXIT' in store.get('halt_reason')
+            await service.drain()
+            for _ in range(4):await service.watchdog()
+            assert service.mismatches==0
+            now[0]=at('15:55:00');b.update_quote('NQ',20009.75,20010,now[0]);await service.drain()
+            await service.watchdog()
+            assert s.qty==0 and b.positions[cid]==0
+        finally:store.close()
+    asyncio.run(run())
+
+def test_timed_exit_larger_than_position_halts(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        cid=config.markets[0].execution.con_id
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ'];stop,timed=s.stop_order,s.time_order
+            # Stop fills 2 of 6 but the timed exit is NOT reduced (OCA reduce missing): it would reverse.
+            b.record(cid,-2,b.orders[stop]['body']['ref'],'STOP-P1')
+            b.orders[stop]['body']['qty']=4
+            service.fill(stop,'STOP-P1',2,19999.75)
+            for _ in range(3):await service.watchdog()
+            assert service.halted and 'Broker timed exit exceeds journal position' in store.get('halt_reason')
+        finally:store.close()
+    asyncio.run(run())
+
+def test_emergency_flatten_after_partial_sizes_to_journal(config,tmp_path):
+    async def run():
+        service,b,store,now=partial_service(config,tmp_path,[(4,0.)])
+        service.flatten_delay=0
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ']
+            b.order_error_callback(s.stop_order,201,'Order rejected')
+            await service.drain()
+            flat=flatten_orders(b)
+            assert len(flat)==1 and flat[0][1]['body']['qty']==4 and flat[0][1]['body']['side']==-1
+            assert s.qty==0 and b.positions[config.markets[0].execution.con_id]==0
+        finally:store.close()
+    asyncio.run(run())
+
+def test_partial_stop_fill_oca_reduce_keeps_position_protected(config,tmp_path):
+    """OCA type 2: a partial stop fill reduces the timed exit by the same amount at IB. The journal reduces,
+    keeps the entry average, cancels nothing, and reconciles the reduced stop remaining without a halt."""
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        cid=config.markets[0].execution.con_id
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ'];stop,timed=s.stop_order,s.time_order
+            assert s.qty==6
+            # IB: the stop fills 2 of 6 (remaining 4) and OCA type 2 reduces the timed exit to 4.
+            b.record(cid,-2,b.orders[stop]['body']['ref'],'STOP-P1')
+            b.orders[stop]['body']['qty']=4;b.orders[timed]['body']['qty']=4
+            service.fill(stop,'STOP-P1',2,19999.75)
+            assert s.qty==4 and s.phase=='OPEN' and s.entry==20010 and s.stop==20000
+            assert b.status(stop)=='Submitted' and b.status(timed)=='Submitted' and not service.halted
+            for _ in range(4):await service.watchdog()
+            assert not service.halted and service.mismatches==0
+            # The rest of the stop fills: flat, timed exit cancelled, no halt.
+            b.execute(stop,4,19999.75)
+            await service.watchdog()
+            assert s.qty==0 and s.phase=='FLAT' and b.status(timed)=='Cancelled' and not service.halted
+            assert b.positions[cid]==0
+        finally:store.close()
+    asyncio.run(run())
+
+def test_partial_timed_exit_open_at_1556_halts(config,tmp_path):
+    async def run():
+        service,b,store,now=partial_service(config,tmp_path,[(4,0.)])
+        cid=config.markets[0].execution.con_id
+        try:
+            await open_nq(service,b,now)
+            s=service.states['NQ'];timed=s.time_order
+            # Only 3 of the 4 fill on the 15:55 exit; one contract is still held at 15:56.
+            now[0]=at('15:55:01')
+            b.record(cid,-3,b.orders[timed]['body']['ref'],'TIME-P1')
+            b.orders[timed]['body']['qty']=1;b.orders[s.stop_order]['body']['qty']=1
+            service.fill(timed,'TIME-P1',3,20010.)
+            assert s.qty==1 and not service.halted
+            now[0]=at('15:56:30')
+            await service.watchdog()
+            assert service.halted and 'Timed exit not complete' in store.get('halt_reason')
+        finally:store.close()
+    asyncio.run(run())
+
 def test_restart_blocks_resubmission(config,tmp_path):
     async def run():
         service,b,store,now=setup_service(config,tmp_path)
@@ -289,10 +503,47 @@ def test_daily_and_pooled_open_caps(config,tmp_path):
             store.set('daily_reserved',590.)
             await tick(service,b,now,20000,'09:30:00');await tick(service,b,now,20010,'09:30:01')
             assert not b.orders and not service.halted
+            assert [e['body']['market'] for e in events(store) if e['kind']=='SKIP_RISK_CAP']==['NQ']
+            # Open cap $200 with ES holding $190: room $10 is below one MNQ ($23.70): refused.
             store.set('daily_reserved',0.)
-            service.states['ES'].planned_risk=100.
+            service.states['ES'].planned_risk=190.
             await tick(service,b,now,20000,'09:30:02');await tick(service,b,now,20010,'09:30:03')
             assert not b.orders and service.states['NQ'].attempts==0
+            # ES holding $100: room $100 fits 4 of the 6 planned (same $23.70 per-contract risk as sizing).
+            service.states['ES'].planned_risk=100.
+            await tick(service,b,now,20000,'09:30:04');await tick(service,b,now,20010,'09:30:05')
+            entry=[o for o in b.orders.values() if o['body']['kind']=='LMT']
+            assert len(entry)==1 and entry[0]['body']['qty']==4
+            s=service.states['NQ']
+            assert s.qty==4 and s.planned_risk==pytest.approx(4*23.7) and store.get('daily_reserved')==pytest.approx(4*23.7)
+            down=[e['body'] for e in events(store) if e['kind']=='SIZED_DOWN_RISK_CAP']
+            assert len(down)==1 and down[0]['planned']==6 and down[0]['qty']==4
+        finally:store.close()
+    asyncio.run(run())
+
+def test_two_markets_enter_at_size_within_open_and_daily_caps(tmp_path,monkeypatch):
+    """2026-09-29 live shape: MNQ 3 and MES 7 open together inside the 25bp open cap; no size-down."""
+    monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
+    live=load_raw(tmp_path,normal_raw())
+    async def run():
+        now=[at('09:30:00')]
+        b=SimBroker(live,lambda:now[0])
+        store=Store(tmp_path/'s.sqlite',live.fingerprint,DAY)
+        m=manifest(live)
+        m['markets']['NQ']['prior_tr']=565.;m['markets']['ES']['prior_tr']=79.75
+        m.pop('hash');m['hash']=digest(m)
+        service=Service(live,m,store,b,lambda:now[0])
+        try:
+            for market,base in [('NQ',25000),('ES',6000)]:
+                await tick(service,b,now,base,'09:30:00',market)
+            for market,base in [('NQ',25000),('ES',6000)]:
+                await tick(service,b,now,base+200 if market=='NQ' else base+30,'09:30:01',market)
+            entries={o['market'].name:o['body']['qty'] for o in b.orders.values() if o['body']['kind']=='LMT'}
+            assert entries=={'NQ':3,'ES':7}
+            opened=sum(s.planned_risk for s in service.states.values())
+            assert opened==pytest.approx(3*286.2+7*106.7) and opened<=live.shadow_equity*25/10000
+            assert not [e for e in events(store) if e['kind'] in {'SIZED_DOWN_RISK_CAP','SKIP_RISK_CAP'}]
+            assert not service.halted
         finally:store.close()
     asyncio.run(run())
 
@@ -350,8 +601,9 @@ def test_ibkr_paper_order_fields_and_live_release(config,monkeypatch):
         adapter.send(18,m,body)
         assert sent[1].goodAfterTime.endswith('America/New_York') and sent[1].ocaGroup==sent[0].ocaGroup
         live=replace(config,mode='live',account='U_REAL',allow_live=True)
+        live=replace(live,markets=(replace(live.markets[0],max_contracts=21),live.markets[1]))
         monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {live.account}')
-        with pytest.raises(PermissionError,match='pilot'):await IBKR(live,session=DAY).connect()
+        with pytest.raises(PermissionError,match='LIVE_HARD_MAX_CONTRACTS'):await IBKR(live,session=DAY).connect()
     asyncio.run(run())
 
 @pytest.mark.parametrize('compressed',[False,True])
@@ -517,8 +769,8 @@ def live(tmp_path,monkeypatch):
     return load_raw(tmp_path,live_raw())
 
 def test_live_config_requires_exact_session_ack(tmp_path,monkeypatch):
-    from open_breakout.config import LIVE_PILOT_MAX_CONTRACTS
-    assert LIVE_PILOT_MAX_CONTRACTS==1
+    from open_breakout.config import LIVE_HARD_MAX_CONTRACTS
+    assert LIVE_HARD_MAX_CONTRACTS==20
     c=load_raw(tmp_path,live_raw())
     assert c.mode=='live' and c.pilot_max_contracts==1
     monkeypatch.delenv('OPEN_BREAKOUT_LIVE_ACK',raising=False)
@@ -532,17 +784,53 @@ def test_live_config_requires_exact_session_ack(tmp_path,monkeypatch):
     assert c.authorize(DAY)==f'LIVE {DAY} {LIVE_ACCOUNT}'
 
 @pytest.mark.parametrize('mutate',[
-    lambda r:r['markets'][0].update(max_contracts=2),
-    lambda r:r['markets'][1].update(max_contracts=2),
+    lambda r:r['markets'][0].update(max_contracts=21),
+    lambda r:r['markets'][1].update(max_contracts=21),
+    lambda r:r['markets'][0].update(max_contracts=0),
+    lambda r:r['markets'][0].update(max_contracts=2.0),
     lambda r:r.update(account='DU1234567'),
-    lambda r:r.pop('pilot'),
-    lambda r:r.update(pilot={'max_contracts_per_market':2}),
+    lambda r:r.update(pilot={'max_contracts_per_market':21}),
+    lambda r:r.update(pilot={'max_contracts_per_market':0}),
+    lambda r:r.update(pilot={'max_contracts_per_market':10.0}),
+    lambda r:r.update(pilot={'max_contracts_per_market':True}),
     lambda r:r.update(pilot={'max_contracts_per_market':1,'extra':1}),
     lambda r:r.update(allow_live=False),
 ])
 def test_live_config_structural_rejections(tmp_path,mutate):
     raw=live_raw();mutate(raw)
     with pytest.raises((PermissionError,ValueError)):load_raw(tmp_path,raw)
+
+def normal_raw(pilot=10,caps=(10,10)):
+    """Live sizing from 2026-09-29: the live config shape (10/10 caps, pilot ceiling 10, $750k base, 15/10 bp)."""
+    raw=live_raw(shadow_equity=750000,max_daily_risk_bps=75,max_open_risk_bps=25)
+    if pilot is None:raw.pop('pilot')
+    else:raw['pilot']={'max_contracts_per_market':pilot}
+    for m,cap,bps in zip(raw['markets'],caps,(15,10)):m.update(max_contracts=cap,risk_bps=bps)
+    return raw
+
+def test_live_effective_caps_pilot_optional_and_hard_ceiling(tmp_path):
+    from open_breakout.config import LIVE_HARD_MAX_CONTRACTS
+    c=load_raw(tmp_path,normal_raw())
+    assert [c.max_contracts_for(m) for m in c.markets]==[10,10] and c.pilot_max_contracts==10
+    # Pilot block optional: the market caps rule, still under the hard ceiling.
+    c=load_raw(tmp_path,normal_raw(pilot=None,caps=(20,7)),'nopilot.json')
+    assert c.pilot_max_contracts==0 and [c.max_contracts_for(m) for m in c.markets]==[20,7]
+    # Pilot lower than the market caps wins.
+    c=load_raw(tmp_path,normal_raw(pilot=3),'pilot3.json')
+    assert [c.max_contracts_for(m) for m in c.markets]==[3,3]
+    # Hard ceiling applies even to a config object built around validation.
+    over=replace(c,pilot_max_contracts=0,markets=tuple(replace(m,max_contracts=50) for m in c.markets))
+    assert [over.max_contracts_for(m) for m in over.markets]==[LIVE_HARD_MAX_CONTRACTS]*2
+    with pytest.raises(PermissionError):over.validate_live()
+    # Shadow/paper keep their own caps (no live clamp).
+    shadow=replace(c,mode='shadow')
+    assert [shadow.max_contracts_for(m) for m in shadow.markets]==[10,10]
+
+def test_live_config_fingerprint_changes_with_caps_but_shadow_does_not(config,tmp_path):
+    one=load_raw(tmp_path,live_raw(),'one.json')
+    ten=load_raw(tmp_path,normal_raw(),'ten.json')
+    assert one.fingerprint!=ten.fingerprint
+    assert Config.load(tmp_path/'config.json').fingerprint==config.fingerprint
 
 def test_shadow_fingerprint_unchanged_without_pilot(config,tmp_path):
     raw=json.loads((tmp_path/'config.json').read_text())
@@ -556,14 +844,44 @@ def test_ceiling_halts_key_optional_and_boolean(config,tmp_path):
     assert on.ceiling_halts is True and on.fingerprint!=config.fingerprint
     with pytest.raises(ValueError,match='ceiling_halts'):load_raw(tmp_path,{**raw,'ceiling_halts':1},'bad.json')
 
-def test_live_sizing_clamps_to_one_and_zero_stays_zero(config):
+def test_live_sizing_clamps_to_pilot_ceiling_and_zero_stays_zero(config):
     s=State(DAY,'NQ',40.1,25)
     shadow=size_order(s,config.markets[0],1,20000,20000.25,100000,config)
     assert shadow['qty']==6 # live clamp is not applied in shadow
-    live_cfg=replace(config,mode='live')
-    p=size_order(s,config.markets[0],1,20000,20000.25,100000,live_cfg)
+    # One-contract pilot ceiling (the 2026-09-28 shape) still clamps to 1.
+    one=replace(config,mode='live',pilot_max_contracts=1)
+    p=size_order(s,config.markets[0],1,20000,20000.25,100000,one)
     assert p['qty']==1 and p['risk']==pytest.approx(shadow['risk']/6)
-    assert size_order(s,config.markets[0],1,20000,20000.25,1000,live_cfg)['qty']==0
+    assert size_order(s,config.markets[0],1,20000,20000.25,1000,one)['qty']==0
+    # Normal sizing: no clamp below the risk-based size when the ceiling is above it.
+    ten=replace(config,mode='live',pilot_max_contracts=10)
+    assert size_order(s,config.markets[0],1,20000,20000.25,100000,ten)['qty']==6
+    assert size_order(s,config.markets[0],1,20000,20000.25,100000,replace(ten,pilot_max_contracts=4))['qty']==4
+    # Risk size far above every cap: min(market cap 10, pilot, hard ceiling 20).
+    assert size_order(s,config.markets[0],1,20000,20000.25,10**7,ten)['qty']==10
+    big=replace(ten,pilot_max_contracts=0,markets=tuple(replace(m,max_contracts=50) for m in ten.markets))
+    assert size_order(s,big.markets[0],1,20000,20000.25,10**8,big)['qty']==20
+
+@pytest.mark.parametrize('side',[1,-1])
+def test_live_normal_sizing_at_2026_09_29_ranges(tmp_path,side):
+    """Tuesday 2026-09-29 staging numbers: NQ prior TR 565.0, ES 79.75 on the $750k basis, 15/10 bp."""
+    live=load_raw(tmp_path,normal_raw())
+    nq,es=live.markets
+    s_nq,s_es=State(DAY,'NQ',565.,25),State(DAY,'ES',79.75,25)
+    p=size_order(s_nq,nq,side,24999.75,25000.,live.shadow_equity,live)
+    # MNQ: stop 141.25 pts x $2 = 282.50 + fees 2 x 0.85 + 4-tick reserve (1 pt x $2) = 286.20 per contract.
+    assert p['qty']==3 and p['risk']==pytest.approx(3*286.2)
+    q=size_order(s_es,es,side,5999.75,6000.,live.shadow_equity,live)
+    # MES: 19.9375 rounds outward to 20.00 pts x $5 = 100 + 1.70 + 4-tick reserve (1 pt x $5) = 106.70.
+    assert q['qty']==7 and q['risk']==pytest.approx(7*106.7)
+    assert abs(q['limit']-snap_stop(q['limit'],side,19.9375))==20.
+    # Both at once fit the 25bp open cap ($1,875); three attempts each fit the 75bp daily cap ($5,625).
+    assert p['risk']+q['risk']<=live.shadow_equity*25/10000
+    assert 3*(p['risk']+q['risk'])<=live.shadow_equity*75/10000
+
+def snap_stop(limit,side,distance):
+    from open_breakout.strategy import snap
+    return snap(limit-side*distance,.25,side==-1)
 
 def open_nq(service,b,now):
     async def go():
@@ -790,10 +1108,14 @@ class FakePreflight:
         self.ib=NS(reqPositionsAsync=pos,reqAllOpenOrdersAsync=orders_)
     async def own_position(self,con_id):return self.own.get(con_id,0)
     async def account_values(self):return {'NetLiquidation':600000.,'ExcessLiquidity':500000.}
+    quotes={'NQ':(24999.75,25000.,None),'ES':(5999.75,6000.,None)}
+    def quote(self,name):return self.quotes[name]
     async def what_if(self,m,body):
         from types import SimpleNamespace as NS
-        assert body['qty']==1 and body['kind']=='MKT'
-        return NS(initMarginChange=str(self.margin),maintMarginChange='1',commission=0.,warningText='')
+        # One contract (basic check), the planned size or the effective cap; never above the cap.
+        assert 1<=body['qty']<=self.config.max_contracts_for(m) and body['kind']=='MKT'
+        margin=self.margin(m,body) if callable(self.margin) else self.margin
+        return NS(initMarginChange=str(margin),maintMarginChange='1',commission=0.,warningText='')
 
 def open_trade(con_id,ref,client=0,order_type='STP',action='SELL'):
     from types import SimpleNamespace as NS
@@ -835,11 +1157,145 @@ def test_preflight_scopes_to_openbreakout_refs_and_reports_other_book(live):
         assert closed['other_book']['MES']['other_position'] is None
     asyncio.run(run())
 
-def test_live_session_arms_after_preflight_and_trades_one_lot(live,tmp_path,monkeypatch):
+def tuesday_manifest(cfg,nq_tr=565.,es_tr=79.75,**es_fields):
+    """2026-09-29 staging ranges (NQ prior TR 565.0, ES 79.75)."""
+    m=manifest(cfg)
+    m['markets']['NQ']['prior_tr']=nq_tr;m['markets']['ES'].update(prior_tr=es_tr,**es_fields)
+    m.pop('hash');m['hash']=digest(m)
+    return m
+
+# 2026-09-28 evening what-ifs, per contract (BUY / SELL): MNQ 6,728.37 / 6,116.70; MES 3,486.38 / 2,860.58.
+IB_MARGIN={('MNQ',1):6728.37,('MNQ',-1):6116.70,('MES',1):3486.375,('MES',-1):2860.578}
+
+def margin_log(seen,per=None):
+    def f(m,body):
+        seen.append((m.execution.symbol,body['side'],body['qty']))
+        return body['qty']*(per if per is not None else IB_MARGIN[(m.execution.symbol,body['side'])])
+    return f
+
+def test_preflight_at_connect_previews_cap_as_warning_only(tmp_path,monkeypatch):
+    monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
+    from open_breakout.standby import preflight
+    live=load_raw(tmp_path,normal_raw())
+    seen=[]
+    async def run():
+        # Limit: min(500k excess, 600k NLV) x 0.2 = 100k. At the 10/10 cap: 67,283.70 + 34,863.75 > 100k.
+        r=await preflight(FakePreflight(live,[],[],margin_log(seen)),wait_seconds=0)
+        assert r['ok'] and r['failures']==[] and r['what_if_basis']=='cap'
+        assert r['margin_total']==pytest.approx(10*6728.37+10*3486.375) and r['margin_limit']==pytest.approx(100000.)
+        assert r['warnings']==[f'MARGIN_TOTAL_AT_CAP:{10*6728.37+10*3486.375:.2f}>100000.00']
+        assert r['what_if_qty']=={'MNQ':{'BUY':10,'SELL':10},'MES':{'BUY':10,'SELL':10}}
+        # The one-contract basic check runs as well, both sides.
+        assert sorted(seen)==sorted([(s,d,q) for s in ('MNQ','MES') for d in (1,-1) for q in (1,10)])
+        assert set(r['what_if_one_contract'])=={'MNQ:BUY','MNQ:SELL','MES:BUY','MES:SELL'}
+        # Even a single market over the limit at the cap is a warning, not a failure.
+        big=await preflight(FakePreflight(live,[],[],margin_log([],per=20000.)),wait_seconds=0)
+        assert big['ok'] and any(w.startswith('MARGIN_AT_CAP:MNQ:BUY') for w in big['warnings'])
+        # A pilot ceiling below the market caps is what gets previewed.
+        three=load_raw(tmp_path,normal_raw(pilot=3,caps=(10,8)),'three.json')
+        seen.clear()
+        r3=await preflight(FakePreflight(three,[],[],margin_log(seen)),wait_seconds=0)
+        assert r3['what_if_qty']=={'MNQ':{'BUY':3,'SELL':3},'MES':{'BUY':3,'SELL':3}} and {q for *_,q in seen}=={1,3}
+        # The one-contract check still fails the preflight (contract not tradeable / warning).
+        bad=await preflight(FakePreflight(live,[],[],margin_log([],per=150000.)),wait_seconds=0)
+        assert not bad['ok'] and 'MARGIN:MNQ:BUY:150000.0' in bad['failures']
+    asyncio.run(run())
+
+def test_preflight_at_arming_uses_planned_sizes_and_fails_only_above_limit(tmp_path,monkeypatch):
+    monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
+    from open_breakout.standby import preflight
+    live=load_raw(tmp_path,normal_raw())
+    m=tuesday_manifest(live)
+    seen=[]
+    async def run():
+        # Tonight's per-contract margins: at the cap the total (102,147) would exceed 100k; planned 3/7 fits.
+        r=await preflight(FakePreflight(live,[],[],margin_log(seen)),manifest=m,wait_seconds=0)
+        assert r['ok'],r['failures']
+        assert r['what_if_basis']=='planned' and r['planned_qty']=={'MNQ':3,'MES':7} and r['warnings']==[]
+        assert r['what_if_qty']=={'MNQ':{'BUY':3,'SELL':3},'MES':{'BUY':7,'SELL':7}}
+        assert r['margin_total']==pytest.approx(3*6728.37+7*3486.375)
+        assert sorted(seen)==sorted([(s,d,q) for s,q in (('MNQ',3),('MES',7)) for d in (1,-1)]
+                                    +[(s,d,1) for s in ('MNQ','MES') for d in (1,-1)])
+        # $11k per contract: 33k + 77k = 110k > 100k, each market alone fits: MARGIN_TOTAL fails arming.
+        heavy=await preflight(FakePreflight(live,[],[],margin_log([],per=11000.)),manifest=m,wait_seconds=0)
+        assert not heavy['ok'] and heavy['failures']==['MARGIN_TOTAL:110000.00>100000.00']
+        # $9k per contract: planned 27k + 63k = 90k fits, although the cap (180k) would not.
+        fits=await preflight(FakePreflight(live,[],[],margin_log([],per=9000.)),manifest=m,wait_seconds=0)
+        assert fits['ok'] and fits['margin_total']==pytest.approx(90000.)
+        # A planned side above the limit on its own fails too.
+        one=await preflight(FakePreflight(live,[],[],margin_log([],per=15000.)),manifest=m,wait_seconds=0)
+        assert not one['ok'] and 'MARGIN_PLANNED:MES:BUY:105000.0' in one['failures']
+        # A market the prior-range filter does not arm plans zero and is not previewed at size.
+        skip=tuesday_manifest(live,skip_prior_range=True,prior_range_status='OK')
+        seen.clear()
+        r=await preflight(FakePreflight(live,[],[],margin_log(seen)),manifest=skip,wait_seconds=0)
+        assert r['ok'] and r['planned_qty']=={'MNQ':3,'MES':0} and r['margin_total']==pytest.approx(3*6728.37)
+        assert ('MES',1,7) not in seen and ('MES',1,1) in seen
+        # No quote for a market: planned size unknown, fail closed.
+        fp=FakePreflight(live,[],[],margin_log([]));fp.quotes={'NQ':fp.quotes['NQ']}
+        r=await preflight(fp,manifest=m,wait_seconds=0)
+        assert not r['ok'] and any(f.startswith('PLANNED_SIZE:KeyError') for f in r['failures'])
+    asyncio.run(run())
+
+@pytest.mark.parametrize('nq_tr,es_tr',[(565.,79.75),(40.,40.),(2000.,300.),(123.5,17.25)])
+def test_planned_size_equals_size_order(tmp_path,monkeypatch,nq_tr,es_tr):
+    monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
+    from open_breakout.standby import planned_sizes
+    live=load_raw(tmp_path,normal_raw())
+    m=tuesday_manifest(live,nq_tr,es_tr)
+    quotes={'NQ':(24999.75,25000.25,None),'ES':(5999.75,6000.25,None)}
+    plan=planned_sizes(live,m,quotes.__getitem__,live.shadow_equity)
+    for mk in live.markets:
+        mid=sum(quotes[mk.name][:2])/2
+        for side,action in [(1,'BUY'),(-1,'SELL')]:
+            want=size_order(State(DAY,mk.name,m['markets'][mk.name]['prior_tr'],25),mk,side,mid,mid,live.shadow_equity,live)
+            assert plan[mk.execution.symbol][action]==want['qty']<=live.max_contracts_for(mk)
+    if (nq_tr,es_tr)==(565.,79.75):
+        assert (plan['MNQ']['BUY'],plan['MES']['BUY'])==(3,7)
+
+def test_armed_line_reports_planned_sizes_and_caps(tmp_path,monkeypatch):
+    from types import SimpleNamespace as NS
+    from open_breakout.standby import armed_line
+    monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
+    live=load_raw(tmp_path,normal_raw())
+    m=tuesday_manifest(live)
+    report=dict(planned_qty={'MNQ':3,'MES':7},margin_total=44589.4,margin_limit=112703.36)
+    both={'NQ':NS(phase='FLAT',note=''),'ES':NS(phase='FLAT',note='')}
+    line=armed_line(live,report,both,{'NQ':565.,'ES':79.75},76.8,m)
+    assert line.startswith("ARMED LIVE: planned 3 MNQ / 7 MES at today's ranges, max 10/10; planned margin $44,589 of limit $112,703;")
+    one={'NQ':NS(phase='FLAT',note=''),'ES':NS(phase='SKIPPED',note='PRIOR_RANGE_SKIP: x')}
+    line=armed_line(live,report,one,{},76.8,m)
+    assert "planned 3 MNQ at today's ranges, max 10;" in line and "NOT ARMED {'ES': 'PRIOR_RANGE_SKIP: x'}" in line
+    none={k:NS(phase='SKIPPED',note='x') for k in ('NQ','ES')}
+    assert 'NO MARKET' in armed_line(live,report,none,{},76.8,m)
+
+def test_live_send_refuses_above_effective_cap(tmp_path,monkeypatch):
+    monkeypatch.setenv('OPEN_BREAKOUT_LIVE_ACK',f'LIVE {DAY} {LIVE_ACCOUNT}')
+    async def run():
+        pytest.importorskip('ib_insync')
+        from open_breakout.ibkr import IBKR
+        for pilot,cap in [(10,10),(3,3),(None,10)]:
+            live=load_raw(tmp_path,normal_raw(pilot=pilot),f'cap{pilot}.json')
+            adapter=IBKR(live,session=DAY)
+            m=live.markets[0];adapter.contracts[m.execution.con_id]=object()
+            sent=[]
+            adapter.ib.placeOrder=lambda c,o:sent.append(o) or object()
+            body=dict(kind='STP',side=-1,stop=20000,tif='GTC',oca='g',account=live.account,ref='x')
+            adapter.send(1,m,{**body,'qty':cap})
+            assert sent[-1].totalQuantity==cap
+            for bad in [cap+1,0,-1,2.5,float('nan'),True]:
+                with pytest.raises(PermissionError,match='quantity cap'):adapter.send(2,m,{**body,'qty':bad})
+            assert len(sent)==1
+    asyncio.run(run())
+
+@pytest.mark.parametrize('sizing',['one_lot','normal'])
+def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,capsys,sizing):
     import sqlite3
     from types import SimpleNamespace as NS
     from open_breakout import standby
     from open_breakout.__main__ import main_async
+    if sizing=='normal':
+        live=load_raw(tmp_path,normal_raw()) # overwrites live.json with the 2026-09-29 shape
     clock=[at('08:59:59')]
     class ClockDateTime(datetime):
         @classmethod
@@ -879,6 +1335,9 @@ def test_live_session_arms_after_preflight_and_trades_one_lot(live,tmp_path,monk
         stamp=next(times);clock[0]=at(stamp)
         feed=Feed.instance
         feed.last_seen={k:clock[0] for k in feed.last_seen}
+        if stamp<'09:30:00':
+            # Pre-open quotes stream as they do live; the 09:25 preflight sizes off their mid.
+            for m,base in [('NQ',20000),('ES',5000)]:feed.update_quote(m,base-.25,base,clock[0])
         if '09:30:00'<=stamp<'16:01:00':
             for m,base in [('NQ',20000),('ES',5000)]:
                 price=base+(10 if stamp>'09:30:00' else 0)
@@ -902,12 +1361,27 @@ def test_live_session_arms_after_preflight_and_trades_one_lot(live,tmp_path,monk
         ack=json.loads(db.execute("SELECT value FROM meta WHERE key='live_ack'").fetchone()[0])
     assert ack==meta['live_ack']
     entries=[b for role,b in orders if role=='ENTRY']
-    # NQ sizes to 6 micros unclamped -> 1; ES budget (5bp of 100k) is below one MES of risk -> no trade.
-    assert len(entries)==1 and entries[0]['qty']==1 and entries[0]['ref'].startswith('MNQ|BUY|OpenBreakout|')
-    assert [role for role,_ in orders]==['ENTRY','STOP','TIME']
     assert len(placed)==len(orders) and all(b['account']==LIVE_ACCOUNT for _,b in orders)
-    # Live writes its own day R too: one timed-exit NQ trade, no ES trade.
-    assert meta['day_r']['NQ']['trades']==1 and meta['day_r']['ES']['r'] is None
+    armed=[l for l in capsys.readouterr().out.splitlines() if 'ARMED LIVE' in l]
+    if sizing=='one_lot':
+        # NQ sizes to 6 micros unclamped -> 1; ES budget (5bp of 100k) is below one MES of risk -> no trade.
+        assert len(entries)==1 and entries[0]['qty']==1 and entries[0]['ref'].startswith('MNQ|BUY|OpenBreakout|')
+        assert [role for role,_ in orders]==['ENTRY','STOP','TIME']
+        # Live writes its own day R too: one timed-exit NQ trade, no ES trade.
+        assert meta['day_r']['NQ']['trades']==1 and meta['day_r']['ES']['r'] is None
+        assert len(armed)==1 and "planned 1 MNQ / 0 MES at today's ranges, max 1/1" in armed[0]
+        assert meta['preflight_connect']['what_if_basis']=='cap' and meta['preflight_arm']['what_if_basis']=='planned'
+    else:
+        # $750k basis, prior TR 40 (stop 10 pts): MNQ 1125/23.70 -> 47 and MES 750/56.70 -> 13, both capped at 10.
+        assert sorted((b['ref'].split('|')[0],b['qty']) for b in entries)==[('MES',10),('MNQ',10)]
+        assert sorted(role for role,_ in orders)==['ENTRY','ENTRY','STOP','STOP','TIME','TIME']
+        # Stop and timed exit carry the filled quantity.
+        assert all(b['qty']==10 for role,b in orders if role in {'STOP','TIME'})
+        assert meta['day_r']['NQ']['trades']==1 and meta['day_r']['ES']['trades']==1
+        assert meta['settings']['effective_max_contracts']=={'MNQ':10,'MES':10}
+        assert len(armed)==1 and "planned 10 MNQ / 10 MES at today's ranges, max 10/10" in armed[0]
+        assert meta['preflight_arm']['what_if_qty']=={'MNQ':{'BUY':10,'SELL':10},'MES':{'BUY':10,'SELL':10}}
+        assert meta['preflight_arm']['margin_total']==pytest.approx(6000.)
 
 
 # ---- Adversarial review fixes ----

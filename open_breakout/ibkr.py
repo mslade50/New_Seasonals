@@ -1,8 +1,7 @@
-"""IBKR transport. Importing this module never connects. Live routing requires the pilot config and session ack."""
+"""IBKR transport. Importing this module never connects. Live routing requires the live config limits and session ack."""
 import asyncio
 from datetime import datetime, timezone
 import math
-from .config import LIVE_PILOT_MAX_CONTRACTS
 from .service import TERMINAL, ACKNOWLEDGED, STRATEGY_REF, ref_strategy, exec_key
 from .strategy import NY
 
@@ -133,8 +132,10 @@ class IBKR:
             raise PermissionError('Order transmission is available only in paper or authorized live mode')
         if body.get('account')!=self.config.account:
             raise PermissionError('Order account mismatch')
-        if self.config.mode=='live' and not 0<body['qty']<=min(LIVE_PILOT_MAX_CONTRACTS,market.max_contracts):
-            raise PermissionError('Live pilot quantity cap exceeded')
+        if self.config.mode=='live':
+            qty,cap=body['qty'],self.config.max_contracts_for(market)
+            if isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 0<qty<=cap:
+                raise PermissionError(f'Live quantity cap exceeded: qty {qty} must be a whole number in [1, {cap}]')
         # A halted feed still permits protective exits for actual executions.
         if body['kind']=='LMT' and (not self.healthy or not self.ib.isConnected()):
             raise RuntimeError('Unhealthy broker connection')

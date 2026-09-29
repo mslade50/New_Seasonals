@@ -50,7 +50,7 @@ async def main_async(args):
         return
     if args.command=='live-session':
         if config.mode!='live':
-            raise PermissionError('live-session requires a live pilot configuration')
+            raise PermissionError('live-session requires a live configuration')
         # Process-start acknowledgement check; repeated inside IBKR.connect().
         config.authorize(args.session)
         from .standby import run_live
