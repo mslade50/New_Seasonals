@@ -1,9 +1,12 @@
 # Earnings snapshot retries and issuer review
 
-September 29, 2026: authorized by the owner. The monitor uses the reviewed MAIN
-observer and queue script with the runtime Python environment. Production remains
-on the September 24 pin until a separately approved promotion. No automatic
-calendar corrections or strategy changes are part of this observer rollout.
+September 29, 2026: the owner authorized the monitor. September 30: the owner
+authorized production promotion of the same reviewed retry and issuer-review
+source. The production runtime and GitHub fallback use the immutable tag
+`automation-runtime-2026-09-30.earnings-retries-issuer-review`. See
+[the promotion receipt](earnings_monitor_promotion_2026-09-30.md) for the tested
+runtime identity. No automatic calendar corrections or strategy changes are
+part of this promotion.
 
 ## Shared snapshot retry policy
 
@@ -18,11 +21,10 @@ are reused. Each attempt is persisted before HTTP, with safe error classificatio
 the successful raw payload retains its exact digest. Crossing a New York date
 stops the old-day attempt sequence. This adds no paid plan or subscription.
 
-The existing pinned producer still has its older single-attempt implementation.
-It can reuse a ready snapshot created by the updated morning monitor. If it is
-the first caller that day and fails, the monitor does not bypass its old claim.
-Full producer retry coverage requires promoting the two changed source files
-(`alpha_calendar_snapshot.py`, `scripts/compare_earnings_shadow.py`) together.
+The promoted producer and morning monitor share this retry implementation and
+the same daily snapshot. Either can own the initial request and complete its
+bounded retry sequence. Both reuse a ready snapshot. Existing abandoned or legacy
+single-attempt claims remain blocked; promotion does not reset them.
 
 ## Issuer verification at 8–15 calendar days
 
@@ -78,9 +80,14 @@ arithmetic, the economic checks, schedule times, or November 11 endpoint.
 Regression checks cover retry exhaustion, concurrent callers, quota/auth failures,
 day rollover, hash integrity, calendar-day boundaries and FMP-only queue entries.
 Initial live queue: `artifacts/earnings_issuer_review/20260929-initial/`.
-Source changes require review before a production runtime promotion. The exposure
-is that a recovered snapshot may let the Alpha trial publish where FMP fallback
-would otherwise be selected; existing incorrect provider dates remain possible.
-Rollback is to restore the September 24 runtime/fallback pin and the previous
-monitor observer selection, preserving snapshot and historical evidence. A
-separate canonical-data repair is required for already-published date errors.
+The September 30 promotion installs the reviewed source in the existing runtime.
+A recovered snapshot can let the Alpha trial publish where FMP fallback would
+otherwise be selected; existing incorrect provider dates remain possible.
+Issuer findings remain advisory: the producer does not read the review artifacts
+or require every expected date to be issuer-confirmed. It applies only explicit
+rules in `config/earnings_calendar_overrides.json`, then runs its existing
+calendar, confirmation, history and publication guards. A failed Alpha candidate
+uses the configured FMP fallback; a website disagreement by itself is not a gate.
+A separate reviewed override and canonical-data repair are required for already
+published errors. Rollback restores the September 24 runtime/fallback pin while
+preserving snapshot and historical evidence.

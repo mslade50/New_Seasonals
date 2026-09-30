@@ -9,7 +9,8 @@ September 24 data-provider trial: [production evidence and monitoring](fmp_cutov
 Official economic releases are active for 29 series. The Alpha-primary earnings
 trial selected an explicit FMP fallback on its first run because RZLT disappeared
 without confirmation; earnings are not yet independent of FMP. Runtime/fallback
-SHA is `36cbf9c0234e26743c10b91af9a57647710f83c6`.
+SHA is `1ef8fb39c5062c910793e5e59a3cd7a7371b5a08`. September 30 [retry and issuer-review promotion](earnings_monitor_promotion_2026-09-30.md)
+is active; issuer checks alert on conflicts and do not automatically correct dates.
 
 Latest priority-3 inventory work: [Primary OLV cutover](olv_inventory_cutover_2026-09-09.md).
 Its prepared source and reconciled opening candidate are not yet active.
@@ -32,7 +33,7 @@ actions. Early errors retain `RETRY_PENDING`; the sender forbids failure email
 before 09:30 ET. Source-review and duplicate-delivery gates remain mandatory.
 Read the September 24 release evidence under `artifacts/ep-robustness-20260924/`
 for installation/verification; a future live morning is still required to confirm
-end-to-end operational success. The following September 22–23 notes are historical.
+end-to-end operational success. The following September 22â€“23 notes are historical.
 
 ### EP morning research runtime (restored 2026-09-22; historical)
 
@@ -129,7 +130,7 @@ The weekday 17:10 ET postclose pipeline uses `collect_market_breadth.py --source
 before scoring risk. This public Dow Jones overview returned the same NYSE and Nasdaq
 counts as MarketWatch on September 21 (26/154 and 147/189), with an explicit
 `4:15 PM EDT 9/21/26` timestamp. The detailed diary was still on the prior session
-during the earlier 17:13–17:33 collection window. Arrival by 17:10 has not yet been
+during the earlier 17:13â€“17:33 collection window. Arrival by 17:10 has not yet been
 measured over multiple sessions; the collector retains its bounded 20-minute retry.
 
 Overview observations are preliminary (`dow_jones_overview`). Import requires a real
