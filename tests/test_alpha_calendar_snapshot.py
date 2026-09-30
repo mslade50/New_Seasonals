@@ -76,3 +76,58 @@ def test_future_same_day_capture_is_rejected(tmp_path):
                        raw=RAW, sha256=hashlib.sha256(RAW.encode()).hexdigest())
     with pytest.raises(SnapshotError, match="future"):
         call(tmp_path, store, lambda key: pytest.fail("future capture caused a request"))
+
+
+class TemporaryFailure(ValueError):
+    retryable = True
+
+
+def test_transient_failure_retries_twice_with_spacing_then_reuses(tmp_path):
+    store = Store(); attempts = []; waits = []
+    def fetch(key):
+        attempts.append(key)
+        if len(attempts) < 3:
+            raise TemporaryFailure("503")
+        return RAW, parse_alpha_csv(RAW)
+    raw, _, meta = daily_alpha(config_root=tmp_path, store=store, fetch=fetch,
+        parse=parse_alpha_csv, key="fake", now=NOW, sleep=waits.append)
+    assert raw == RAW and waits == [60, 180] and len(attempts) == 3
+    assert [a["status"] for a in meta["attempts"]] == ["retryable_failure", "retryable_failure", "success"]
+    call(tmp_path, store, lambda key: pytest.fail("ready snapshot fetched again"))
+
+
+def test_retry_budget_is_not_reset_by_later_caller(tmp_path):
+    store = Store(); calls = []; waits = []
+    def fetch(key):
+        calls.append(key); raise TemporaryFailure("503")
+    with pytest.raises(TemporaryFailure):
+        daily_alpha(config_root=tmp_path, store=store, fetch=fetch,
+            parse=parse_alpha_csv, key="fake", now=NOW, sleep=waits.append)
+    with pytest.raises(SnapshotError): call(tmp_path, store, fetch)
+    assert len(calls) == 3 and waits == [60, 180]
+
+
+def test_competing_caller_cannot_fetch_during_retry_wait(tmp_path):
+    store = Store(); calls = []
+    def fetch(key):
+        calls.append(key)
+        if len(calls) == 1: raise TemporaryFailure("503")
+        return RAW, parse_alpha_csv(RAW)
+    def sleep(_):
+        with pytest.raises(SnapshotError):
+            call(tmp_path, store, lambda key: pytest.fail("competing fetch"))
+    daily_alpha(config_root=tmp_path, store=store, fetch=fetch,
+        parse=parse_alpha_csv, key="fake", now=NOW, sleep=sleep)
+    assert len(calls) == 2
+
+
+def test_retry_cannot_cross_new_york_day(tmp_path):
+    store = Store(); calls = []
+    def fetch(key):
+        calls.append(key); raise TemporaryFailure("503")
+    times = iter([NOW, NOW, NOW + pd.Timedelta(days=1)])
+    with pytest.raises(SnapshotError, match="date changed"):
+        daily_alpha(config_root=tmp_path, store=store, fetch=fetch,
+            parse=parse_alpha_csv, key="fake", now=NOW, sleep=lambda _: None,
+            clock=lambda: next(times))
+    assert len(calls) == 1

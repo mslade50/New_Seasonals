@@ -660,16 +660,10 @@ def technical_screen(
     observed_at: dt.datetime | None = None,
     minimum_earnings_tickers: int = 0,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    earnings = load_earnings_dates_map(path=str(earnings_path))
-    if earnings_overflow_path is not None and earnings_overflow_path.is_file():
-        overflow = load_earnings_dates_map(path=str(earnings_overflow_path))
-        for ticker, dates in overflow.items():
-            if ticker in earnings:
-                earnings[ticker] = np.unique(
-                    np.concatenate([earnings[ticker], dates])
-                ).astype("datetime64[D]")
-            else:
-                earnings[ticker] = dates
+    earnings = load_earnings_dates_map(
+        path=str(earnings_path),
+        overflow_path=str(earnings_overflow_path) if earnings_overflow_path is not None else None,
+    )
     if not earnings:
         raise FocusBuildError("earnings calendar is empty; the five-session gate cannot run")
     if len(earnings) < minimum_earnings_tickers:

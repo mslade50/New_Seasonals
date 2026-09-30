@@ -1,12 +1,13 @@
-"""One authenticated Alpha calendar request per New York date across all writers.
+"""One coordinated Alpha snapshot per New York date across all writers.
 
-An atomic R2 claim precedes the request. A failed/uncertain attempt remains
-claimed for the day; callers must not bypass it or retry the provider directly.
+An atomic R2 claim owns up to three requests for explicitly transient failures.
+Terminal, abandoned and legacy claims cannot be restarted by another caller.
 Existing authenticated observer captures can seed the shared snapshot.
 """
 from __future__ import annotations
 import hashlib
 import json
+import time
 from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
@@ -57,10 +58,12 @@ def validate_snapshot(value, day, parse, now=None):
     return raw, parse(raw)
 
 
-def daily_alpha(*, config_root, fetch, parse, key, store=None, now=None):
+def daily_alpha(*, config_root, fetch, parse, key, store=None, now=None,
+                sleep=time.sleep, clock=None):
     config_root = Path(config_root)
     load_dotenv(config_root / ".env", override=False)
-    now = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+    clock = clock or ((lambda: pd.Timestamp.now(tz="UTC")) if now is None else (lambda: pd.Timestamp(now)))
+    now = pd.Timestamp(clock())
     day = str(now.tz_convert("America/New_York").date())
     remote_key = f"provider_snapshots/alpha_earnings/{day}.json"
     store = store or R2SnapshotStore()
@@ -93,12 +96,39 @@ def daily_alpha(*, config_root, fetch, parse, key, store=None, now=None):
         return raw, parsed, {k:v for k,v in checked.items() if k != "raw"}
     if not key:
         raise SnapshotError("ALPHA_VANTAGE_API_KEY is missing")
-    claim = dict(state="attempted", mode="authenticated", captured_at_utc=now.isoformat())
+    claim = dict(state="attempted", mode="authenticated", captured_at_utc=now.isoformat(), attempts=[])
     etag = store.write(remote_key, claim)
-    raw, parsed = fetch(key)  # Exactly one attempt after the shared claim.
-    ready = dict(state="ready", mode="authenticated", captured_at_utc=now.isoformat(),
-                 raw=raw, sha256=hashlib.sha256(raw.encode()).hexdigest(), origin="shared_daily_request")
+    for number, delay in enumerate((0, 60, 180), start=1):
+        if delay:
+            sleep(delay)
+        started = pd.Timestamp(clock())
+        if str(started.tz_convert("America/New_York").date()) != day:
+            raise SnapshotError("New York date changed during Alpha retries; no further request")
+        # Persist each claim BEFORE HTTP. A competing writer or failed state write
+        # stops this owner without spending another request.
+        attempt = dict(number=number, started_at_utc=started.isoformat(), status="in_progress")
+        claim["attempts"].append(attempt)
+        etag = store.write(remote_key, claim, etag)
+        try:
+            raw, parsed = fetch(key)
+        except Exception as exc:
+            retryable = getattr(exc, "retryable", False) is True
+            attempt.update(status="retryable_failure" if retryable else "terminal_failure",
+                           error_type=type(exc).__name__)
+            # Never persist exception messages, which can contain credentials.
+            etag = store.write(remote_key, claim, etag)
+            if not retryable or number == 3:
+                raise
+            continue
+        attempt["status"] = "success"
+        break
+    captured = pd.Timestamp(clock())
+    if str(captured.tz_convert("America/New_York").date()) != day:
+        raise SnapshotError("New York date changed during Alpha fetch; snapshot not published")
+    ready = dict(state="ready", mode="authenticated", captured_at_utc=captured.isoformat(),
+                 raw=raw, sha256=hashlib.sha256(raw.encode()).hexdigest(), origin="shared_daily_request",
+                 attempts=claim["attempts"])
     store.write(remote_key, ready, etag)
     checked, _ = store.read(remote_key)
-    raw, parsed = validate_snapshot(checked, day, parse, now)
+    raw, parsed = validate_snapshot(checked, day, parse, captured)
     return raw, parsed, {k:v for k,v in checked.items() if k != "raw"}

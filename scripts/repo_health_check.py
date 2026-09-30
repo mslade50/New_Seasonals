@@ -309,6 +309,12 @@ def check_local_data() -> None:
 
 
 # ---------------------------------------------------------------- 3. PIT
+def _fragility_digest(frame: pd.DataFrame) -> str:
+    """Hash observations without treating an index label as a data revision."""
+    return hashlib.sha256(
+        frame.rename_axis(None).round(6).to_csv().encode("utf-8")).hexdigest()
+
+
 def check_fragility_pit() -> None:
     path = ROOT / "data" / "rd2_fragility.parquet"
     if not path.exists():
@@ -330,13 +336,24 @@ def check_fragility_pit() -> None:
         # schema below; adding a column must not masquerade as rewritten prices.
         columns = state.get("frag_frozen_columns", ["5d", "21d", "63d"])
         frozen = df.loc[:pd.Timestamp(frozen_through), columns]
-        digest = hashlib.sha256(
-            frozen.round(6).to_csv().encode("utf-8")).hexdigest()
-        if digest != state.get("frag_frozen_sha"):
+        digests = {_fragility_digest(frozen)}
+        if state.get("frag_frozen_hash_version", 1) == 1:
+            # Legacy checkpoints hashed the CSV's index header. The canonical
+            # price repair changed only that header from Date to unnamed.
+            # Accept either legacy representation of these SAME observations.
+            for label in (frozen.index.name, "Date"):
+                digests.add(hashlib.sha256(
+                    frozen.rename_axis(label).round(6).to_csv().encode("utf-8")
+                ).hexdigest())
+        if state.get("frag_frozen_sha") not in digests:
             report("FAIL", "pit:rd2_fragility",
                    f"frozen history (<= {frozen_through}) CHANGED since last "
-                   f"check - possible full-rewrite with the drifted recompute "
-                   f"vintage; live frag_risk_bands sizing is compromised")
+                   "check; investigate the changed values and producer "
+                   "provenance before assessing sizing impact. "
+                   "Prior checkpoint preserved; explicit reconciliation required")
+            # Never accept an unreviewed rewrite as the next trusted baseline.
+            # Otherwise the following run silently turns this failure green.
+            return
         else:
             report("OK", "pit:rd2_fragility",
                    f"frozen rows <= {frozen_through} unchanged")
@@ -348,8 +365,8 @@ def check_fragility_pit() -> None:
     frozen = df.loc[:new_frozen]
     state["frag_frozen_columns"] = list(frozen.columns)
     state["frag_frozen_through"] = str(new_frozen.date())
-    state["frag_frozen_sha"] = hashlib.sha256(
-        frozen.round(6).to_csv().encode("utf-8")).hexdigest()
+    state["frag_frozen_sha"] = _fragility_digest(frozen)
+    state["frag_frozen_hash_version"] = 2
     state["last_check_utc"] = dt.datetime.now(dt.timezone.utc).isoformat()
     STATE_PATH.write_text(json.dumps(state, indent=1), encoding="utf-8")
     if not frozen_through:
@@ -431,8 +448,13 @@ def check_delivery() -> None:
             command,
             cwd=ROOT, capture_output=True, text=True, timeout=120,
             check=False)
-        msg = (out.stdout + out.stderr).strip().splitlines()
-        detail = msg[0] if msg else f"exit {out.returncode}"
+        msg = (out.stdout + "\n" + out.stderr).strip().splitlines()
+        diagnostics = [line.strip() for line in msg if line.strip()]
+        failures = [line for line in diagnostics
+                    if line.startswith(("FAILED:", "ERROR:", "[FAIL]"))]
+        detail = (failures[-1] if out.returncode != 0 and failures
+                  else diagnostics[-1] if diagnostics
+                  else f"exit {out.returncode}")
         report("OK" if out.returncode == 0 else "FAIL",
                f"delivery:{label}", f"{day}: {detail}")
 

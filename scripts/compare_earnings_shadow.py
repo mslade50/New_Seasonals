@@ -29,6 +29,10 @@ from trading_calendar import TRADING_DAY
 class ShadowError(ValueError):
     """Safe message: never include credential-bearing URLs or response bodies."""
 
+    def __init__(self, message, *, retryable=False):
+        super().__init__(message)
+        self.retryable = retryable
+
 
 def parse_alpha_csv(text: str) -> pd.DataFrame:
     if text.lstrip().startswith(("{", "[", "<")):
@@ -62,10 +66,14 @@ def fetch_alpha(key: str) -> tuple[str, pd.DataFrame]:
             params={"function": "EARNINGS_CALENDAR", "horizon": "3month", "apikey": key},
             timeout=(10, 60),
         )
+    except (requests.Timeout, requests.ConnectionError):
+        raise ShadowError("Alpha Vantage temporary network failure; credentials and URL withheld",
+                          retryable=True) from None
     except requests.RequestException:
         raise ShadowError("Alpha Vantage request failed; credentials and URL withheld") from None
     if response.status_code != 200:
-        raise ShadowError(f"Alpha Vantage HTTP {response.status_code}")
+        raise ShadowError(f"Alpha Vantage HTTP {response.status_code}",
+                          retryable=response.status_code in {500, 502, 503, 504})
     return response.text, parse_alpha_csv(response.text)
 
 
@@ -254,7 +262,7 @@ def main(argv=None) -> int:
             summary["captured_at_utc"] = snapshot_meta["captured_at_utc"]
             summary["alpha_snapshot"] = snapshot_meta
         alpha.to_csv(run / "alpha_calendar.csv", index=False)
-        (run / "alpha_raw.csv").write_text(raw, encoding="utf-8")
+        (run / "alpha_raw.csv").write_bytes(raw.encode("utf-8"))
         fmp.to_parquet(run / "fmp_snapshot.parquet", index=False)
         details.to_csv(run / "comparison.csv", index=False)
         prior_runs = sorted(p for p in run.parent.iterdir() if p < run and (p / "summary.json").exists())
