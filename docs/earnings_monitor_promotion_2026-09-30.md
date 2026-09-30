@@ -1,7 +1,7 @@
 # Earnings monitor production promotion — September 30, 2026
 
 The owner explicitly approved production promotion on September 30. The existing
-v9 runtime is pinned to `1ef8fb39c5062c910793e5e59a3cd7a7371b5a08` with immutable fallback tag `automation-runtime-2026-09-30.earnings-retries-issuer-review`. Source is
+v9 runtime is pinned to `3ee156c3cd2f0cbfd9680e887757ffea205f562c` with immutable fallback tag `automation-runtime-2026-09-30.earnings-retries-issuer-review.v2`. Source is
 the earnings files from main commit `745141a6e1ea00ea0840d4689f383c8a9a79df83`; unrelated changes from that mixed
 commit were excluded. The configured GitHub fallback uses the same tag.
 

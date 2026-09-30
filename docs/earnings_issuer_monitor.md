@@ -3,7 +3,7 @@
 September 29, 2026: the owner authorized the monitor. September 30: the owner
 authorized production promotion of the same reviewed retry and issuer-review
 source. The production runtime and GitHub fallback use the immutable tag
-`automation-runtime-2026-09-30.earnings-retries-issuer-review`. See
+`automation-runtime-2026-09-30.earnings-retries-issuer-review.v2`. See
 [the promotion receipt](earnings_monitor_promotion_2026-09-30.md) for the tested
 runtime identity. No automatic calendar corrections or strategy changes are
 part of this promotion.
