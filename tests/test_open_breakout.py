@@ -41,6 +41,33 @@ def setup_service(config,tmp_path,broker_class=SimBroker):
     service=Service(config,manifest(config),store,broker,lambda:now[0])
     return service,broker,store,now
 
+
+def test_operator_control_preserves_exits_and_disarms_only_selected_market(config,tmp_path):
+    from types import SimpleNamespace as NS
+    async def run():
+        service,b,store,now=setup_service(config,tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            await tick(service,b,now,20010,'09:30:01')
+            s=service.states['NQ']
+            original=len(store.orders())
+            selected=NS(contract=NS(conId=config.markets[0].execution.con_id),
+                        order=NS(orderId=s.stop_order,permId=101))
+            service.operator_order(selected)
+            assert service.manual_markets=={'NQ'} and not service.halted
+            assert len(store.orders())==original and service.states['ES'].phase=='FLAT'
+            assert config.markets[0].execution.con_id not in service._expected()
+            service._stop_dead('NQ',s.stop_order,'manual edit',True)
+            await service._emergency_flatten('NQ','already queued before edit')
+            await tick(service,b,now,19900,'09:31:00')
+            service.fill(s.stop_order,'manual-fill',1,19990)
+            assert len(store.orders())==original and not service.flattened
+            assert store.day_r(['NQ'])['NQ']['r'] is None
+            assert 'manual control' in store.day_r(['NQ'])['NQ']['note']
+            assert store.get('manual_markets')==['NQ']
+        finally:store.close()
+    asyncio.run(run())
+
 async def tick(service,broker,now,price,stamp,market='NQ'):
     now[0]=at(stamp)
     broker.update_quote(market,price-.25,price,now[0])
@@ -1456,6 +1483,7 @@ def test_live_send_refuses_above_effective_cap(tmp_path,monkeypatch):
 
 @pytest.mark.parametrize('sizing',['one_lot','normal','margin_capped'])
 def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,capsys,sizing):
+    monkeypatch.setenv('EXECUTION_OWNER_REGISTRY',str(tmp_path/'owners'))
     import sqlite3
     from types import SimpleNamespace as NS
     from open_breakout import standby

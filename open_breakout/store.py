@@ -111,6 +111,8 @@ def journal_day_r(db, markets) -> dict[str, dict]:
     """Per market, summed R over the session's closed trades from journal fills (not marks):
     R = side x (avg exit fill - avg entry fill) / |avg entry fill - stop| per contract; the stop is the
     last journaled protective stop for that attempt. r is None with no closed trade."""
+    manual_row = db.execute("SELECT value FROM meta WHERE key='manual_markets'").fetchone()
+    manual = set(json.loads(manual_row[0]) if manual_row else [])
     orders = {r[0]:dict(market=r[1],role=r[2],body=json.loads(r[4])) for r in db.execute('SELECT * FROM orders')}
     stops = {}
     for oid,o in orders.items():
@@ -136,6 +138,10 @@ def journal_day_r(db, markets) -> dict[str, dict]:
             trades[_attempt_key(o)]['stop'] = float(stops[oid])
     out = {}
     for name in markets:
+        if name in manual:
+            out[name] = dict(r=None, trades=0, trades_r=[],
+                             note='manual control; strategy attribution requires reconciliation')
+            continue
         rs, open_count = [], 0
         for (market,attempt),t in sorted(trades.items()):
             if market != name or not t['entry_qty']:

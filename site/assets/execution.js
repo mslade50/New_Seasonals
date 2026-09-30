@@ -1284,6 +1284,15 @@ function samePositionContract(p, o) {
     && (!p.currency || !o.currency || String(p.currency).toUpperCase() === String(o.currency).toUpperCase())
     && (!p.expiry || !o.expiry || String(o.expiry).startsWith(String(p.expiry)));
 }
+function isDayTradeOrder(o) {
+  return String(o.sec_type || "").toUpperCase() === "FUT"
+    && (parseHedgeOrderRef(o.order_ref) || {}).strategy === "OpenBreakout";
+}
+function dayTradeControlNote(p) {
+  return ((acctBook() || {}).orders || []).some(o => samePositionContract(p, o) && isDayTradeOrder(o))
+    ? "Day-trade exits: changing them puts this futures market under manual control for the rest of today; no strategy re-entry. Remaining broker exits stay working."
+    : "";
+}
 function hasVisibleProtectiveExit(p) {
   const ab = acctBook();
   const close = Number(p.position) > 0 ? "SELL" : "BUY";
@@ -1487,7 +1496,7 @@ function orderEditRow(o) {
     <td class="l exec-c-act" style="white-space:nowrap">
       <button class="btn xs" data-mutation onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
       <button class="btn xs ghost" onclick='execModifyAbort()'>&times;</button></td>
-  </tr>`;
+  </tr>${isDayTradeOrder(o) ? '<tr><td colspan="10" class="l cap">Saving puts this futures market under manual control for the rest of today; no strategy re-entry. Other exits keep their prices and schedules.</td></tr>' : ""}`;
 }
 const expandedTickers = new Set();   // Open Orders: which tickers are expanded (persists across 4s polls)
 const orderEdit = { key: null, orig: null };   // inline Modify: row being edited + its pre-edit values
@@ -1976,7 +1985,7 @@ function syncFields() {
     // close_resize shrinks the exits to the remainder BEFORE selling, flatten
     // cancels them first.
     f.innerHTML = `<label class="cap">Symbol</label>${inp("f_symbol", "USO", 90)}
-      <label class="cap">Shares</label>${inp("fl_qty", "blank = percent", 110)}
+      <label class="cap">Qty</label>${inp("fl_qty", "blank = percent", 110)}
       <label class="cap">or Percent</label>${inp("fl_pct", "100", 65)}
       <label class="cap">Type</label><select id="fl_type"><option value="MKT">MKT</option><option value="LMT">LMT</option></select>
       <label class="cap">Limit</label>${inp("fl_limit", "", 80)}
@@ -2478,6 +2487,7 @@ function updateReadout() {
     } else if (t === "close_resize") {
       parts.push(rem > 0 ? `existing exit groups adjust to <b>${rem}</b> with proportional rounding`
         : "<b>full close: associated exits cancelled first</b>");
+      if (dayTradeControlNote(pos)) parts.push(esc(dayTradeControlNote(pos)));
       if (readdRows.get(positionKey(pos))) {
         parts.push("<b class='pos'>Re-add enabled</b> · DAY limit at original average cost, confirmed closed shares only");
       }
@@ -2638,7 +2648,7 @@ function sendTicket() {
   } else if (t !== "echo") {
     const inst = p.sec_type === "FUT" ? `${p.symbol} FUT ${p.fut_expiry || p.expiry || ""}`.trim()
       : p.sec_type === "CASH" ? `${p.symbol}/${p.currency || "USD"} FX` : p.symbol;
-    const closeUnit = p.sec_type === "CASH" ? ` ${p.symbol} units` : " sh";
+    const closeUnit = p.sec_type === "CASH" ? ` ${p.symbol} units` : p.sec_type === "FUT" ? " contracts" : " sh";
     const stopTxt = p.stop == null ? "NO STOP — UNPROTECTED" : "stop " + p.stop;
     const entryDesc = p.entry_type === "LMT" ? `LMT @ ${p.entry}`
       : p.entry_type === "STP_LMT" ? `STP LMT trigger ${p.entry}, worst fill ${p.entry_cap}`
@@ -2656,7 +2666,8 @@ function sendTicket() {
               (p.qty != null || p.fraction < 1 ? ", then exits are re-attached on the remainder" : "")}`;
     const verb = t === "entry_bracket" ? "place" : t === "exit_attach" ? "attach"
       : t === "close_only" ? "close only" : t === "close_resize" ? "close (adjust exits)" : "flatten";
-    if (!confirm(`${actionLead(verb)} ${summary} on ${state.account}?`)) return;
+    const note = CLOSE_COMMANDS.has(t) && t !== "close_only" ? dayTradeControlNote(p) : "";
+    if (!confirm(`${actionLead(verb)} ${summary} on ${state.account}?${note ? "\n\n" + note : ""}`)) return;
   }
   if (t === "entry_bracket" && p.sec_type === "FUT" && state.account === "primary" && p.stop != null) {
     const ab = acctBook();

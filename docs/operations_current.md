@@ -1,5 +1,10 @@
 # Current operations entry point
 
+September 30 execution repair: [day-trade futures close and manual order control](execution_daytrade_order_control.md).
+The compatible owner handoff loads on the next normal day-trade service launch;
+an already-running session retains its original code. Native handoff acknowledgements
+must be distinguished from inert broker/protocol verification.
+
 September 24 data-provider trial: [production evidence and monitoring](fmp_cutover_2026-09-24.md).
 Official economic releases are active for 29 series. The Alpha-primary earnings
 trial selected an explicit FMP fallback on its first run because RZLT disappeared

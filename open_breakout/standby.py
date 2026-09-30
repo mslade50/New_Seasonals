@@ -541,7 +541,7 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
     runtime=Store(root/'runtime.sqlite',config.fingerprint,day)
     capture=Capture(root/'captures')
     alert=Alerts(f'OpenBreakout LIVE {day}',webhook_url())
-    transport=None;gate=None;service=None;ledger=None;manifest=None
+    transport=None;gate=None;service=None;ledger=None;manifest=None;owner_server=None
     caps={m.execution.symbol:config.max_contracts_for(m) for m in config.markets}
     runtime.set('pid',os.getpid());runtime.set('mode','live');runtime.set('session',day)
     runtime.set('live_ack',ack);runtime.set('python',sys.executable);runtime.set('alerts',alert.channel)
@@ -655,6 +655,9 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                 if service.halted:
                     runtime.set('last_error',ledger.get('halt_reason'));final='HALTED';break
                 gate.open=True
+                from broker_runtime.owner_connection import OwnerServer
+                owner_server=OwnerServer(transport, service.operator_order)
+                await owner_server.start()
                 runtime.set('phase','ARMED_LIVE')
                 alert(armed_line(config,report,service.states,runtime.get('inputs')['prior_tr'],manifest['score'],manifest))
             if service:
@@ -672,7 +675,7 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
             final='SESSION_COMPLETE'
         if service:
             await service.drain()
-            if any(s.qty for s in service.states.values()):
+            if any(s.qty for s in service.states.values() if s.market not in service.manual_markets):
                 service.halt('RUN_ENDED_WITH_LIVE_POSITION');final='HALTED'
                 alert('RUN ENDED WITH A LIVE POSITION IN THE JOURNAL: FLATTEN/INSPECT IN TWS NOW')
             elif service.halted and final=='SESSION_COMPLETE':
@@ -682,6 +685,7 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
         alert(f'LIVE PROCESS FAILED: {type(exc).__name__}: {exc}')
         raise
     finally:
+        if owner_server:await owner_server.close()
         if gate:gate.open=False
         record_day_r(runtime,ledger,config)
         runtime.set('phase',final);runtime.set('finished_at',clock().isoformat())

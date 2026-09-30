@@ -104,9 +104,21 @@ def owners(ns, ib, host, port, main_cid, trades):
     try:
         for owner in sorted({key[2] for key in identities}):
             if owner not in connections:
+                try:
+                    from .owner_connection import connect_existing
+                except ImportError:
+                    from owner_connection import connect_existing
+                active = connect_existing(host, port, owner, ib, ns.get("_fresh_open_trades"))
+                if active is not None:
+                    connections[owner] = active
+                    continue
                 connection = ns["IB"]()
                 opened.append(connection)
-                connection.connect(host, port, clientId=owner, timeout=8)
+                try:
+                    connection.connect(host, port, clientId=owner, timeout=8)
+                except Exception as exc:
+                    raise ValueError(f"Cannot reach order owner client {owner}: "
+                                     f"{type(exc).__name__}: {str(exc) or 'connection timed out; owner may already be connected'}") from exc
                 connections[owner] = connection
         resolved = [(connections[key[2]], find_exact(connections[key[2]], key))
                     for key in identities]

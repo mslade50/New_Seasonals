@@ -36,4 +36,15 @@ for (const account of ["primary", "pa"]) {
 }
 assert(!source.includes('id="me_risk"'));
 assert(!source.includes('id="me_kind"'));
+{
+  const ctx = {console, document: {addEventListener() {}}, window: {}, location: {search: ""},
+    URLSearchParams, setTimeout, clearTimeout, setInterval, clearInterval};
+  vm.createContext(ctx); vm.runInContext(source, ctx);
+  vm.runInContext(`state.account='primary';
+    state.book={accounts:[{key:'primary',orders:[{symbol:'MES',sec_type:'FUT',con_id:42,
+      order_ref:'MES|BUY|OpenBreakout|2026-09-30|ES-1-TIME'}]}]};`,ctx);
+  assert.match(vm.runInContext("dayTradeControlNote({symbol:'MES',sec_type:'FUT',con_id:42})",ctx),/manual control/);
+  assert.equal(vm.runInContext("dayTradeControlNote({symbol:'MES',sec_type:'FUT',con_id:43})",ctx),"");
+  assert.equal(vm.runInContext("isDayTradeOrder({sec_type:'STK',order_ref:'MES|BUY|OpenBreakout|2026-09-30|ES-1-TIME'})",ctx),false);
+}
 console.log("PASS manual cancel/modify for Primary and PA: direct actions, no risk/purpose prompts, exact account routing");

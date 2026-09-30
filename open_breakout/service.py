@@ -67,6 +67,7 @@ class Service:
         self.own_unknown_since = None
         self.own_unknown_alerted = False
         self.cancel_requested = set()
+        self.manual_markets = set(store.get('manual_markets', []))
         self.unexpected = set()
         self.flattened = set(store.get('flattened',[]))
         self.other_book = store.get('other_book',{})
@@ -185,6 +186,8 @@ class Service:
             self._stop_dead(orders[order_id]['market'], order_id, f'STOP_ERROR_{code}', True)
 
     def _stop_dead(self, market, order_id, reason, explicit):
+        if market in self.manual_markets:
+            return
         s = self.states[market]
         # Our own cancel requests and stale stop IDs are not rejections.
         if order_id in self.cancel_requested or order_id != s.stop_order or not s.qty:
@@ -209,6 +212,8 @@ class Service:
     async def _unexpected_stop_cancel(self, market, order_id, reason):
         # Give an OCA sibling fill (timed exit) time to reconcile before alarming.
         await asyncio.sleep(self.flatten_delay)
+        if market in self.manual_markets:
+            return
         s = self.states[market]
         if s.qty and s.stop_order == order_id:
             self.halt(f'PROTECTIVE_STOP_CANCELLED:{market}:{order_id}:{reason}')
@@ -236,10 +241,14 @@ class Service:
         try:
             # Let an OCA sibling fill (timed exit) that cancelled the stop reconcile first.
             await asyncio.sleep(self.flatten_delay)
+            if market in self.manual_markets:
+                return
             if not s.qty:
                 self.store.event('FLATTEN_NOT_NEEDED',dict(market=market,reason=reason));return
             confirmed = True
             for oid in [s.stop_order,s.time_order]:
+                if market in self.manual_markets:
+                    return
                 if not oid:
                     continue
                 if self.broker.status(oid) == 'Filled':
@@ -258,6 +267,8 @@ class Service:
             # contract are not ours to check or flatten. The account ceiling is a warning unless ceiling_halts.
             cid = m.execution.con_id
             snapshot = await asyncio.wait_for(self.broker.snapshot(),5.)
+            if market in self.manual_markets:
+                return
             own, why = self._own_view(snapshot)
             if own is None:
                 self.store.event('FLATTEN_SKIPPED',dict(market=market,own=None,reason=why,journal=s.side*s.qty))
@@ -290,6 +301,8 @@ class Service:
             self.loud(f'{market} EMERGENCY FLATTEN FAILED ({exc}); FLATTEN BY HAND IN TWS')
 
     def _send(self, state, role, body, order_id=None):
+        if state.market in self.manual_markets:
+            raise ValueError('Market is under manual control; automatic order suppressed')
         if order_id is None:
             order_id = self.broker.next_id()
             body = {**body,'account':self.config.account,'ref':self._ref(state,role)}
@@ -301,6 +314,8 @@ class Service:
         return order_id
 
     def tick(self, market, timestamp, price):
+        if market in self.manual_markets:
+            return
         s = self.states[market]
         if s.phase=='SKIPPED':
             return
@@ -340,7 +355,7 @@ class Service:
 
     async def _send_time_exit(self, s):
         """Broker-held 15:55 exit for an acknowledged stop. Sent even when halted: it can only reduce."""
-        if s.time_order or not s.qty or s.market in self.flattened:
+        if s.time_order or not s.qty or s.market in self.flattened or s.market in self.manual_markets:
             return
         s.time_order = self._send(s,'TIME',dict(kind='MKT',side=-s.side,qty=s.qty,tif='GTC',
             oca=s.oca,good_after=f'{s.day.replace("-","")} 15:55:00 America/New_York'))
@@ -355,7 +370,7 @@ class Service:
     async def enter(self,s,side):
         try:
             async with self.entry_lock:
-                if self.halted:
+                if self.halted or s.market in self.manual_markets:
                     s.phase='FLAT';self.store.save(s);return
                 m = self.markets[s.market]
                 equity = await asyncio.wait_for(self.broker.equity(),10.)
@@ -394,7 +409,7 @@ class Service:
                 try:self.fresh_quote(s.market)
                 except (KeyError,ValueError) as exc:
                     self._skip(s,exc);return
-                if self.halted or self.clock().astimezone(NY).time()>=time(11,30):
+                if self.halted or s.market in self.manual_markets or self.clock().astimezone(NY).time()>=time(11,30):
                     raise ValueError('Entry window closed or service halted')
                 # Re-read under the entry lock after the awaits above (belt and braces; the lock serializes entries).
                 daily = self.store.get('daily_reserved',0.)
@@ -470,6 +485,12 @@ class Service:
         if order is None:
             self.halt(f'UNKNOWN_EXECUTION:{order_id}');return
         s = self.states[order['market']]
+        if s.market in self.manual_markets:
+            # Ownership was handed to the operator. An aggregate manual close
+            # can include another sleeve, so never invent strategy attribution.
+            self.store.event('MANUAL_MANAGED_FILL',dict(market=s.market,order_id=order_id,
+                             exec_id=exec_id,qty=qty,price=price))
+            return
         if not math.isfinite(qty) or qty<=0 or int(qty)!=qty or not math.isfinite(price) or price<=0:
             self.halt('INVALID_EXECUTION');return
         qty=int(qty)
@@ -521,7 +542,28 @@ class Service:
             self.halt(f'EXECUTION_OR_STOP:{exc}')
 
     def _expected(self):
-        return {m.execution.con_id:self.states[m.name].side*self.states[m.name].qty for m in self.config.markets}
+        return {m.execution.con_id:self.states[m.name].side*self.states[m.name].qty
+                for m in self.config.markets if m.name not in self.manual_markets}
+
+    def operator_order(self, trade):
+        """An explicit order edit hands this market to the operator for today.
+
+        Retain all broker exits. Never recreate them, re-enter, or emergency
+        flatten against a close/resize the user is intentionally performing.
+        The journal remains evidence of pre-handoff strategy ownership.
+        """
+        market = next((m.name for m in self.config.markets
+                       if m.execution.con_id == trade.contract.conId), None)
+        if market is None:
+            raise ValueError('Order is outside the day-trade execution contracts')
+        self.manual_markets.add(market)
+        self.store.set('manual_markets', sorted(self.manual_markets))
+        self.store.event('OPERATOR_ORDER_CONTROL',dict(market=market,order_id=trade.order.orderId,
+                         perm_id=trade.order.permId,position=self.states[market].side*self.states[market].qty))
+        s=self.states[market]
+        s.long_armed=s.short_armed=False
+        s.note='MANUAL_CONTROL: existing exits and position managed through Execution/TWS'
+        self.store.save(s)
 
     def _ceiling_breach(self, cid, own, snapshot):
         """Our attributed fills cannot exceed what the account holds in their direction. The account is
@@ -638,6 +680,8 @@ class Service:
             working={o['id']:o for o in ours if o['client_id']==self.config.client_id}
             late = self.clock().astimezone(NY).time()>=time(15,56)
             for s in self.states.values():
+                if s.market in self.manual_markets:
+                    continue
                 if s.phase=='SKIPPED' and not s.qty:
                     continue
                 local=self.clock().astimezone(NY)
