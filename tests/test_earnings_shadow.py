@@ -13,6 +13,28 @@ from scripts import compare_earnings_shadow as shadow
 HEADER = "symbol,name,reportDate,fiscalDateEnding,estimate,currency\n"
 
 
+@pytest.mark.parametrize("status,retryable", [(503, True), (502, True), (500, True), (504, True), (429, False), (401, False), (403, False)])
+def test_fetch_retries_only_temporary_http_failures(monkeypatch, status, retryable):
+    class Response:
+        status_code = status
+        text = "do not persist response bodies"
+    monkeypatch.setattr(shadow.requests, "get", lambda *a, **k: Response())
+    with pytest.raises(shadow.ShadowError) as exc:
+        shadow.fetch_alpha("secret")
+    assert exc.value.retryable is retryable
+    assert "secret" not in str(exc.value)
+
+
+def test_quota_body_with_http_200_is_not_retryable(monkeypatch):
+    class Response:
+        status_code = 200
+        text = '{"Information":"quota"}'
+    monkeypatch.setattr(shadow.requests, "get", lambda *a, **k: Response())
+    with pytest.raises(shadow.ShadowError) as exc:
+        shadow.fetch_alpha("secret")
+    assert exc.value.retryable is False
+
+
 def test_observer_refuses_alpha_as_its_fmp_control(tmp_path, monkeypatch):
     data = tmp_path / "data"
     data.mkdir()
