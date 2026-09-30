@@ -5,6 +5,8 @@ The compatible owner handoff loads on the next normal day-trade service launch;
 an already-running session retains its original code. Native handoff acknowledgements
 must be distinguished from inert broker/protocol verification.
 
+September 30 FMP retirement (prepared source): [Alpha + SEC earnings, no FMP](fmp_retirement_2026-09-30.md).
+
 September 24 data-provider trial: [production evidence and monitoring](fmp_cutover_2026-09-24.md).
 Official economic releases are active for 29 series. The Alpha-primary earnings
 trial selected an explicit FMP fallback on its first run because RZLT disappeared

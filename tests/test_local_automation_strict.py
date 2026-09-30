@@ -88,8 +88,6 @@ def test_all_local_producers_honor_strict_mode_contract():
         "trend_sleeve.py",
         "scripts/update_master_prices.py",
         "scripts/update_intraday_yfinance.py",
-        "scripts/build_earnings_calendar.py",
-        "scripts/build_macro_releases.py",
         "scripts/build_indicator_cache.py",
     )
     for relative in expected:

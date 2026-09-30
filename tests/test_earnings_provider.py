@@ -5,8 +5,9 @@ import pandas as pd
 import pytest
 
 import earnings_filter
-from earnings_calendar_provider import (CalendarError, SCOPE, build_candidate,
+from earnings_calendar_provider import (CalendarError, SCOPE, UNVERIFIED_ELAPSED, build_candidate,
     combine_calendars, decision_differences, validate_freshness)
+import sec_earnings_dates
 from scripts import refresh_earnings_calendar as runner
 from scripts.compare_earnings_shadow import parse_alpha_csv
 
@@ -61,7 +62,6 @@ def test_release_day_disappearance_needs_actuals_and_keeps_today_blackout():
     result, _ = build_candidate(old, next_quarter, prior(("AAA", "2026-09-22", 0, 1, None, None)), DAY)
     assert result.iloc[0].date == DAY and result.iloc[0].event_status == "confirmed"
     assert earnings_filter.in_blackout(DAY, result.date.to_numpy(dtype="datetime64[D]"), 10)
-    assert runner.recent_tickers(old, DAY) == ["AAA"]
 
 
 def test_near_term_period_cannot_vanish_without_confirmation():
@@ -126,8 +126,12 @@ def test_stale_metadata_fails_even_if_file_has_new_mtime():
     frame = prior(("AAA", "2026-09-24", None, 1, None, None)).assign(calendar_scope=SCOPE,
         calendar_as_of="2026-09-18", calendar_generated_at="2026-09-18T22:00:00+00:00")
     validate_freshness(frame, "2026-09-21T12:00:00+00:00")  # Friday -> Monday is allowed.
-    with pytest.raises(CalendarError, match="previous NYSE"):
-        validate_freshness(frame, "2026-09-22T12:00:00+00:00")
+    # No fallback provider: one missed producer day is tolerated, two are not.
+    validate_freshness(frame, "2026-09-22T12:00:00+00:00")
+    with pytest.raises(CalendarError, match="NYSE sessions old"):
+        validate_freshness(frame, "2026-09-23T12:00:00+00:00")
+    with pytest.raises(CalendarError, match="1 NYSE sessions old"):
+        validate_freshness(frame, "2026-09-22T12:00:00+00:00", max_stale_td=1)
     with pytest.raises(CalendarError, match="provenance"):
         validate_freshness(frame.drop(columns="calendar_generated_at"), "2026-09-21T12:00:00+00:00")
 
@@ -162,15 +166,6 @@ def test_forward_coverage_cannot_hide_behind_large_history():
         runner.coverage_gate(old, candidate, DAY)
 
 
-def test_bootstrap_retains_history_but_not_removed_forward_estimates():
-    old = prior(("AAA", "2026-09-01", None, 1, None, None), ("AAA", "2026-09-25", None, 1, None, None),
-                ("BBB", "2026-09-24", None, 1, None, None))
-    fresh = prior(("AAA", "2026-09-02", 1, 1, 1, 1))
-    result = runner.merge_refreshed_tickers(old, fresh, {"AAA"}, DAY)
-    assert set(zip(result.ticker, result.date.dt.strftime("%Y-%m-%d"))) == {
-        ("AAA", "2026-09-01"), ("AAA", "2026-09-02"), ("BBB", "2026-09-24")}
-
-
 def test_publication_precondition_failure_never_changes_local(tmp_path, monkeypatch):
     import cache_io
     local = tmp_path / "local.parquet"; local.write_bytes(b"old")
@@ -179,23 +174,6 @@ def test_publication_precondition_failure_never_changes_local(tmp_path, monkeypa
     with pytest.raises(CalendarError, match="publication failed"):
         runner.publish(candidate, '"expected"', local, tmp_path)
     assert local.read_bytes() == b"old"
-
-
-def test_provider_override_cannot_publish_without_config_activation(tmp_path, monkeypatch):
-    monkeypatch.setattr(runner, "ROOT", tmp_path)
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config/earnings_calendar.json").write_text('{"provider":"fmp","alpha_fallback":"fmp"}')
-    with pytest.raises(CalendarError, match="activation"):
-        runner.main(["--provider", "alpha"])
-
-
-def test_fmp_fallback_reconciles_elapsed_wrong_estimate(tmp_path, monkeypatch):
-    old = prior(("AAA", "2026-09-18", None, 1, None, None)).assign(event_status="expected")
-    fresh = prior(("AAA", "2026-09-21", 2, 1, 1, 1), ("AAA", "2026-12-21", None, 1, None, None))
-    monkeypatch.setattr(runner, "fetch_fmp_rows", lambda *a: (fresh, [], []))
-    result, _ = runner.fmp_fallback(old, {"AAA"}, DAY, "unused")
-    assert pd.Timestamp("2026-09-18") not in set(result.date)
-    runner.coverage_gate(old, result, DAY)
 
 
 def test_grade_job_retired_without_renaming_receipt_dependency():
@@ -207,52 +185,9 @@ def test_grade_job_retired_without_renaming_receipt_dependency():
     assert "scripts/refresh_earnings_calendar.py" in workflow
     assert "scripts/build_analyst_grades.py" not in workflow
     assert "secrets.ALPHA_VANTAGE_API_KEY" in workflow
-
-
-@pytest.mark.parametrize("alpha_fails", [False, True])
-def test_production_path_and_fallback_verify_publication(tmp_path, monkeypatch, alpha_fails):
-    """Exercise failure -> fallback -> CAS -> readback -> local receipt end to end."""
-    import cache_io
-    from scripts.compare_earnings_shadow import ShadowError
-    monkeypatch.setattr(runner, "ROOT", tmp_path)
-    monkeypatch.setattr(runner, "CSV_UNIVERSE", {"AAA"})
-    monkeypatch.setattr(runner.fmp, "load_env", lambda: "fake-fmp")
-    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "fake-alpha")
-    config = tmp_path / "config"; config.mkdir()
-    (config / "earnings_calendar.json").write_text(json.dumps({"provider": "alpha", "alpha_fallback": "fmp"}))
-    (config / "earnings_calendar_overrides.json").write_text('{"overrides": []}')
-    now = pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize()
-    fresh = prior(("AAA", str((now-pd.Timedelta(days=40)).date()), 1, 1, 1, 1),
-                  ("AAA", str((now+pd.Timedelta(days=2)).date()), None, 1, None, None))
-    inputs = tmp_path / "inputs"; inputs.mkdir()
-    for name in (runner.KEY, "earnings_calendar_overflow.parquet"):
-        fresh.to_parquet(inputs / name)
-    pd.DataFrame({"ticker": ["AAA"]}).to_parquet(inputs / "symbol_master.parquet")
-    remote = {name: (inputs / name).read_bytes() for name in (runner.KEY, "earnings_calendar_overflow.parquet", "symbol_master.parquet")}
-    def download(key, dest):
-        Path(dest).write_bytes(remote[key]); return True
-    published = []
-    def upload(path, key, **kwargs):
-        assert kwargs["expected_etag"] == '"prior"'
-        published.append(key); remote[key] = Path(path).read_bytes()
-        return "uploaded", '"new"'
-    monkeypatch.setattr(cache_io, "head", lambda key: {"ETag": '"prior"'})
-    monkeypatch.setattr(cache_io, "download_to_local", download)
-    monkeypatch.setattr(cache_io, "conditional_upload_from_local", upload)
-    def quota(key):
-        if alpha_fails:
-            raise ShadowError("Quota response")
-        csv = HEADER + f'AAA,A,{(now+pd.Timedelta(days=2)).date()},{(now-pd.Timedelta(days=10)).date()},1,USD\n'
-        return csv, parse_alpha_csv(csv)
-    monkeypatch.setattr(runner, "fetch_alpha", quota)
-    monkeypatch.setattr(runner, "daily_alpha", lambda **kwargs: (*quota(kwargs["key"]), {"test": True}))
-    monkeypatch.setattr(runner, "fetch_fmp_rows", lambda *a: (fresh, [], []))
-    assert runner.main([]) == 0
-    receipt = json.loads((tmp_path / "data" / (runner.KEY + ".status.json")).read_text())
-    assert receipt["provider_selected"] == ("fmp_fallback" if alpha_fails else "alpha")
-    assert receipt["published"] and receipt["status"] == ("degraded" if alpha_fails else "ok")
-    assert published == [runner.KEY]
-    assert (receipt["comparison"] is None) == alpha_fails
+    assert "FMP" not in workflow.split("jobs:", 1)[1]
+    assert "secrets.FUNDAMENTAL_SEC_USER_AGENT" in workflow
+    assert "FMP_API_KEY" not in job.required_env
 
 
 def test_readback_mismatch_leaves_local_untouched(tmp_path, monkeypatch):
@@ -268,21 +203,6 @@ def test_readback_mismatch_leaves_local_untouched(tmp_path, monkeypatch):
     assert local.read_bytes() == b"prior"
 
 
-def test_reference_refresh_is_independent_and_never_writes_production(tmp_path, monkeypatch):
-    monkeypatch.setattr(runner, "ROOT", tmp_path)
-    monkeypatch.setattr(runner, "CSV_UNIVERSE", {"AAA"})
-    monkeypatch.setattr(runner.fmp, "load_env", lambda: "fake")
-    source = prior(("AAA", "2026-09-24", None, 1, None, None))
-    monkeypatch.setattr(runner, "fetch_fmp_rows", lambda *a: (source, [], []))
-    symbols = tmp_path / "symbols.parquet"
-    pd.DataFrame({"ticker": ["AAA"]}).to_parquet(symbols)
-    assert runner.refresh_reference(tmp_path / "artifacts/ref", symbols) == 0
-    assert pd.read_parquet(tmp_path / "artifacts/ref" / runner.KEY).calendar_provider.eq("fmp_reference").all()
-    assert not (tmp_path / "data").exists()
-    with pytest.raises(CalendarError, match="artifacts"):
-        runner.refresh_reference(tmp_path / "data", symbols)
-
-
 def test_issuer_reschedule_is_exact_and_never_confirms_actuals():
     rule = dict(ticker="UEC", date="2026-09-23", fiscal_date="2026-07-31",
                 new_date="2026-09-29", expires="2026-10-13", action="reschedule",
@@ -294,3 +214,162 @@ def test_issuer_reschedule_is_exact_and_never_confirms_actuals():
     assert result.iloc[-1].event_status == "expected"
     assert result.iloc[-1].schedule_basis == "issuer_announced"
     assert pd.isna(result.iloc[-1].eps_actual) and applied == [rule]
+
+
+def expected_row(ticker, date, fiscal):
+    return prior((ticker, date, None, 1, None, None)).assign(
+        event_status="expected", event_source="alpha_vantage", fiscalDateEnding=fiscal)
+
+
+def test_retain_keeps_unconfirmed_elapsed_event_as_unverified_history():
+    old = expected_row("AAA", "2026-09-21", "2026-08-31")
+    report = {}
+    result, _ = build_candidate(old, alpha("AAA,A,2026-12-22,2026-11-30,1,USD\n"), pd.DataFrame(), DAY,
+                                confirmation_provider="sec", unconfirmed="retain", report=report)
+    row = result.loc[result.date.eq(pd.Timestamp("2026-09-21"))].iloc[0]
+    assert row.event_status == UNVERIFIED_ELAPSED
+    assert report["unverified_elapsed_new"] == ["AAA"]
+    # The post-earnings side of the blackout still sees the event.
+    assert earnings_filter.in_blackout(DAY, result.date.to_numpy(dtype="datetime64[D]"), 10)
+
+
+def test_retain_keeps_release_day_and_vanished_near_term_blackouts():
+    old = pd.concat([expected_row("AAA", "2026-09-22", "2026-08-31"),
+                     expected_row("BBB", "2026-09-25", "2026-08-31")], ignore_index=True)
+    source = alpha("AAA,A,2026-12-22,2026-11-30,1,USD\nBBB,B,2026-12-22,2026-11-30,1,USD\n")
+    report = {}
+    result, _ = build_candidate(old, source, pd.DataFrame(), DAY, confirmation_provider="sec",
+                                unconfirmed="retain", report=report)
+    kept = result.loc[result.schedule_basis.eq("retained_unconfirmed")]
+    assert set(zip(kept.ticker, kept.date.dt.strftime("%Y-%m-%d"))) == {("AAA", "2026-09-22"), ("BBB", "2026-09-25")}
+    assert kept.event_status.eq("expected").all()
+    assert report["retained_release_day"] == ["AAA"] and report["retained_vanished"] == ["BBB"]
+
+
+def sec_proof(ticker, date, fiscal, accepted):
+    return dict(ticker=ticker, date=date, fiscalDateEnding=fiscal, announcement_confirmed=True,
+                source_url="https://www.sec.gov/Archives/edgar/data/1/000000000126000001/x.htm",
+                accepted_at=accepted, payload_digest="a" * 64, confirmation_source="sec_8k_item_2_02")
+
+
+def test_sec_confirmation_upgrades_unverified_row_to_its_real_date():
+    old = expected_row("AAA", "2026-09-17", "2026-08-31").assign(event_status=UNVERIFIED_ELAPSED)
+    proof = pd.DataFrame([sec_proof("AAA", "2026-09-18", "2026-08-31", "2026-09-18T20:05:00.000Z")])
+    result, _ = build_candidate(old, alpha("AAA,A,2026-12-22,2026-11-30,1,USD\n"), proof, DAY,
+                                confirmation_provider="sec", unconfirmed="retain")
+    history = result.loc[result.date.lt(DAY)]
+    assert list(history.date.dt.strftime("%Y-%m-%d")) == ["2026-09-18"]
+    assert history.iloc[0].event_status == "confirmed" and history.iloc[0].event_source == "sec_8k"
+    runner.coverage_gate(old, result, DAY)
+
+
+class FakeSEC:
+    def __init__(self, filings, fail=False):
+        self.filings, self.fail = filings, fail
+
+    def ticker_map(self):
+        if self.fail:
+            raise ConnectionError("down")
+        return {"AAA": 1, "BBB": 2}
+
+    def submissions(self, cik):
+        rows = self.filings.get(cik, [])
+        keys = ("accessionNumber", "form", "items", "reportDate", "filingDate", "acceptanceDateTime", "primaryDocument")
+        return {"filings": {"recent": {k: [r[k] for r in rows] for k in keys}}}
+
+
+def filing(accession, form, items, report_date, accepted):
+    return dict(accessionNumber=accession, form=form, items=items, reportDate=report_date,
+                filingDate=accepted[:10], acceptanceDateTime=accepted, primaryDocument="doc.htm")
+
+
+def test_sec_collector_matches_item_202_near_expected_date_only():
+    prior_frame = pd.concat([expected_row("AAA", "2026-09-21", "2026-08-31"),
+                             expected_row("BBB", "2026-09-21", "2026-08-31"),
+                             expected_row("CCC", "2026-09-21", "2026-08-31")], ignore_index=True)
+    targets = sec_earnings_dates.confirmation_targets(prior_frame, DAY)
+    client = FakeSEC({
+        1: [filing("0001-26-000002", "8-K", "2.02,9.01", "2026-09-21", "2026-09-21T20:10:00.000Z"),
+            filing("0001-26-000001", "8-K", "2.02,9.01", "2026-06-20", "2026-06-20T20:10:00.000Z")],
+        2: [filing("0002-26-000001", "8-K", "5.02", "2026-09-21", "2026-09-21T20:10:00.000Z")],
+    })
+    proofs, summary = sec_earnings_dates.collect_sec_confirmations(targets, DAY, client)
+    assert proofs.ticker.tolist() == ["AAA"]
+    assert proofs.iloc[0].date == pd.Timestamp("2026-09-21")
+    assert summary["unmatched"] == ["BBB", "CCC"]
+    result, _ = build_candidate(prior_frame, alpha("AAA,A,2026-12-22,2026-11-30,1,USD\n"), proofs, DAY,
+                                confirmation_provider="sec", unconfirmed="retain")
+    status = dict(zip(result.loc[result.date.lt(DAY)].ticker, result.loc[result.date.lt(DAY)].event_status))
+    assert status == {"AAA": "confirmed", "BBB": UNVERIFIED_ELAPSED, "CCC": UNVERIFIED_ELAPSED}
+
+
+def test_sec_collector_never_blocks_publication(monkeypatch):
+    targets = sec_earnings_dates.confirmation_targets(expected_row("AAA", "2026-09-21", "2026-08-31"), DAY)
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    monkeypatch.delenv("FUNDAMENTAL_SEC_USER_AGENT", raising=False)
+    proofs, summary = sec_earnings_dates.collect_sec_confirmations(targets, DAY)
+    assert proofs.empty and summary["available"] is False
+    proofs, summary = sec_earnings_dates.collect_sec_confirmations(targets, DAY, FakeSEC({}, fail=True))
+    assert proofs.empty and summary["available"] is False
+
+
+@pytest.mark.parametrize("alpha_fails", [False, True])
+def test_production_path_publishes_alpha_or_leaves_canonical_untouched(tmp_path, monkeypatch, alpha_fails):
+    """Alpha -> SEC -> CAS -> readback -> receipt; an Alpha failure publishes nothing."""
+    import cache_io
+    from scripts.compare_earnings_shadow import ShadowError
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    monkeypatch.setattr(runner, "CSV_UNIVERSE", {"AAA"})
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "fake-alpha")
+    config = tmp_path / "config"; config.mkdir()
+    (config / "earnings_calendar.json").write_text(json.dumps(
+        {"provider": "alpha", "confirmation_provider": "sec", "alpha_fallback": "stop"}))
+    (config / "earnings_calendar_overrides.json").write_text('{"overrides": []}')
+    now = pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize()
+    fresh = prior(("AAA", str((now - pd.Timedelta(days=40)).date()), 1, 1, 1, 1),
+                  ("AAA", str((now + pd.Timedelta(days=2)).date()), None, 1, None, None)).assign(calendar_scope=SCOPE)
+    inputs = tmp_path / "inputs"; inputs.mkdir()
+    for name in (runner.KEY, "earnings_calendar_overflow.parquet"):
+        fresh.to_parquet(inputs / name)
+    pd.DataFrame({"ticker": ["AAA"]}).to_parquet(inputs / "symbol_master.parquet")
+    remote = {name: (inputs / name).read_bytes() for name in (runner.KEY, "earnings_calendar_overflow.parquet", "symbol_master.parquet")}
+    original = remote[runner.KEY]
+
+    def download(key, dest):
+        Path(dest).write_bytes(remote[key]); return True
+    published = []
+
+    def upload(path, key, **kwargs):
+        assert kwargs["expected_etag"] == '"prior"'
+        published.append(key); remote[key] = Path(path).read_bytes()
+        return "uploaded", '"new"'
+    monkeypatch.setattr(cache_io, "head", lambda key: {"ETag": '"prior"'})
+    monkeypatch.setattr(cache_io, "download_to_local", download)
+    monkeypatch.setattr(cache_io, "conditional_upload_from_local", upload)
+
+    def quota(key):
+        if alpha_fails:
+            raise ShadowError("Quota response")
+        csv = HEADER + f'AAA,A,{(now + pd.Timedelta(days=2)).date()},{(now - pd.Timedelta(days=10)).date()},1,USD\n'
+        return csv, parse_alpha_csv(csv)
+    monkeypatch.setattr(runner, "daily_alpha", lambda **kwargs: (*quota(kwargs["key"]), {"test": True}))
+    monkeypatch.setattr(runner, "collect_sec_confirmations", lambda targets, as_of: (pd.DataFrame(), {"requested": 0}))
+    status_path = tmp_path / "data" / (runner.KEY + ".status.json")
+    if alpha_fails:
+        assert runner.main([]) == 1
+        assert published == [] and remote[runner.KEY] == original and not status_path.exists()
+        return
+    assert runner.main([]) == 0
+    receipt = json.loads(status_path.read_text())
+    assert receipt["provider_selected"] == "alpha" and receipt["status"] == "ok"
+    assert receipt["published"] and published == [runner.KEY]
+    assert pd.read_parquet(tmp_path / "data" / runner.KEY).calendar_provider.eq("alpha").all()
+
+
+def test_combined_8k_uses_acceptance_day_not_earliest_unrelated_event():
+    # FDS 2026-09-30: Item 2.02 furnished with a 2026-09-24 bylaw change (5.03);
+    # EDGAR reportDate is the earliest event, not the results release.
+    targets = sec_earnings_dates.confirmation_targets(expected_row("AAA", "2026-09-30", "2026-08-31"), pd.Timestamp("2026-09-30"))
+    client = FakeSEC({1: [filing("0001-26-000003", "8-K", "2.02,5.03,9.01", "2026-09-24", "2026-09-30T07:01:06.000Z")]})
+    proofs, _ = sec_earnings_dates.collect_sec_confirmations(targets, pd.Timestamp("2026-09-30"), client)
+    assert proofs.iloc[0].date == pd.Timestamp("2026-09-30")

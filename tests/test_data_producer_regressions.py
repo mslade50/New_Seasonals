@@ -55,41 +55,6 @@ def test_basis_repair_never_splices_a_rejected_overlap(tmp_path, monkeypatch, re
         assert receipt["unresolved_basis"] == ["TEST"]
 
 
-def earnings_row():
-    return {"date": "2026-09-01", "epsActual": 1., "epsEstimated": 1.,
-            "revenueActual": 100., "revenueEstimated": 100., "lastUpdated": "2026-09-02"}
-
-
-@pytest.mark.parametrize("baseline", ["absent", "corrupt"])
-def test_earnings_no_trusted_baseline_never_publishes(tmp_path, monkeypatch, baseline):
-    mod = module("scripts/build_earnings_calendar.py")
-    path = tmp_path / "earnings.parquet"
-    if baseline == "corrupt":
-        path.write_bytes(b"not parquet")
-    before = path.read_bytes() if path.exists() else None
-    monkeypatch.setitem(sys.modules, "cache_io", SimpleNamespace(download_to_local=lambda *_: False))
-    monkeypatch.setattr(mod, "fetch_ticker", lambda ticker, _: [earnings_row()] if ticker == "GOOD" else None)
-    monkeypatch.setattr(mod, "SLEEP_BETWEEN_CALLS", 0)
-    uploads = []
-    monkeypatch.setattr(mod, "upload_to_r2", lambda *a, **k: uploads.append(a) or True)
-    with pytest.raises(SystemExit, match="baseline"):
-        mod.build_calendar(["GOOD", "FAILED"], "not-a-key", str(path))
-    assert uploads == []
-    assert (path.read_bytes() if path.exists() else None) == before
-
-
-def test_earnings_failed_ticker_keeps_prior_events(tmp_path, monkeypatch):
-    mod = module("scripts/build_earnings_calendar.py")
-    path = tmp_path / "earnings.parquet"
-    pd.DataFrame({"ticker": ["GOOD", "FAILED"], "date": pd.to_datetime(["2026-09-01", "2026-09-02"])}).to_parquet(path, index=False)
-    monkeypatch.setattr(mod, "fetch_ticker", lambda ticker, _: [earnings_row()] if ticker == "GOOD" else None)
-    monkeypatch.setattr(mod, "SLEEP_BETWEEN_CALLS", 0)
-    monkeypatch.setattr(mod, "upload_to_r2", lambda *a, **k: True)
-    mod.build_calendar(["GOOD", "FAILED"], "not-a-key", str(path))
-    assert set(pd.read_parquet(path).ticker) == {"GOOD", "FAILED"}
-    assert json.loads((tmp_path / "earnings.parquet.status.json").read_text())["status"] == "degraded"
-
-
 def test_indicator_identity_tracks_interior_price_and_dependency_content(tmp_path):
     from cache_fingerprint import content_fingerprint
     fn = functions("pages/strat_backtester.py", ["_indicator_cache_path"], parent_dir=str(tmp_path), INDICATOR_CACHE_VERSION="test")["_indicator_cache_path"]

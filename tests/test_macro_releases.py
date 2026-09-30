@@ -18,7 +18,6 @@ from macro_releases import (  # noqa: E402
     normalize_fmp_rows,
     split_event_name,
 )
-from scripts.build_macro_releases import month_windows  # noqa: E402
 
 
 def _row(event, date, actual, estimate, previous=0, unit="%", impact="High"):
@@ -135,15 +134,6 @@ def test_merge_fills_previously_missing_release_values():
     assert merged.loc[0, "actual"] == 0.1
     assert merged.loc[0, "surprise_label"] == "below"
     assert merged.loc[0, "vintage_quality"] == "live_capture"
-
-
-def test_month_windows_do_not_expose_fmp_long_range_truncation():
-    windows = list(month_windows(pd.Timestamp("2020-01-15"), pd.Timestamp("2020-03-02")))
-    assert windows == [
-        (pd.Timestamp("2020-01-15"), pd.Timestamp("2020-01-31")),
-        (pd.Timestamp("2020-02-01"), pd.Timestamp("2020-02-29")),
-        (pd.Timestamp("2020-03-01"), pd.Timestamp("2020-03-02")),
-    ]
 
 
 def test_loader_filters_event_and_surprise(tmp_path):

@@ -73,7 +73,7 @@ Aligned across four systems — change `eod_dd_weekdays` in one place and they a
 
 ### Reference
 - Trading-day arithmetic: `compute_signed_earnings_offsets()` in `pages/backtester.py` (np.busday_count + USFederalHolidayCalendar).
-- Earnings parquet: `data/earnings_calendar.parquet` — 117k rows, 946 tickers, FMP-backfilled, includes forward dates.
+- Earnings parquet: `data/earnings_calendar.parquet` — frozen FMP-era history plus Alpha forward dates and SEC-confirmed new events (no FMP since 2026-09-30).
 - 2-path validation note (2026-04-29): 12 of 13 OVS signals on that date would have been killed by the blackout — only USO survived because no earnings data.
 
 ## Cycle-Year Risk Tilt (OVS, 2026-06-10)
