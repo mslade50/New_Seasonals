@@ -466,6 +466,7 @@ function renderPanels() {
   // an open clear-lock note must survive the 4s poll — same rule as Modify
   if (!lockResolve.id) set("activity", renderActivity());
   syncMutationControls();
+  syncReferenceQuote();
 }
 function set(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
 
@@ -2049,7 +2050,7 @@ function syncFields() {
         const s = document.getElementById("f_symbol"); if (s) s.value = "NZD";
       }
       frontState.manual = false;
-      renderFutRow(); updateReadout(); scheduleFrontResolve();
+      renderFutRow(); updateReadout(); scheduleFrontResolve(); syncReferenceQuote();
     });
     const sym = document.getElementById("f_symbol");
     if (sym) sym.addEventListener("input", () => {
@@ -2058,17 +2059,22 @@ function syncFields() {
       syncFutExchange();
       scheduleFrontResolve();
       updateReadout();
+      syncReferenceQuote();
     });
     const entrySel = document.getElementById("f_entry_type");
     if (entrySel) entrySel.addEventListener("change", () => {
       ticketDraft.f_entry_type = entrySel.value;
       syncEntryTypeFields();
       updateReadout();
+      syncReferenceQuote();
     });
+    const reference = document.getElementById("f_entry");
+    if (reference) reference.addEventListener("input", referenceEdited);
     renderFutRow();
     syncEntryTypeFields();
   }
   groupTicketFields(f);
+  syncReferenceQuote();
   updateReadout();
 }
 
@@ -2104,6 +2110,16 @@ function entryType() {
 
 function syncEntryTypeFields() {
   const typ = entryType();
+  const field = document.getElementById("f_entry");
+  const previous = referenceQuote.orderType;
+  if (field && previous && previous !== typ) {
+    if (["LMT", "STP_LMT"].includes(previous)) referenceQuote.orderPrices[previous] = field.value;
+    if (["LMT", "STP_LMT"].includes(typ)) {
+      field.value = referenceQuote.orderPrices[typ] || "";
+      ticketDraft.f_entry = field.value;
+    } else { field.value = ""; ticketDraft.f_entry = ""; }
+  }
+  referenceQuote.orderType = typ;
   // STP LMT splits the entry into two prices: the trigger (f_entry) and the
   // limit cap (f_entry_cap), which is the WORST fill the order can take and so
   // the number every risk figure is computed against.
@@ -2135,7 +2151,7 @@ function renderFutRow() {
       currencies.map((c) => `<option value="${c}"${c === selected ? " selected" : ""}>${c}</option>`).join("")
     }</select><span class="cap" style="display:inline">IDEALPRO · qty is base-currency units · one leg must be USD · no hard notional cap · 5% NLV stop-risk guard (stopped entries)</span>`;
     const quote = document.getElementById("f_currency");
-    if (quote) quote.addEventListener("change", updateReadout);
+    if (quote) quote.addEventListener("change", () => { updateReadout(); syncReferenceQuote(); });
     return;
   }
   if (val("f_sectype") !== "FUT") { row.innerHTML = ""; return; }
@@ -2151,7 +2167,7 @@ function renderFutRow() {
   if (venue) venue.addEventListener("change", () => {
     ticketDraft.f_futexch = venue.value;
     frontState.manual = false;
-    clearFutExp(); scheduleFrontResolve(); updateReadout();
+    clearFutExp(); scheduleFrontResolve(); updateReadout(); syncReferenceQuote();
   });
   const exp = document.getElementById("f_futexp");
   const saved = ticketDraft.f_contract;
@@ -2159,7 +2175,7 @@ function renderFutRow() {
       && saved.exchange === selectedFutExchange()) {
     exp.value = saved.expiry; frontState.manual = saved.manual;
   }
-  if (exp) exp.addEventListener("input", () => { frontState.manual = true; setFutNote(""); });   // stop auto-fill once typed
+  if (exp) exp.addEventListener("input", () => { frontState.manual = true; setFutNote(""); syncReferenceQuote(); });   // stop auto-fill once typed
 }
 function setFutNote(txt) { const n = document.getElementById("f_futnote"); if (n) n.textContent = txt || ""; }
 // Blank the auto-filled month BEFORE a new resolve: if the resolve fails the field stays
@@ -2877,11 +2893,103 @@ async function pollFront(n, request = frontState.request) {
     if (exp && res.expiry && res.multiplier > 0 && res.min_tick > 0 && !res.error
         && !frontState.manual && cur === res.symbol && curExchange === res.exchange) {
       FUT_SPECS[cur] = { ...res, symbol: cur, ib_symbol: res.ib_symbol || cur };
-      exp.value = res.expiry; exp.placeholder = "auto"; setFutNote(""); updateReadout();
+      exp.value = res.expiry; exp.placeholder = "auto"; setFutNote(""); updateReadout(); syncReferenceQuote();
     } else if (!frontState.manual) { frontResolveFailed(); }
     return;
   }
   frontState.timer = setTimeout(() => pollFront(n + 1, request), 1200);
+}
+
+/* ---------- market-entry reference: exact IBKR Last, read-only ---------- */
+const referenceQuote = {key:"", request:0, timer:null, manual:false, price:null,
+  asof:0, orderType:null, orderPrices:{}};
+function referenceEdited() {
+  if (!["MKT", "MOO", "MOC"].includes(entryType())) return;
+  referenceQuote.manual = Boolean(val("f_entry").trim());
+  referenceQuote.request++;
+  clearTimeout(referenceQuote.timer); referenceQuote.timer = null;
+  referenceQuote.price = null;
+  referenceQuoteHint(referenceQuote.manual ? "Manual reference" : "");
+  if (!referenceQuote.manual) syncReferenceQuote(true);
+}
+function referenceInstrument() {
+  if (val("cmdType") !== "entry_bracket" || !["MKT", "MOO", "MOC"].includes(entryType())) return null;
+  const symbol = String(val("f_symbol") || "").toUpperCase().trim();
+  if (!symbol) return null;
+  const sec_type = val("f_sectype") || "STK";
+  const wanted = {symbol, sec_type, currency: sec_type === "CASH" ? val("f_currency") || "USD" : "USD"};
+  if (sec_type === "FUT") {
+    wanted.exchange = selectedFutExchange(); wanted.expiry = val("f_futexp");
+    if (!wanted.exchange || !/^\d{6}(\d{2})?$/.test(wanted.expiry || "")) return null;
+  }
+  return wanted;
+}
+function referenceQuoteHint(text) {
+  const field = document.getElementById("f_entry");
+  let hint = document.getElementById("f_refnote");
+  if (!hint && field && field.parentElement) {
+    hint = document.createElement("span"); hint.id = "f_refnote"; hint.className = "cap";
+    field.parentElement.appendChild(hint);
+  }
+  if (hint) hint.textContent = text;
+}
+function setReferencePrice(price) {
+  const field = document.getElementById("f_entry");
+  if (field) { field.value = price == null ? "" : String(price); ticketDraft.f_entry = field.value; }
+}
+function syncReferenceQuote(force = false) {
+  const wanted = referenceInstrument();
+  const key = wanted ? JSON.stringify([state.account, entryType(), wanted]) : "";
+  if (key !== referenceQuote.key) {
+    referenceQuote.request++; clearTimeout(referenceQuote.timer); referenceQuote.timer = null;
+    referenceQuote.key = key; referenceQuote.manual = false; referenceQuote.price = null;
+    referenceQuote.asof = 0; referenceQuoteHint("");
+    if (["MKT", "MOO", "MOC"].includes(entryType()) && val("cmdType") === "entry_bracket") setReferencePrice(null);
+    force = true;
+  }
+  if (!wanted || referenceQuote.manual || document.hidden) return;
+  if (referenceQuote.price != null && Date.now() / 1000 - referenceQuote.asof > 30) {
+    referenceQuote.price = null; setReferencePrice(null);
+  }
+  if (force && referenceQuote.timer) { clearTimeout(referenceQuote.timer); referenceQuote.timer = null; }
+  if (referenceQuote.timer || (!force && referenceQuote.price != null)) return;
+  referenceQuoteHint("Fetching last price…");
+  const request = ++referenceQuote.request;
+  referenceQuote.timer = setTimeout(() => fetchReferenceQuote(wanted, key, request), 500);
+}
+async function fetchReferenceQuote(wanted, key, request) {
+  const current = () => request === referenceQuote.request && key === referenceQuote.key && !referenceQuote.manual;
+  try {
+    const response = await fetch("/exec-last-price", {method:"POST", headers:{"Content-Type":"application/json"},body:JSON.stringify(wanted)});
+    const accepted = await response.json();
+    if (!current()) return;
+    if (!response.ok || !accepted.ok || !accepted.id) throw Error("query unavailable");
+    for (let n = 0; n < 45 && current(); n++) {
+      const result = await fetchJSONOrNull(`/exec-last-price?id=${encodeURIComponent(accepted.id)}`);
+      if (!current()) return;
+      const q = result && result.query;
+      if (q && q.id === accepted.id && q.result) {
+        const quote = q.result, age = Date.now() / 1000 - Number(quote.asof);
+        if (quote.error || quote.market_data_type !== 1 || !(quote.con_id > 0)
+            || !Number.isFinite(quote.last) || !(quote.last > 0) || !(age >= 0 && age <= 30)
+            || !quote.instrument || !Object.entries(wanted).every(([k,v]) => quote.instrument[k] === v))
+          throw Error("live last price unavailable");
+        referenceQuote.price = quote.last; referenceQuote.asof = quote.asof;
+        setReferencePrice(quote.last);
+        referenceQuoteHint(`Last price · ${new Date(quote.asof * 1000).toLocaleTimeString("en-US",{timeZone:"America/New_York"})} ET`);
+        updateReadout();
+        referenceQuote.timer = setTimeout(() => { referenceQuote.timer = null; syncReferenceQuote(true); }, 10000);
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 600));
+    }
+    throw Error("last-price query timed out");
+  } catch {
+    if (!current()) return;
+    referenceQuote.price = null; setReferencePrice(null);
+    referenceQuoteHint("Last unavailable — enter reference manually"); updateReadout();
+    referenceQuote.timer = setTimeout(() => { referenceQuote.timer = null; syncReferenceQuote(true); }, 10000);
+  }
 }
 
 /* ---------- activity ---------- */
