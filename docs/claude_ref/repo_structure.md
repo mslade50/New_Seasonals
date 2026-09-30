@@ -38,7 +38,7 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   └── user_input.py               # User input page
 ├── .github/workflows/              # Dispatch-only backups + cloud-only site deploys
 │   ├── daily_screener.yml          # 2x/day unified scan — pre-market (08:47 UTC) and post-close (22:00 UTC) bookends, both --scope=all
-│   ├── build_earnings_calendar.yml # Nightly FMP refresh → R2
+│   ├── build_earnings_calendar.yml # Backup: Alpha + SEC earnings refresh → R2
 │   ├── update_master_prices.yml    # Nightly yfinance incremental → R2
 │   ├── update_intraday_prices.yml  # Nightly 15min yfinance incremental → R2 (intraday cache)
 │   ├── portfolio_report.yml        # Daily portfolio email
@@ -52,7 +52,7 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── run_radar_sync.bat          # Mondays 8:50 AM ET — publish recs + reconcile trail stops (see Momentum Radar)
 │   ├── register_radar_sync_task.ps1 # one-shot registration for the above
 │   ├── run_earnings_calendar.ps1   # Weekdays 5:30 PM ET — local backup of GHA build (dual writers OK)
-│   ├── build_earnings_calendar.py  # FMP earnings backfill (used by both local + GHA)
+│   ├── refresh_earnings_calendar.py # Alpha forward dates + SEC confirmations (FMP retired)
 │   ├── update_master_prices.py     # yfinance incremental update (used by both local + GHA)
 │   ├── build_master_prices.py      # One-shot full rebuild (used by bootstrap_caches.yml)
 │   ├── build_trade_ledger.py       # Full-history trade ledger (data/backtest_trades_full.parquet)

@@ -4,7 +4,7 @@ pages/strat_backtester. Mirrors the trading-day arithmetic in
 pages/backtester.compute_signed_earnings_offsets so backtest, scan, and report
 all see the same offset for a given (ticker, signal_date).
 
-Source: data/earnings_calendar.parquet (built by scripts/build_earnings_calendar.py).
+Source: data/earnings_calendar.parquet (built by scripts/refresh_earnings_calendar.py).
 
 Convention (matches pages/backtester.py):
     offset = signal_date - earnings_date in trading days

@@ -63,15 +63,6 @@ jobs:
         # after-close manual diagnostic once master_prices has advanced.
         run: python scripts/build_overflow_prices.py --no-upload
 
-      - name: Refresh isolated overflow earnings coverage
-        env:
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-        run: >-
-          python scripts/build_earnings_calendar.py
-          --overflow-staging
-          --fail-on-fetch-errors
-          --no-upload
-
       - name: Build the final 0-2 name research shortlist
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}

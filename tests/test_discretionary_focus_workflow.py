@@ -71,10 +71,7 @@ def test_dispatch_workflow_keeps_session_and_delivery_safety_gates() -> None:
     assert "build_overflow_prices.py" in workflow
     assert "--exclude-today" not in workflow
     assert "--no-upload" in workflow
-    assert "Refresh isolated overflow earnings coverage" in workflow
-    assert "build_earnings_calendar.py" in workflow
-    assert "--overflow-staging" in workflow
-    assert "--fail-on-fetch-errors" in workflow
+    assert "build_earnings_calendar.py" not in workflow
     assert "yfinance" in workflow
     assert "--delivery-window" in workflow
     assert "steps.delivery.outputs.should_run == 'true'" in workflow

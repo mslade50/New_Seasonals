@@ -1,9 +1,17 @@
-"""Production earnings entry point with an opt-in Alpha primary and FMP fallback.
+"""Production earnings entry point: Alpha Vantage forward dates, SEC confirmations.
 
-Default provider is the checked-in config (initially FMP). All Alpha work is
-assembled under artifacts before any canonical write. --no-upload requires an
-explicit artifact destination and never touches data/ or R2. Snapshot replay is
-available only in that mode. Publication uses a conditional single-object write.
+FMP is retired. Existing history in the canonical calendar is frozen; each run
+only replaces forward Alpha expectations and confirms newly elapsed events from
+SEC 8-K Item 2.02 filings (dates only). Events that no source can confirm are
+kept conservatively (see ``build_candidate(unconfirmed="retain")``) so a
+blackout is never removed without evidence. If Alpha itself fails, nothing is
+published: the prior canonical calendar stays in place and consumers tolerate
+``MAX_STALE_TRADING_DAYS`` of staleness.
+
+All work is assembled under artifacts before any canonical write. --no-upload
+requires an explicit artifact destination and never touches data/ or R2.
+Snapshot replay is available only in that mode. Publication uses a conditional
+single-object write followed by a verified readback.
 """
 from __future__ import annotations
 
@@ -13,7 +21,6 @@ import json
 import os
 from pathlib import Path
 import sys
-import time
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -21,10 +28,10 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from earnings_calendar_provider import (CalendarError, SCOPE, build_candidate,
+from earnings_calendar_provider import (CalendarError, SCOPE, UNVERIFIED_ELAPSED, build_candidate,
     combine_calendars, decision_differences, is_authoritative, normalize, validate_freshness)
-from scripts import build_earnings_calendar as fmp
 from scripts.compare_earnings_shadow import fetch_alpha, parse_alpha_csv, compare, normalize_fmp
+from sec_earnings_dates import collect_sec_confirmations, confirmation_targets
 from strategy_config import CSV_UNIVERSE
 from trading_calendar import TRADING_DAY
 from alpha_calendar_snapshot import daily_alpha, SnapshotError
@@ -40,36 +47,6 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2, default=str, allow_nan=False) + "\n", encoding="utf-8")
 
 
-def fetch_fmp_rows(tickers, key):
-    rows, failed, empty = [], [], []
-    for ticker in sorted(set(tickers)):
-        # Explicit non-corporate instruments, not a broad failed-symbol exemption.
-        if ticker.startswith("^") or ticker.endswith(("=F", "=X")) or ticker == "DX-Y.NYB":
-            empty.append(ticker)
-            continue
-        payload = fmp.fetch_ticker(ticker, key)
-        if payload is None:
-            failed.append(ticker)
-        elif not payload:
-            empty.append(ticker)
-        else:
-            for row in payload:
-                rows.append(dict(ticker=ticker, date=row.get("date"), eps_actual=row.get("epsActual"),
-                                 eps_est=row.get("epsEstimated"), revenue_actual=row.get("revenueActual"),
-                                 revenue_est=row.get("revenueEstimated"), last_updated=row.get("lastUpdated")))
-        time.sleep(fmp.SLEEP_BETWEEN_CALLS)
-    frame = normalize(pd.DataFrame(rows)) if rows else pd.DataFrame()
-    if not frame.empty:
-        frame["last_updated"] = pd.to_datetime(frame.last_updated, errors="coerce")
-    return frame, failed, empty
-
-
-def recent_tickers(prior, as_of):
-    # Actuals can arrive later than a calendar date; refresh the whole Â±10-day
-    # history window, not just yesterday. This is intentionally still FMP-backed.
-    return sorted(set(prior.loc[prior.date.between(as_of - 10 * TRADING_DAY, as_of), "ticker"]))
-
-
 def align_alpha_symbols(alpha, universe):
     """Map dot/dash share-class aliases only when the target is unambiguous."""
     aliases = {}
@@ -81,14 +58,6 @@ def align_alpha_symbols(alpha, universe):
     alpha = alpha.copy()
     alpha["ticker"] = alpha.ticker.map(lambda t: t if t in universe else aliases.get(t, t))
     return alpha.loc[alpha.ticker.isin(universe)].copy()
-
-
-def merge_refreshed_tickers(prior, refreshed, requested, as_of):
-    """Fresh responses replace those tickers' forward rows, not their old history."""
-    retained = prior.loc[~prior.ticker.isin(requested) | prior.date.lt(as_of)]
-    if refreshed.empty:
-        return retained.copy()
-    return pd.concat([refreshed, retained], ignore_index=True).drop_duplicates(["ticker", "date"])
 
 
 def stamp(frame, as_of, provider):
@@ -109,35 +78,12 @@ def coverage_gate(prior, candidate, as_of):
         raise CalendarError("Near-term earnings coverage fell by more than 20%; refusing publication")
     historical = prior.date.lt(as_of)
     if "event_status" in prior:
-        historical &= ~prior.event_status.eq("expected")
+        # Unverified rows may legitimately move to their SEC-confirmed date.
+        historical &= ~prior.event_status.isin(["expected", UNVERIFIED_ELAPSED])
     history = prior.loc[historical, ["ticker", "date"]]
     keys = set(zip(candidate.ticker, candidate.date))
     if any(key not in keys for key in zip(history.ticker, history.date)):
         raise CalendarError("Candidate lost an existing historical event")
-
-
-def fmp_fallback(prior, universe, as_of, key):
-    refreshed, failed, empty = fetch_fmp_rows(universe, key)
-    if refreshed.empty:
-        raise CalendarError("FMP fallback returned no data")
-    # A failed equity request may not silently erase a blackout. Unknown
-    # symbols with no prior record are also failures; known non-equity empty
-    # responses are allowed. No stale failed rows are relabeled as fresh.
-    if failed:
-        raise CalendarError("FMP fallback fetch failed for: " + ", ".join(failed))
-    refreshed = fmp.compute_derived_columns(refreshed)
-    keep = prior.date.lt(as_of)
-    if "event_status" in prior:
-        keep &= ~prior.event_status.eq("expected")
-    historical = prior.loc[keep]
-    result = (pd.concat([refreshed, historical], ignore_index=True) if not historical.empty else refreshed.copy())
-    result = result.drop_duplicates(["ticker", "date"])
-    result["event_source"] = "fmp_fallback"
-    result["event_status"] = "legacy_unverified"
-    result.loc[result.eps_actual.notna() | result.revenue_actual.notna(), "event_status"] = "confirmed"
-    expected = result.date.gt(as_of) | (result.date.eq(as_of) & result.eps_actual.isna() & result.revenue_actual.isna())
-    result.loc[expected, "event_status"] = "expected"
-    return result, dict(fmp_fallback_failed=failed, fmp_fallback_empty=empty)
 
 
 def publish(candidate_path, expected_etag, local_path, run, receipt=None):
@@ -165,64 +111,24 @@ def publish(candidate_path, expected_etag, local_path, run, receipt=None):
     os.replace(pending, local_path)
 
 
-def refresh_reference(output_dir, symbol_master):
-    """Independent FMP control for the observer after production becomes Alpha."""
-    run = Path(output_dir).resolve()
-    if not run.is_relative_to((ROOT / "artifacts").resolve()):
-        raise CalendarError("Reference output must stay under artifacts")
-    run.mkdir(parents=True, exist_ok=False)
-    symbols = pd.read_parquet(symbol_master)
-    universe = set(CSV_UNIVERSE) | set(symbols.ticker.str.upper())
-    frame, failed, empty = fetch_fmp_rows(universe, fmp.load_env())
-    receipt = dict(provider="fmp_reference", generated_at=pd.Timestamp.now(tz="UTC").isoformat(),
-                   requested=len(universe), failed=failed, empty=empty, published=False)
-    if failed or frame.empty:
-        write_json(run / "failure.json", receipt)
-        raise CalendarError("Independent FMP reference is incomplete; no comparison baseline written")
-    frame = fmp.compute_derived_columns(frame)
-    frame["calendar_provider"] = "fmp_reference"
-    frame.to_parquet(run / KEY, index=False)
-    receipt.update(rows=len(frame), sha256=digest(run / KEY))
-    write_json(run / "receipt.json", receipt)
-    print(f"Independent FMP reference saved: {run}; no production writes")
-    return 0
-
-
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--provider", choices=("fmp", "alpha"))
     ap.add_argument("--no-upload", action="store_true")
     ap.add_argument("--output-dir", type=Path)
     ap.add_argument("--baseline", type=Path)
     ap.add_argument("--overflow-baseline", type=Path)
     ap.add_argument("--symbol-master", type=Path)
     ap.add_argument("--alpha-snapshot", type=Path, help="Existing observer run with alpha_raw.csv and summary.json")
-    ap.add_argument("--confirmations", type=Path, help="Offline actuals or SEC date-proof snapshot, selected by --confirmation-provider")
-    ap.add_argument("--confirmation-provider", choices=("fmp", "sec"), default="fmp",
-                    help="SEC date-only proof is available for explicit offline replay only")
+    ap.add_argument("--confirmations", type=Path, help="Offline SEC date-proof snapshot for replay")
     ap.add_argument("--as-of")
-    ap.add_argument("--reference-only", action="store_true", help="Refresh an independent FMP observer baseline under artifacts")
     args = ap.parse_args(argv)
-    if args.confirmation_provider == "sec" and not (args.no_upload and args.alpha_snapshot and args.confirmations):
-        raise CalendarError("SEC confirmations require --no-upload --alpha-snapshot --confirmations")
     load_dotenv(ROOT / ".env", override=False)
     config = json.loads((ROOT / "config/earnings_calendar.json").read_text())
-    provider = args.provider or config["provider"]
-    if provider not in {"fmp", "alpha"} or config.get("alpha_fallback") not in {"fmp", "stop"}:
+    if config.get("provider") != "alpha" or config.get("confirmation_provider") != "sec":
         raise CalendarError("Invalid earnings provider configuration")
-    if args.reference_only:
-        if not args.no_upload or not args.output_dir or any((args.baseline, args.overflow_baseline, args.alpha_snapshot, args.confirmations, args.as_of)):
-            raise CalendarError("--reference-only requires --no-upload --output-dir and cannot replay other inputs")
-        return refresh_reference(args.output_dir, args.symbol_master or ROOT / "data/symbol_master.parquet")
     replay_flags = (args.baseline, args.overflow_baseline, args.symbol_master, args.alpha_snapshot, args.confirmations, args.as_of)
-    if not args.no_upload and (any(replay_flags) or provider != config["provider"]):
-        raise CalendarError("Replay/provider overrides require --no-upload; activation is a reviewed config change")
-    if provider == "fmp":
-        if args.no_upload:
-            raise CalendarError("Use Alpha replay or the legacy builder's explicit --no-upload interface")
-        # Preserve the currently deployed FMP behavior until activation.
-        fmp.build_calendar(sorted(CSV_UNIVERSE), fmp.load_env(), fmp.OUTPUT_PATH)
-        return 0
+    if not args.no_upload and any(replay_flags):
+        raise CalendarError("Replay inputs require --no-upload")
     if args.no_upload and args.output_dir is None:
         raise CalendarError("--no-upload requires an explicit artifact output directory")
     now = pd.Timestamp.now(tz="UTC")
@@ -231,8 +137,8 @@ def main(argv=None):
     if not run.is_relative_to((ROOT / "artifacts").resolve()):
         raise CalendarError("Candidate outputs must stay under this checkout's artifacts directory")
     run.mkdir(parents=True, exist_ok=False)
-    receipt = dict(producer="earnings_calendar", provider_requested=provider, as_of=str(as_of.date()),
-                   generated_at=now.isoformat(), published=False)
+    receipt = dict(producer="earnings_calendar", provider_requested="alpha", confirmation_provider="sec",
+                   as_of=str(as_of.date()), generated_at=now.isoformat(), published=False)
     try:
         expected_etag = None
         if args.no_upload:
@@ -252,99 +158,68 @@ def main(argv=None):
             if (head(KEY) or {}).get("ETag") != expected_etag:
                 raise CalendarError("Canonical earnings baseline changed during download")
         prior_main = normalize(pd.read_parquet(baseline))
-        prior = normalize(combine_calendars(prior_main, normalize(pd.read_parquet(overflow))))
+        if not is_authoritative(prior_main) and not args.no_upload:
+            # The legacy FMP bootstrap that migrated old calendars is retired.
+            raise CalendarError("Canonical earnings calendar is not an all-universe calendar; cannot bootstrap without FMP")
+        overflow_frame = normalize(pd.read_parquet(overflow)) if Path(overflow).exists() else None
+        prior = normalize(combine_calendars(prior_main, overflow_frame))
         prior = prior.drop_duplicates(["ticker", "date"], keep="first")
         symbols = pd.read_parquet(symbol_master)
         if "ticker" not in symbols or symbols.empty:
             raise CalendarError("Symbol master is missing coverage")
+        # The universe is frozen: names without history just get forward dates.
         universe = set(CSV_UNIVERSE) | set(symbols.ticker.str.upper())
-        receipt.update(baseline_sha256=digest(baseline), overflow_sha256=digest(overflow), universe_count=len(universe),
-                       historical_actuals_provider=args.confirmation_provider, snapshot_replay=bool(args.alpha_snapshot))
-        if not args.no_upload:
-            # The legacy overflow sidecar may be months stale. Bootstrap its
-            # current history once, instead of promoting those stale dates as
-            # the permanent history of an authoritative all-universe calendar.
-            initial = not is_authoritative(prior_main)
-            extra = (universe - set(CSV_UNIVERSE)) if initial else (universe - set(prior.ticker))
-            if extra:
-                bootstrap, failed, empty = fetch_fmp_rows(extra, fmp.load_env())
-                if failed or (initial and bootstrap.empty):
-                    raise CalendarError("Initial overflow history refresh failed; cutover refused")
-                if not bootstrap.empty:
-                    bootstrap.to_parquet(run / "bootstrap_fmp.parquet", index=False)
-                # Preserve old historical evidence; current FMP takes priority
-                # for the same ticker/date. Superseded future rows are removed
-                # by build_candidate, not unioned into the new forward calendar.
-                prior = merge_refreshed_tickers(prior, bootstrap, extra, as_of)
-                receipt.update(bootstrap_requested=len(extra), bootstrap_empty=empty)
+        receipt.update(baseline_sha256=digest(baseline), universe_count=len(universe),
+                       snapshot_replay=bool(args.alpha_snapshot))
         prior.to_parquet(run / "baseline.parquet", index=False)
-        alpha = None
-        try:
-            if args.alpha_snapshot:
-                meta = json.loads((args.alpha_snapshot / "summary.json").read_text())
-                captured = pd.Timestamp(meta["captured_at_utc"])
-                if meta.get("mode") != "authenticated" or captured.tz_convert("America/New_York").date() != as_of.date():
-                    raise CalendarError("Alpha replay must be an authenticated snapshot from the requested date")
-                raw = (args.alpha_snapshot / "alpha_raw.csv").read_text(encoding="utf-8")
-                alpha = parse_alpha_csv(raw)
-            else:
-                key = os.environ.get("ALPHA_VANTAGE_API_KEY", "").strip()
-                if not key:
-                    raise CalendarError("ALPHA_VANTAGE_API_KEY is missing")
-                config_root = Path(os.environ.get("NEW_SEASONALS_AUTOMATION_STATE_ROOT", str(ROOT / "artifacts/automation"))).resolve().parents[1]
-                raw, alpha, snapshot_meta = daily_alpha(config_root=config_root, fetch=fetch_alpha,
-                                                        parse=parse_alpha_csv, key=key)
-                receipt["alpha_snapshot"] = snapshot_meta
-            (run / "alpha_raw.csv").write_text(raw, encoding="utf-8")
-            alpha = align_alpha_symbols(alpha, universe)
-            needed = recent_tickers(prior, as_of)
-            if args.alpha_snapshot:
-                # Historical replay is fully offline. Existing FMP history is
-                # enough for a first-generation candidate; elapsed expectations
-                # still require exact actuals and otherwise fail build_candidate.
-                confirmations = pd.read_parquet(args.confirmations) if args.confirmations else prior
-                failed, empty = [], []
-            else:
-                confirmations, failed, empty = fetch_fmp_rows(needed, fmp.load_env())
-            if failed:
-                raise CalendarError("Recent-actual confirmation failed: " + ", ".join(failed))
-            receipt.update(recent_actuals_requested=needed, recent_actuals_empty=empty)
-            overrides = json.loads((ROOT / "config/earnings_calendar_overrides.json").read_text())["overrides"]
-            candidate, applied = build_candidate(prior, alpha, confirmations, as_of, overrides,
-                                                confirmation_provider=args.confirmation_provider)
-            receipt["overrides_applied"] = applied
-            coverage_gate(prior, candidate, as_of)
-            selected = "alpha"
-        except Exception as exc:
-            # Never turn a failed replay into live requests; never log raw errors
-            # from HTTP libraries (they can contain an API key).
-            receipt["alpha_error"] = str(exc) if isinstance(exc, (CalendarError, SnapshotError)) else type(exc).__name__
-            if args.no_upload or config["alpha_fallback"] != "fmp":
-                raise CalendarError("Alpha candidate failed: " + receipt["alpha_error"]) from None
-            candidate, fallback_receipt = fmp_fallback(prior, universe, as_of, fmp.load_env())
-            receipt.update(fallback_receipt)
-            coverage_gate(prior, candidate, as_of)
-            selected = "fmp_fallback"
-        candidate = stamp(candidate, as_of, selected)
-        # Preserve all financial/derived values in frozen legacy history. New
-        # actuals get computed metrics; expected rows retain missing actuals.
-        computed = fmp.compute_derived_columns(candidate)
-        for col in ("eps_surprise_pct", "rev_surprise_pct", "eps_yoy", "rev_yoy"):
-            if col not in candidate:
-                candidate[col] = float("nan")
-            lookup = computed.set_index(["ticker", "date"])[col]
-            refresh = candidate.event_source.eq("fmp_actuals") if "event_source" in candidate else pd.Series(False, index=candidate.index)
-            refresh &= candidate.date.ge(as_of - 10 * TRADING_DAY)
-            candidate.loc[refresh, col] = [lookup.loc[(r.ticker, r.date)] for r in candidate.loc[refresh].itertuples()]
+        if args.alpha_snapshot:
+            meta = json.loads((args.alpha_snapshot / "summary.json").read_text())
+            captured = pd.Timestamp(meta["captured_at_utc"])
+            if meta.get("mode") != "authenticated" or captured.tz_convert("America/New_York").date() != as_of.date():
+                raise CalendarError("Alpha replay must be an authenticated snapshot from the requested date")
+            raw = (args.alpha_snapshot / "alpha_raw.csv").read_text(encoding="utf-8")
+            alpha = parse_alpha_csv(raw)
+        else:
+            key = os.environ.get("ALPHA_VANTAGE_API_KEY", "").strip()
+            if not key:
+                raise CalendarError("ALPHA_VANTAGE_API_KEY is missing")
+            config_root = Path(os.environ.get("NEW_SEASONALS_AUTOMATION_STATE_ROOT", str(ROOT / "artifacts/automation"))).resolve().parents[1]
+            raw, alpha, snapshot_meta = daily_alpha(config_root=config_root, fetch=fetch_alpha,
+                                                    parse=parse_alpha_csv, key=key)
+            receipt["alpha_snapshot"] = snapshot_meta
+        (run / "alpha_raw.csv").write_text(raw, encoding="utf-8")
+        alpha = align_alpha_symbols(alpha, universe)
+        targets = confirmation_targets(prior, as_of)
+        if args.confirmations:
+            confirmations = pd.read_parquet(args.confirmations)
+            sec_summary = dict(requested=len(targets), confirmed=len(confirmations), offline=True)
+        elif args.alpha_snapshot:
+            # Historical replay stays fully offline.
+            confirmations, sec_summary = pd.DataFrame(), dict(requested=len(targets), confirmed=0, offline=True)
+        else:
+            confirmations, sec_summary = collect_sec_confirmations(targets, as_of)
+        if not confirmations.empty:
+            confirmations.to_parquet(run / "sec_confirmations.parquet", index=False)
+        receipt["sec_confirmations"] = sec_summary
+        overrides = json.loads((ROOT / "config/earnings_calendar_overrides.json").read_text())["overrides"]
+        report = {}
+        candidate, applied = build_candidate(prior, alpha, confirmations, as_of, overrides,
+                                             confirmation_provider="sec", unconfirmed="retain", report=report)
+        receipt["overrides_applied"] = applied
+        receipt["unconfirmed"] = report
+        coverage_gate(prior, candidate, as_of)
+        candidate = stamp(candidate, as_of, "alpha")
         candidate_path = run / KEY
         candidate.to_parquet(candidate_path, index=False)
         deltas = decision_differences(prior, candidate, universe, as_of)
         write_json(run / "decision_differences.json", deltas)
         comparison = None
-        if alpha is not None and not alpha.empty:
+        if not alpha.empty:
             details, comparison = compare(normalize_fmp(prior), alpha, universe, as_of)
             details.to_csv(run / "provider_comparison.csv", index=False)
-        receipt.update(provider_selected=selected, status="ok" if selected == "alpha" else "degraded",
+        unresolved = sum(len(v) for v in report.values())
+        receipt.update(provider_selected="alpha", status="ok" if not unresolved else "ok_with_unverified",
+                       unverified_elapsed_total=int(candidate.event_status.eq(UNVERIFIED_ELAPSED).sum()),
                        rows=len(candidate), candidate_sha256=digest(candidate_path),
                        decision_differences=len(deltas), comparison=comparison)
         if not args.no_upload:
@@ -353,12 +228,13 @@ def main(argv=None):
             receipt["published"] = True
             write_json(ROOT / "data" / (KEY + ".status.json"), receipt)
         write_json(run / "receipt.json", receipt)
-        print(json.dumps({k: receipt[k] for k in ("provider_selected", "rows", "decision_differences", "published")}, indent=2))
+        print(json.dumps({k: receipt[k] for k in ("provider_selected", "status", "rows", "decision_differences", "published")}, indent=2))
         return 0
     except Exception as exc:
+        # Never log raw errors from HTTP libraries (they can contain an API key).
         receipt["error"] = str(exc) if isinstance(exc, (CalendarError, SnapshotError)) else type(exc).__name__
         write_json(run / "failure.json", receipt)
-        print("Earnings refresh stopped: " + receipt["error"], file=sys.stderr)
+        print("Earnings refresh stopped; canonical calendar unchanged: " + receipt["error"], file=sys.stderr)
         return 1
 
 

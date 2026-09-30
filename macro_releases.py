@@ -1,8 +1,8 @@
 """Point-in-time-aware U.S. economic release history helpers.
 
 The generated cache lives at ``data/macro_release_history.parquet`` and is
-built by ``scripts/build_macro_releases.py``.  FMP supplies historical
-calendar rows with actual, estimate, and previous values.  Rows backfilled
+refreshed by ``scripts/refresh_macro_releases.py`` from official sources.
+Historical rows (with estimate/previous values) are frozen FMP-era captures.  Rows backfilled
 after their release are explicitly labelled ``vendor_historical_snapshot``;
 only rows first observed on their release date qualify as ``live_capture``.
 
@@ -329,7 +329,7 @@ def load_macro_releases(
     if not target.exists():
         raise FileNotFoundError(
             f"macro release history not found at {target}; run "
-            "python scripts/build_macro_releases.py --full"
+            "python scripts/refresh_macro_releases.py (or restore R2 key macro_release_history.parquet)"
         )
     df = pd.read_parquet(target)
     df["release_ts_utc"] = pd.to_datetime(df["release_ts_utc"], utc=True)

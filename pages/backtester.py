@@ -251,7 +251,7 @@ def load_earnings_metrics_map():
 
     Used by the engine to look up the most recent reported metrics at or
     before each bar via reindex(method='ffill'). Source columns are derived
-    by scripts/build_earnings_calendar.py — older parquets without the
+    by the retired FMP builder (frozen history) — older parquets without the
     derived columns yield an empty map (filter silently no-ops).
     """
     df = _load_earnings_frame()
@@ -3985,7 +3985,7 @@ def main():
                 st.warning(
                     "Earnings filter enabled but data/earnings_calendar.parquet "
                     "missing — filter will silently no-op. Run "
-                    "`python scripts/build_earnings_calendar.py` to backfill."
+                    "`python scripts/pull_scan_caches.py` to restore it from R2."
                 )
             else:
                 _n_tkrs = len(earnings_map)
@@ -4014,8 +4014,8 @@ def main():
                 st.warning(
                     "Earnings-quality filter enabled but derived columns not "
                     "found in data/earnings_calendar.parquet — filter will "
-                    "silently no-op. Run `python scripts/build_earnings_calendar.py "
-                    "--derive-only` to backfill the derived columns."
+                    "silently no-op. Derived columns exist only in frozen FMP-era "
+                    "history; restore the canonical calendar from R2."
                 )
             else:
                 _active = [

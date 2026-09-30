@@ -10,6 +10,15 @@ from trading_calendar import TRADING_DAY
 
 VALUE_COLUMNS = ["eps_actual", "eps_est", "revenue_actual", "revenue_est"]
 SCOPE = "all_universe_v1"
+# A failed producer day publishes nothing (there is no second provider), so
+# consumers accept a calendar up to this many NYSE sessions old before the
+# blackout loader refuses it.
+MAX_STALE_TRADING_DAYS = 2
+# Elapsed provider expectations that no primary source has confirmed yet. They
+# stay in the calendar (blackouts keep their post-earnings side) and remain
+# eligible for a later SEC confirmation.
+UNVERIFIED_ELAPSED = "unverified_elapsed"
+RETAINED_BASIS = "retained_unconfirmed"
 
 
 class CalendarError(ValueError):
@@ -47,7 +56,7 @@ def combine_calendars(main: pd.DataFrame, overflow: pd.DataFrame | None = None) 
     return pd.concat([main, overflow], ignore_index=True)
 
 
-def validate_freshness(frame: pd.DataFrame, now=None) -> None:
+def validate_freshness(frame: pd.DataFrame, now=None, max_stale_td: int = MAX_STALE_TRADING_DAYS) -> None:
     if not is_authoritative(frame):
         return  # Legacy FMP contract is unchanged until the reviewed cutover.
     now = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
@@ -60,9 +69,9 @@ def validate_freshness(frame: pd.DataFrame, now=None) -> None:
     generated = pd.Timestamp(frame.calendar_generated_at.iloc[0])
     if generated.tzinfo is None:
         raise CalendarError("Earnings generation timestamp has no timezone")
-    if as_of > today or as_of < today - TRADING_DAY:
-        raise CalendarError("Earnings calendar missed the previous NYSE session; refresh required")
-    if generated > now + pd.Timedelta(minutes=5) or now - generated > pd.Timedelta(days=4):
+    if as_of > today or as_of < today - max_stale_td * TRADING_DAY:
+        raise CalendarError(f"Earnings calendar is more than {max_stale_td} NYSE sessions old; refresh required")
+    if generated > now + pd.Timedelta(minutes=5) or now - generated > pd.Timedelta(days=4 + 2 * max_stale_td):
         raise CalendarError("Earnings generation timestamp is stale or in the future")
 
 
@@ -122,7 +131,7 @@ def reconcile_primary_confirmations(prior, alpha, confirmations, as_of):
     periods = set(zip(confirmed.ticker, confirmed.fiscalDateEnding))
     result = prior.copy()
     if {"fiscalDateEnding", "event_status"}.issubset(result.columns):
-        superseded = result.event_status.eq("expected") & pd.Series(
+        superseded = result.event_status.isin(["expected", UNVERIFIED_ELAPSED]) & pd.Series(
             [(t, p) in periods for t, p in zip(result.ticker, result.fiscalDateEnding)], index=result.index)
         result = result.loc[~superseded].copy()
     for _, proof in confirmed.iterrows():
@@ -144,14 +153,23 @@ def reconcile_primary_confirmations(prior, alpha, confirmations, as_of):
     return normalize(result), alpha
 
 
-def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirmation_provider="fmp"):
+def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirmation_provider="fmp",
+                    unconfirmed="raise", report=None):
     """Retain legacy history; replace forward expectations; confirm new history.
 
-    FMP actuals remain the default; offline SEC confirmations are supported.
-    An Alpha expectation that moves
-    into the past without an exact-date actual must not become confirmed history.
-    Publication stops (or uses the explicit FMP fallback) until reconciled.
+    ``confirmations`` are exact-date actuals (``"fmp"``-shaped rows, kept for
+    replay of frozen history) or SEC 8-K Item 2.02 date proofs (``"sec"``). An
+    Alpha expectation that moves into the past without a confirmation never
+    becomes confirmed history. With ``unconfirmed="raise"`` any such gap stops
+    publication. With ``unconfirmed="retain"`` (production: there is no fallback
+    provider) the gap is resolved conservatively: elapsed expectations stay as
+    ``unverified_elapsed`` history, and events that vanish from Alpha on release
+    day or inside the near-term horizon keep their prior date, so a blackout is
+    never removed without evidence.
     """
+    if unconfirmed not in {"raise", "retain"}:
+        raise CalendarError("Unknown unconfirmed-event policy")
+    report = report if report is not None else {}
     as_of = pd.Timestamp(as_of).normalize()
     prior = normalize(prior)
     alpha = normalize(alpha)
@@ -188,24 +206,39 @@ def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirm
         # Patch recent rows only; older versioned financial history is frozen.
         actuals = actuals.loc[actuals.date.ge(as_of - 10 * TRADING_DAY)]
         history = pd.concat([actuals, history], ignore_index=True).drop_duplicates(["ticker", "date"], keep="first")
-    pending = history.loc[history.event_status.eq("expected")]
-    if not pending.empty:
-        raise CalendarError("Unconfirmed elapsed Alpha events: " + ", ".join(sorted(pending.ticker.unique())))
+    pending = history.event_status.eq("expected")
+    if pending.any():
+        if unconfirmed == "raise":
+            raise CalendarError("Unconfirmed elapsed Alpha events: "
+                                + ", ".join(sorted(history.loc[pending, "ticker"].unique())))
+        history.loc[pending, "event_status"] = UNVERIFIED_ELAPSED
+    report["unverified_elapsed_new"] = sorted(history.loc[pending, "ticker"].unique())
+    retained = []
     # Calendars may stop listing an event immediately after its release. That
     # is not permission to remove today's blackout before actuals arrive.
     today_before = set(prior.loc[prior.date.eq(as_of), "ticker"])
     today_after = set(alpha.loc[alpha.date.eq(as_of), "ticker"]) | set(history.loc[history.date.eq(as_of), "ticker"])
-    if today_before - today_after:
-        raise CalendarError("Unconfirmed disappearance of today's earnings: " + ", ".join(sorted(today_before - today_after)))
+    missing_today = sorted(today_before - today_after)
+    if missing_today:
+        if unconfirmed == "raise":
+            raise CalendarError("Unconfirmed disappearance of today's earnings: " + ", ".join(missing_today))
+        retained.append(prior.loc[prior.date.eq(as_of) & prior.ticker.isin(missing_today)])
+    report["retained_release_day"] = missing_today
+    vanished_rows = pd.DataFrame()
     if {"event_source", "fiscalDateEnding"}.issubset(prior.columns):
         upcoming = prior.loc[prior.event_source.eq("alpha_vantage") & prior.date.between(as_of, as_of + 10 * TRADING_DAY)]
         current_periods = set(zip(alpha.ticker, alpha.fiscalDateEnding))
         confirmed_keys = set(zip(history.loc[history.event_status.eq("confirmed"), "ticker"],
                                  history.loc[history.event_status.eq("confirmed"), "date"]))
-        vanished = [r.ticker for r in upcoming.itertuples()
-                    if (r.ticker, r.fiscalDateEnding) not in current_periods and (r.ticker, r.date) not in confirmed_keys]
-        if vanished:
-            raise CalendarError("Near-term Alpha periods vanished without confirmation: " + ", ".join(sorted(set(vanished))))
+        gone = [(r.ticker, r.fiscalDateEnding) not in current_periods and (r.ticker, r.date) not in confirmed_keys
+                and not (r.date == as_of and r.ticker in missing_today) for r in upcoming.itertuples()]
+        vanished_rows = upcoming.loc[gone]
+        if not vanished_rows.empty:
+            if unconfirmed == "raise":
+                raise CalendarError("Near-term Alpha periods vanished without confirmation: "
+                                    + ", ".join(sorted(set(vanished_rows.ticker))))
+            retained.append(vanished_rows)
+    report["retained_vanished"] = sorted(set(vanished_rows.ticker)) if not vanished_rows.empty else []
     future = alpha.loc[alpha.date.ge(as_of)].copy()
     if future.empty:
         raise CalendarError("Alpha has no future events for the tracked universe")
@@ -216,6 +249,11 @@ def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirm
     future["eps_actual"] = np.nan
     future["revenue_actual"] = np.nan
     future["revenue_est"] = np.nan
+    if retained:
+        kept = pd.concat(retained, ignore_index=True).drop_duplicates(["ticker", "date"])
+        kept = kept.assign(event_status="expected", eps_actual=np.nan, revenue_actual=np.nan,
+                           schedule_basis=RETAINED_BASIS)
+        future = pd.concat([future, kept], ignore_index=True)
     result = pd.concat([history, future], ignore_index=True).drop_duplicates(["ticker", "date"], keep="first")
     return result.sort_values(["ticker", "date"]).reset_index(drop=True), applied
 
