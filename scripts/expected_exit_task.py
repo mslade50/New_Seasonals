@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -64,10 +65,22 @@ def task_xml(*, runtime, config, python, exec_env, sha, user, start):
     return ET.tostring(root, encoding="utf-16", xml_declaration=True)
 
 
+def default_exec_env(environ=None) -> str:
+    """trading_ibkr runtime_paths rule: TRADING_IBKR_SECRETS_DIR, else OneDrive."""
+    environ = os.environ if environ is None else environ
+    secrets_dir = environ.get("TRADING_IBKR_SECRETS_DIR")
+    if secrets_dir:
+        return str(Path(secrets_dir) / "exec_agent.env")
+    home = environ.get("USERPROFILE") or str(Path.home())
+    return str(Path(home) / "OneDrive" / "trading_ibkr" / "exec_agent.env")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("runtime", "config", "python", "exec-env", "sha", "user", "start", "output"):
+    for name in ("runtime", "config", "python", "sha", "user", "start", "output"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--exec-env", default=default_exec_env(),
+                        help="default: TRADING_IBKR_SECRETS_DIR\\exec_agent.env, else OneDrive trading_ibkr")
     args = vars(parser.parse_args(argv))
     output = Path(args.pop("output"))
     body = task_xml(**args)

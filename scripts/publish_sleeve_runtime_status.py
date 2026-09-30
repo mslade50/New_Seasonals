@@ -238,11 +238,28 @@ def _guard(reader, *args) -> dict:
         return unavailable(f"read failed ({type(exc).__name__})")
 
 
-def collect(executor_root: Path, runs_root: Path) -> dict:
+def resolve_state_dir(executor_root: Path, state_dir: Path | None = None,
+                      environ: dict[str, str] | None = None) -> Path:
+    """Where trading_ibkr keeps its flags and journals.
+
+    Mirrors trading_ibkr's runtime_paths rule: an explicit --state-dir wins,
+    then TRADING_IBKR_STATE_DIR, else the executor (code) root as before.
+    """
+    if state_dir is not None:
+        return state_dir
+    env_dir = (os.environ if environ is None else environ).get("TRADING_IBKR_STATE_DIR")
+    return Path(env_dir) if env_dir else executor_root
+
+
+def collect(executor_root: Path, runs_root: Path, state_dir: Path | None = None) -> dict:
     if sys.platform != "win32":
         raise RuntimeError("The machine status collector requires Windows")
     if not executor_root.is_dir():
         raise RuntimeError("Executor directory unavailable; no status will be published")
+    state_root = executor_root if state_dir is None else state_dir
+    if not state_root.is_dir():
+        # A missing state dir would read every flag as absent (disarmed).
+        raise RuntimeError("Executor state directory unavailable; no status will be published")
     shell = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
     result = subprocess.run([str(shell), "-NoProfile", "-NonInteractive", "-Command", TASK_QUERY],
                             capture_output=True, text=True, timeout=45, check=False,
@@ -261,10 +278,10 @@ def collect(executor_root: Path, runs_root: Path) -> dict:
                       else {"state": "Missing", "last_run_at": None, "next_run_at": None, "last_result": None})
     return {
         "schema": SCHEMA, "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(), "tasks": tasks,
-        "event_enabled": (executor_root / "event_moo_enabled.flag").is_file(),
-        "trend_moo_enabled": (executor_root / "trend_moo_enabled.flag").is_file(),
-        "legend_enabled": (executor_root / "legend_ema_enabled.flag").is_file(),
-        "legend": _guard(read_legend, executor_root),
+        "event_enabled": (state_root / "event_moo_enabled.flag").is_file(),
+        "trend_moo_enabled": (state_root / "trend_moo_enabled.flag").is_file(),
+        "legend_enabled": (state_root / "legend_ema_enabled.flag").is_file(),
+        "legend": _guard(read_legend, state_root),
         "open_breakout": _guard(read_breakout, runs_root),
     }
 
@@ -273,13 +290,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-root", type=Path, default=ROOT)
     parser.add_argument("--executor-root", type=Path, default=Path.home() / "OneDrive/trading_ibkr")
+    parser.add_argument("--state-dir", type=Path, default=None,
+                        help="flags/journals dir (default: TRADING_IBKR_STATE_DIR, else --executor-root)")
     parser.add_argument("--breakout-runs", type=Path, default=ROOT / "artifacts/open_breakout_runs")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/sleeve-status/runtime-status.json")
     parser.add_argument("--upload", action="store_true")
     parser.add_argument("--print", dest="echo", action="store_true", help="also print the payload to stdout")
     args = parser.parse_args()
     try:
-        payload = collect(args.executor_root, args.breakout_runs)
+        payload = collect(args.executor_root, args.breakout_runs,
+                          resolve_state_dir(args.executor_root, args.state_dir))
         text = json.dumps(payload, indent=2, allow_nan=False) + "\n"
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text, encoding="utf-8")
