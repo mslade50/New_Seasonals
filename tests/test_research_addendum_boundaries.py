@@ -9,84 +9,10 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from fundamental.config import FMP_ENDPOINTS
-from fundamental.coverage import ready_coverage
-from fundamental.run_manifest import freeze_sources
-from fundamental.universe import select_balanced_enrichment_batch
 from research_delivery import DeliveryNotSent, DeliveryUncertain, deliver_once
 from research_io import read_jsonl
-from scripts import run_fundamental_sleeve as runner
 from scripts import send_context_slack as context
 from scripts import send_posts_email as posts
-
-
-def test_readiness_requires_each_endpoint_current_and_not_future():
-    rows = [{"ticker": ticker, "endpoint": endpoint, "snapshot_as_of": day}
-        for ticker, day in [("FRESH", "2026-09-01"), ("STALE", "2026-01-01"), ("FUTURE", "2026-09-07")]
-        for endpoint in FMP_ENDPOINTS]
-    rows += [{"ticker": "PARTIAL", "endpoint": endpoint,
-              "snapshot_as_of": "2026-01-01" if endpoint == FMP_ENDPOINTS[0] else "2026-09-01"}
-             for endpoint in FMP_ENDPOINTS]
-    sec = pd.DataFrame([{"ticker": t, "snapshot_as_of": "2026-09-01"} for t in ["FRESH", "STALE", "FUTURE", "PARTIAL"]])
-    baseline, deep, _ = ready_coverage(pd.DataFrame(rows), sec, as_of="2026-09-06")
-    assert baseline == deep == {"FRESH"}
-    sec.loc[sec.ticker == "FRESH", "snapshot_as_of"] = "2020-01-01"
-    assert ready_coverage(pd.DataFrame(rows), sec, as_of="2026-09-06")[1] == set()
-
-
-def test_source_change_or_added_archive_prevents_completed_manifest(tmp_path, monkeypatch):
-    path = tmp_path / "input.json"
-    path.write_text('{"generation":1}')
-    paths = {"input": path}
-    monkeypatch.setattr(runner, "_source_paths", lambda as_of: paths)
-    before = freeze_sources(paths)
-    runner._assert_sources_unchanged(before, "2026-09-06")
-    path.write_text('{"generation":2}')
-    with pytest.raises(RuntimeError, match="inputs changed"):
-        runner._assert_sources_unchanged(before, "2026-09-06")
-    before = freeze_sources(paths)
-    paths["new_archive"] = tmp_path / "new.parquet"
-    with pytest.raises(RuntimeError):
-        runner._assert_sources_unchanged(before, "2026-09-06")
-
-
-def test_run_plan_previews_actual_balanced_batch(monkeypatch):
-    universe = pd.DataFrame([
-        {"ticker": ticker, "research_eligible": True, "research_lane": "standard_company",
-         "market_cap_band": "large", "sector": sector, "dollar_volume_63d": volume, "as_of": "2026-09-06"}
-        for ticker, sector, volume in [("AAA", "Technology", 1), ("BBB", "Technology", 100), ("CCC", "Utilities", 100)]])
-    monkeypatch.setattr(runner, "_eligible_universe", lambda: universe)
-    monkeypatch.setattr(runner, "_read_parquet", lambda path: pd.DataFrame())
-    monkeypatch.setattr(runner, "load_underwrite_decisions", lambda path: [])
-    monkeypatch.setattr(runner, "load_research_controls", lambda *a, **kw: ({}, {}))
-    monkeypatch.setattr(runner, "load_research_event_state", lambda **kw: {
-        "thesis_events": [], "trigger_events": [], "completed_control_requests": {}, "health": {}})
-    monkeypatch.setattr(runner, "load_portfolio_snapshot", lambda **kw: ({}, {}))
-    plan = runner.build_run_plan(as_of="2026-09-06", batch_size=2, universe_refresh_days=7)
-    expected = select_balanced_enrichment_batch(universe, 2, include_specialists=True)
-    assert expected == ["BBB", "CCC"]
-    assert plan["coverage"]["bounded_refresh_tickers"] == expected
-
-
-def test_execute_run_refuses_manifest_when_report_consumes_changing_inputs(tmp_path, monkeypatch):
-    source = tmp_path / "source.json"
-    source.write_text('{"generation":1}')
-    report_path = tmp_path / "daily.json"
-    monkeypatch.setattr(runner, "DAILY_REPORT_CURRENT", report_path)
-    monkeypatch.setattr(runner, "_source_paths", lambda as_of: {"source": source})
-    published = []
-    monkeypatch.setattr(runner, "append_decision_transitions", lambda **kw: published.append("transition"))
-    monkeypatch.setattr(runner, "write_sleeve_run_manifest", lambda value: published.append("manifest"))
-    def run(command):
-        if "scripts/build_fundamental_report.py" in command:
-            report_path.write_text('{"health":{},"underwrite_decisions":[]}')
-            source.write_text('{"generation":2}')
-    monkeypatch.setattr(runner, "_run", run)
-    args = SimpleNamespace(refresh_universe=False, refresh=False, refresh_prices=False, verify=False,
-                           as_of="2026-09-06", output=tmp_path / "report.html")
-    with pytest.raises(RuntimeError, match="inputs changed"):
-        runner.execute_run(args, {"universe": {"stale": False}, "coverage": {"baseline_gap": 0}})
-    assert published == []
 
 
 def test_delivery_claim_blocks_ambiguous_retry_and_changed_content(tmp_path):

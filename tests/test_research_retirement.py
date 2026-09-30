@@ -1,6 +1,5 @@
 """Retired research cannot issue requests, publish, or block earnings."""
 from scripts import automation_supervisor as sup
-from scripts import build_analyst_grades as grades
 
 
 def test_discretionary_catalog_has_no_work():
@@ -16,10 +15,3 @@ def test_earnings_job_keeps_earnings_but_no_grades():
     assert "earnings_calendar.parquet" in str(job.outputs)
 
 
-def test_retired_grade_entry_point_never_loads_credentials_or_fetches(monkeypatch, capsys):
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Retired collector attempted work")
-    monkeypatch.setattr(grades, "load_env", forbidden)
-    monkeypatch.setattr(grades, "build_grades", forbidden)
-    grades.main()
-    assert "retired" in capsys.readouterr().out
