@@ -19,6 +19,10 @@ grammar makes a short slate expensive; it is not this check's job to make it
 impossible.
 
     python scripts/check_pitch_delivered.py [--asof YYYY-MM-DD] [--require-r2]
+                                            [--product pitch|seasonal]
+
+`--product seasonal` checks the Daily Seasonal's journal and its own receipt
+namespace (pitch_products.py). The default is the pitch, unchanged.
 """
 from __future__ import annotations
 
@@ -32,17 +36,28 @@ sys.path.insert(0, str(ROOT))
 
 import pitch_journal  # noqa: E402
 import pitch_delivery  # noqa: E402
+import pitch_products  # noqa: E402
 from pitch_grammar import IDEA_COUNT, MIN_IDEA_COUNT  # noqa: E402
+
+
+def _product(args) -> str:
+    return getattr(args, "product", None) or "pitch"
+
+
+def _production_journal(product: str) -> Path:
+    if product == "pitch":
+        return pitch_journal.JOURNAL_PATH
+    return pitch_products.get_product(product).journal_path
 
 
 def _receipt_path(args) -> Path:
     if args.delivery_receipt:
         return Path(args.delivery_receipt)
     journal = Path(args.journal)
-    if journal != pitch_journal.JOURNAL_PATH:
+    if journal != _production_journal(_product(args)):
         name = f"{journal.stem}.delivery.{args.asof}.json"
         return journal.with_name(name)
-    return pitch_delivery.default_receipt_path(args.asof)
+    return pitch_delivery.default_receipt_path(args.asof, _product(args))
 
 
 def _confirm_receipt(args, records: list[dict]) -> bool:
@@ -50,22 +65,29 @@ def _confirm_receipt(args, records: list[dict]) -> bool:
     try:
         receipt = pitch_delivery.load_receipt(
             path, args.asof, use_r2=args.require_r2,
-            require_remote=args.require_r2)
+            require_remote=args.require_r2, product=_product(args))
         if receipt is None:
             raise pitch_delivery.DeliveryReceiptError(
                 f"no delivery receipt exists at {path}")
         pitch_delivery.verify_sent_receipt(receipt, records, args.asof)
     except pitch_delivery.DeliveryReceiptError as exc:
-        print(f"FAILED: {exc}. The pitch did not deliver.")
+        print(f"FAILED: {exc}. The {_label(args)} did not deliver.")
         return False
     print(f"OK: sent receipt {receipt['delivery_id']} matches the journal")
     return True
 
 
+def _label(args) -> str:
+    return ("pitch" if _product(args) == "pitch"
+            else pitch_products.get_product(_product(args)).label)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--asof", default=str(dt.date.today()))
-    ap.add_argument("--journal", default=str(pitch_journal.JOURNAL_PATH),
+    ap.add_argument("--product", default="pitch",
+                    choices=sorted(pitch_products.PRODUCTS))
+    ap.add_argument("--journal", default=None,
                     help="journal path; matches daily_pitch.py's flag so a "
                          "test or dev run never reads the shared trail")
     ap.add_argument("--delivery-receipt", default=None,
@@ -73,11 +95,15 @@ def main() -> int:
     ap.add_argument("--require-r2", action="store_true",
                     help="require and verify the production R2 receipt")
     args = ap.parse_args()
+    if args.journal is None:
+        args.journal = str(_production_journal(args.product))
 
     all_records = pitch_journal.load(Path(args.journal), pull=False)
     if args.require_r2:
         try:
-            cloud_records = pitch_delivery.load_cloud_journal()
+            cloud_records = pitch_delivery.load_cloud_journal(
+                None if args.product == "pitch"
+                else pitch_products.get_product(args.product).journal_r2_key)
             local_today = pitch_delivery.verdict_records(
                 all_records, args.asof)
             cloud_today = pitch_delivery.verdict_records(
@@ -88,7 +114,7 @@ def main() -> int:
                 raise pitch_delivery.DeliveryReceiptError(
                     f"local and R2 journals disagree for {args.asof}")
         except pitch_delivery.DeliveryReceiptError as exc:
-            print(f"FAILED: {exc}. The pitch did not deliver.")
+            print(f"FAILED: {exc}. The {_label(args)} did not deliver.")
             return 1
         print("OK: R2 journal matches the local verdict records")
     today = [r for r in all_records if str(r.get("date")) == args.asof]
@@ -127,7 +153,7 @@ def main() -> int:
 
     print(f"FAILED: {len(ideas)} idea record(s) journaled for {args.asof}, "
           f"expected {MIN_IDEA_COUNT} to {IDEA_COUNT} or a stand-down. "
-          f"The pitch did not deliver.")
+          f"The {_label(args)} did not deliver.")
     return 1
 
 

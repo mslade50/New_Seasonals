@@ -9,6 +9,10 @@ that is a finding about the reader, not about the ideas.
 
     python scripts/grade_pitch_journal.py [--regrade] [--dry-run]
                                           [--journal PATH] [--out PATH]
+                                          [--product pitch|seasonal]
+
+`--product seasonal` grades the Daily Seasonal journal into its own
+scoreboard (pitch_products.py); the default is the pitch, unchanged.
 
 Replay conventions, fixed here so a grade never depends on who ran it:
 
@@ -26,6 +30,13 @@ Replay conventions, fixed here so a grade never depends on who ran it:
           slippage.
   time    MOC exits at the close of Time_Exit_Date, MOO at its open (so an
           MOO exit never sees that session's range).
+  trail   (Daily Seasonal only, rows carrying Trail_Arm_ATR / Trail_ATR.)
+          Arms once a bar AFTER the fill reaches Trail_Arm_ATR of MFE off the
+          fill (bar high for a long, low for a short). From the NEXT bar on, a
+          stop sits Trail_ATR behind the best close seen since the fill,
+          ratcheting only in the trade's favour, and combines with any fixed
+          stop (the tighter one rules). It fills like a stop, with the same
+          slippage, and books exit_kind trail / trail_gap.
   R       idea dollars divided by the idea's staged ATR risk. A futures leg
           is replayed on its proxy series times the contract multiplier.
 
@@ -47,6 +58,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import pitch_journal  # noqa: E402
+import pitch_products  # noqa: E402
 from research_price_history import load_raw_prices, replay_cutoff  # noqa: E402
 from trading_calendar import TRADING_DAY  # noqa: E402
 
@@ -140,20 +152,40 @@ def replay_leg(bars: pd.DataFrame, row: dict) -> dict:
 
     last_scan = exit_i - 1 if time_order == "MOO" else exit_i
     exit_price, exit_kind, exit_i_used = None, None, exit_i
+    arm_atr, trail_atr = _num(row.get("Trail_Arm_ATR")), _num(row.get("Trail_ATR"))
+    has_trail = arm_atr is not None and trail_atr is not None
+    armed, trail_level, best_close = False, None, cl[fill_i]
     for j in range(fill_i + 1, last_scan + 1):
-        stop_hit = stop is not None and (lo[j] <= stop if long else hi[j] >= stop)
+        # The live stop on bar j uses only what was known at bar j-1's close.
+        live_stop, from_trail = stop, False
+        if trail_level is not None and (
+                live_stop is None
+                or (trail_level > live_stop if long else trail_level < live_stop)):
+            live_stop, from_trail = trail_level, True
+        stop_hit = live_stop is not None and (
+            lo[j] <= live_stop if long else hi[j] >= live_stop)
         tgt_hit = target is not None and (hi[j] >= target if long else lo[j] <= target)
         if stop_hit:  # a bar that touches both books the stop
-            raw = min(stop, op[j]) if long else max(stop, op[j])
-            gapped = (op[j] < stop) if long else (op[j] > stop)
+            raw = min(live_stop, op[j]) if long else max(live_stop, op[j])
+            gapped = (op[j] < live_stop) if long else (op[j] > live_stop)
             slip = STOP_SLIP_BPS + (STOP_GAP_SLIP_BPS if gapped else 0.0)
             exit_price = raw * (1 - direction * slip / 1e4)
-            exit_kind = "stop_gap" if gapped else "stop"
+            base = "trail" if from_trail else "stop"
+            exit_kind = f"{base}_gap" if gapped else base
             exit_i_used = j
             break
         if tgt_hit:
             exit_price, exit_kind, exit_i_used = target, "target", j
             break
+        if has_trail:
+            best_close = max(best_close, cl[j]) if long else min(best_close, cl[j])
+            mfe_j = ((hi[j] - fill) if long else (fill - lo[j])) / atr
+            armed = armed or mfe_j >= arm_atr
+            if armed:
+                level = best_close - direction * trail_atr * atr
+                if trail_level is None or (level > trail_level if long
+                                           else level < trail_level):
+                    trail_level = level
     if exit_price is None:
         exit_price = op[exit_i] if time_order == "MOO" else cl[exit_i]
         exit_kind = f"time_{time_order.lower()}"
@@ -280,8 +312,13 @@ def build_scoreboard(ideas: list[dict], today: pd.Timestamp) -> dict:
 # ---------------------------------------------------------------------------
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--journal", default=str(pitch_journal.JOURNAL_PATH))
-    ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument("--product", default="pitch",
+                    choices=sorted(pitch_products.PRODUCTS),
+                    help="which product's journal/scoreboard (default pitch)")
+    ap.add_argument("--journal", default=None,
+                    help="journal path (default: the product's)")
+    ap.add_argument("--out", default=None,
+                    help="scoreboard path (default: the product's)")
     ap.add_argument("--regrade", action="store_true",
                     help="re-book ideas that already carry an outcome")
     ap.add_argument("--asof", default=None)
@@ -289,10 +326,19 @@ def main() -> int:
     ap.add_argument("--no-fills-approvals", action="store_true",
                     help="skip minting approvals from Pitch-tagged fills")
     args = ap.parse_args()
+    product = pitch_products.get_product(args.product)
+    if args.journal is None:
+        args.journal = str(pitch_journal.JOURNAL_PATH if product.name == "pitch"
+                           else product.journal_path)
+    if args.out is None:
+        args.out = str(DEFAULT_OUT if product.name == "pitch"
+                       else product.scoreboard_path)
 
     journal_path = Path(args.journal)
     today = pd.Timestamp(args.asof or dt.date.today()).normalize()
-    if not args.no_fills_approvals:
+    # Fills approvals match Pitch-{idea_id} order tags, which only the pitch
+    # stages; the seasonal product never mints them.
+    if not args.no_fills_approvals and product.fills_approvals:
         # Site-staged pitch orders count as approvals once they fill. Best
         # effort: a missing or broken fills store must never cost the morning.
         try:

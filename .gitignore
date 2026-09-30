@@ -142,6 +142,12 @@ data/pitch_tape.json
 data/pitch_research_index.json
 data/pitch_ideas.json
 data/pitch_delivery_receipts/
+# Daily Seasonal, same split: inputs ignored, journal/scoreboard/watchlist/
+# registry committed (docs/claude_ref/daily_seasonal.md).
+data/seasonal_state.json
+data/seasonal_tape.json
+data/seasonal_agent_ideas.json
+data/seasonal_agent_delivery_receipts/
 scripts/logs/
 
 # machine-local job side-effects (2026-09-18 cleanup, dirty_tree_report.md S5)

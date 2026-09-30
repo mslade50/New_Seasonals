@@ -366,21 +366,26 @@ def build_book(today: pd.Timestamp, warnings: list[str],
 # ---------------------------------------------------------------------------
 # earnings / seasonality / history
 # ---------------------------------------------------------------------------
-def build_earnings(today: pd.Timestamp, warnings: list[str]) -> dict:
+def build_earnings(today: pd.Timestamp, warnings: list[str],
+                   horizon_td: int = EARNINGS_HORIZON_TD,
+                   tickers: set[str] | None = None) -> dict:
+    """Liquid names printing inside `horizon_td` sessions. The Daily Seasonal
+    (build_seasonal_state.py) widens the horizon and adds its outliers to the
+    universe; the pitch uses the defaults."""
     try:
         cal = pd.read_parquet(ROOT / "data" / "earnings_calendar.parquet",
                               columns=["ticker", "date"])
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"earnings: calendar unavailable ({exc})")
         return {}
-    end = sessions_from(today, EARNINGS_HORIZON_TD + 1)[-1]
-    liquid = set(LIQUID_PLUS_COMMODITIES)
+    end = sessions_from(today, horizon_td + 1)[-1]
+    liquid = set(LIQUID_PLUS_COMMODITIES) | set(tickers or ())
     window = cal[(cal["date"] >= today) & (cal["date"] <= end)
                  & (cal["ticker"].isin(liquid))]
     prints = [{"ticker": r["ticker"], "date": str(r["date"].date()),
                "td_ahead": td_ahead(today, r["date"])}
               for _, r in window.sort_values("date").iterrows()]
-    return {"horizon_td": EARNINGS_HORIZON_TD, "count": len(prints),
+    return {"horizon_td": horizon_td, "count": len(prints),
             "prints": prints}
 
 
@@ -470,9 +475,11 @@ def build_pipeline(today: pd.Timestamp, tape: dict, risk: dict,
     return out
 
 
-def build_history(today: pd.Timestamp, warnings: list[str]) -> dict:
+def build_history(today: pd.Timestamp, warnings: list[str],
+                  journal_path: Path | None = None) -> dict:
     try:
-        records = pitch_journal.load()
+        records = (pitch_journal.load(journal_path) if journal_path
+                   else pitch_journal.load())
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"history: pitch journal unreadable ({exc})")
         records = []
@@ -497,23 +504,30 @@ def build_history(today: pd.Timestamp, warnings: list[str]) -> dict:
             "lifetime_pitched": len(ideas)}
 
 
-def build_watchlist(today: pd.Timestamp, warnings: list[str]) -> dict:
+def build_watchlist(today: pd.Timestamp, warnings: list[str],
+                    path: Path | None = None) -> dict:
     """Parked near-misses from earlier mornings, each carrying the number
     that turns it on. Stage B1 owes every ACTIVE entry a verdict in the
     surface map (trigger moved -> CHECK, unchanged -> PASS with today's
     value); EXPIRED entries are listed once so the after-publish step prunes
     them from the file."""
+    label = "data/pitch_watchlist.json"
+    if path:
+        try:
+            label = str(Path(path).relative_to(ROOT)).replace("\\", "/")
+        except ValueError:
+            label = str(path)
     try:
-        wl = load_watchlist()
+        wl = load_watchlist(path)
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"watchlist: unreadable ({exc})")
-        return {"path": "data/pitch_watchlist.json", "entries": [],
+        return {"path": label, "entries": [],
                 "expired": []}
     active, expired = [], []
     for e in wl.get("entries", []):
         exp = str(e.get("expires", "") or "")
         (expired if exp and exp < str(today.date()) else active).append(e)
-    return {"path": "data/pitch_watchlist.json", "entries": active,
+    return {"path": label, "entries": active,
             "expired": expired}
 
 
