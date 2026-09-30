@@ -5048,3 +5048,531 @@ September quad (the event sleeve's T3 skip state), USO +18.9% over 21d.
   run-in residual vs EEM +1.601% (6-5); across the closure FXI rises 16-5;
   offset ladder 8 of 11; Golden Week plus Lunar New Year +0.153% on 11-12.
   (kB_c10_r1.py, kB_c10b_hsi.py)
+
+## 2026-09-21: a rate shock under a calm index, eleven candidates in two waves, all empty
+
+Eleven candidates over five novelty axes and six asset classes, four adversarial
+checkers, stand-down. The 09-18 tape (quad witching): ^TNX 4.998 against a 252
+max of 5.006 (+34.5 bp in 21 sessions), IEF 0.08% and LQD 0.40% above their 252
+lows, ^MOVE +5.80%, DX 5d rank 91, USO +17.5% over 21d, XLU at its 52w low with
+17 other tape names within 1% of one, banks 11 of 11 at r5 <= 20, SPY 1.84% off
+its high with ^VIX 14.81 (VIX/VIX3M 0.812). Watchlist 23 fired for the first time
+and was retired.
+
+### Method traps
+
+- **An armed arm that re-anchors is a delay rule, not a filter, and the arm text
+  should say which it is before it fires.** W23 (XLU r21 <= 5 AND TLT r21 < 25)
+  reproduced exactly on firing (+0.858% at h=5, 21-7) and still died: at the
+  same anchors the TLT gate is worth -0.085pp (discarded washouts +0.339%,
+  kept +0.071%), 90-96% of the edge is the later entry date (reanchor null p
+  0.012), and the rate-sensitive family on the identical form is wrong-signed
+  (XLRE -0.924pp, XLP -0.691pp, ITB -2.097pp, XHB -0.915pp). Utilities are now
+  dead in nine expressions. (kA_c1_r1.py, kA_c1_r2.py)
+- **Check ^IRX before calling a ten-year thrust a steepener.** The ten-year rose
+  +34.5 bp in 21 sessions while the 10y-3m spread widened only +6.7 bp and
+  10y-5y narrowed 15.8 bp: a bear parallel shift. (kA_c5_r1.py)
+- **A round-number level needs off-round placebo levels, and on ^TNX they win.**
+  The whole-percent cell is the worst of the four quarter grids at h=3 and h=5
+  (-0.393% on 2-3 against .25 +2.146%, .50 +0.322%, .75 -0.014%). The .25 grid's
+  6-0 is a placebo byproduct and is not parked. (kA_c2_r1.py, kA_c2_r2.py)
+- **Liquid laggards RISE into their prints.** The short-the-laggard pre-print
+  cell loses at every hold 1-7 (-0.93% beta-hedged on 69-100 week clusters,
+  -1.58% since 2018), and same-week no-print pairing leaves +0.17pp (t 0.52).
+  The 2026-09 COST "keeps falling into its print" finding is one name and does
+  not generalize. The earnings offset ladder failed three more anchors today
+  (12 of 16, 12 of 16, 6 of 16). (kB_c3_r1.py, kB_c9_r1.py)
+- **An expiry-day gap in an international ETF reverses on the NEXT session,
+  which a lag-1 MOC cannot reach.** EFA after an opex lag of >= 1pp vs
+  beta-SPY: lag 0 10-1 (+0.450%), lag 1 2-9 (-0.585%). MSCI EAFE reviews
+  rebalance at the end of Feb/May/Aug/Nov, not at quad witching. (kC_c6_r1.py)
+- **The VX future that prices a Nov 3 election is OCTOBER's.** It settles about
+  10-21 and its 30-day window spans the vote, so short-vol ETPs already hold
+  the election kink in late September; there is no October roll INTO it.
+  (kC_c7_r1.py)
+- **A duration-hedged LQD spread proxy is half equity beta over multi-week
+  windows** (R-squared 0.50 on SPY's window return); neutralize on ex-ante IEF
+  and SPY betas before reading any IG calendar cell. (kD_c11_r2.py)
+
+### Cells swept and empty
+
+- **Long XLU with the long end hit alongside (watchlist 23, armed).** Above.
+  Definition neighbours: 10d lookback -0.204pp, 42d -0.188pp, IEF in place of
+  TLT +0.176pp; the opposite gate (TLT r21 > 75) +0.849pp on 12. Midterm with
+  SPY above its 200d 3-1 on N=4, so the W35 adverse slice did not bite here.
+- **Long TLT at a whole-percent yield after a thrust.** Above; episodes 2006-04
+  5%, 2013-09 3%, 2022-05 3%, 2022-09 4%, 2023-10 5%; midterm 0-3 (-1.27% h=5).
+- **Long XLF on an 11-bank breadth floor under a bear steepener.** Not live
+  (above); the curve gate is worth -0.134pp at h=5, 2008-10-08 and 2009-03-04
+  are 62% of the total, and midterm-above-200d is 0-3 (-1.19%).
+- **Short a 52w-low laggard into its print (NKE live).** Above; PCG 2019-10-28
+  (+81% in the window) is the tail; NKE's own gated record 1-2.
+- **Long a 63d winner into its print (GIS, PAYX, CAG live).** The r63 >= 80
+  gate subtracts at both forms (-0.027% vs +0.017% complement; CAG form
+  -0.11pp, r63 < 20 best at +0.32%). The r63 >= 80 AND r21 <= 15 cross
+  (+0.82% on 24-11) is parked, see the watchlist. (kB_c9b_cross.py)
+- **Single-stock window dressing into the quarter-end.** QE-7 to QE -0.16%
+  beta-hedged vs -0.58% at ordinary month-ends (Welch t 0.82); December 6-13;
+  QE to QE+5 reversal -0.10%. The liquid-name September row (+1.04%, 15-4) is
+  late-September weakness in weak names, not a quarter-end object: the true
+  QE end-date ranks 4 of 21 and the row does not replicate outside the liquid
+  set (+0.08%). (kB_c4_r1.py, kB_c4b_sep.py)
+- **Long EFA against beta-SPY after an expiry-day lag.** Above. The
+  unconditioned byproduct (EFA vs beta-SPY after quads, +0.329% at h=3 on
+  63-35, quad date 1 of 11 on the ladder) has faded to 17-17 (+0.105%, 1.3x
+  cost) since 2018. (kC_c6b_parent.py)
+- **Short SVXY across an election-year October.** SPY-adjusted 4-3 (+1.39%,
+  sign p 0.50) vs odd years +0.06%; the near-low VIX gate fired once (2012,
+  -1.12%); every entry offset -5..+5 is positive, which is the SPY tape. It
+  would also fight V4 (long SVXY 10-16 to 10-21). (kC_c7_r1.py, kC_c7b_round2.py)
+- **Long yen into Japan's fiscal half-year and year-end.** March plus September
+  18-35 (-0.211%, sign p 0.994) against June/December -0.053% and month-ends
+  +0.046%; September 2017+ 1-8. The inverse (short yen) is a spring drift that
+  ranks 9 of 11 on its own ladder and duplicates the long-DX ship. (kC_c8_r1.py)
+- **Watchlist 56's unmeasured arm, measured.** Long DX from QE-9 to QE in
+  quarters with no FOMC decision in the window, 2008+: +0.209% on 23-18,
+  +0.197pp over ordinary month-ends (t +0.94), +0.021pp if a decision on the
+  entry day counts. Below its +0.25pp bar. (kC_c8_r1.py)
+- **Long SPY from the late-September close into a midterm election.** Midterms
+  +2.75% on 5-1 to the pre-election close, but odd years +3.60% on 11-2 and
+  presidential years -3.09% on 3-4; above-200d midterms 3-1 at +0.82% under the
+  +1.13% drift; live rung 12 of 21 on the offset ladder, September-midterm 23 of
+  48 on the month x cycle grid, first 10 sessions 1-5. The post-election anchor
+  (+0.89%, 4-2) does not carry it either. (kD_c10_r1.py)
+- **Long LQD against beta-IEF into the pre-earnings issuance blackout.** Pooled
+  +48.3 bps at h=17 on 63-30 (ladder 3 of 68), but September is the only losing
+  quarter (-24.7 bps on 12-11, permutation P 0.011; HYG -71.5 bps) and the
+  equity-neutral pooled cell is +18.9 bps (sign p 0.107). The December row is
+  parked. (kD_c11_r1.py, kD_c11_r2.py)
+
+## 2026-09-23: a semis thrust into a narrow index, ten candidates, one survivor
+
+Ten candidates over five novelty axes and five asset classes, four checkers plus
+a red team, one idea shipped (long UNG after a 3x-volume thrust day, h=2). The
+09-22 tape: QQQ at a 52w high (+6.2% in 5d), SMH r5 98.8 from r63 7.5, 20% of
+the 218-name tape above a median r21, NYSE net highs 5d EMA -133 with SPY 0.33%
+off its high, XLF -1.97% on 2.2x volume with SPY flat, USO -11% in 5d straight
+after a +17% 21-session thrust, XLU at its 52w low, QE-5.
+
+### Method traps
+
+- **A kill report's negative alpha is not a short's positive alpha once dates
+  are clustered.** Inverting the laggard-turn family (r63 <= 10 AND r5 >= 95,
+  hedged to beta-SPY, h=5) gives a fixed-effect t 2.91 that is 778 episodes
+  crowded onto 283 dates; date-clustered it is +0.122% at t 0.73 (144-139),
+  and r5 >= 95 alone pays the same +0.138% without the floor. (kB_b1)
+- **Score a hedged pair against the PAIR's own drift, not zero.** Short GDX /
+  long 1.8x GLD drifts positive on its own (+0.186% at h=5), so the one-day
+  miner-overshoot cell's +0.084% is below its own baseline. (kC_c2, _b)
+- **A cross-asset mirror is not implied by its parked twin.** W40 (commodity
+  high -> short IEF) does not run backwards: with ^TNX r63 >= 80 a crude
+  collapse sees the ten-year RISE +5.7 bp over the hold in 6 of 7 episodes,
+  and the yields-elevated gate inverts the complement (+0.307% on 60 without
+  it, -0.341% with it). (kD_d1, _b)
+
+### Cells swept and empty
+
+- **NYSE net new highs negative with SPY near its high, first time opened.**
+  No tradeable 5-10 day short: the pre-specified 5d-EMA / 1% cell is one
+  episode (2015-08-17 = 154% of the total, -0.116% without it), and at the
+  production-like raw 3% arming the short LOSES -0.461% over 76 episodes
+  (27-49). The warning is a 63-day drawdown claim; do not trade it as a short
+  or as a TLT long (pre-2018 +1.06%, 2018+ -0.40%, breadth gate +0.076% vs
+  +0.083% all days). (kA_a1_nyse_div.py, _b)
+- **Short SPY across the quarter turn, QE-5 to QE+5 (buyback blackout).**
+  Wrong-signed, -0.582% on 40-66 over 106 turns; the quarter turn equals an
+  ordinary month turn (+0.11pp, t 0.28); March, June and December all rise.
+  (kA_a2_qe_turn.py)
+- **Short EEM into the quarter-end on dollar funding.** -0.803% on 33-60;
+  the dollar leg is flat on the same anchors (-0.099%, 47-46). The long
+  residual flip (+0.63%, t 4.04, December 18-5, September 10-13) is parked
+  for December with a flip charge owed. (kA_a3_eem_qe.py)
+- **Sector-ETF idiosyncratic high-volume down day, continuation.** Twelve
+  SPDRs plus KRE: -0.029% at h=1, +0.015% at h=5, I-squared 0%, lean is
+  reversal; XLF's own +0.56% is SVB and Feb-2020 (93%). The sector version
+  agrees with the single-name finding that non-financials revert.
+  (kB_b2_xlf_shock_short.py, _b)
+- **Short crude after a thrust round-trips in five sessions.** Loses -1.82%
+  (5-9); the same flush without the thrust pays the short +1.47% on 54; the
+  short is negative in 27 of 27 USO cells. The long flip is parked.
+  (kC_b3_uso_roundtrip.py, _b)
+- **Short GDX against beta-GLD after a one-day miner overshoot >= 2.5pp.**
+  Crisis-only: 2008 and 2020 are 89% of the h=2 total; ex those +0.061%
+  against +0.074% pair drift; 2021+ negative at every horizon. (kC_c2)
+
+### What survived, and the slice it lives in
+
+- **UNG after a >= +5% day on >= 3x volume, long h=2 from the next close.**
+  26 episodes, +3.67%, 21-5 (sign p 0.0012); NG=F front on the same dates
+  +5.20%, 16-6; neither leg alone pays (+5% without volume -0.14% on 186).
+  The volume-ratio threshold is a knife edge at 3.0x (4 marginal days at
+  3.03-3.08x went 1-3), and holds containing a Thursday EIA storage report
+  are the weak half (7-3, +0.88%; 2010+ 5-3, -1.14% on N=8, post-hoc).
+  Grade the 2026-09-23 instance against that slice, not the headline.
+  (kC_c3_ung_volthrust.py, _b, _dev; kR_ung_redteam.py, _b)
+
+## 2026-09-24: a hawkish cross-asset shock with no print, eleven candidates in two waves, all empty
+
+Eleven candidates over five novelty axes and ten asset classes, four checkers in
+two waves, stand-down. The 09-23 tape: ^TNX +14.6 bp to 5.114% at its 252 high,
+TLT/IEF/LQD all closing exactly at 252 lows (TLT on 1.78x volume), ^MOVE +21.5%
+(99.7th pctile of daily moves), UUP at its 252 high and DX 0.502% under it, both
+z10 +2.48, SLV -4.23%, GDX -4.36%, GLD -1.80%, USO +3.30%, SPY -0.72% (1.05% off
+its high), IWM -1.84%, EEM -2.01%, VIX +6.83% to 15.2. All scripts in
+scratch/pitch_checks/2026-09-24/.
+
+### Method traps
+
+- **Every cross-asset gate this morning kept the losing half.** Five of eleven
+  died the same way: the leg that names the mechanism subtracts from the plain
+  state underneath it. Dollar confirmation takes the gold short from +0.705% to
+  -0.009%; the dollar-up leg takes a crude rally from +0.107% (dollar-down days)
+  to -0.822%; the near-high leg takes the EEM breakout short from +0.031% to
+  -0.213%; the TNX-high leg makes the NFP run-in -0.572% against +0.171%; the
+  joint stock-bond day turns TLT's ordinary bounce (+0.272% without the SPY drop)
+  into continuation (-0.362%). The 2026-08-19 "gate that IS the mechanism
+  subtracts" trap, now at nine instances. Run the ungated parent first.
+- **A dose that inverts at the extreme makes today's reading the kill, not the
+  headline.** MOVE-spike cells pay in the 90th-95th percentile band and invert in
+  the top 2% (SVXY residual -0.689% at h=5 on 17-21). Today was the 99.7th
+  percentile. Read which bucket today sits in before reading the pooled mean.
+  (kD_v1_svxy_movespike_b.py)
+- **A watchlist arm can miss by a hair and the hair can be the whole edge.** W28
+  needed GLD at -2%; GLD printed -1.80%. The configuration that DID print (SLV and
+  GDX broke, GLD held) pays the short -0.066% on 84-123, so the miss was real
+  information, not bad luck. (kC_s1_slv_w28_b.py)
+- **Data notes.** CL=F's 2026-09-23 bar (-2.57% against USO +3.30%, a -5.0% open
+  gap) is the October contract's 09-22 expiry seam in the continuous series; read
+  USO for that session. DX-Y.NYB closed 0.502% under its 252 high, so a literal
+  "within 0.5%" gate did not fire. ^MOVE in the cache starts 2002-11-12 with 102
+  missing sessions. W32/W34's own relative-range percentile read 21.83 while the
+  site's abs-range flag read 14.31: two different compression definitions.
+
+### Cells swept and empty
+
+- **Long TLT after a high-volume down day into a fresh 252 low.** +0.643% at h=5
+  on 9-4, 25.7x cost, all 27 neighbours positive, and still dead: filter_vs_
+  reanchor gives filtering -0.690pp against re-anchoring +1.450pp, and the
+  MOVE-spike half the vol-targeting story names is the weak half (+0.136% on 4-3
+  against +1.235% on 5-1). Drop the top two and it is +0.027%. (kA_r1_tlt_voldown.py, _b)
+- **Long TLT from NFP k=-6 into the print close, ten-year near its 252 high.**
+  -0.572% on 5-9; every gated rung k=-10..-1 negative; non-NFP month-turn windows
+  under the same gate -0.555%. The ungated NFP-ending premium (+0.152% against
+  +0.007%) is -0.249% in midterm years and -0.324% on October prints.
+  (kA_n2_nfp_runin.py)
+- **Long IWM against beta-SPY after a lag on a +10 bp ^TNX day.** h=1 +0.167% on
+  23-21 (3.7x cost), flips at h=2, 2018+ -0.014%, top two episodes 89%. Note the
+  ex-ante 63d IWM beta was 0.81 against a 252d 1.18. (kA_u1_iwm_rates_lag.py)
+- **The dollar BREAKOUT pole: long DX after z10 >= 2 within 0.5% of its 252
+  high.** -0.173% at h=5 on 14-18; 2018+ 2-9 at -0.918%; each gate alone positive,
+  joint negative; every neighbour negative; midterm -0.183% against -0.166%. The
+  washout pole is W22. (kB_d1_dx_breakout.py)
+- **Short GLD after a CONFIRMED rate rise (the inversion of W13).** h=1 1-7 at
+  -0.721%; GC=F h=5 3-4. The unconfirmed complement pays the SHORT +1.205% on 7-3
+  at h=5 but GC=F and the parent disagree, and it contradicts W13's sign; not
+  parked. (kB_g1_gld_confirmed.py)
+- **Short EEM against beta-SPY after a dollar-breakout session.** -0.213% on
+  47-50; EEM 6 of 8 with P(max-of-8) 0.999. Closes the breakout pole of the EM
+  funding family. D1, G1 and E1 fire together: on shared sessions D1 and the gold
+  short correlate 0.63 at h=5, one dollar bet. (kB_e1_eem_dxbreak.py,
+  kB_joint_overlap.py)
+- **Long crude rallying through a dollar breakout.** USO -0.822% at h=5 on 26-30,
+  CL=F -0.567%; more dollar is worse (DX >= +0.6%: USO -2.918%). Zero overlap with
+  W63's round-trip state. (kC_o1_uso_dx.py)
+- **Short SPY with HYG's 21d rank <= 10 under a near-high index.** h=10 pre-2018
+  +0.722%, 2018+ -0.271%, top two 102%. When the weakness is duration (HYG/IEF
+  ratio rank high) it pays +0.068% on 8-14; the credit-residual slice (+1.029% on
+  14-6) has no episode after 2017. (kC_c1_hyg_spy.py, _b)
+- **Long 60/40 SPY/TLT after a joint stock-bond down day, first time opened.**
+  +0.019% on 39-37 at h=5 against +0.179% all days; beats the single gates only at
+  h=1-2; TLT continues (-0.362%, 32-44). 23 of 89 joint days are 2022.
+  (kD_j1_joint_selloff.py)
+- **Long SVXY hedged after a MOVE spike with VIX bid (the inversion of the 08-18
+  long-vol kill).** Top decile +0.210% at h=5 on 80-57, but the top 2% inverts,
+  the no-damage half pays less than the damage half at every horizon (the
+  fear-without-damage inverter reproduces on the SVXY residual), and drop-best-2
+  leaves +0.010%. MOVE spikes alone pay the h=1 residual +0.226% on 155-100 at
+  3.2x cost: parked with a dose arm. (kD_v1_svxy_movespike.py, _b)
+
+## 2026-09-25: the second leg of the rates shock, eight unopened cells, all empty
+
+Eight candidates over five novelty axes and seven asset classes, three checkers,
+stand-down. The 09-24 tape: ^TNX +4.8 bp to 5.162% at its 252 high, TLT/IEF/LQD/TIP
+all exactly at 252 lows (TLT -1.29% on 1.94x), ^MOVE +9.57% (97.4th pctile of daily
+moves, level at the 98.4th pctile of its year) with ^VIX 15.67 (19th), UUP at its 252
+high, USDMXN +1.48%, copper 1.25% under its high while gold is -7.6% in 21d, UNG
++6.26% on 5.55x two sessions after the 09-23 pitch's rule fired. All scripts in
+scratch/pitch_checks/2026-09-25/.
+
+### Method traps
+
+- **A ratio that moves on its denominator is not the signal its numerator names.**
+  Copper/gold at its 96.8th level pctile read as a growth-and-inflation
+  confirmation of the yield breakout, but 81% of the 21d move was gold falling
+  (HG +1.86%, GC -7.94%), and 12 of the 13 historical episodes were copper-led.
+  Before using any ratio as a conditioner, split its move into the two legs and
+  check the live split matches the sample's. Same family as the 2026-08-10 MOVE/VIX
+  denominator trap. (kB_c1_cugold_tlt.py, _b)
+- **A pitched rule's RE-FIRE is a different population from its first firing.**
+  The 09-23 UNG volume-thrust rule's 26 episodes split into 16 first firings (+4.26%,
+  14-2) and 10 re-fires within five sessions (+0.84%, 6-4), and inside the re-fire
+  state the volume gate no longer separates. When a pitched rule fires again inside
+  its own hold, score the re-fire population, never the headline. (kA_n1_ung_refire.py, _b)
+
+### Kills
+
+- **Long UNG h=2 on a re-fire of the >= +5% / >= 3x volume thrust.** Re-fires +0.84%
+  on 6-4 (sign p 0.377); +5% days without the volume inside the re-fire state +1.41%;
+  drop-best-1 -0.51%; h=3..5 -0.92% to -1.12%; re-fires inside the prior hold -7.02%
+  at h=10 (2-5), an exhaustion signature. The no-Thursday slice (6-1, +3.66%) is a
+  post-hoc split of a post-hoc split, parked as a scored out-of-sample entry only.
+  (kA_n1_ung_refire.py, _b)
+- **Long equity vol (short SVXY residual, short SPY) with ^MOVE level >= 95th pctile
+  and ^VIX <= 30th.** The VIX FALLS afterwards (-2.26% at h=5 against +3.66% for calm
+  VIX alone), short SPY 2-7 at h=5 (-0.714%). Third independent confirmation that a
+  bond-vol extreme is followed by calmer equity vol. The long-SPY flip belongs to the
+  MOVE-level parent (+0.812% at h=5, 33-17), and 47 of that parent's 50 episodes had
+  VIX above 30: a crisis-rebound effect, not a calm-tape one. (kA_v1_move_level_calm_vix.py)
+- **Long SVXY residual across the quarter turn, QE-3 to QE+1.** The first test of the
+  month/quarter-end anchor on volatility, and it closes the anchor on the last class:
+  34 quarter turns since 2018-03, residual +0.081% on 18-16 (1.2x cost); VIX/VIX3M does
+  not soften across the turn (+0.0023 vs -0.0001); September QEs -0.747% on 3-5; pre-
+  2018 synthetic -0.5x wrong-signed; 6 of 45 on the placebo ladder, 9 of 45 positive.
+  Ordinary month-ends run the residual -0.745% (28-40) because SPY rallies and SVXY
+  lags. **The month-end anchor is now closed on equities, rates, FX, commodities and
+  volatility.** (kA_q1_svxy_qturn.py, _b)
+- **Short TLT when copper/gold (21d rank >= 90) confirms a ^TNX 252 high.** 13
+  episodes 2003-2022; h=5 3-10, h=10 +0.681% with top two 86%; over the TLT-at-a-low
+  parent the ratio gate adds +0.10pp; the ratio as a trade (long HG / 0.534 GC) is
+  pre-2018 +1.78% against 2018+ -0.64% (1-4). (kB_c1_cugold_tlt.py, _b)
+- **Long copper miners against beta-HG after a >= 8pp 21d lag with copper within 3% of
+  its high.** First miner-vs-metal cell outside gold. FCX: the lag with copper NOT near
+  its high +1.292% at h=5 (170) against the cell's +0.640%, cell h=10 -0.609% (17-21),
+  residual net of HG and SPY -1.082%; -6/-10/-12pp neighbours negative. COPX has 4
+  episodes, all in the 2025-26 COMEX tariff-premium era. SCCO, TECK, XME and GDX/GLD
+  carry nothing: the label adds nothing. Byproduct, not parked: FCX lag at ANY copper
+  level +1.106% at h=5 (187, p 0.029) is -0.032% on COPX, the tradeable vehicle.
+  (kB_m1_copx_hg.py, kB_zz_byproducts.py)
+- **Long MXN after a carry-unwind session (USDMXN >= +1.25% with MOVE or VIX up).**
+  First carry-currency cell in the repo. 122 episodes, h=2 +0.130% on 62-60, top two
+  (2020-03-23, 2008-11-19) 61%; the edge is flat from h=1 to h=10 (+0.03 to +0.19pp)
+  when carry reassertion needs it to build; the vol gate subtracts at h=5; BRL, AUDJPY
+  and CADJPY wrong-signed under the same rule. NFP inside an h=5 hold -0.336% (26).
+  The >= +1.50% rung at h=2 is parked (charged for ~48 cells). (kC_x1_mxn_carry.py, _b, _c)
+- **Long FXI from QE-3 across Golden Week (the flip of the 09-18 short).** Raw +1.098%
+  on 12-9 vs own drift +0.323%; EEM residual ex-2024 +0.31% (10-10), 2015+ ex-2024
+  +0.01% (5-5) where the southbound-suspension story needs 2015+ stronger; placebo
+  rank 10 of 21; March and December quarter-ends pay the same shape. Golden Week is
+  closed in both signs. (kC_i1_fxi_gw.py, _b)
+- **Long a turned 63d laggard (r63 <= 5, r5 >= 70) into its print, k=-3 (live MU,
+  AMAT).** 162 liquid names, +0.056% SPY-hedged on 57-50 against the ungated print
+  premium +0.164% (637-538) and the same state with no print +0.017%. The already-
+  turned leg takes 0.35-0.40pp off the r63 floor alone (+0.402%), which is the closed
+  laggard lane. Semis in the state 2-7; MU in the state 1-2. Note: the earnings
+  calendar's timing column is 99% empty, so print-day exits cannot distinguish BMO
+  from AMC. (kC_e1_panel.py, kC_e1_mu_print.py)
+
+## 2026-09-28: the rates shock at the quarter turn, twelve candidates in two waves, all empty
+
+Twelve candidates over six novelty axes and ten asset classes, four checkers,
+stand-down. The 09-25 tape: ^TNX at its 252 high (63d rank 100), TLT at a fresh 252
+low on 2.0x volume on a flat day, ^MOVE +38% in 21d after a +21.5% day on 09-23 and
+-8.2% on 09-25, ^VIX 14.9 with its 21d range compressed 22 sessions, SPY 0.59% under
+its high and QQQ 0.40%, IWM 63d rank 0.4 (QQQ minus IWM +10.2pp over 21d), UUP z10
+2.00 near its high, GLD 20.7% and SLV 44.9% under their highs, USO +16.5% over 21d
+with a third -3% day in eight sessions. All scripts are in scratch/pitch_checks/2026-09-28/.
+
+- **Long IWM against short QQQ after a record 21d size spread (trailing-252 rank >= 99.5).**
+  h=5 +0.062% on 26-22 is 1.0x a 6 bp pair; 2018+ excess -0.045pp (7-5) at h=5 and
+  -0.105pp (4-5) at h=10. The QQQ-within-1%-of-its-high half pays the other side, 4-10
+  at -0.491%. The absolute >= 10pp neighbour is a high-vol-tape cell (2001, 2002, 2008,
+  2020). Beating "QQQ strong" alone proves nothing, since that control is momentum.
+  (a1_size_spread.py, a1b)
+- **Long IWM across the quarter turn gated on IWM r63 <= 5.** The gate subtracts:
+  +0.063% at h=4 against +0.363% ungated over 105 quarters, the same gate at ordinary
+  month-ends beats quarter-ends, and the IWM-minus-SPY residual is negative at every
+  horizon, so there is no small-cap reversal. The h=5 number is 2001-09 and 2015-09
+  (drop-best-2 -0.98%). (a8_q4_turn.py)
+- **Nearest-neighbour analogue on seven cross-asset features (fifth dead analogue lane).**
+  Largest edge t 0.97 over 10 proxies by 2 horizons, random-date P 0.982, and a
+  150-anchor reference class beats today's grid 96% of the time. Dropping one feature
+  keeps only 6-9 of 20 neighbours. (a7_knn.py, a7b, a7c)
+- **NFP run-in (k=-4) short DX and long GLD with DX 21d rank >= 85 and ^TNX at its 252
+  high.** The crowded-dollar leg is wrong-signed alone (short DX -0.083% on 24-26,
+  midterm -0.545% on 5-10) and strips GLD's ungated NFP run-in (+0.290% on 150-111 to
+  -0.082%). The TNX-high leg alone is parked (see the watchlist). (b2_nfp_runin.py, b2b)
+- **Short equity vol with ^MOVE's 21d rank >= 95 while VIX is calm (21d-return form).**
+  SVB 2023-03 and 2018-01 are the trade; without them the MOVE gate is worth -1.00pp on
+  the SVXY residual and -1.59pp on ^VIX. This is the fourth form (level, 5d rank, spike,
+  21d rank) to show that a bond-vol extreme is followed by calmer equity vol.
+  (b3_move_vix.py, b3b)
+- **Credit not confirming an index high (HYG 5d rank <= 5, LQD at its 252 low, SPY
+  within 1% of its high).** One precedent (2026-09-25 itself). Without the LQD leg it is
+  kC_c1, and the duration-driven half pays short SPY 0.00% on 2-5 at h=5.
+  (b4_credit_nonconfirm.py, b4b)
+- **Long SLV against beta-GLD after a >= 35% silver drawdown with the ratio at a 252
+  extreme.** The ratio gate subtracts (-0.007% on 20-26 against +0.267% for the
+  drawdown alone), and 45 of 46 episodes are pre-2018. (c5_slv_gld.py)
+- **Long GLD >= 15% under its 252 high with DX 21d rank >= 85.** It passes round 1 (55
+  episodes, +1.132% at h=5, 33-22), but the dollar gate does not filter (-0.43pp, 72%
+  re-anchoring, reanchor p 0.015). Below GLD's 200d, the live regime, 2018+ is 7-7 at
+  +0.013pp. The 7-0 above-200d half is post-hoc. (c5b_gld_dx.py, c5c, c5d)
+- **Short crude after a -3% day inside a 21d thrust.** Wrong-signed in all 28 cells (USO
+  6-18 at -1.413%, CL=F 7-17 at -1.749% at h=3), and the thrust gate makes it worse than
+  a plain -3% day (+0.276% short). This is the second confirmation after the 09-23
+  round-trip kill. (c6_crude_crack.py)
+- **Long XLE against short USO on a 21d crude-over-equity gap.** The dose runs backwards
+  (>= 20pp -1.560%), and the 63d-state intersection pays -1.176% on 5-10. With SPY above
+  its 200d it is 10-17. It is a lookback neighbour of b5_xle_uso_divergence (44% shared
+  trigger days). (c9_xle_uso21.py)
+- **Long TLT/IEF on the first >= 5% ^MOVE fall inside five sessions of a top-3% MOVE
+  rise (the vol-targeting re-lever story, written down before the check).** All 8
+  vehicle-horizon cells trail drift. Entering on the crush filters -0.149pp against
+  entering on the spike day, which itself pays +0.207% at h=5. Top-1% spikes pay -0.550%
+  on 14-22. (d10_move_crush.py)
+- **Long equity vol from the September QE-2 close into the midterm October.** Presidential
+  years pay more (^VIX h=10 +27.1% against +20.8%), so the real split is election year
+  against odd year, which is closed (kC_c7). 2014 and 2018 carry 97% of the total, and
+  the midterm-minus-other gap ranks 12 of 12 months at h=5. (d11_midterm_oct_vol.py, d11b, d11c)
+- **Long XLU against ex-ante beta TLT and SPY on a trailing-252 residual low.** The tenth
+  dead utilities expression and the first residual pair: h=5 -0.346% on 30-31, 2018+ 8-14.
+  The residual gate filters -0.771pp against the plain washout, and the SPY hedge leg
+  subtracts -0.44pp. (d12_xlu_resid.py)
+- **Method note: the fragility column used for history.** `main_score` in
+  rd2_fragility.parquet is filled only from 2026-09-17. A 10-day mean of the `63d` column
+  reads 76.8 on 09-25 against the state file's 80.9, so any cell gated on "ma10(63d)" has
+  to name the construction it used.
+
+## 2026-09-29: the metals break on the rates-shock tape, eight candidates, all empty
+
+Eight candidates over five novelty axes and seven asset classes, three checkers,
+stand-down. The 09-28 tape: GLD -3.94%, SLV -5.49%, GDX -5.36% (the first
+complex-wide break, watchlist 28 out-of-sample firing 1 of 10), ^TNX +1.08% to a 252
+high of 5.24%, UUP at its 252 high, SPY -0.74%, ^VIX +8.07% to 16.1, ^MOVE +6.06%,
+HYG -0.41% on 2.78x volume a day before quarter-end, TLT -0.88% on 2.0x into a fresh
+252 low. All scripts are in scratch/pitch_checks/2026-09-29/.
+
+- **Long gold after a one-day crash of >= 3.5%, with yields and the dollar at highs.**
+  The 2013 inversion shows up in its own window: with ^TNX near its 252 high the crash
+  day pays -1.429% on 1-4 at h=5 (GC=F 1-3), against +0.876% on 22-16 bare. The 2 ATR
+  form is flat (33-33 at h=5). Below the 200d and >= 15% off the high, the crash day
+  loses to the same drawdown without one (+0.214% on 5-7 against +0.468% on 84-73);
+  86% is re-anchoring (reanchor p 0.43). Joins the gold-at-a-yield-high family (lines
+  1885, 4612, 4845). (kA_c1_gold_crash.py, kA_c1b)
+- **Long gold from a first complex break into the payrolls close.** The crash strips
+  gold's ungated NFP run-in (+0.237% on 151-109) to -0.300% on 8-7 for breaks 2-4
+  sessions before the print, 0.17pp under the same trigger with no print. The placebo
+  ladder by distance to NFP is flat (-0.136% to -0.382%). (kA_c7_gold_nfp.py)
+- **Short SLV against beta-GLD after a first complex break.** It is W28's GLD-beta
+  residual in pair clothing: the silver leg is 150% of the h=1 pair (+0.412% on 61-40)
+  and the gold leg loses. When silver fell LESS than its beta on the break day (the
+  09-28 case, 85th pctile), h=3 pays +0.136% against +1.113%: read the break-day
+  residual before scoring any W28 firing. (kA_c2_slv_gld_pair.py, kA_c2b)
+- **Long HYG after a >= 2.5x-volume down day, at the month turn or any date.** At
+  ME-3..-1 the spike subtracts (+0.441% on 3-1 against +1.004% on 12-3 for the 5d
+  washout alone). The any-date parent (+0.800% on 37-16 at h=5) is 2018+ -0.443% on
+  6-8 with 2008 at 44% of the total, and the duration-driven form (IEF r5 <= 20) pays
+  -1.249% over 10. HYG has no pre-quarter-end volume bulge (0.97-1.00x at QE-3..-1);
+  its month-end bump lands on the ME close itself. (kC_c3_hyg_volume.py, kC_c3b, kC_c3c)
+- **Long SPY from the midterm Q3-end with the index within 2% of its high.** The
+  famous rally comes off a midterm low: near-high midterm Octobers +0.05% on 4-4 (1950+
+  monthly, French market series) against +4.74% on 9-2 for those > 2% off the high;
+  daily 2000+ near-high midterms 1-2 at -3.26% (QE-1, h=10); 2013+ midterm Q4 -0.97%
+  on 2-1. The live cycle split is odd against even years (+1.84% on 11-2 against -1.43%
+  on 6-7), the same finding as the 09-28 vol kill. ^GSPC in the cache starts
+  2000-01-03. (kC_c6_midterm_q4.py)
+- **EWZ into and across the Brazilian first round (uncertainty resolution).** The
+  record is strong (^BVSP run-in 6-0, EWZ-EEM across +7.41% on 5-0) and the mechanism
+  is wrong: the run-in is positive, the six runoffs show nothing (pair +0.004%, reaction
+  2-4 at -1.89%), and municipal years run in 1-4 at -2.5%. The big Mondays (2014, 2018,
+  2022) are first rounds where the market-favoured challenger beat the polls; 2002 was
+  -6.0%. Any Brazil-vote trade needs a poll-miss side, which the repo lacks.
+  (kB_c4_ewz_vote.py, kB_c4b)
+- **Long USDJPY after the Japanese half-year book close (Mar+Sep).** +0.305% on 33-20
+  QE-1..QE+5 against the post-QE dollar parent +0.228% (t 0.35); September alone
+  +0.198%; USDJPY RISES into the closes (+0.235% on 35-18), the opposite of
+  repatriation. Third dead Japanese book-close cell after EWJ (line 4937).
+  (kB_c5_usdjpy_qe.py, kB_c5b)
+- **Long crude into payrolls on a 63d thrust (USO r63 >= 75).** The gate adds +0.27pp
+  at t 0.40 (+0.482% on 35-31 against +0.210% without a print); 70/80/90 thresholds all
+  under t 0.9. The 21d neighbour is real and parked on the watchlist, but it dies when
+  a month-end falls inside the hold (-0.397% on 8-6). (kB_c8_uso_nfp.py, kB_c8b-d)
+- **Method note: two z10 conventions.** HYG z10 on 09-28 is -2.08 on
+  `pitch_lab.zscore` and -1.63 on the tape builder's convention. Any watchlist arm
+  written on "z10" must name which one it used.
+
+## 2026-09-30: the quarter-end close itself, nine candidates, all empty
+
+Nine candidates over five novelty axes and seven asset classes, three checkers,
+stand-down. The 09-29 tape was the seventh session of the rates shock (^TNX 5.255% at
+its 252 high, ^MOVE 106.6 and +35.7% in 5d, TLT/IEF/LQD at 252 lows, UUP at its high,
+GLD -4.3% / SLV -8.6% / GDX -9.0% in 5d, USO -4.44% and UNG -4.08% on the day, SPY
+1.51% off its high). The new object was the Q3-end close as an entry anchor (QE-0),
+as opposed to the run-ins INTO it swept 09-17 through 09-28. All scripts are in
+scratch/pitch_checks/2026-09-30/.
+
+- **Short TLT from the month-end close (post-extension give-back), TNX-gated.** The
+  gate does not filter (-0.001% at h=5 on 5-5 against +0.272% for the 280 month-ends
+  it deletes; ladder -0.03 / -0.00 / +0.74 / +0.50% at 0.5 / 1 / 2 / 3%). The ungated
+  parent is real (+0.262% on 167-123, sign p 0.006, +0.343pp over all days) but it is
+  the same moving part as the pre-ME run-in: ME+1, the session the give-back names, is
+  -10.5 bp against base since 2020, and the carrying session moves ME+3 -> ME+6 ->
+  ME+4/5 by era. The month-end premium is identical after big and small run-ins
+  (+0.358 against +0.356pp), so "borrowed extension demand" has no dose. The month-turn
+  TLT profile is a control on both sides of the close, never a trade.
+  (kA_c2_tlt_post_me.py, kA_c2b_sessions.py, kA_c2c_era_sessions.py)
+- **Long DX from the quarter-end close, dosed by SPY-minus-EFA 63d (FX hedge
+  rebalance reversal).** Dose flat (slope +0.0121, t +0.55), US-led tercile lowest, and
+  the mechanism leg is wrong-signed: US outperformance predicts the dollar RISING into
+  the QE (t +2.11). This closes the relative-equity FX hedge story at quarter-ends as
+  well as month-ends (line 2107). The post-QE dollar parent (+0.244% on 62-44) is 17-17
+  since 2018; its modern strength is December QE+1 (7-1), September 2018+ 3-5.
+  (kA_c5_dx_post_qe.py, kA_c5b-d)
+- **Short EEM against beta-SPY from the QE close (give-back of W62's run-in).**
+  Wrong-signed at every horizon (h=5 -0.169% on 40-49), September 8-14. The run-in does
+  not predict the give-back (t +0.49). EEM's beta residual is strong on the first session
+  of EVERY month, so any post-QE EM short fights the turn of the month; W62's 0.93 beta
+  is far under the live trailing 1.505. (kA_c8_eem_post_qe.py)
+- **Watchlist 55 (quarter-end SPDR reversal) fired and died.** 2018+ +1.010% on 22-12
+  cleared the arm, but 2021 and 2026 are 85% of it (+0.188% without them), the QE label
+  is worth -0.140pp against ordinary month-ends before 2018, and QE+1 is 42-62. **A
+  sector winners-minus-losers spread whose universe includes XLE must be re-run without
+  XLE**: the reversal goes +0.388% -> +0.013%, and today's 22.4pp gap is 15.2pp ex-XLE.
+  The dispersion form is parked (see the watchlist). (kB_c1_w55_reversal.py,
+  kB_c1b_round2.py, kB_c1c_dispersion.py, kB_c1d_disp_form.py)
+- **Long money-centre banks from k=-9 into the Q3 kickoff prints after a 21d washout.**
+  The gate inverts (-1.540% on 2-5 against +0.574% on 65-42 ungated), and the ungated
+  run-in is not a bank effect: XLF against beta-SPY +0.044% on 44-58, every sector rises
+  in the window (SPY +0.545% against +0.177%). It is the start of a quarter's first month
+  wearing an earnings label; the bank label carries nothing (third time after W17, W51).
+  (kB_c4_bank_kickoff.py, kB_c4b_ungated.py, kB_c4c_print.py)
+- **Long REITs against beta-SPY from the QE close after a rate-shock quarter.** IYR at
+  a 63d floor -2.306% at h=5 on 1-8, wrong-signed at h=1..10 and in both eras; ungated
+  post-QE IYR -0.534% on 46-54 (t -2.25). Quarter losers keep lagging into the new
+  quarter, matching line 5114. The flip (short REITs from the QE close) owes a flip
+  charge and is midterm-wrong (IYR 12-14, XLRE 4-6). (kB_c7_reit_qe.py, kB_c7b_flip.py)
+- **Short UNG across the October roll.** October earns LESS than the short's ordinary
+  bleed (h=5 -0.067% on 10-9 against +0.424% any day; negative excess at 8 of 10
+  horizons), UNG beats its own front contract by +8.2 bp per session on October roll
+  days, and the h=5 excess flips +0.31pp -> -1.86pp across 2018. **Roll-carry claims
+  need the ETF-minus-front gap by session**: the roll-day gain is the November contract
+  falling, and W45's -43.41 bp October drag includes NG=F's own expiry seam.
+  (kC_c3_ung_oct_roll.py, kC_c3b_ung_roll_sessions.py)
+- **Long GLD from the QE close after a quarter-end-week flush.** 7-0 at h=7 (p 0.008)
+  and QE+0 ranks 1 of 13, but gold is not sold into quarter-ends (run-in +0.37% against
+  +0.23% all days), the rule is wrong-signed on SLV and GDX, and it pays only when yields
+  fell into the close (^TNX rising: +0.25% on 3-3). Fourth gold rebound to fail with
+  yields at a high (lines 1885, 4612, 4845, 09-29 kA_c1). Parked on the yield leg.
+  (kC_c6_gld_qe_flush.py, kC_c6b-d)
+- **Long USO after a >= 4% fall with the 63d rank >= 70.** +1.64% at h=3 on 16-11 is
+  81% 2026; ex-2026 +0.48% on 10-8, the gate worth +0.10pp; -3.5% to -4.0% falls pay
+  -2.44% on 3-14 and the trend dose runs backwards. The FIRST -3% day after a 21d thrust
+  (the long side of the 09-28 c6 short) holds without 2026 at +1.25% on 16-3, sign p
+  0.002, the first crude-drop long not carried by one regime; it is a sign flip found
+  inside a kill, so it is parked as a pre-registered CL=F form, not pitched.
+  (kC_c9_uso_drop_uptrend.py, kC_c9b_uso_r2.py, kC_c9c_family_and_book.py)
+- **Lead, not a kill: the natural-gas month ladder's standout is DECEMBER**, which no
+  mechanism here named. Short from the November month-end close at h=10 pays UNG +7.12%
+  on 15-4 and NG=F +6.93% on 14-5 seam-free, a 1-of-12 pick (x12 charge 0.12 / 0.38) and
+  a price effect rather than carry. Re-derive forward with a stated mechanism before
+  treating it as anything. (kC_c3_ung_oct_roll.py)

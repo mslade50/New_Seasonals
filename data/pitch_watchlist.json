@@ -178,7 +178,7 @@
    "script": "scratch/pitch_checks/2026-08-20/a3c_c7_kre_pair_teardown.py",
    "source": "stand_down",
    "expires": "2027-02-20",
-   "note": "2026-09-04 verdict: PASS. The arm is an ex-crisis cost threshold that no single session moves. | 2026-09-17: breadth live (9 of 11 at r5 <= 20) but the median 63d rank was 29.0, the broken form, not the intact >= 70 cell."
+   "note": "2026-09-04 verdict: PASS. The arm is an ex-crisis cost threshold that no single session moves. | 2026-09-17: breadth live (9 of 11 at r5 <= 20) but the median 63d rank was 29.0, the broken form, not the intact >= 70 cell. | 2026-09-21 verdict: PASS (breadth 11 of 11, median r63 34.5). The rates-gated long-XLF form (bear steepener) was checked and killed: not live (10y-3m +6.7 bp vs 25 bp) and the curve gate is worth -0.134pp. (kA_c5_r1.py)"
   },
   {
    "added": "2026-09-01",
@@ -188,7 +188,7 @@
    "script": "scratch/pitch_checks/2026-09-14/k1_c1_dose_b.py",
    "source": "stand_down",
    "expires": "2027-09-01",
-   "note": "2026-09-10: fired in full and died on its own declared charge; re-armed on the clearance dose (see the trigger). The level leg is satisfied today, so the only open arm is magnitude: >= +88 bp on the 252-session change, against +79.1 bp live. | 2026-09-14: dose arm FIRED (+94.3 bp) and the cell was killed on firing; trigger rewritten to an out-of-sample realized-return arm (k1_c1_dose.py, k1_c1_dose_b.py, k1_c1_parent_c.py)."
+   "note": "2026-09-10: fired in full and died on its own declared charge; re-armed on the clearance dose (see the trigger). The level leg is satisfied today, so the only open arm is magnitude: >= +88 bp on the 252-session change, against +79.1 bp live. | 2026-09-14: dose arm FIRED (+94.3 bp) and the cell was killed on firing; trigger rewritten to an out-of-sample realized-return arm (k1_c1_dose.py, k1_c1_dose_b.py, k1_c1_parent_c.py). | 2026-09-24 verdict: CHECK, tally moved. OOS episode 1 (signal 09-09, 09-10 to 09-22) realized -65.0 bps on the h=8 curve against the +22.1 bps mean needed. OOS episode 2 signalled at the 09-23 close (^TNX 5.114 at its 252 max, 252-session change +97.1 bp): entry 09-24 MOC, exit 10-06 close. Episodes 2 and 3 must now sum to >= +131.3 bps."
   },
   {
    "added": "2026-08-24",
@@ -219,16 +219,6 @@
    "source": "near_miss",
    "expires": "2027-02-25",
    "note": "2026-09-04 verdict: PASS. XLI r5 10.4 clears the washout leg but XLI is -6.41% off its high against the within-5% clause."
-  },
-  {
-   "added": "2026-08-25",
-   "title": "The utilities washout with the long end hit ALONGSIDE it, which is the negation of the cell pitched on 2026-08-25",
-   "cell": "utilities x rates, washout co-movement",
-   "trigger": "THE RATES LEG FLIPPING SIDES, and read the debt before touching this. The morning pitched 'XLU washed out while TLT sat mid-range' on the theory that an equity rotator is a better seller than a rates repricing; the tape says the opposite. XLU 21-day rank <= 5 with TLT ALSO hit pays +0.858% at h=5 over 28 episodes at a 75.0% hit (sign p 0.006) and +0.971% at h=3 on a 64.3% hit, while the pitched mid-range version pays +0.090% against XLU's all-days base of +0.132%, i.e. -0.042pp against doing nothing. TURNS ON at XLU 21d rank <= 5 AND TLT 21d rank < 25 on the same session; today TLT's 21d rank is 48.4, so the state is not live. THREE DEBTS, none optional, because this was recovered from the corpse of a kill and the anti-rescue rule applies. (1) It owes its own pre-registration and a FORWARD re-derivation - it is a post-hoc sign flip found inside a kill report, which is exactly the shape the 2026-08-24 narrow-energy entry was made to pay for. (2) The nine-sector reference class has NOT been run on this form; on the parent it put XLU 8 of 9 with Cochran Q p=0.946, so it must be shown this is not an any-sector effect. (3) The parent cell is itself a strict subset of the dead 2026-08-12 rank21<=5 utilities cell, and utilities are now dead in eight expressions, so the prior here is bad and the burden is correspondingly high.",
-   "script": "scratch/pitch_checks/2026-08-25/b1_c3_xlu_washout_tlt_fine.py",
-   "source": "stand_down",
-   "expires": "2027-02-25",
-   "note": "2026-09-04 verdict: PASS, rates leg wrong-signed a seventh straight session. XLU r21 39.4 against <= 5, TLT r21 43.0 against < 25. | 2026-09-15 verdict: PASS, closest single-leg miss on the list. XLU r21 3.97 clears <= 5; TLT r21 25.79 against < 25, short by 0.79. Not re-derived at a looser rung."
   },
   {
    "added": "2026-08-26",
@@ -293,12 +283,12 @@
   {
    "title": "Short silver after the whole metals complex breaks together",
    "cell": "metals, complex-break continuation on the highest-beta member",
-   "trigger": "THE LAG PROFILE, i.e. a mechanism rather than a level, and it is the hardest arm on this list. The cell passes everything the usual battery asks: gate attribution is decisive (the three-name conjunction pays +0.531% at h=1 against +0.031% for SLV breaking alone, the discarded half -0.091% and the anti-cell -0.278%), the local +/-126td control clears at welch t +2.21, the record is 67-52 at sign p 0.019 scored against silver's OWN 46.35% down-rate, declustering is stable at gap 5/10/21, and the GLD-beta residual survives at +0.322pp, so it is NOT the closed 'second metals leg is size' objection. It dies because the effect has no shape: lag=0 pays +0.039%, lag=1 +0.516%, lag=2 +0.035%. One session wide, starting a session LATE, which no forced-deleveraging continuation predicts, and the naive no-lag look being 13x SMALLER than the tradeable one is backwards from every other cell in this repo. The entry-day direction is also irrelevant (corr -0.033) and runs against the story, since the cell pays +0.867% on 28-15 when silver BOUNCES over 1% on the entry day against +0.573% on 25-25 when it keeps falling. TURNS ON at either of two numbers: (a) the live-depth bucket (an SLV break of -4% or worse, where 2026-08-28's -4.38% sat) reaching 46-36 from its current 35-36, which is sign p 0.049 against the 46.35% down-rate; or (b) the six-family common excess reaching +0.229% from +0.132%, or the raw metals excess +0.936% from +0.566%, either of which lifts the empirical-Bayes shrunk estimate (weight 0.21, tau-squared 0.0198) past 5x a 6 bp round trip from today's 3.7x. NEITHER FIXES THE LAG PROFILE, so a future instance must ALSO show the effect at lag=0 or lag=2 before it is tradeable on a stated mechanism. Two standing caveats: 2026 alone is 32% of the 20-year h=1 total (+19.71pp of +61.38pp) and ex-2008/2020/2026 the cell is +0.204% on 45-39; and Friday triggers are the only negative weekday (-0.340%, 10-13) while month-end entry sessions pay -0.474% on 4-4, both of which described 2026-08-31 exactly. Development work is already done and reusable: MOC is the only entry that works (+0.596% per signal against +0.068% at a 0.15 ATR close-anchored limit on a 76.9% fill), any target destroys it (1.0 ATR takes +0.596% to +0.381%), h=1 time-only, and losers averaged -1.85% by day 1 with no day 2 to recover in. See b4c2_c19_slv_dev.py.",
-   "script": "scratch/pitch_checks/2026-08-31/b4c_c19_slv_short_teardown.py",
+   "trigger": "REWRITTEN 2026-09-24: THE FIRST BREAK, AND AN OUT-OF-SAMPLE RECORD. The old arm (a -4% depth leg plus a lag profile) is retired: the depth gradient runs backwards (SLV <= -3.5% +0.454%, <= -4.0% +0.412%, <= -4.5% +0.269% at h=1 lag 1) and no single firing can show a lag profile, so it could never be met. What the re-run found: the faithful cell (GLD, SLV, GDX each <= -2%) still pays the SLV short +0.557% at h=1 from the next close on 68-52, but ALL of it is FIRST breaks (no faithful break in the prior 5 sessions): +0.639% on 63-46, sign p 0.011, +0.446% pre-2018 and +1.084% after, while repeat breaks reverse at -0.953% on 16-34. The split was found on 2026-09-24, so it is post-hoc. TURNS ON when the first 10 first breaks from 2026-09-24 onward go 8-2 or better (sign p 0.033 against SLV's 46.35% down-rate) with a mean of +0.30% or more at h=1 lag 1 (10x a 3 bp round trip). Until then each live first break is scored, not pitched.",
+   "script": "scratch/pitch_checks/2026-09-24/kC_s1_slv_w28_b.py",
    "source": "stand_down",
    "expires": "2027-08-31",
    "added": "2026-08-31",
-   "note": "2026-09-04 verdict: PASS. The complex bounced again (SLV +2.51%, GDX +3.95%, GLD +1.85%); the depth arm needs a break of -4.00% or worse. | 2026-09-18 verdict: PASS (complex rose). The UP-day mirror was checked and killed: the continuation lands on D+1 (lag 0 +0.498% vs lag 1 -0.035% at h=1), and confirmed days pay less than SLV-only days at the tradeable lag. (kC_c6_r1.py, kC_c6c_magnitude.py)"
+   "note": "2026-09-04 verdict: PASS. The complex bounced again (SLV +2.51%, GDX +3.95%, GLD +1.85%); the depth arm needs a break of -4.00% or worse. | 2026-09-18 verdict: PASS (complex rose). The UP-day mirror was checked and killed: the continuation lands on D+1 (lag 0 +0.498% vs lag 1 -0.035% at h=1), and confirmed days pay less than SLV-only days at the tradeable lag. (kC_c6_r1.py, kC_c6c_magnitude.py) | 2026-09-24 verdict: CHECK, not a firing. SLV -4.23% and GDX -4.36% cleared, GLD -1.80% missed its -2% leg by 0.20pp; that SLV-and-GDX-only configuration pays the short -0.066% on 84-123. Arm rewritten to the first-break form. Out-of-sample first-break tally: 0 of 10. | 2026-09-29 verdict: CHECK, FIRED. Out-of-sample first break 1 of 10 on the 09-28 bar (GLD -3.94%, SLV -5.49%, GDX -5.36%; no faithful break 09-21..09-25). Score short SLV from the 09-29 close to the 09-30 close on the 09-30 morning (SLV 54.95 on 09-28). Silver fell 1.50pp LESS than its GLD beta that day (85th pctile of first breaks), the bucket that pays less (w_28_first_break.py, kA_c2b_slv_gld_pair.py)."
   },
   {
    "title": "Long duration with the ten-year at a yield high and bond vol MID-RANGE, not compressed",
@@ -553,17 +543,7 @@
    "script": "scratch/pitch_checks/2026-09-17/k1_c7_fomc_split.py",
    "source": "stand_down",
    "expires": "2026-10-08",
-   "note": "2026-09-17: closest #1 in the stand-down."
-  },
-  {
-   "added": "2026-09-17",
-   "title": "Short the quarter's two best SPDRs against its two worst from the quarter-end close",
-   "cell": "quarter-end x sectors, the post-quarter reversal half of window dressing",
-   "trigger": "A DATE, then an era split. Winners minus losers (top-2 minus bottom-2 SPDRs by 63d) from the quarter-end close to QE+5 run -0.367% over 105 quarters (44-61) against -0.007% at ordinary month-ends, so the reversal pair earns about +0.37%. Unchecked beyond that one row, and a byproduct of the dead run-in cell (September 2018+ 3-5; run-in and reversal uncorrelated at +0.038), so it owes a charge for the walk. CHECK on the 2026-09-30 morning (anchor = the 09-30 close, h=5): TURNS ON if the 2018+ reversal clears +0.40% (5x an 8 bp two-leg round trip) and the September subset is not wrong-signed.",
-   "script": "scratch/pitch_checks/2026-09-17/k1_c2_window_dressing.py",
-   "source": "stand_down",
-   "expires": "2026-10-01",
-   "note": "2026-09-17: closest #2 in the stand-down; enterable only at a quarter-end close."
+   "note": "2026-09-17: closest #1 in the stand-down. | 2026-09-21: arm MEASURED and off. No-FOMC quarters since 2008, QE-9 to QE long DX +0.209% on 23-18, +0.197pp over ordinary month-ends (t +0.94); +0.021pp if a decision on the entry day counts. Below the +0.25pp bar. (kC_c8_r1.py)"
   },
   {
    "added": "2026-09-18",
@@ -591,9 +571,155 @@
    "script": "scratch/pitch_checks/2026-09-18/kB_c9_r1.py",
    "source": "stand_down",
    "expires": "2026-10-20"
+  },
+  {
+   "added": "2026-09-21",
+   "title": "Long a 63-day winner that has lagged over 21 days, into its earnings print (the GIS form)",
+   "cell": "earnings print x price state (r63 >= 80 AND r21 <= 15), single names",
+   "trigger": "SPY BELOW ITS 200-DAY at the signal close, plus a search charge that has never been paid. Long the name MOC two sessions before its announcement date, exit at the pre-print close (k=2, h=1), beta-hedged: +0.82% on 24-11 over 35 liquid events (sign p 0.020) against +0.14% for the same cross with no print, true anchor 1 of 16 on the offset ladder in both universes, monotone in the 21-day rung (<= 5 +2.06%, <= 10 +0.88%, <= 20 +0.48%, <= 25 +0.30%). It was 1 of 16 cross rows tried inside a kill, so it is charged. With SPY above its 200d (2026-09-21) it pays +0.24% on 16-10, 2.4x a 10 bp round trip; below the 200d 8-1 at +2.50%, where 2002 and 2008 carry 43%. 2018+ +0.25% on 9-6, and starting at k=3 flips the broad universe to -0.04%. TURNS ON when a liquid name in the cross has a print within 2 sessions while SPY closes below its 200d, with a fresh broad-universe replication and the k=3 row re-run on the day.",
+   "script": "scratch/pitch_checks/2026-09-21/kB_c9b_cross.py",
+   "source": "stand_down",
+   "expires": "2027-03-19"
+  },
+  {
+   "added": "2026-09-21",
+   "title": "Long LQD against beta-IEF from seven sessions before the December quarter-end",
+   "cell": "credit x quarter-end, December only",
+   "trigger": "A DATE, then an equity-neutral bar. The December QE-7 row of the killed issuance-blackout cell pays +45 bps at h=17 on 19-4, equity-neutral on ex-ante IEF and SPY betas +29 bps on 15-8, against -17 bps at ordinary month-ends. Its return sits before the quarter-end (+36 of +45 bps), so it reads as a year-end effect and the supply-drought mechanism does not apply (September is the only losing quarter, -24.7 bps on 12-11). It owes its own mechanism. TURNS ON at the 2026-12-21 close if the equity-neutral December form beats ordinary month-ends by >= 25 bps on a fresh run, with the HYG row and a December offset ladder reported beside it.",
+   "script": "scratch/pitch_checks/2026-09-21/kD_c11_r2.py",
+   "source": "stand_down",
+   "expires": "2026-12-22"
+  },
+  {
+   "added": "2026-09-21",
+   "title": "The utilities washout with TLT hit alongside, as a DELAY rule (retired watchlist 23)",
+   "cell": "us_large sector x rates state",
+   "trigger": "OUT OF SAMPLE ONLY. Watchlist 23 fired for the first time on 2026-09-18 (XLU r21 1.59, TLT r21 24.60) and was killed: the cell reproduces (+0.858% at h=5, 21-7, sign p 0.006) but the TLT gate is worth -0.085pp at the same anchors, 90-96% of the edge is the later entry date (reanchor null p 0.012), the rate-sensitive family on the same form is wrong-signed, and the 10d and 42d lookbacks are negative. Only the timing claim survives, and it has no mechanism. TURNS ON only if the joint state's forward firings from 2026-09-21 (first day of each cluster, h=5) beat XLU's own r21 <= 5 washout on the same dates by >= +0.25pp over at least five new episodes. The 2026-09-18 firing is the first of them.",
+   "script": "scratch/pitch_checks/2026-09-21/kA_c1_r2.py",
+   "source": "stand_down",
+   "expires": "2027-09-21"
+  },
+  {
+   "added": "2026-09-23",
+   "title": "Long EEM against beta-SPY from QE-5 into the December quarter-end close",
+   "cell": "international x quarter-end, the long residual flip of the killed funding short",
+   "trigger": "A DATE, then a flip charge. Found as the opposite sign of the 2026-09-23 EEM quarter-end short (which lost -0.803% on 33-60). Long EEM against 0.93-beta SPY from the QE-5 close to the quarter-end close pays +0.63% at t 4.04 (59-34) over 93 quarters, December 18-5, September 10-13, and it has decayed (pre-2013 +1.34%, 2013+ +0.42%). The dollar leg of the funding story is flat on the same anchors, so no mechanism is attached yet. TURNS ON at the 2026-12-23 QE-5 close if the 2013+ December row alone clears 5x a two-leg round trip after charging the sign flip (2 signs x the horizons scanned), and a mechanism other than dollar funding is written down first.",
+   "script": "scratch/pitch_checks/2026-09-23/kA_a3_eem_qe.py",
+   "source": "short_slate",
+   "expires": "2026-12-31"
+  },
+  {
+   "added": "2026-09-23",
+   "title": "Long crude after a 21-day thrust round-trips inside five sessions",
+   "cell": "energy price-state, thrust x flush, the long flip of the killed round-trip short",
+   "trigger": "A PRE-REGISTERED FRONT-CONTRACT FORM at the next firing. USO r5 <= 3 within 10 sessions of r21 >= 90 pays the LONG +1.82% at h=5 on 9-5 (sign p 0.21), and the prior thrust is worth +3.29pp against the same flush without one (which pays the short +1.47% on 54); the short is negative in 27 of 27 USO cells and positive in 1 of 27 CL=F cells. It is a post-hoc sign flip on 14 episodes and CL=F is 12-10. TURNS ON when a CL=F front-contract long, registered before the check with its horizon fixed at h=5, clears sign p 0.05 on the round-trip state; live on 2026-09-22 (USO r5 2.38, r21 90.87 on 09-15, CL=F r5 5.2).",
+   "script": "scratch/pitch_checks/2026-09-23/kC_b3_uso_roundtrip_b.py",
+   "source": "short_slate",
+   "expires": "2026-10-14"
+  },
+  {
+   "added": "2026-09-24",
+   "title": "Long SVXY hedged against SPY after a bond-vol spike below the extreme tail",
+   "cell": "volatility x rates, the inversion of the 2026-08-18 long-vol MOVE-spike kill",
+   "trigger": "THE DOSE, and it charges for the band walk. MOVE-spike days (top decile of daily ^MOVE moves) pay the SVXY residual against 1.48x SPY +0.226% at h=1 on 155-100 (sign p 0.0003), 3.2x a 7 bp pair; with VIX also up the top decile pays +0.210% at h=5 on 80-57, and the 90th-95th percentile band +0.514%. It inverts in the tail: top 2% with VIX up -0.689% at h=5 on 17-21, top 1% -0.843%, and 2026-09-23's +21.5% was the 99.7th percentile. The no-damage half pays LESS than the damage half at every horizon (the fear-without-damage inverter reproduces). TURNS ON at a MOVE one-day rise between the 90th and 97th percentile of daily moves on a session SPY fell more than 0.75%, IF that damage-half band cell, re-derived with the band walk charged, clears 5x a 7 bp pair (+0.35%) at h=1..3 on 2018-03+ data.",
+   "script": "scratch/pitch_checks/2026-09-24/kD_v1_svxy_movespike_b.py",
+   "source": "stand_down",
+   "expires": "2027-03-24",
+   "note": "2026-09-25 verdict: PASS. ^MOVE +9.57% is the 97.4th pctile of daily moves (just above the 90-97 band) and SPY -0.08% fails the fell-more-than-0.75% leg. | 2026-09-29 verdict: PASS by 0.6 bp. SPY -0.744% against the -0.75% leg; ^MOVE +6.06% is the 92.2nd pctile on the script's full-history quantiles and 89.99th on 2018-03+ quantiles. The damage-half band cell before the walk charge clears +0.35% only at h=3 (+0.394%; h=1 +0.291%, h=2 +0.213%). (w_64_band_damage.py)"
+  },
+  {
+   "added": "2026-09-24",
+   "title": "Long TLT after a high-volume down day into a fresh 252-day low",
+   "cell": "rates price-state, the down-day mirror of W16, volume x fresh low",
+   "trigger": "FILTERING, then a mechanism. TLT down 1.25% or more on 1.5x its 63-day volume, closing at a trailing-252 low, pays +0.643% at h=5 on 9-4 (13 declustered episodes) against own drift +0.021%, 25.7x cost, all 27 neighbour cells positive at h=5. It died because the at-the-low leg re-anchors rather than filters (filtering -0.690pp, re-anchoring +1.450pp at h=5; reanchor_null p 0.005), the MOVE-spike half the vol-targeting story names is the weak half (+0.136% on 4-3 against +1.235% on 5-1), and drop-top-2 leaves +0.027%. TURNS ON at a firing where ^MOVE rose less than +8.7% on the day, provided the kept-minus-dropped filtering term is >= 0 at h=5 on the pooled TLT+IEF form and a mechanism other than vol-targeting is written down BEFORE the check (the no-spike slice is post-hoc on 6 episodes).",
+   "script": "scratch/pitch_checks/2026-09-24/kA_r1_tlt_voldown_b.py",
+   "source": "stand_down",
+   "expires": "2027-03-24",
+   "note": "2026-09-25 verdict: PASS. The state fired again on 09-24 (TLT -1.29% on 1.94x at a fresh 252 low) but ^MOVE rose +9.57% against the < +8.7% arm leg."
+  },
+  {
+   "added": "2026-09-25",
+   "title": "Long the peso for two sessions after a 1.5% carry-unwind day",
+   "cell": "dollar_fx carry currencies, one-day unwind x cross-asset vol, the first carry cell in the repo",
+   "trigger": "A FRESH FIRING AT THE PRE-REGISTERED RUNG, h=2 ONLY. The pitched cell (USDMXN >= +1.25% with ^MOVE or ^VIX up) died on concentration (122 episodes, +0.130% at h=2, 62-60, top two 61%) and a flat horizon profile. The >= +1.50% rung on the same rule pays +0.499% at h=2 spot over 82 episodes, 47-35, t 2.95, drop-best-2 +0.390%, top two 24%, pre/post-2018 +0.516% / +0.472%, but it was found on a threshold ladder of about 48 cells, the hit rate is 57% so the mean is skew, and it fades to +0.275% at h=5 (pre-2018 -0.006%). 2026-09-24 printed +1.479%, 2 bp short. The rung is REGISTERED TODAY at exactly +1.50%, h=2, lag 1, spot plus carry, MXN futures (6M). TURNS ON at the next USDMXN session >= +1.50% with ^MOVE or ^VIX up on the day, provided no NFP falls inside the h=2 hold (NFP-in-hold episodes run -0.336% at h=5). Score each firing out of sample; do not re-walk the ladder.",
+   "script": "scratch/pitch_checks/2026-09-25/kC_x1_mxn_carry_c.py",
+   "source": "stand_down",
+   "expires": "2027-03-25"
+  },
+  {
+   "added": "2026-09-25",
+   "title": "Long UNG for two sessions when the volume thrust re-fires with no storage report inside the hold",
+   "cell": "energy price-state, the re-fire population of the 2026-09-23 pitched UNG rule",
+   "trigger": "OUT OF SAMPLE ONLY. Re-fires of the >= +5% / >= 3x 63d volume rule within five sessions of a prior firing pay +0.84% at h=2 on 6-4 (sign p 0.377) against +4.26% on 14-2 for first firings, and inside the re-fire state the volume gate does not separate (+5% days without it +1.41%). The slice with no Thursday EIA report in the h=2 hold is 6-1 at +3.66% (sign p 0.0625), and today's shape (no Thursday, run-in >= 3%) is 5-1 at +2.10%, but that is a post-hoc split of a post-hoc split and 2011+ it is 3-1 at +0.69%. TURNS ON when the first 5 re-fires from 2026-09-25 onward with no Thursday inside the hold go 4-1 or better with a mean of +1.5% or more at h=2 lag 1. The 2026-09-24 firing (entry 09-25 close, exit 09-29 close) is the first to score. SCORED 2026-09-30: the 2026-09-24 firing (entry 09-25 close 11.13, exit 09-29 close 10.35) lost -7.0% at h=2. Out-of-sample record 0-1.",
+   "script": "scratch/pitch_checks/2026-09-25/kA_n1_ung_refire_b.py",
+   "source": "stand_down",
+   "expires": "2027-09-25"
+  },
+  {
+   "added": "2026-09-28",
+   "title": "Short the dollar into payrolls from k=-4 with the ten-year at its 252-day high",
+   "cell": "nfp x dollar_fx, the rates-high leg of the killed crowded-dollar run-in",
+   "trigger": "OUT OF SAMPLE ONLY, and a remnant. The pre-specified cell (short DX k=-4 to the NFP close, gated on DX 21d rank >= 85 AND ^TNX within 1% of its 252 high) died: the DX-rank leg alone is wrong-signed (-0.083% on 24-26). The TNX-high leg alone pays short DX +0.317% on 8-2 at h=4 (sign p 0.055), UUP 6-0 (p 0.016), 4-0 since 2018, drop-best-2 +0.123%, against +0.096% for the same gate on non-NFP month turns. It is charged about p 0.3 for the 3-gate by 2-horizon walk, h=5 is 6-4, and the entry ladder is non-monotone (k=-3 4-6, k=-4 and k=-5 8-2). TURNS ON after 3 further out-of-sample NFPs with ^TNX within 1% of its 252 high at the k=-4 close score at least 2-1 at h=4 AND the k=-3 neighbour is positive on the pooled record. Today's firing (NFP 2026-10-02, entry the 09-28 close) is out-of-sample episode 1: score it on the 10-05 morning.",
+   "script": "scratch/pitch_checks/2026-09-28/b2b_tnx_leg.py",
+   "source": "stand_down",
+   "expires": "2027-09-28"
+  },
+  {
+   "added": "2026-09-28",
+   "title": "Long gold 15% or more under its 252-day high with the dollar thrusting, above-200d half only",
+   "cell": "gold x dollar_fx price-state",
+   "trigger": "GLD BACK ABOVE ITS 200-DAY, plus a charge for the split. The pooled cell (GLD >= 15% under its 252 high AND DX-Y.NYB 21d rank >= 85) pays +1.132% at h=5 on 33-22 (sign p 0.088; GC=F 35-20, p 0.029), but the dollar gate re-anchors rather than filters (-0.43pp, reanchor p 0.015), and below the 200d the gate is worth +0.21pp at h=5 and negative at h=10, with 2018+ 7-7. The above-200d half is 7-0 at +4.02%, which is post-hoc. TURNS ON at a close with GLD above its 200d while the drawdown and DX legs both hold, provided the above-200d split is re-derived with the 2-regime by 24-cell walk charged. Today GLD is 5.53% under its 200d (393.41 against 416.44).",
+   "script": "scratch/pitch_checks/2026-09-28/c5d_gld_200d_split.py",
+   "source": "stand_down",
+   "expires": "2027-03-28"
+  },
+  {
+   "added": "2026-09-29",
+   "title": "Long crude into payrolls after a 21-day crude thrust, month turn at or before entry",
+   "cell": "nfp x energy, the 21d neighbour of the killed 63d-thrust run-in",
+   "trigger": "A LAYOUT AND A RANK. USO 21d rank >= 75 on the k=-4 close, long USO from the k=-3 close to the NFP close, pays +1.574% on 43-23 (sign p 0.009) against +0.082% for the 21d thrust state without a print; 1st of 18 on the anchor ladder, monotone from rank 60 to 90, into CPI +0.04%; found on an ~8-cell gate walk, so charge it to sign p ~0.07. It dies when a month-end falls inside the hold (-0.397% on 8-6; the 2026-10-02 layout, month-end two sessions before the print, +0.043% on 6-3) and pays +2.105% on 35-17 when the turn falls at or before entry (Welch t 2.10). TURNS ON at a payrolls date whose k=-3 entry close falls after the month-end close, with USO 21d rank >= 75 on the k=-4 close; the next is the 2026-11-06 print (signal bar 11-02, entry the 11-03 close). A further neighbour for the 10-01 morning only: entry at the 10-01 close for one session to the 10-02 NFP close, gated on USO 21d rank >= 75 on the 09-30 close, pays +0.743% on 40-25 (p 0.041) and +0.752% on 5-3 in this layout; it is a neighbour of a neighbour, so pitch it only with that walk charged.",
+   "script": "scratch/pitch_checks/2026-09-29/kB_c8d_uso_nfp_me.py",
+   "source": "stand_down",
+   "expires": "2026-11-10"
+  },
+  {
+   "added": "2026-09-29",
+   "title": "EWZ against EEM across a Brazilian first-round vote, poll-miss side only",
+   "cell": "Brazil election x international",
+   "trigger": "A POLL-MISS MEASURE THE REPO LACKS. From the k=-4 close to the first post-vote close the pair pays +7.41% on 5-0 (sign p 0.031, permutation P < 0.001) and the ^BVSP run-in is 6-0 (p 0.016), but uncertainty resolution is falsified (positive run-in, runoffs 3-3 with the pair at +0.004%, municipal years 1-4). The record tracks the market-favoured challenger beating first-round polls (2014, 2018, 2022; 2002 -6.0%). TURNS ON only if the repo gains final-week first-round polling so a side_fn can be written and tested on the six prior votes without re-using them to pick the sign; the 2026-10-25 runoff is not a firing (runoffs are the dead half). Next first round 2030.",
+   "script": "scratch/pitch_checks/2026-09-29/kB_c4b_ewz_vote_r2.py",
+   "source": "stand_down",
+   "expires": "2026-10-20"
+  },
+  {
+   "added": "2026-09-30",
+   "title": "Long gold from the quarter-end close after a quarter-end-week flush, yields not rising",
+   "cell": "quarter-end close x gold_miners x rates regime",
+   "trigger": "THE YIELD LEG, and a charge for the split. GLD 5d return <= -2% at the QE-1 close, long GLD from the quarter-end close for 7 sessions, pays 10-0 at h=7 (p 0.001); the pre-specified QE-close -3% form is 7-0 at +3.58% (p 0.008), QE+0 ranks 1 of 13 on the anchor ladder, and the same flush on ordinary days pays +0.70%. It died on 2026-09-30 because the rebound only exists when yields FELL into the close: with the ^TNX 5-day change > 0 it pays +0.25% on 3-3 at h=5 (drift), with it <= 0 +2.25% on 9-1 and +3.73% on 10-0 at h=7, and the one flush with ^TNX at its 252 high (2023-09-29) lost 1.02% at h=5. Today ^TNX was +28.7 bp. TURNS ON at a quarter-end where GLD's 5-day return at the QE-1 close is <= -2% AND the ^TNX 5-day change into the QE-1 close is <= 0; score it out of sample (the yield split was found inside this check). Two standing debts: gold is not sold into quarter-ends on average (+0.37% run-in against +0.23% all days), and the rule is wrong-signed on SLV (6-6) and GDX (4-5), so the mechanism is unexplained. Next look 2026-12-31. Vehicle GLD or GCZ6/MGCZ6.",
+   "script": "scratch/pitch_checks/2026-09-30/kC_c6c_gld_qe_regime.py",
+   "source": "stand_down",
+   "expires": "2027-07-15"
+  },
+  {
+   "added": "2026-09-30",
+   "title": "Quarter-end sector reversal at high dispersion, ex-XLE (replaces watchlist 55)",
+   "cell": "quarter-end close x us_large sectors",
+   "trigger": "THE EX-ENERGY DISPERSION. W55 fired on 2026-09-30 and died: 2018+ +1.010% on 22-12, but 2021 and 2026 are 85% of it, the QE label is worth -0.140pp before 2018, QE+1 is 42-62, and removing XLE takes the whole pair to +0.013%. What is left is dispersion: top-2 minus bottom-2 eight-SPDR (ex-XLE) 63d gap at or above its p80 (18.2pp), short the two best and long the two worst from the QE close to QE+5, pays +0.644% on 14-7, +1.353% since 2018. TURNS ON at a quarter-end where that ex-XLE gap is >= 18.2pp; on 2026-09-29 it was 15.2pp (22.4pp with XLE). Standing debts: QE+1 is still negative at high dispersion (-0.160% at p80), September at p80 is 2-2, and the dispersion gate came from this morning's walk (charged p 0.054 at p50). Next look 2026-12-31.",
+   "script": "scratch/pitch_checks/2026-09-30/kB_c1d_disp_form.py",
+   "source": "stand_down",
+   "expires": "2027-07-15"
+  },
+  {
+   "added": "2026-09-30",
+   "title": "Long crude on the FIRST -3% day after a 21-day thrust, CL=F front contract",
+   "cell": "price state x energy",
+   "trigger": "A PRE-REGISTERED FORWARD TEST. The 2026-09-28 short (first -3% USO day with 21d rank >= 75) was wrong-signed in all 28 cells; its long side holds WITHOUT 2026 at +1.25% at h=3 on 16-3 (sign p 0.002), the first crude-drop long not carried by one regime. The 63d-rank neighbour tested 2026-09-30 is a 2026 artifact (ex-2026 +0.48% on 10-8, -3.5 to -4.0% falls -2.44% on 3-14), so the definition is the 21d form only. This is a sign flip recovered inside a kill, so it owes forward evidence. REGISTERED TODAY: signal = the first USO close down >= 3% with no other >= 3% down close in the prior 8 sessions, USO 21d rank >= 75 (trailing-252 pctile) on the signal close; long CL=F front (or USO) from the next close, h=3, lag 1, no stop. TURNS ON when the first 5 firings from 2026-09-30 onward go 4-1 or better at a mean of +1.0% or more; check that no payrolls session is inside the hold (that slice paid -0.54% on 3-3 on the 63d form). Merge with watchlist 63 (round-trip long) when either scores.",
+   "script": "scratch/pitch_checks/2026-09-30/kC_c9c_family_and_book.py",
+   "source": "stand_down",
+   "expires": "2027-09-30"
   }
  ],
  "expired": [],
  "generated": "2026-09-14",
- "asof": "2026-09-16"
+ "asof": "2026-09-30"
 }

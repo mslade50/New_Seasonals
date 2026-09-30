@@ -1,20 +1,20 @@
 {
-  "date": "2026-09-18",
+  "date": "2026-09-30",
   "price_ctx": {
-    "price": 762.5999755859375,
-    "ret_12m": 0.16825738835650816,
-    "extension_200d": 0.06835218674411081,
-    "drawdown": -0.019643170156015133,
-    "sma_200": 713.8095330810547,
-    "high_52w": 777.8800048828125,
+    "price": 764.2000122070312,
+    "ret_12m": 0.16126936445521323,
+    "extension_200d": 0.0657315227502504,
+    "drawdown": -0.01514675632453999,
+    "sma_200": 717.0661614990235,
+    "high_52w": 775.9531860351562,
     "regime_label": "Strong uptrend, moderately extended",
-    "days_since_5pct": 115,
-    "days_since_10pct": 351
+    "days_since_5pct": 121,
+    "days_since_10pct": 359
   },
   "h_scores": {
-    "5d": 20.26855361996664,
-    "21d": 45.08687308745475,
-    "63d": 74.74954070439165
+    "5d": 11.438535298752479,
+    "21d": 32.51947019095395,
+    "63d": 74.32826530240152
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,37 +25,37 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 13th pctile (fires below 15th) \u2014 VIX at 15.1"
+      "summary": "21d range: 14th pctile; compressed 24d (needs 10+ below 15th); VIX 16.0 (needs >13); 5d change +1.83 (needs <0)"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -0pp (fires < -10) | 200d spread: -0pp (fires < 0)"
+      "summary": "50d spread: +21pp (fires < -10) | 200d spread: +17pp (fires < 0)"
     },
     "Low Absorption Ratio": {
-      "on": true,
-      "detail": "Absorption Ratio at 0.343 (9th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
-      "summary": "AR: 0.343 (9th pctile, fires below 10th) \u2014 near high: yes"
+      "on": false,
+      "detail": "",
+      "summary": "AR: 0.406 (31th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +0.0pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: +3.1pp (fires above 10) \u2014 near high: yes"
     },
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 83th (fires above 85th) \u2014 component RV: 30.8% | SPY RV: 9.4%"
+      "summary": "Composite pctile: 58th (fires above 85th) \u2014 component RV: 28.4% | SPY RV: 10.8%"
     },
     "Equity P/C Complacency": {
       "on": false,
-      "detail": "10d-MA equity P/C 252d pctile: 48 (fires < 10)",
-      "summary": "Equity P/C at the 48th pctile of its trailing year (data 2026-09-17) \u2014 no complacency"
+      "detail": "10d-MA equity P/C 252d pctile: 22 (fires < 10)",
+      "summary": "Equity P/C at the 22th pctile of its trailing year (data 2026-09-29) \u2014 no complacency"
     },
     "NYSE Net Highs": {
       "on": true,
-      "detail": "NYSE net highs -41; SPY 1.96% below its 252-session closing high; signal 1.0x.",
-      "summary": "NYSE net highs -41; SPY 1.96% below its 252-session closing high; signal 1.0x."
+      "detail": "NYSE net highs 5d EMA -348 (raw -383); SPY 1.51% below its 252-session closing high; signal 1.0x.",
+      "summary": "NYSE net highs 5d EMA -348 (raw -383); SPY 1.51% below its 252-session closing high; signal 1.0x."
     }
   }
 }

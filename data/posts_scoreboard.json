@@ -1,13 +1,13 @@
 {
- "generated": "2026-09-17 20:01:01",
- "asof": "2026-09-17",
+ "generated": "2026-09-29 20:01:05",
+ "asof": "2026-09-29",
  "rolling_60d": {
-  "n": 14,
-  "graded": 12,
-  "avg_r": -0.883,
-  "median_r": -1.199,
-  "hit_rate": 25.0,
-  "total_r": -10.6,
+  "n": 19,
+  "graded": 15,
+  "avg_r": -0.51,
+  "median_r": -0.291,
+  "hit_rate": 33.3,
+  "total_r": -7.65,
   "no_fill": 0,
   "posted": {
    "n": 0,
@@ -19,24 +19,24 @@
    "no_fill": 0
   },
   "unposted": {
-   "n": 14,
-   "graded": 12,
-   "avg_r": -0.883,
-   "median_r": -1.199,
-   "hit_rate": 25.0,
-   "total_r": -10.6,
+   "n": 19,
+   "graded": 15,
+   "avg_r": -0.51,
+   "median_r": -0.291,
+   "hit_rate": 33.3,
+   "total_r": -7.65,
    "no_fill": 0
   },
   "window_td": 60,
-  "since": "2026-06-23"
+  "since": "2026-07-06"
  },
  "lifetime": {
-  "n": 14,
-  "graded": 12,
-  "avg_r": -0.883,
-  "median_r": -1.199,
-  "hit_rate": 25.0,
-  "total_r": -10.6,
+  "n": 19,
+  "graded": 15,
+  "avg_r": -0.51,
+  "median_r": -0.291,
+  "hit_rate": 33.3,
+  "total_r": -7.65,
   "no_fill": 0,
   "posted": {
    "n": 0,
@@ -48,12 +48,12 @@
    "no_fill": 0
   },
   "unposted": {
-   "n": 14,
-   "graded": 12,
-   "avg_r": -0.883,
-   "median_r": -1.199,
-   "hit_rate": 25.0,
-   "total_r": -10.6,
+   "n": 19,
+   "graded": 15,
+   "avg_r": -0.51,
+   "median_r": -0.291,
+   "hit_rate": 33.3,
+   "total_r": -7.65,
    "no_fill": 0
   }
  }

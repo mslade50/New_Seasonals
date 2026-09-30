@@ -230,6 +230,13 @@
       "last_headline_number": -2.605,
       "last_published": "2026-08-23"
     },
+    "E:month_end|EEM|quarter_end_last2_sept_split": {
+      "cell": "EEM over a month's final two sessions (anchor = session before them), one window per month 2003-04 to 2026-08, quarter-end months (Mar/Jun/Sep/Dec) against other months, split by quarter; current month excluded",
+      "count": 1,
+      "delivery_id": "69aa2b8acfeb995e18b20db9a85e71392cc81e1d1d1f35e35bddf7ed8513efb4",
+      "last_headline_number": 0.497,
+      "last_published": "2026-09-28"
+    },
     "E:month_end|IEF|august_and_low_proximity": {
       "cell": "the final-session cell cut to August, and cut to entering within 3% of the 52-week low",
       "count": 1,
@@ -248,17 +255,59 @@
       "last_headline_number": 0.139,
       "last_published": "2026-08-26"
     },
+    "E:month_end|SPY-TLT|qtd_gap_ge8_final6": {
+      "cell": "SPY minus TLT over the final six sessions of a quarter, anchored on the session with six left, in quarters where SPY led TLT by 8pp or more quarter to date (2002+)",
+      "count": 1,
+      "delivery_id": "d0adb5f020d28676601729ba1d257082117e0e2eba5746bf11611a55633e2312",
+      "last_headline_number": -0.75,
+      "last_published": "2026-09-22"
+    },
     "E:month_end|SPY|aug_third_last": {
       "cell": "third-to-last session of August, anchored on today's close",
       "count": 1,
       "last_headline_number": 0.462,
       "last_published": "2026-08-26"
     },
+    "E:month_end|SPY|final_session_vs_turn": {
+      "cell": "SPY on a month's final session (close-to-close), complete months 2000-02 to 2026-08, against all other sessions and the next month's first; plus the E:nfp k3 cell re-controlled on weekday x month position",
+      "count": 1,
+      "delivery_id": "409710833a281f58590ca0b90a48e44c779bd27332d3c027ca08f648e3879c95",
+      "last_headline_number": -0.015,
+      "last_published": "2026-09-29"
+    },
+    "E:month_end|SPY|turn_window_sep_oct": {
+      "cell": "SPY from the session before a month's final three through the second session of the next month, one window per month 2000-01 to 2026-08; September-to-October windows against the rest",
+      "count": 1,
+      "delivery_id": "0d7d7ee5982462cb98c6f0ff815e262eff218471bfdaec04bad1f0300aea0ae7",
+      "last_headline_number": -0.15,
+      "last_published": "2026-09-27"
+    },
     "E:month_end|TLT|aug_window_from_today": {
       "cell": "August final stretch from the fourth-to-last session, h2 through Friday",
       "count": 1,
       "last_headline_number": 0.373,
       "last_published": "2026-08-26"
+    },
+    "E:month_end|TLT|mtd_worst_quintile_final3_next2": {
+      "cell": "TLT over a month's final three sessions (anchor = session before them) and the next month's first two, one window per month 2002-08 to 2026-08, in months that entered the final three down 2.93% or more MTD (worst quintile); current month excluded",
+      "count": 1,
+      "delivery_id": "0d7d7ee5982462cb98c6f0ff815e262eff218471bfdaec04bad1f0300aea0ae7",
+      "last_headline_number": 0.625,
+      "last_published": "2026-09-27"
+    },
+    "E:month_end|TLT|quarter_end_final_session": {
+      "cell": "TLT on a month's final session (close-to-close), complete months 2002-08 to 2026-08, quarter-end months (Mar/Jun/Sep/Dec) against the other eight",
+      "count": 1,
+      "delivery_id": "409710833a281f58590ca0b90a48e44c779bd27332d3c027ca08f648e3879c95",
+      "last_headline_number": -0.013,
+      "last_published": "2026-09-29"
+    },
+    "E:month_end|UUP|quarter_end_last2_vs_next2": {
+      "cell": "UUP over a quarter's final two sessions (anchor = session before them) and the next quarter's first two, one window per quarter 2007-03 to 2026-06, against other month-ends and month turns; NYSE sessions only",
+      "count": 1,
+      "delivery_id": "69aa2b8acfeb995e18b20db9a85e71392cc81e1d1d1f35e35bddf7ed8513efb4",
+      "last_headline_number": 0.157,
+      "last_published": "2026-09-28"
     },
     "E:month_end|^GSPC|august_last5_entry_split": {
       "cell": "the final five trading sessions of August, one non-overlapping read per year, split by how far below its 252-day high the index entered the window",
@@ -413,6 +462,13 @@
       "last_headline_number": 0.193,
       "last_published": "2026-09-17"
     },
+    "E:quad_witching|^GSPC|post_sept_expiry_monday": {
+      "cell": "the single session after the September quad-witching close, against the same expiry Monday in the other eleven months",
+      "count": 1,
+      "delivery_id": "83576c6e1f3cff346aa32e7b415aaf096b488f057d7f04b28ab16b789b1690e0",
+      "last_headline_number": -0.47,
+      "last_published": "2026-09-20"
+    },
     "E:seasonal_doy|GC=F|midaug_vs_stretched_entry": {
       "cell": "gold's mid-August window, split by whether it enters already stretched",
       "count": 1,
@@ -449,6 +505,27 @@
       "count": 2,
       "last_headline_number": -1.258,
       "last_published": "2026-09-03"
+    },
+    "E:seasonal_doy|^GSPC|midterm_q4_from_sept_final3_anchor": {
+      "cell": "S&P from the session before September's final three to the year's last close, midterm years (2002, 2006, 2010, 2014, 2018, 2022) against the other 20 years 2000-2025; pre-specified four-year-cycle cell",
+      "count": 1,
+      "delivery_id": "0d7d7ee5982462cb98c6f0ff815e262eff218471bfdaec04bad1f0300aea0ae7",
+      "last_headline_number": 2.83,
+      "last_published": "2026-09-27"
+    },
+    "E:seasonal_doy|^GSPC|midterm_vs_thu_after_sept_quad": {
+      "cell": "S&P on the Thursday after September quad witching, 2000-2025, against the engine's same-trading-day-of-year midterm cell (6 of 6 down)",
+      "count": 1,
+      "delivery_id": "b6c10d0f44221a04ee2eb504aef281ee14f28c1328188af4bb008c66ca12dd18",
+      "last_headline_number": -0.09,
+      "last_published": "2026-09-23"
+    },
+    "E:seasonal_doy|^GSPC|post_sept_quad_wed_ex_fomc": {
+      "cell": "S&P (and TLT) on the Wednesday after the September quad-witching Friday, anchored on the Tuesday before it, split by whether an FOMC decision landed on that Wednesday",
+      "count": 1,
+      "delivery_id": "d0adb5f020d28676601729ba1d257082117e0e2eba5746bf11611a55633e2312",
+      "last_headline_number": -0.32,
+      "last_published": "2026-09-22"
     },
     "E:seasonal_doy|^VIX|midterm": {
       "cell": "the trading day of year matching Aug 26, midterm years only",
@@ -511,6 +588,13 @@
       "last_headline_number": -0.385,
       "last_published": "2026-08-18"
     },
+    "E:weekday_month|CL=F|uso_sept_fridays": {
+      "cell": "USO close-to-close return on September Fridays, 2006-2026 (the engine's CL=F Friday-in-September cell rerun on USO so roll Fridays drop out)",
+      "count": 1,
+      "delivery_id": "08a4591e0852553a2f652242701bafcb1f954c69adf26395d46c022d1fdec5ef",
+      "last_headline_number": -0.405,
+      "last_published": "2026-09-24"
+    },
     "E:weekday_month|GC=F|aug_fri_stretched": {
       "cell": "August Fridays in gold, split by whether the 21d return entered above the 85th percentile of its year",
       "count": 1,
@@ -560,11 +644,25 @@
       "last_headline_number": 1.939,
       "last_published": "2026-08-23"
     },
+    "E:weekday_month|^VIX|monday_seam_decomposed": {
+      "cell": "the VIX's same-session change on Mondays outside September, the control that absorbs most of the engine's September-Monday cell",
+      "count": 1,
+      "delivery_id": "83576c6e1f3cff346aa32e7b415aaf096b488f057d7f04b28ab16b789b1690e0",
+      "last_headline_number": 1.87,
+      "last_published": "2026-09-20"
+    },
     "E:weekday_month|^VIX|sep_tuesday": {
       "cell": "Tuesdays in September, separated from both marginals",
       "count": 1,
       "last_headline_number": 1.797,
       "last_published": "2026-08-31"
+    },
+    "E:weekday_month|^VIX|sep_tuesday_ex_labor_day": {
+      "cell": "VIX on September Tuesdays, split into the Tuesday after Labor Day and the rest",
+      "count": 1,
+      "delivery_id": "683c52bc832695f94755e26fb0972874b64602826adf54732389b0b615823380",
+      "last_headline_number": 0.54,
+      "last_published": "2026-09-21"
     },
     "P10:move_crush|^MOVE|yield_unchanged": {
       "cell": "MOVE down 5% or more with the 10-year yield inside 0.5%",
@@ -589,6 +687,13 @@
       "count": 1,
       "last_headline_number": 0.689,
       "last_published": "2026-08-17"
+    },
+    "P1:new_52w_high|^IXIC|drought_ge90": {
+      "cell": "first 52-week closing high in 30+ calendar days, split by drought length (30-89 vs 90+ days) and breakout-session size",
+      "count": 1,
+      "delivery_id": "683c52bc832695f94755e26fb0972874b64602826adf54732389b0b615823380",
+      "last_headline_number": 0.014,
+      "last_published": "2026-09-21"
     },
     "P1:new_52w_high|^TNX|cross_asset": {
       "cell": "first 52-week yield high in 30+ days, cross-asset follow-on",
@@ -646,6 +751,13 @@
       "last_headline_number": 1.27,
       "last_published": "2026-08-24"
     },
+    "P4:z10_extreme|UUP|joint_52w_high_with_tnx": {
+      "cell": "UUP and the 10-year both at 52-week closing highs on the same session, 21-session decluster, 2008-2026; forward SPY and EEM h21",
+      "count": 1,
+      "delivery_id": "08a4591e0852553a2f652242701bafcb1f954c69adf26395d46c022d1fdec5ef",
+      "last_headline_number": 0.897,
+      "last_published": "2026-09-24"
+    },
     "P4:z10_extreme|ZC=F|stretched up": {
       "cell": "the ags complex's 2026-08-27 bars, tested for the continuous-contract roll signature",
       "count": 1,
@@ -670,11 +782,25 @@
       "last_headline_number": -5.366,
       "last_published": "2026-08-10"
     },
+    "P5:rank5_extreme|BTC-USD|declustered_h5": {
+      "cell": "BTC 5-day return in the top 5% of its trailing year, declustered 10 bars; forward 5 bars",
+      "count": 1,
+      "delivery_id": "683c52bc832695f94755e26fb0972874b64602826adf54732389b0b615823380",
+      "last_headline_number": 2.28,
+      "last_published": "2026-09-21"
+    },
     "P5:rank5_extreme|ETH-USD|btc_joint_thrust": {
       "cell": "ether up 12% with bitcoin up 5% on the same session",
       "count": 1,
       "last_headline_number": 10.78,
       "last_published": "2026-08-19"
+    },
+    "P5:rank5_extreme|HYG|residual_vs_ief_spy": {
+      "cell": "HYG 5-session return net of a 504-session daily fit on IEF and SPY (no look-ahead), z <= -2, with SPY within 2% of its 52w high, 10-session decluster, 2009-2026; forward SPY h21",
+      "count": 1,
+      "delivery_id": "08a4591e0852553a2f652242701bafcb1f954c69adf26395d46c022d1fdec5ef",
+      "last_headline_number": 0.219,
+      "last_published": "2026-09-24"
     },
     "P5:rank5_extreme|JPY_complex|breadth7": {
       "cell": "all seven yen crosses with a 5d return in the bottom 5% of their year on one session",
@@ -689,6 +815,13 @@
       "last_headline_number": null,
       "last_published": "2026-08-31"
     },
+    "P5:rank5_extreme|USO|drop10_5d_above_200d": {
+      "cell": "USO five-session return of -10% or worse while above its 200-day average, declustered 10 sessions (measured on USO because CL=F rolled today)",
+      "count": 1,
+      "delivery_id": "d0adb5f020d28676601729ba1d257082117e0e2eba5746bf11611a55633e2312",
+      "last_headline_number": 2.3,
+      "last_published": "2026-09-22"
+    },
     "P5:rank5_extreme|ZC=F|high_plus_top5_5d": {
       "cell": "a 252-day-high close with the five-day return in the top 5% of its trailing year, declustered at 10 td",
       "count": 1,
@@ -700,6 +833,13 @@
       "count": 1,
       "last_headline_number": -0.014,
       "last_published": "2026-08-11"
+    },
+    "P5:rank5_extreme|^TNX|two_session_15bp_52w_high_week_after": {
+      "cell": "10-year up 15bp or more over two sessions with a 52-week closing high on the second, 5-session decluster, 2003-2026; forward 10y bp and IEF return at h5",
+      "count": 1,
+      "delivery_id": "08a4591e0852553a2f652242701bafcb1f954c69adf26395d46c022d1fdec5ef",
+      "last_headline_number": 0.614,
+      "last_published": "2026-09-24"
     },
     "P5:rank5_extreme|^VVIX|h5_declustered": {
       "cell": "VVIX 5-day return in the top 5% of its year, declustered at 5 td",
@@ -732,6 +872,13 @@
       "delivery_id": "57b15dd02ccbadb7c7424718ab59f3f4d8be9b13d21ffc6f5f31dbc81c10576c",
       "last_headline_number": 0.15,
       "last_published": "2026-09-09"
+    },
+    "P5b:rank21_extreme|JPY_crosses|calm_tape_cluster": {
+      "cell": "four or more of six yen crosses in the bottom 5% of their trailing-year 21-day return, split by whether the VIX was above or below its 200-day average",
+      "count": 1,
+      "delivery_id": "83576c6e1f3cff346aa32e7b415aaf096b488f057d7f04b28ab16b789b1690e0",
+      "last_headline_number": -1.54,
+      "last_published": "2026-09-20"
     },
     "P5b:rank21_extreme|^SKEW|collapse_whipsaw": {
       "cell": "SKEW 21d change in the bottom 5% of its year, within ten sessions of a top-5% five-day surge",
@@ -807,6 +954,13 @@
       "last_headline_number": 1.118,
       "last_published": "2026-08-26"
     },
+    "P6:two_atr_day|^NDX|up2pct_within1pct_of_high": {
+      "cell": "NDX up 2%+ on a session closing within 1% of its 52-week high, declustered 10td; forward 5 sessions",
+      "count": 1,
+      "delivery_id": "683c52bc832695f94755e26fb0972874b64602826adf54732389b0b615823380",
+      "last_headline_number": 0.546,
+      "last_published": "2026-09-21"
+    },
     "P7:up_streak|^BVSP": {
       "cell": "11 consecutive up closes",
       "count": 1,
@@ -837,17 +991,38 @@
       "last_headline_number": -3.363,
       "last_published": "2026-08-12"
     },
+    "P7b:down_streak|HYG|sixth_close_vol_spike": {
+      "cell": "HYG volume over its prior 63-session mean (4.21x today, 27th session since 2007 at or above) and HYG on the session a losing run first reaches six (one anchor per run), next session and next five, 2007-04 to 2026-09-28",
+      "count": 1,
+      "delivery_id": "409710833a281f58590ca0b90a48e44c779bd27332d3c027ca08f648e3879c95",
+      "last_headline_number": -0.339,
+      "last_published": "2026-09-29"
+    },
     "P7b:down_streak|QQQ|depth_split": {
       "cell": "5+ consecutive down closes, split by the cumulative depth of the streak",
       "count": 1,
       "last_headline_number": 1.202,
       "last_published": "2026-08-20"
     },
+    "P7b:down_streak|TLT|fifth_close_h2": {
+      "cell": "TLT on the session a run of consecutive lower closes first reaches five (one anchor per run), forward two sessions close-to-close, 2002-07 to 2026-09-24",
+      "count": 1,
+      "delivery_id": "69aa2b8acfeb995e18b20db9a85e71392cc81e1d1d1f35e35bddf7ed8513efb4",
+      "last_headline_number": 0.554,
+      "last_published": "2026-09-28"
+    },
     "P7b:down_streak|TLT|near_52w_low_split": {
       "cell": "active 5+ session down streak, split on whether TLT sits within 1% of a 252d low",
       "count": 1,
       "last_headline_number": 0.303,
       "last_published": "2026-09-01"
+    },
+    "P7b:down_streak|TLT|sixth_close_h1": {
+      "cell": "TLT on the session a run of consecutive lower closes first reaches six (one anchor per run), next session close-to-close, 2002-07 to 2026-09-28",
+      "count": 1,
+      "delivery_id": "409710833a281f58590ca0b90a48e44c779bd27332d3c027ca08f648e3879c95",
+      "last_headline_number": 0.43,
+      "last_published": "2026-09-29"
     },
     "P7b:down_streak|^BVSP|streak7plus": {
       "cell": "a run of 7 or more consecutive down closes, the state actually live tonight",
@@ -873,6 +1048,13 @@
       "count": 1,
       "last_headline_number": -0.05,
       "last_published": "2026-08-10"
+    },
+    "P9b:stocks_bonds_down|SPY|plus_gld_2pct_h21": {
+      "cell": "sessions with SPY and TLT both down 0.5% or more and GLD down 2% or more, 2004-11 to 2026-09, declustered 5 sessions; forward SPY 21 sessions",
+      "count": 1,
+      "delivery_id": "69aa2b8acfeb995e18b20db9a85e71392cc81e1d1d1f35e35bddf7ed8513efb4",
+      "last_headline_number": 2.818,
+      "last_published": "2026-09-28"
     },
     "P9b:stocks_bonds_down|SPY|volbid": {
       "cell": "SPY and TLT both down 50bp+ on a session VIX rose 5% or more",
@@ -912,6 +1094,13 @@
       "last_headline_number": 2.73,
       "last_published": "2026-08-23"
     },
+    "P:crude_break|CL=F|drop5_while_above_200d": {
+      "cell": "crude falling 5% or more in a session while still more than 5% above its 200-day average, and the 2026 frequency of it",
+      "count": 1,
+      "delivery_id": "83576c6e1f3cff346aa32e7b415aaf096b488f057d7f04b28ab16b789b1690e0",
+      "last_headline_number": -0.76,
+      "last_published": "2026-09-20"
+    },
     "P:ewy_drop5_quiet_spx|EEM|count_by_year": {
       "cell": "EWY down 5% or more on a session with the S&P down less than 1%, counted by year since May 2000",
       "count": 1,
@@ -926,11 +1115,67 @@
       "last_headline_number": -3.246,
       "last_published": "2026-09-09"
     },
+    "P:move_jump12_calm_vix|SPY|h5": {
+      "cell": "SPY over the 5 sessions after a MOVE one-day rise of 12% or more with the VIX under 20 (declustered 5, 2002+)",
+      "count": 1,
+      "delivery_id": "b6c10d0f44221a04ee2eb504aef281ee14f28c1328188af4bb008c66ca12dd18",
+      "last_headline_number": 0.56,
+      "last_published": "2026-09-23"
+    },
     "P:move_jump_low_base|^MOVE|spy_h10": {
       "cell": "MOVE up 5%+ with its 21d return rank in the bottom third, SPY h10",
       "count": 1,
       "last_headline_number": 0.737,
       "last_published": "2026-08-31"
+    },
+    "P:movevol|^MOVE|spike_into_calm_vix": {
+      "cell": "MOVE up 10% or more over 21 sessions while the VIX sits at least 10% below its own 200-day average; forward MOVE, VIX and SPY",
+      "count": 1,
+      "delivery_id": "83576c6e1f3cff346aa32e7b415aaf096b488f057d7f04b28ab16b789b1690e0",
+      "last_headline_number": -3.17,
+      "last_published": "2026-09-20"
+    },
+    "P:sector_breadth_near_high|SPY|le4_of_9_above_200d": {
+      "cell": "SPY within 1% of its 252-day closing high with 4 or fewer of the 9 original sector SPDRs above their 200-day averages (rarity, 2000+); forward stats from the looser 5-or-6-of-9 case, declustered 21 sessions",
+      "count": 1,
+      "delivery_id": "0d7d7ee5982462cb98c6f0ff815e262eff218471bfdaec04bad1f0300aea0ae7",
+      "last_headline_number": 1.412,
+      "last_published": "2026-09-27"
+    },
+    "P:spread|NDX-RUT|21d_8pp_opposite_legs": {
+      "cell": "21-day NDX return minus 21-day RUT return at 8pp or more, NDX 21d above zero and RUT 21d below, declustered 21td; forward 21-session spread",
+      "count": 1,
+      "delivery_id": "683c52bc832695f94755e26fb0972874b64602826adf54732389b0b615823380",
+      "last_headline_number": -1.46,
+      "last_published": "2026-09-21"
+    },
+    "P:tnx_five_pct|^TNX|first_since_2007": {
+      "cell": "the 10-year note yield closing at or above 5.00%, and the gap since the previous one",
+      "count": 1,
+      "delivery_id": "83576c6e1f3cff346aa32e7b415aaf096b488f057d7f04b28ab16b789b1690e0",
+      "last_headline_number": null,
+      "last_published": "2026-09-20"
+    },
+    "P:tnx_jump12_52wh|IWM-SPY|h1": {
+      "cell": "IWM minus SPY the session after the 10-year rose 12bp or more to a 52-week closing high (declustered 5 sessions, 2003+)",
+      "count": 1,
+      "delivery_id": "b6c10d0f44221a04ee2eb504aef281ee14f28c1328188af4bb008c66ca12dd18",
+      "last_headline_number": -0.3,
+      "last_published": "2026-09-23"
+    },
+    "P:tnx_jump12_52wh|^TNX|h1_by_era": {
+      "cell": "10-year yield change the session after a 12bp+ rise to a 52-week closing high, with SPY the same session (declustered 5, 2003+)",
+      "count": 1,
+      "delivery_id": "b6c10d0f44221a04ee2eb504aef281ee14f28c1328188af4bb008c66ca12dd18",
+      "last_headline_number": null,
+      "last_published": "2026-09-23"
+    },
+    "P:vix_drop_flat_spx|^VIX|lt16_drop4_spx_h5": {
+      "cell": "VIX down 4% or more on an S&P close at or below zero with the VIX closing under 16, declustered 5 sessions; S&P and VIX five sessions later",
+      "count": 1,
+      "delivery_id": "d0adb5f020d28676601729ba1d257082117e0e2eba5746bf11611a55633e2312",
+      "last_headline_number": -0.79,
+      "last_published": "2026-09-22"
     },
     "P:vix_friday_drop10|^VIX|monday_2018plus": {
       "cell": "Friday VIX close down 10% or more, next-session (Monday) VIX change, 2018+, against all 2018+ Mondays",
@@ -958,6 +1203,6 @@
       "last_published": "2026-09-06"
     }
   },
-  "updated": "2026-09-17T18:52:24-04:00",
+  "updated": "2026-09-29T18:43:54-04:00",
   "version": 1
 }
