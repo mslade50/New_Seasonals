@@ -9,6 +9,12 @@ produces a loud failure instead of three plausible-looking cards.
     python daily_pitch.py --ideas data/pitch_ideas.json [--dry-run]
                           [--no-send] [--html-out out.html] [--asof DATE]
                           [--validate-only] [--checks-root DIR]
+                          [--product pitch|seasonal]
+
+`--product seasonal` publishes the Daily Seasonal through the same machinery
+with its own checks folder, journal, scoreboard, Sheets tab, email subject and
+R2 receipt namespace (pitch_products.py; docs/claude_ref/daily_seasonal.md).
+The default product is `pitch` and every pitch path is unchanged.
 
 What one run does, in order:
   1. read the agent's ideas json and the price cache;
@@ -49,6 +55,7 @@ import pandas as pd
 
 import pitch_delivery
 import pitch_journal
+import pitch_products
 from pitch_grammar import (
     IDEA_COUNT,
     REPEAT_BLOCK_TD,
@@ -88,6 +95,18 @@ TAB_COLUMNS = [
     "Notional", "Sizing_Note", "Place_Pass", "Manual_Only", "Place_Note",
     "Proxy_Ticker", "Execute_On", "Scan_Source",
 ]
+
+# The Daily Seasonal tab carries the pitch columns plus the trail, which only
+# a seasonal idea can have (blank on rows without one).
+SEASONAL_TAB_COLUMNS = TAB_COLUMNS + ["Trail_Arm_ATR", "Trail_ATR"]
+
+
+def product_tab(product: str = "pitch") -> tuple[str, list[str]]:
+    """(tab name, columns). The pitch reads the module globals at call time."""
+    if product == "pitch":
+        return TAB_NAME, TAB_COLUMNS
+    return pitch_products.get_product(product).tab_name, SEASONAL_TAB_COLUMNS
+
 
 # Site Pitch tab (2026-09-23): today's slate as JSON, served live from R2 by
 # functions/pitch-today.js because the pitch publishes after the morning site
@@ -129,7 +148,8 @@ def leg_tickers(payload: dict) -> list[str]:
 
 def prepare(payload: dict, asof: pd.Timestamp, prices: pd.DataFrame,
             journal_records: list[dict],
-            checks_root: str | Path | None = None
+            checks_root: str | Path | None = None,
+            product: str = "pitch"
             ) -> tuple[list[dict], list[dict]]:
     """Validate the payload and derive its order rows. Raises SystemExit with
     every error at once, because a half-valid pitch is not publishable and
@@ -141,7 +161,20 @@ def prepare(payload: dict, asof: pd.Timestamp, prices: pd.DataFrame,
     prior_records = [record for record in journal_records
                      if str(record.get("date")) != str(asof.date())]
     recent = pitch_journal.recent_fingerprints(prior_records, since)
-    errors = validate_payload(payload, recent, checks_root)
+    if product != "pitch":
+        # The seasonal agent must never re-pitch a Daily Pitch idea inside
+        # the window either; the pitch journal is read-only here.
+        try:
+            pitch_recent = pitch_journal.recent_fingerprints(
+                pitch_journal.load(pitch_journal.JOURNAL_PATH, pull=False),
+                since)
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARNING: pitch journal unreadable ({exc}) - the "
+                  f"cross-product repetition check is skipped")
+            pitch_recent = {}
+        for fp, date in pitch_recent.items():
+            recent[fp] = max(recent.get(fp, ""), date)
+    errors = validate_payload(payload, recent, checks_root, product)
 
     contexts: dict[str, dict] = {}
     if not errors:
@@ -155,9 +188,11 @@ def prepare(payload: dict, asof: pd.Timestamp, prices: pd.DataFrame,
     enriched: list[dict] = []
     if not errors:
         for rank, idea in enumerate(payload["ideas"], 1):
-            idea_id = f"{asof.date()}-{rank}"
+            prefix = pitch_products.get_product(product).idea_id_prefix
+            idea_id = f"{asof.date()}-{prefix}{rank}"
             try:
-                idea_rows = build_orders(idea, contexts, asof, idea_id)
+                idea_rows = build_orders(idea, contexts, asof, idea_id,
+                                         product=product)
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"idea {rank}: sizing failed ({exc})")
                 continue
@@ -214,7 +249,8 @@ def open_sheet(sheet_name: str = SHEET_NAME):
     return client.open(sheet_name)
 
 
-def capture_approvals(sheet, today: pd.Timestamp) -> list[dict]:
+def capture_approvals(sheet, today: pd.Timestamp,
+                      tab_name: str | None = None) -> list[dict]:
     """Approve cells from the tab as it stands, i.e. the PREVIOUS run's rows.
 
     The tab is cleared and rewritten every morning, so this is the only
@@ -223,11 +259,12 @@ def capture_approvals(sheet, today: pd.Timestamp) -> list[dict]:
     and a disagreement is reported rather than guessed at)."""
     import gspread
     try:
-        rows = sheet.worksheet(TAB_NAME).get_all_records()
+        rows = sheet.worksheet(tab_name or TAB_NAME).get_all_records()
     except gspread.WorksheetNotFound:
         return []
     except Exception as exc:  # noqa: BLE001
-        print(f"WARNING: could not read prior Pitch tab ({exc}) - approvals "
+        print(f"WARNING: could not read prior {tab_name or TAB_NAME} tab "
+              f"({exc}) - approvals "
               f"for that day are lost")
         return []
 
@@ -262,22 +299,29 @@ def capture_approvals(sheet, today: pd.Timestamp) -> list[dict]:
     return records
 
 
-def write_tab(sheet, rows: list[dict]) -> None:
+def write_tab(sheet, rows: list[dict], product: str = "pitch") -> None:
     import gspread
+    tab_name, columns = product_tab(product)
     try:
-        worksheet = sheet.worksheet(TAB_NAME)
+        worksheet = sheet.worksheet(tab_name)
     except gspread.WorksheetNotFound:
-        worksheet = sheet.add_worksheet(title=TAB_NAME, rows=60,
-                                        cols=len(TAB_COLUMNS))
+        worksheet = sheet.add_worksheet(title=tab_name, rows=60,
+                                        cols=len(columns))
     worksheet.clear()
     # rows == [] is the stand-down case: header only, nothing approvable.
     # Building the frame from an empty list would KeyError on the column
     # selection, and leaving the tab as-is would leave yesterday's orders
     # live on a morning that pitched nothing.
-    body = (pd.DataFrame(rows)[TAB_COLUMNS].astype(str).values.tolist()
-            if rows else [])
-    worksheet.update([TAB_COLUMNS] + body)
-    print(f"Wrote {len(rows)} row(s) -> '{TAB_NAME}' tab")
+    if not rows:
+        body = []
+    elif product == "pitch":
+        body = pd.DataFrame(rows)[columns].astype(str).values.tolist()
+    else:
+        # trail columns exist only on rows whose idea carries a trail
+        body = (pd.DataFrame(rows).reindex(columns=columns).fillna("")
+                .astype(str).values.tolist())
+    worksheet.update([columns] + body)
+    print(f"Wrote {len(rows)} row(s) -> '{tab_name}' tab")
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +398,7 @@ def _evidence_table(table) -> str:
             + "".join(body) + "</table>")
 
 
-def render_card(idea: dict) -> str:
+def render_card(idea: dict, tab_name: str = TAB_NAME) -> str:
     grade = str(idea["grade"]).upper()
     color = GRADE_COLOR.get(grade, "#555")
     ev = idea.get("evidence", {}) or {}
@@ -367,7 +411,7 @@ def render_card(idea: dict) -> str:
         place_note = (
             "<div style='background:#fdf6e3;border-left:4px solid #b58900;"
             "padding:6px 10px;margin:8px 0;font-size:12px'><b>Manual only.</b> "
-            f"{_esc(manual[0]['Place_Note'])}. The Pitch tab carries the row "
+            f"{_esc(manual[0]['Place_Note'])}. The {tab_name} tab carries the row "
             "for the record; the approval runner will not place it.</div>")
     elif "open" in pass_names:
         place_note = (
@@ -566,9 +610,12 @@ def render_short_slate(payload: dict, ideas: list[dict]) -> str:
 
 
 def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
-                 scoreboard: dict, state: dict | None) -> str:
+                 scoreboard: dict, state: dict | None,
+                 product: str = "pitch") -> str:
     state = state or {}
-    cards = "".join(render_card(idea) for idea in ideas)
+    label = pitch_products.get_product(product).label
+    tab_name = product_tab(product)[0]
+    cards = "".join(render_card(idea, tab_name) for idea in ideas)
 
     killed = payload.get("killed") or []
     killed_html = ""
@@ -611,12 +658,12 @@ def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
 
     return f"""
 <div style="font-family:Segoe UI,Arial,sans-serif;max-width:920px;color:#1a1a1a">
-  <h2 style="margin-bottom:2px">Daily Pitch &mdash; {asof.strftime('%A %Y-%m-%d')}</h2>
+  <h2 style="margin-bottom:2px">{label} &mdash; {asof.strftime('%A %Y-%m-%d')}</h2>
   <p style="color:#555;margin-top:2px;font-size:13px">
     {len(ideas)} idea{'' if len(ideas) == 1 else 's'}, invented from repo
     context and interrogated against the data this morning. Nothing here is a
     book signal; the scanner trades those separately. Approve by typing Y in
-    the Pitch tab.</p>
+    the {tab_name} tab.</p>
   {context}
   {render_pipeline_line(state.get('pipeline'))}
   {warn_html}
@@ -636,7 +683,7 @@ def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
 
 
 def render_stand_down(payload: dict, asof: pd.Timestamp, scoreboard: dict,
-                      state: dict | None) -> str:
+                      state: dict | None, product: str = "pitch") -> str:
     """The email for a morning that shipped nothing.
 
     It leads with the near-misses and the number each one turned on, because
@@ -645,6 +692,8 @@ def render_stand_down(payload: dict, asof: pd.Timestamp, scoreboard: dict,
     closes.
     """
     state = state or {}
+    label = pitch_products.get_product(product).label
+    tab_name = product_tab(product)[0]
     block = payload.get("stand_down") or {}
     closest = _near_miss_cards(block)
 
@@ -689,12 +738,12 @@ def render_stand_down(payload: dict, asof: pd.Timestamp, scoreboard: dict,
 
     return f"""
 <div style="font-family:Segoe UI,Arial,sans-serif;max-width:920px;color:#1a1a1a">
-  <h2 style="margin-bottom:2px">Daily Pitch &mdash; {asof.strftime('%A %Y-%m-%d')}
+  <h2 style="margin-bottom:2px">{label} &mdash; {asof.strftime('%A %Y-%m-%d')}
     &mdash; <span style="color:#b02a1e">NO TRADES</span></h2>
   <p style="color:#555;margin-top:2px;font-size:13px">
     {block.get('candidates_considered', 0)} candidates across
     {len(block.get('axes') or [])} novelty axes, all killed in falsification.
-    The Pitch tab is empty and there is nothing to approve. This is a verdict,
+    The {tab_name} tab is empty and there is nothing to approve. This is a verdict,
     not a failed run.</p>
   {context}
   {render_pipeline_line(state.get('pipeline'))}
@@ -805,10 +854,19 @@ def delivery_receipt_settings(args, journal_path: Path,
     override = getattr(args, "delivery_receipt", None)
     if override:
         return Path(override), False
-    if journal_path != pitch_journal.JOURNAL_PATH:
+    product = getattr(args, "product", None) or "pitch"
+    if journal_path != production_journal(product):
         name = f"{journal_path.stem}.delivery.{asof.date()}.json"
         return journal_path.with_name(name), False
-    return pitch_delivery.default_receipt_path(str(asof.date())), True
+    return pitch_delivery.default_receipt_path(str(asof.date()), product), True
+
+
+def production_journal(product: str = "pitch") -> Path:
+    """The pitch reads pitch_journal's global at call time (tests redirect
+    it); other products take theirs from pitch_products."""
+    if product == "pitch":
+        return pitch_journal.JOURNAL_PATH
+    return pitch_products.get_product(product).journal_path
 
 
 def deliver_email_once(subject: str, html: str, planned_records: list[dict],
@@ -823,12 +881,14 @@ def deliver_email_once(subject: str, html: str, planned_records: list[dict],
     """
     receipt_path, use_r2 = delivery_receipt_settings(
         args, journal_path, asof)
+    product = getattr(args, "product", None) or "pitch"
     try:
         receipt, should_send = pitch_delivery.reserve_delivery(
             asof=str(asof.date()), records=planned_records, subject=subject,
             html=html, recipients=email_recipients(), path=receipt_path,
             use_r2=use_r2,
-            prior_records=pitch_journal.load(journal_path, pull=False))
+            prior_records=pitch_journal.load(journal_path, pull=False),
+            product=product)
     except pitch_delivery.DeliveryReceiptError as exc:
         print(f"DELIVERY BLOCKED: {exc}")
         return None
@@ -842,7 +902,8 @@ def deliver_email_once(subject: str, html: str, planned_records: list[dict],
     try:
         pitch_delivery.complete_delivery(
             receipt, receipt_path, use_r2=use_r2, sent=email_ok,
-            reason=None if email_ok else "SMTP did not confirm delivery")
+            reason=None if email_ok else "SMTP did not confirm delivery",
+            product=product)
     except pitch_delivery.DeliveryReceiptError as exc:
         print(f"DELIVERY RECEIPT FAILED: {exc}. The SMTP outcome is now "
               "ambiguous and automatic resend is blocked.")
@@ -901,6 +962,10 @@ def publish_site_payload(site: dict, journal_path: Path, args,
     failure prints one loud line and returns False; it never fails a publish
     that already delivered.
     """
+    product = getattr(args, "product", None) or "pitch"
+    if not pitch_products.get_product(product).site_payload:
+        print(f"Site payload skipped - the {product} product has no site tab")
+        return True
     try:
         _, use_r2 = delivery_receipt_settings(args, journal_path, asof)
         path = (SITE_PAYLOAD_PATH if use_r2 else
@@ -1028,26 +1093,32 @@ def stand_down_records(payload: dict, asof: pd.Timestamp,
     }] + killed_records(payload, asof, model, effort)
 
 
-def load_context(asof: pd.Timestamp) -> tuple[dict, dict | None]:
+def load_context(asof: pd.Timestamp,
+                 product: str = "pitch") -> tuple[dict, dict | None]:
     """The scoreboard and this morning's state, shared by both publish paths."""
+    if product == "pitch":
+        scoreboard_path, state_path = SCOREBOARD_PATH, STATE_PATH
+    else:
+        spec = pitch_products.get_product(product)
+        scoreboard_path, state_path = spec.scoreboard_path, spec.state_path
     # Best effort: these files decorate the email — a truncated scoreboard
     # (non-atomic write by the grader minutes earlier) must not take down a
     # publish that already holds three valid ideas.
     scoreboard = {}
-    if SCOREBOARD_PATH.exists():
+    if scoreboard_path.exists():
         try:
-            scoreboard = json.loads(SCOREBOARD_PATH.read_text(encoding="utf-8"))
+            scoreboard = json.loads(scoreboard_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
             print(f"WARNING: scoreboard unreadable ({exc}) - shipping without it")
     state = None
-    if STATE_PATH.exists():
+    if state_path.exists():
         try:
-            state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+            state = json.loads(state_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
-            print(f"WARNING: pitch_state.json unreadable ({exc}) - "
+            print(f"WARNING: {state_path.name} unreadable ({exc}) - "
                   f"shipping without the context header")
         if state and state.get("asof") != str(asof.date()):
-            print(f"WARNING: pitch_state.json is dated {state.get('asof')}, "
+            print(f"WARNING: {state_path.name} is dated {state.get('asof')}, "
                   f"not {asof.date()} - the context header may be stale")
     return scoreboard, state
 
@@ -1061,7 +1132,9 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
     no-trade morning would leave live, approvable orders on the sheet for
     ideas nobody pitched today.
     """
-    errors = validate_payload(payload)
+    product = getattr(args, "product", None) or "pitch"
+    label = pitch_products.get_product(product).label
+    errors = validate_payload(payload, product=product)
     if errors:
         print(f"STAND-DOWN VALIDATION FAILED ({len(errors)} problem(s)) - "
               f"nothing published:")
@@ -1071,7 +1144,7 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
 
     block = payload["stand_down"]
     model, effort = run_identity(args.model, args.effort)
-    print(f"Daily Pitch {asof.date()} - STAND-DOWN, nothing shipped "
+    print(f"{label} {asof.date()} - STAND-DOWN, nothing shipped "
           f"[model {model}, effort {effort}]")
     print(f"  {block['candidates_considered']} candidates over "
           f"{len(block['axes'])} axes, {len(payload.get('killed') or [])} "
@@ -1082,8 +1155,8 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
         print("Validation only - nothing published.")
         return 0
 
-    scoreboard, state = load_context(asof)
-    html = render_stand_down(payload, asof, scoreboard, state)
+    scoreboard, state = load_context(asof, product)
+    html = render_stand_down(payload, asof, scoreboard, state, product)
     if args.html_out:
         Path(args.html_out).write_text(html, encoding="utf-8")
         print(f"HTML written to {args.html_out}")
@@ -1095,14 +1168,14 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
     sheet = None
     try:
         sheet = open_sheet()
-        approvals = capture_approvals(sheet, asof)
+        approvals = capture_approvals(sheet, asof, product_tab(product)[0])
         if approvals:
             answered = sum(1 for a in approvals if a["approve"])
             print(f"Captured {len(approvals)} prior approval row(s), "
                   f"{answered} answered")
     except Exception as exc:  # noqa: BLE001
         print(f"WARNING: Sheets unavailable ({exc}) - approvals not captured "
-              f"and the Pitch tab will not be cleared")
+              f"and the {product_tab(product)[0]} tab will not be cleared")
 
     # Journal approvals immediately — same one-readable-window rationale as
     # the ideas path above.  A recovery rerun must not duplicate them.
@@ -1112,7 +1185,7 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
     planned_records = stand_down_records(
         payload, asof, args.model, args.effort)
     if not args.no_send:
-        subject = (f"Daily Pitch - {asof.date()} - NO TRADES "
+        subject = (f"{label} - {asof.date()} - NO TRADES "
                    f"({len(payload.get('killed') or [])} killed)")
         delivery = deliver_email_once(subject, html, planned_records, asof,
                                       journal_path, args)
@@ -1122,10 +1195,12 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
 
     if sheet is not None:
         try:
-            write_tab(sheet, [])
-            print("Pitch tab cleared - nothing to approve today")
+            write_tab(sheet, [], product)
+            print(f"{product_tab(product)[0]} tab cleared - nothing to "
+                  f"approve today")
         except Exception as exc:  # noqa: BLE001
-            print(f"ERROR: Pitch tab clear failed ({exc}) - yesterday's rows "
+            print(f"ERROR: {product_tab(product)[0]} tab clear failed ({exc}) "
+                  f"- yesterday's rows "
                   f"may still be approvable")
             return 1
 
@@ -1146,7 +1221,14 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ideas", default=str(DEFAULT_IDEAS))
+    ap.add_argument("--product", default="pitch",
+                    choices=sorted(pitch_products.PRODUCTS),
+                    help="which agent product this publish belongs to; "
+                         "selects checks folder, journal, scoreboard, tab, "
+                         "subject and receipt namespace (default pitch)")
+    ap.add_argument("--ideas", default=None,
+                    help="ideas json; defaults to the product's "
+                         "(data/pitch_ideas.json for the pitch)")
     ap.add_argument("--asof", default=None, help="override today (YYYY-MM-DD)")
     ap.add_argument("--validate-only", action="store_true",
                     help="validate and size, then stop")
@@ -1158,15 +1240,24 @@ def main() -> int:
                     help="model stamp; defaults to $PITCH_MODEL")
     ap.add_argument("--effort", default=None,
                     help="effort stamp; defaults to $PITCH_EFFORT")
-    ap.add_argument("--journal", default=str(pitch_journal.JOURNAL_PATH),
-                    help="journal path; a non-default path never touches R2")
+    ap.add_argument("--journal", default=None,
+                    help="journal path (default: the product's production "
+                         "journal); a non-default path never touches R2")
     ap.add_argument("--delivery-receipt", default=None,
                     help="explicit local-only receipt path (tests/dev only); "
                          "production defaults to a dated data receipt + R2")
     ap.add_argument("--checks-root", default=None,
                     help="where the day's check scripts live; defaults to "
-                         "scratch/pitch_checks (dev and fixture runs only)")
+                         "scratch/pitch_checks, or scratch/seasonal_checks "
+                         "for --product seasonal (dev and fixture runs only)")
     args = ap.parse_args()
+    product = args.product
+    label = pitch_products.get_product(product).label
+    if args.ideas is None:
+        args.ideas = str(DEFAULT_IDEAS if product == "pitch"
+                         else pitch_products.get_product(product).default_ideas)
+    if args.journal is None:
+        args.journal = str(production_journal(product))
 
     payload = load_ideas(Path(args.ideas))
     asof = pd.Timestamp(args.asof or payload.get("asof")
@@ -1183,10 +1274,10 @@ def main() -> int:
         return publish_stand_down(payload, asof, journal_path, args)
 
     ideas, rows = prepare(payload, asof, load_prices(), records,
-                          args.checks_root)
+                          args.checks_root, product)
 
     _model, _effort = run_identity(args.model, args.effort)
-    print(f"Daily Pitch {asof.date()} - {len(ideas)} "
+    print(f"{label} {asof.date()} - {len(ideas)} "
           f"idea{'' if len(ideas) == 1 else 's'}, "
           f"{len(rows)} order rows [model {_model}, effort {_effort}]")
     for idea in ideas:
@@ -1205,8 +1296,8 @@ def main() -> int:
         print("Validation only - nothing published.")
         return 0
 
-    scoreboard, state = load_context(asof)
-    html = render_email(payload, ideas, asof, scoreboard, state)
+    scoreboard, state = load_context(asof, product)
+    html = render_email(payload, ideas, asof, scoreboard, state, product)
     if args.html_out:
         Path(args.html_out).write_text(html, encoding="utf-8")
         print(f"HTML written to {args.html_out}")
@@ -1219,14 +1310,14 @@ def main() -> int:
     sheet = None
     try:
         sheet = open_sheet()
-        approvals = capture_approvals(sheet, asof)
+        approvals = capture_approvals(sheet, asof, product_tab(product)[0])
         if approvals:
             answered = sum(1 for a in approvals if a["approve"])
             print(f"Captured {len(approvals)} prior approval row(s), "
                   f"{answered} answered")
     except Exception as exc:  # noqa: BLE001
         print(f"WARNING: Sheets unavailable ({exc}) - approvals not captured "
-              f"and the Pitch tab will not be rewritten")
+              f"and the {product_tab(product)[0]} tab will not be rewritten")
 
     # Journal captured approvals IMMEDIATELY: this is the only window they
     # are readable in, and write_tab's clear() destroys the tab copy — a
@@ -1238,7 +1329,7 @@ def main() -> int:
     planned_records = journal_records(
         payload, ideas, asof, args.model, args.effort)
     if not args.no_send:
-        subject = (f"Daily Pitch - {asof.date()} - {len(ideas)} "
+        subject = (f"{label} - {asof.date()} - {len(ideas)} "
                    f"idea{'' if len(ideas) == 1 else 's'}")
         delivery = deliver_email_once(subject, html, planned_records, asof,
                                       journal_path, args)
@@ -1248,9 +1339,9 @@ def main() -> int:
 
     if sheet is not None:
         try:
-            write_tab(sheet, rows)
+            write_tab(sheet, rows, product)
         except Exception as exc:  # noqa: BLE001
-            print(f"ERROR: Pitch tab write failed ({exc}) - the email went out "
+            print(f"ERROR: {product_tab(product)[0]} tab write failed ({exc}) - the email went out "
                   f"but there is nothing to approve against")
             return 1
 

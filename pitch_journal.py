@@ -47,31 +47,45 @@ JOURNAL_R2_KEY = "pitch_journal.jsonl"
 KINDS = {"idea", "killed", "approval", "outcome", "stand_down", "short_slate"}
 
 
+def r2_key_for(path: Path) -> str | None:
+    """R2 mirror key for a production journal (the pitch's, read off this
+    module's globals so tests can redirect it, or another product's from
+    pitch_products). Any other path is a test or dev run: None, no R2."""
+    if Path(path) == JOURNAL_PATH:
+        return JOURNAL_R2_KEY
+    from pitch_products import PITCH, journal_r2_key
+    if Path(path) == PITCH.journal_path:
+        return None                   # the pitch path was redirected by a test
+    return journal_r2_key(Path(path))
+
+
 def sync_down(path: Path = JOURNAL_PATH) -> None:
     """Pull the journal from R2 when this machine has no local copy. Never
     overwrites a local file: local is the writer, R2 is the shared mirror.
 
-    Only the default path syncs. A caller that passes its own path is a test
+    Only a production path syncs. A caller that passes its own path is a test
     or a dev run, and those must never touch the shared evidence trail."""
-    if path != JOURNAL_PATH or path.exists():
+    key = r2_key_for(path)
+    if key is None or path.exists():
         return
     from cache_io import download_to_local, is_configured
     if is_configured():
         path.parent.mkdir(parents=True, exist_ok=True)
-        if not download_to_local(JOURNAL_R2_KEY, str(path)):
+        if not download_to_local(key, str(path)):
             raise RuntimeError("journal mirror download failed; refusing to create replacement history")
         read_jsonl(path)
 
 
 
 def sync_up(path: Path = JOURNAL_PATH) -> None:
-    if path != JOURNAL_PATH:
+    key = r2_key_for(path)
+    if key is None:
         return
     from cache_io import is_configured, upload_from_local
     if is_configured() and path.exists():
         with file_lock(path):
             read_jsonl(path)
-            if not upload_from_local(str(path), JOURNAL_R2_KEY):
+            if not upload_from_local(str(path), key):
                 raise RuntimeError("journal mirror upload failed; local evidence was preserved")
 
 

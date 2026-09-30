@@ -38,12 +38,25 @@ class DeliveryReceiptError(RuntimeError):
     """The receipt state is unsafe or inconsistent with the planned send."""
 
 
-def default_receipt_path(asof: str | dt.date) -> Path:
-    return RECEIPT_DIR / f"{asof}.json"
+def _namespace(product: str = "pitch") -> tuple[Path, str, Path]:
+    """(local receipt dir, R2 prefix, R2 download dir) for one product. The
+    pitch reads this module's globals at call time so its paths are the
+    historical ones (and tests can redirect them); every other product gets
+    its own namespace from pitch_products, so two products' receipts for the
+    same date can never collide."""
+    if product == "pitch":
+        return RECEIPT_DIR, R2_RECEIPT_PREFIX, R2_DOWNLOAD_DIR
+    from pitch_products import get_product
+    p = get_product(product)
+    return p.receipt_dir, p.receipt_r2_prefix, p.receipt_download_dir
 
 
-def r2_key(asof: str | dt.date) -> str:
-    return f"{R2_RECEIPT_PREFIX}/{asof}.json"
+def default_receipt_path(asof: str | dt.date, product: str = "pitch") -> Path:
+    return _namespace(product)[0] / f"{asof}.json"
+
+
+def r2_key(asof: str | dt.date, product: str = "pitch") -> str:
+    return f"{_namespace(product)[1]}/{asof}.json"
 
 
 def _canonical_record(record: dict) -> dict:
@@ -136,7 +149,8 @@ def _is_not_found(message: str) -> bool:
     return any(token in lowered for token in ("404", "nosuchkey", "not found"))
 
 
-def _load_remote(asof: str, *, required: bool) -> dict | None:
+def _load_remote(asof: str, *, required: bool,
+                 product: str = "pitch") -> dict | None:
     try:
         import cache_io
     except Exception as exc:  # noqa: BLE001
@@ -146,9 +160,9 @@ def _load_remote(asof: str, *, required: bool) -> dict | None:
         raise DeliveryReceiptError(
             "R2 is not configured; production email delivery is blocked")
 
-    key = r2_key(asof)
+    key = r2_key(asof, product)
     before = cache_io.head(key)
-    target = R2_DOWNLOAD_DIR / f"{asof}.json"
+    target = _namespace(product)[2] / f"{asof}.json"
     if cache_io.download_to_local(key, str(target)):
         after = cache_io.head(key)
         before_etag = (before or {}).get("ETag")
@@ -168,7 +182,8 @@ def _load_remote(asof: str, *, required: bool) -> dict | None:
 
 
 def load_receipt(path: Path, asof: str, *, use_r2: bool,
-                 require_remote: bool = False) -> dict | None:
+                 require_remote: bool = False,
+                 product: str = "pitch") -> dict | None:
     """Load one receipt, rejecting local/R2 divergence.
 
     R2 is authoritative in production, but a local-only receipt is never
@@ -180,7 +195,8 @@ def load_receipt(path: Path, asof: str, *, use_r2: bool,
     if not use_r2:
         return local
 
-    remote = _load_remote(asof, required=require_remote or local is not None)
+    remote = _load_remote(asof, required=require_remote or local is not None,
+                          product=product)
     if remote is None:
         return None
     remote_on_disk = _persistable_receipt(remote)
@@ -195,7 +211,8 @@ def load_receipt(path: Path, asof: str, *, use_r2: bool,
 
 def _persist(receipt: dict, path: Path, *, use_r2: bool,
              create_only: bool = False,
-             expected_etag: str | None = None) -> str | None:
+             expected_etag: str | None = None,
+             product: str = "pitch") -> str | None:
     on_disk = _persistable_receipt(receipt)
     _atomic_write(path, on_disk)
     if not use_r2:
@@ -211,7 +228,7 @@ def _persist(receipt: dict, path: Path, *, use_r2: bool,
         raise DeliveryReceiptError(
             "R2 delivery receipt update is missing its compare-and-swap ETag")
     result, etag = cache_io.conditional_upload_from_local(
-        str(path), r2_key(on_disk["date"]), create_only=create_only,
+        str(path), r2_key(on_disk["date"], product), create_only=create_only,
         expected_etag=expected_etag)
     if result == "precondition_failed":
         raise DeliveryReceiptError(
@@ -224,8 +241,8 @@ def _persist(receipt: dict, path: Path, *, use_r2: bool,
 
 def reserve_delivery(*, asof: str, records: list[dict], subject: str,
                      html: str, recipients: list[str], path: Path,
-                     use_r2: bool, prior_records: list[dict] | None = None
-                     ) -> tuple[dict, bool]:
+                     use_r2: bool, prior_records: list[dict] | None = None,
+                     product: str = "pitch") -> tuple[dict, bool]:
     """Reserve one send. Return ``(receipt, should_send)``.
 
     A matching ``sent`` receipt returns ``False`` so the caller can reconcile
@@ -236,7 +253,7 @@ def reserve_delivery(*, asof: str, records: list[dict], subject: str,
     prior = verdict_records(prior_records or [], asof)
 
     with _receipt_lock(path):
-        existing = load_receipt(path, asof, use_r2=use_r2)
+        existing = load_receipt(path, asof, use_r2=use_r2, product=product)
         if existing is not None:
             if existing.get("status") != "sent":
                 raise DeliveryReceiptError(
@@ -306,7 +323,7 @@ def reserve_delivery(*, asof: str, records: list[dict], subject: str,
             }
             new_etag = _persist(
                 receipt, path, use_r2=use_r2,
-                expected_etag=existing.get("_r2_etag"))
+                expected_etag=existing.get("_r2_etag"), product=product)
             receipt["_r2_etag"] = new_etag
             return receipt, True
 
@@ -327,18 +344,20 @@ def reserve_delivery(*, asof: str, records: list[dict], subject: str,
             "updated_at": now,
             "smtp_attempted_at": now,
         }
-        new_etag = _persist(receipt, path, use_r2=use_r2, create_only=True)
+        new_etag = _persist(receipt, path, use_r2=use_r2, create_only=True,
+                            product=product)
         receipt["_r2_etag"] = new_etag
         return receipt, True
 
 
 def complete_delivery(receipt: dict, path: Path, *, use_r2: bool,
-                      sent: bool, reason: str | None = None) -> dict:
+                      sent: bool, reason: str | None = None,
+                      product: str = "pitch") -> dict:
     """Record the SMTP result, conservatively marking failures ambiguous."""
     with _receipt_lock(path):
         current = load_receipt(
             path, str(receipt["date"]), use_r2=use_r2,
-            require_remote=use_r2)
+            require_remote=use_r2, product=product)
         if current is None:
             raise DeliveryReceiptError("reserved delivery receipt disappeared")
         if (current.get("delivery_id") != receipt.get("delivery_id")
@@ -361,7 +380,7 @@ def complete_delivery(receipt: dict, path: Path, *, use_r2: bool,
         try:
             new_etag = _persist(
                 updated, path, use_r2=use_r2,
-                expected_etag=expected_etag)
+                expected_etag=expected_etag, product=product)
             updated["_r2_etag"] = new_etag
         except DeliveryReceiptError as exc:
             # The SMTP call may already have succeeded. Never leave the local
@@ -375,7 +394,7 @@ def complete_delivery(receipt: dict, path: Path, *, use_r2: bool,
             if use_r2 and expected_etag:
                 try:
                     _persist(updated, path, use_r2=True,
-                             expected_etag=expected_etag)
+                             expected_etag=expected_etag, product=product)
                 except DeliveryReceiptError:
                     pass
             raise
@@ -453,7 +472,8 @@ def _reconcile_journal_locked(records: list[dict], journal_path: Path) -> int:
         raise DeliveryReceiptError(
             f"journal reconciliation digest mismatch for {asof}")
 
-    if journal_path == pitch_journal.JOURNAL_PATH:
+    journal_key = pitch_journal.r2_key_for(journal_path)
+    if journal_key is not None:
         try:
             import cache_io
         except Exception as exc:  # noqa: BLE001
@@ -463,10 +483,10 @@ def _reconcile_journal_locked(records: list[dict], journal_path: Path) -> int:
             raise DeliveryReceiptError(
                 "R2 is not configured; journal reconciliation is incomplete")
         if not cache_io.upload_from_local(
-                str(journal_path), pitch_journal.JOURNAL_R2_KEY):
+                str(journal_path), journal_key):
             raise DeliveryReceiptError(
                 f"journal upload to R2 failed for {asof}")
-        cloud = load_cloud_journal()
+        cloud = load_cloud_journal(journal_key)
         cloud_today = verdict_records(cloud, asof)
         if (verdict_digest(cloud_today) != verdict_digest(final)
                 or len(cloud_today) != len(final)):
@@ -475,9 +495,11 @@ def _reconcile_journal_locked(records: list[dict], journal_path: Path) -> int:
     return written
 
 
-def load_cloud_journal() -> list[dict]:
-    """Download and parse the production journal from R2, fail closed."""
+def load_cloud_journal(key: str | None = None) -> list[dict]:
+    """Download and parse a production journal from R2, fail closed. `key`
+    defaults to the pitch journal's."""
     import pitch_journal
+    key = key or pitch_journal.JOURNAL_R2_KEY
     try:
         import cache_io
     except Exception as exc:  # noqa: BLE001
@@ -486,9 +508,8 @@ def load_cloud_journal() -> list[dict]:
     if not cache_io.is_configured():
         raise DeliveryReceiptError(
             "R2 is not configured; cloud journal cannot be verified")
-    target = R2_JOURNAL_DOWNLOAD_DIR / pitch_journal.JOURNAL_R2_KEY
-    if not cache_io.download_to_local(
-            pitch_journal.JOURNAL_R2_KEY, str(target)):
+    target = R2_JOURNAL_DOWNLOAD_DIR / key
+    if not cache_io.download_to_local(key, str(target)):
         detail = str(cache_io.last_download_error() or "unknown R2 error")
         raise DeliveryReceiptError(
             f"R2 journal download failed: {detail}")

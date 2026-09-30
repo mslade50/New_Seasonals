@@ -12,6 +12,13 @@ Vocabularies (nothing else is legal):
     ENTRY   MOO | MOC | LIMIT(anchor=CLOSE|OPEN, atr_mult=k)
     EXIT    time_td (ALWAYS present, MOC or MOO) + optional target_atr /
             stop_atr / event_anchor note
+            (+ exit.trail {arm_atr, trail_atr} for product "seasonal" only)
+
+Products (2026-09-30): the Daily Seasonal publishes through this grammar with
+product="seasonal": horizon up to MAX_HORIZON_TD_BY_PRODUCT, optional
+exit.trail, and risk_bps 15..50 sized off an explicit stop_atr_for_sizing
+(>= 3.0 ATR when the exit is time-only). The pitch is the default and its
+rules are unchanged. See docs/claude_ref/daily_seasonal.md.
 
 ATR is Wilder-14 on the traded instrument, per spec section 4. NOTE this is
 deliberately NOT the book's ATR: indicators.calculate_indicators uses a
@@ -33,7 +40,8 @@ Aligned sites — change together:
 - daily_pitch.py (publisher: validation, email cards, Pitch tab, journal)
 - scripts/grade_pitch_journal.py (replay: entry/exit semantics)
 - pitch_moo.py (OneDrive trading_ibkr: schema + universe validation)
-- Guard: tests/test_pitch_grammar.py
+- pitch_products.py (per-product paths)
+- Guard: tests/test_pitch_grammar.py, tests/test_seasonal_agent_grammar.py
 """
 from __future__ import annotations
 
@@ -89,6 +97,23 @@ SIZING_STOP_ATR_BY_HORIZON = ((5, 1.0), (10, 1.3), (10**6, 1.6))
 # modes are comparable here.
 MAX_IDEA_RISK_BPS = 60.0
 MAX_DAILY_RISK_BPS = 150.0
+
+# --- products (2026-09-30) -------------------------------------------------
+# The Daily Seasonal (docs/claude_ref/daily_seasonal.md) publishes through this
+# same grammar with three extensions, all keyed on `product`. The pitch is the
+# default everywhere and none of its rules move.
+PRODUCTS = ("pitch", "seasonal")
+MAX_HORIZON_TD_BY_PRODUCT = {"pitch": MAX_HORIZON_TD, "seasonal": 63}
+SEASONAL_CHECKS_ROOT = ROOT / "scratch" / "seasonal_checks"
+# Owner decision 2026-09-30: 30 bps by default, the agent may set 15-50 bps by
+# conviction. Always risk_bps: a seasonal idea sizes off a stop distance.
+SEASONAL_DEFAULT_RISK_BPS = 30.0
+SEASONAL_RISK_BPS_MIN = 15.0
+SEASONAL_RISK_BPS_MAX = 50.0
+SEASONAL_MIN_SIZING_STOP_ATR = 1.0
+# A time-only exit (no stop_atr) sizes off a catastrophe distance, which must
+# be wide enough to be a catastrophe stop and not a disguised tight one.
+SEASONAL_MIN_CATASTROPHE_ATR = 3.0
 
 # --- stand-down (a morning that ships nothing) -----------------------------
 # The 2026-08-07 run killed 24 candidates and two recovered inversions, then
@@ -299,6 +324,10 @@ def exit_label(idea: dict) -> str:
         bits.append(f"target +{float(ex['target_atr']):g} ATR")
     if ex.get("stop_atr"):
         bits.append(f"stop -{float(ex['stop_atr']):g} ATR")
+    trail = ex.get("trail")
+    if isinstance(trail, dict) and trail:
+        bits.append(f"trail {float(trail['trail_atr']):g} ATR off the best "
+                    f"close once +{float(trail['arm_atr']):g} ATR in favour")
     if ex.get("event_anchor"):
         bits.append(str(ex["event_anchor"]))
     return ", ".join(bits)
@@ -322,6 +351,9 @@ def auto_placement(idea: dict) -> tuple[str, str]:
     entry = idea["entry"]
     kind = str(entry["type"]).upper()
     ex = idea["exit"]
+    if ex.get("trail"):
+        return "manual", ("trailing stop (armed after a stated MFE) - no "
+                          "runner pass can manage a trail")
     has_price_legs = bool(ex.get("stop_atr") or ex.get("target_atr"))
 
     if kind == "LIMIT":
@@ -347,8 +379,8 @@ def _leg_weights(legs: list[dict]) -> list[float]:
 
 
 def build_orders(idea: dict, contexts: dict[str, dict], execute_on,
-                 idea_id: str, account_value: float = ACCOUNT_VALUE
-                 ) -> list[dict]:
+                 idea_id: str, account_value: float = ACCOUNT_VALUE,
+                 product: str = "pitch") -> list[dict]:
     """One order row per leg, fully specified.
 
     Sizing:
@@ -378,9 +410,12 @@ def build_orders(idea: dict, contexts: dict[str, dict], execute_on,
     exit_date = time_exit_date(execute_on, int(ex["time_td"]))
     fill_window = int(entry.get("fill_window_td", 1)) if kind == "LIMIT" else 1
 
+    default_bps = (SEASONAL_DEFAULT_RISK_BPS if product == "seasonal"
+                   else DEFAULT_RISK_BPS)
+    trail = ex.get("trail") if isinstance(ex.get("trail"), dict) else None
     if mode == "risk_bps":
         budget = account_value * float(sizing.get("risk_bps",
-                                                  DEFAULT_RISK_BPS)) / 1e4
+                                                  default_bps)) / 1e4
     elif mode == "nav_pct":
         budget = account_value * float(sizing["nav_pct"])
     else:
@@ -425,7 +460,7 @@ def build_orders(idea: dict, contexts: dict[str, dict], execute_on,
             # convention); a one-day window is a plain DAY order.
             tif = "GTD"
 
-        rows.append({
+        row = {
             "Idea_Id": idea_id,
             "Leg": i + 1,
             "Ticker": ticker,
@@ -457,15 +492,21 @@ def build_orders(idea: dict, contexts: dict[str, dict], execute_on,
             "Risk_Amt": round(risk_dollars, 2),
             "Notional": round(qty * close * mult, 2),
             "Sizing_Note": (f"{mode} "
-                            f"{sizing.get('risk_bps', DEFAULT_RISK_BPS) if mode == 'risk_bps' else sizing['nav_pct']}"
+                            f"{sizing.get('risk_bps', default_bps) if mode == 'risk_bps' else sizing['nav_pct']}"
                             f", risk unit {stop_atr_size:g} ATR"),
             "Place_Pass": place_pass,
             "Manual_Only": place_pass == "manual",
             "Place_Note": place_reason,
             "Execute_On": str(execute_on.date()),
-            "Scan_Source": "Pitch",
+            "Scan_Source": "Seasonal_Agent" if product == "seasonal" else "Pitch",
             "Approve": "",
-        })
+        }
+        # Only present when the idea carries a trail, so a pitch row (which
+        # never can) keeps its historical keys exactly.
+        if trail:
+            row["Trail_Arm_ATR"] = float(trail["arm_atr"])
+            row["Trail_ATR"] = float(trail["trail_atr"])
+        rows.append(row)
     return rows
 
 
@@ -493,11 +534,37 @@ def _validate_entry(entry, where: str, errors: list[str]) -> None:
         errors.append(f"{where}: fill_window_td must be an int in 1..10")
 
 
+def _validate_trail(trail, where: str, product: str,
+                    errors: list[str]) -> None:
+    """exit.trail = {arm_atr, trail_atr}: once MFE from entry reaches arm_atr
+    ATR, a stop trails trail_atr ATR behind the best close. Seasonal only; the
+    pitch grammar never had it and its grader would silently ignore it."""
+    if product != "seasonal":
+        errors.append(f"{where}: exit.trail is a Daily Seasonal extension "
+                      f"and is not legal on a {product} idea")
+        return
+    if not isinstance(trail, dict):
+        errors.append(f"{where}: exit.trail must be an object "
+                      f"{{arm_atr, trail_atr}}")
+        return
+    extra = sorted(set(trail) - {"arm_atr", "trail_atr"})
+    if extra:
+        errors.append(f"{where}: exit.trail has unknown field(s) {extra}")
+    for field in ("arm_atr", "trail_atr"):
+        value = trail.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not math.isfinite(value) or value <= 0:
+            errors.append(f"{where}: exit.trail.{field} must be a positive "
+                          f"ATR multiple")
+
+
 def _validate_exit(ex, horizon: int | None, where: str,
-                   errors: list[str]) -> None:
+                   errors: list[str], product: str = "pitch") -> None:
     if not isinstance(ex, dict):
         errors.append(f"{where}: exit must be an object")
         return
+    if "trail" in ex and ex.get("trail") is not None:
+        _validate_trail(ex.get("trail"), where, product, errors)
     time_td = ex.get("time_td")
     if not isinstance(time_td, int) or time_td < 1:
         # Hard requirement: "At least a time stop is ALWAYS present."
@@ -549,6 +616,43 @@ def _validate_legs(legs, where: str, errors: list[str]) -> None:
                               f"(point value, e.g. 1000 for DX)")
         elif "multiplier" in leg and float(leg.get("multiplier", 1.0)) != 1.0:
             errors.append(f"{tag}: only FUT legs may set a multiplier")
+
+
+def _validate_seasonal_sizing(sizing, ex, where: str,
+                              errors: list[str]) -> None:
+    """Seasonal sizing: always risk_bps, 15..50 bps (default 30), and an
+    explicit stop_atr_for_sizing >= 1.0 ATR. A time-only exit sizes off that
+    number as its catastrophe distance, so it must be >= 3.0 ATR."""
+    if not isinstance(sizing, dict):
+        errors.append(f"{where}: sizing is required on a seasonal idea "
+                      f"(risk_bps + stop_atr_for_sizing)")
+        return
+    mode = str(sizing.get("mode", "risk_bps")).lower()
+    if mode != "risk_bps":
+        errors.append(f"{where}: a seasonal idea sizes in risk_bps only "
+                      f"(got mode {mode!r})")
+    bps = sizing.get("risk_bps", SEASONAL_DEFAULT_RISK_BPS)
+    if isinstance(bps, bool) or not isinstance(bps, (int, float)) or not \
+            SEASONAL_RISK_BPS_MIN <= bps <= SEASONAL_RISK_BPS_MAX:
+        errors.append(f"{where}: sizing.risk_bps must be in "
+                      f"{SEASONAL_RISK_BPS_MIN:g}..{SEASONAL_RISK_BPS_MAX:g} "
+                      f"for a seasonal idea (default "
+                      f"{SEASONAL_DEFAULT_RISK_BPS:g}), got {bps!r}")
+    stop = sizing.get("stop_atr_for_sizing")
+    if isinstance(stop, bool) or not isinstance(stop, (int, float)) \
+            or not math.isfinite(stop):
+        errors.append(f"{where}: sizing.stop_atr_for_sizing is required on a "
+                      f"seasonal idea (the ATR distance the risk budget is "
+                      f"sized off)")
+        return
+    if stop < SEASONAL_MIN_SIZING_STOP_ATR:
+        errors.append(f"{where}: sizing.stop_atr_for_sizing {stop:g} is under "
+                      f"the {SEASONAL_MIN_SIZING_STOP_ATR:g} ATR floor")
+    has_stop = isinstance(ex, dict) and ex.get("stop_atr") not in (None, "", 0)
+    if not has_stop and stop < SEASONAL_MIN_CATASTROPHE_ATR:
+        errors.append(f"{where}: a time-only exit sizes off a catastrophe "
+                      f"distance, so sizing.stop_atr_for_sizing must be >= "
+                      f"{SEASONAL_MIN_CATASTROPHE_ATR:g} ATR (got {stop:g})")
 
 
 def _validate_sizing(sizing, where: str, errors: list[str]) -> None:
@@ -616,10 +720,13 @@ def _validate_evidence(idea: dict, where: str, errors: list[str]) -> None:
         errors.append(f"{where}: grade B requires N >= 15 (has {n})")
 
 
-def validate_idea(idea, where: str) -> list[str]:
+def validate_idea(idea, where: str, product: str = "pitch") -> list[str]:
     errors: list[str] = []
+    if product not in PRODUCTS:
+        return [f"unknown product {product!r}"]
     if not isinstance(idea, dict):
         return [f"{where}: idea must be an object"]
+    max_horizon = MAX_HORIZON_TD_BY_PRODUCT[product]
     for field in ("title", "thesis", "what_kills_it", "overlap"):
         if not str(idea.get(field, "")).strip():
             errors.append(f"{where}: {field} is required")
@@ -631,14 +738,18 @@ def validate_idea(idea, where: str) -> list[str]:
         errors.append(f"{where}: novelty_axis {axis!r} not in "
                       f"{sorted(NOVELTY_AXES)}")
     horizon = idea.get("horizon_td")
-    if not isinstance(horizon, int) or not 1 <= horizon <= MAX_HORIZON_TD:
+    if not isinstance(horizon, int) or not 1 <= horizon <= max_horizon:
         errors.append(f"{where}: horizon_td must be an int in "
-                      f"1..{MAX_HORIZON_TD}")
+                      f"1..{max_horizon}")
         horizon = None
     _validate_legs(idea.get("legs"), where, errors)
     _validate_entry(idea.get("entry"), where, errors)
-    _validate_exit(idea.get("exit"), horizon, where, errors)
-    _validate_sizing(idea.get("sizing"), where, errors)
+    _validate_exit(idea.get("exit"), horizon, where, errors, product)
+    if product == "seasonal":
+        _validate_seasonal_sizing(idea.get("sizing"), idea.get("exit"),
+                                  where, errors)
+    else:
+        _validate_sizing(idea.get("sizing"), where, errors)
     _validate_evidence(idea, where, errors)
     return errors
 
@@ -846,8 +957,13 @@ def _is_within(path: Path, directory: Path) -> bool:
     return True
 
 
-def validate_survey_evidence(payload, checks_root: str | Path | None = None
-                             ) -> list[str]:
+def default_checks_root(product: str = "pitch") -> Path:
+    """Read at call time so tests can redirect either module global."""
+    return SEASONAL_CHECKS_ROOT if product == "seasonal" else CHECKS_ROOT
+
+
+def validate_survey_evidence(payload, checks_root: str | Path | None = None,
+                             product: str = "pitch") -> list[str]:
     """The ideas path has to prove on disk that the morning was surveyed.
 
     A stand-down already proves it: validate_stand_down walks its checks_dir
@@ -877,7 +993,7 @@ def validate_survey_evidence(payload, checks_root: str | Path | None = None
     if not asof:
         return errors                 # validate_payload already reported it
     ideas = [i for i in (payload.get("ideas") or []) if isinstance(i, dict)]
-    day_dir = Path(checks_root) if checks_root else CHECKS_ROOT
+    day_dir = Path(checks_root) if checks_root else default_checks_root(product)
     day_dir = day_dir / asof
 
     directed = directed_ideas(payload)
@@ -949,11 +1065,16 @@ def lint_kill_reasons(killed: list[dict]) -> list[str]:
 
 
 def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None,
-                     checks_root: str | Path | None = None) -> list[str]:
+                     checks_root: str | Path | None = None,
+                     product: str = "pitch") -> list[str]:
     """Whole-day validation. `recent_fingerprints` maps fingerprint -> the
     date it was last pitched, for the 10-td repetition rule (spec section 5).
-    `checks_root` overrides where the day's check scripts are looked for."""
+    `checks_root` overrides where the day's check scripts are looked for.
+    `product` selects the seasonal extensions (horizon cap, exit.trail,
+    risk_bps band); everything else is identical for both products."""
     errors: list[str] = []
+    if product not in PRODUCTS:
+        return [f"unknown product {product!r}; expected one of {PRODUCTS}"]
     if not isinstance(payload, dict):
         return ["payload must be a JSON object"]
     if not str(payload.get("asof", "")).strip():
@@ -971,7 +1092,7 @@ def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None,
         errors.extend(validate_short_slate(payload))
 
     for i, idea in enumerate(ideas, 1):
-        errors.extend(validate_idea(idea, f"idea {i}"))
+        errors.extend(validate_idea(idea, f"idea {i}", product))
 
     grades = [str(i.get("grade", "")).upper() for i in ideas
               if isinstance(i, dict)]
@@ -998,7 +1119,7 @@ def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None,
                 f"{REPEAT_BLOCK_TD}-td repetition window — either drop it or "
                 f"state what materially changed in 'changed_since'")
 
-    errors.extend(validate_survey_evidence(payload, checks_root))
+    errors.extend(validate_survey_evidence(payload, checks_root, product))
     return errors
 
 
