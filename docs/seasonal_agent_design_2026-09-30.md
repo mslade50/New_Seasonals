@@ -44,7 +44,7 @@ Round 3 develops the exit from the shape: `horizon_scan` over 1..63 sessions pic
 
 **Stage D, compose and publish.** Same grammar as the pitch with two extensions: `horizon_td` up to 63, and an `exit.trail` block (arm after k ATR of MFE, trail at m ATR). Sizing is `risk_bps` off the chosen stop or, for time-only exits, off a 3 ATR catastrophe stop; the pitch caps stay (100 bps risk per idea, 60 bps ATR risk per idea, 150 bps across the slate). Up to three ideas, short-slate and stand-down blocks as in the pitch. Delivery is a separate email ("Daily Seasonal") and its own Sheets tab. No auto-staging in v1.
 
-**After.** Own journal (`data/seasonal_journal.jsonl`), own scoreboard, own watchlist and negative registry. The pitch state builder reads the seasonal journal's fingerprints so the pitch never re-pitches a seasonal idea inside 10 sessions; the seasonal agent reads the pitch registry read-only.
+**After.** Own journal (`data/seasonal_journal.jsonl`), own scoreboard, own watchlist and negative registry. The pitch state builder reads the seasonal journal's fingerprints so the pitch never re-pitches a seasonal idea inside 10 sessions. Negative registry: own registry, standalone; the pitch registry is not read. (History: 2026-09-30, owner decision; an earlier draft had the seasonal agent read the pitch registry read-only.)
 
 ## Timing
 

@@ -23,8 +23,8 @@ earnings/pipeline, with earnings widened to 63 sessions):
                    built in-process with grades "all" and NOTHING written
     history        seasonal-journal fingerprints AND the pitch journal's, so
                    the agent never re-pitches a pitch idea
-    watchlist, scoreboard, negative_registry (own), pitch_negative_registry
-                   (read-only)
+    watchlist, scoreboard, negative_registry (own file only; the pitch
+                   registry is not read)
 
 A missing PRICE cache or RANK file is fatal; everything else degrades to a
 warning, as in the pitch builder.
@@ -488,9 +488,8 @@ def build_history(today: pd.Timestamp, warnings: list[str],
 
 def registry_block(path: Path, warnings: list[str], label: str,
                    include_text: bool = True) -> dict:
-    """A negative registry inlined. The pitch's is ~400 KB of prose, so it
-    ships as parsed entries only (the same form pitch_state carries); the
-    seasonal registry is small and ships whole as well."""
+    """The seasonal agent's own negative registry inlined, text and parsed
+    entries. The pitch registry is never read (owner decision 2026-09-30)."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -567,9 +566,6 @@ def build_state(asof: str | None = None, offline: bool = False,
         "scoreboard": _read_json(SEASONAL.scoreboard_path),
         "negative_registry": registry_block(SEASONAL.negative_registry_path,
                                             warnings, "negative_registry"),
-        "pitch_negative_registry": registry_block(
-            PITCH.negative_registry_path, warnings, "pitch_negative_registry",
-            include_text=False),
         "pipeline": bps.build_pipeline(today, tape, risk, warnings),
         "warnings": warnings,
     }
@@ -646,9 +642,8 @@ def main() -> int:
         wl = state["watchlist"]
         print(f"  watchlist   {len(wl['entries'])} active, "
               f"{len(wl['expired'])} expired")
-        print(f"  registries  own {len(state['negative_registry']['entries'])}"
-              f" entries, pitch {len(state['pitch_negative_registry']['entries'])}"
-              f" (read-only)")
+        print(f"  registry    own {len(state['negative_registry']['entries'])}"
+              f" entries")
         for line in state["warnings"]:
             print(f"  WARNING: {line}")
     return 0

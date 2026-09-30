@@ -58,7 +58,7 @@ Writes `data/seasonal_state.json` and `data/seasonal_tape.json`. Read the state 
 | `calendar_cells` | turn-of-month, holiday adjacency, weekday-of-month, macro-event offsets inside 10 sessions, month-of-year, cycle-year |
 | `board` | today's site seasonal tickets (candidate feed only) |
 | `history`, `watchlist`, `scoreboard` | `recent_fingerprints` (own), `pitch_recent_fingerprints`; own near-misses; graded record |
-| `negative_registry`, `pitch_negative_registry` | own (writable), pitch (read-only) |
+| `negative_registry` | own, writable (`data/seasonal_agent_negative_registry.md`); the pitch registry is not read |
 
 Each outlier carries `ticker, class, sector, ranks{5,10,21,63,126,252}, side,
 agree_horizons, path_turn_td, cycle{phase,n,k,mean_atr}, all_years{n,k,mean_atr},
@@ -175,8 +175,8 @@ a complete survey is a fine morning; shipping three equity longs without having 
 rates, metals or FX is not.
 
 Before spending a check, run the candidate against
-`data/seasonal_agent_negative_registry.md` and, read-only,
-`data/pitch_negative_registry.md`. A collision does not kill automatically, but the
+`data/seasonal_agent_negative_registry.md` (inlined as `negative_registry`), and only
+that registry. A collision does not kill automatically, but the
 write-up says what is different. Once `scoreboard` carries graded ideas, read its
 per-axis and per-grade splits and note the read in the map; while the count is a
 handful, say so and move on.
@@ -189,7 +189,7 @@ together. Every script goes in `scratch/seasonal_checks/<YYYY-MM-DD>/`.
 
 Each checker's prompt carries: the candidate block from the surface map verbatim with
 its axis and cell; the paths to the map and the day folder; the adjacent registry
-entries (both registries, not the whole files); the import boilerplate and conventions
+entries (own registry, not the whole file); the import boilerplate and conventions
 line above; the five seasonal rules below with their worked examples; and the standing
 brief, **your job is to kill this; a survivor is a failure to kill, not a success to
 celebrate.** It returns per candidate a verdict (KILL / SURVIVES / NEAR-MISS), the
@@ -495,7 +495,6 @@ A directed idea (non-empty `directed_by`, McKinley's wording) skips the survey a
 
 1. Append any reusable kill to `data/seasonal_agent_negative_registry.md`: the cell, the
    rule it failed (1 to 5 above or a battery item), the number, and the script path.
-   Never write to `data/pitch_negative_registry.md`.
 2. Update `data/seasonal_agent_watchlist.json`: append today's near-misses and `closest`
    entries with title, cell, **the trigger number** ("SPY closes more than 2% below its
    52w high before the window opens"), script path, source and expiry (default 15 td; a

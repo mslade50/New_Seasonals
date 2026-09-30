@@ -38,7 +38,7 @@ own the job. Not registered as of 2026-09-30.
 | journal (R2 key) | `data/pitch_journal.jsonl` | `data/seasonal_agent_journal.jsonl` (`seasonal_agent_journal.jsonl`) |
 | scoreboard | `data/pitch_scoreboard.json` | `data/seasonal_agent_scoreboard.json` |
 | watchlist | `data/pitch_watchlist.json` | `data/seasonal_agent_watchlist.json` |
-| negative registry | `data/pitch_negative_registry.md` | `data/seasonal_agent_negative_registry.md` (+ pitch's read-only) |
+| negative registry | `data/pitch_negative_registry.md` | `data/seasonal_agent_negative_registry.md` (own registry, standalone; the pitch registry is not read) |
 | state | `data/pitch_state.json` | `data/seasonal_state.json` |
 | receipts (local / R2 prefix) | `data/pitch_delivery_receipts/` / `pitch_delivery_receipts/` | `data/seasonal_agent_delivery_receipts/` / `seasonal_agent_delivery_receipts/` |
 | subject | `Daily Pitch - <date> - N ideas` | `Daily Seasonal - <date> - N ideas` (stand-down `... - NO TRADES (k killed)`) |
@@ -101,8 +101,10 @@ Reuses `build_pitch_state` for calendar, tape, risk, book, earnings (widened to
 - `board`: `daily_seasonal_ideas.build(grades=None)` in-process, stdout and
   warnings swallowed, nothing written, no ledger append; rows with
   `evidence.TICKET` only.
-- `history.pitch_recent_fingerprints`, `negative_registry` (text + entries),
-  `pitch_negative_registry` (parsed entries only; its text is ~400 KB).
+- `history.pitch_recent_fingerprints`, `negative_registry` (text + entries).
+  Own registry, standalone; the pitch registry is not read.
+  History: 2026-09-30, owner decision (McKinley) removed the read-only
+  `pitch_negative_registry` block from the state and the skill.
 
 ## Aligned sites, change together
 

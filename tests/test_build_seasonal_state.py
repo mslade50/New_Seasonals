@@ -177,3 +177,19 @@ def test_missing_pitch_journal_is_empty_not_fatal(tmp_path):
     out = bss.build_history(TODAY, [], seasonal_path=seasonal,
                             pitch_path=tmp_path / "absent.jsonl")
     assert out["pitch_recent_fingerprints"] == {}
+
+
+def test_state_carries_only_the_seasonal_registry():
+    # Owner decision 2026-09-30: the pitch registry is never read or inlined.
+    src = (ROOT / "scripts" / "build_seasonal_state.py").read_text(encoding="utf-8")
+    assert "pitch_negative_registry" not in src
+    assert "PITCH.negative_registry_path" not in src
+    assert '"negative_registry": registry_block(SEASONAL.negative_registry_path' \
+        in " ".join(src.split()).replace("( ", "(")
+    assert bss.SEASONAL.negative_registry_path.name == \
+        "seasonal_agent_negative_registry.md"
+    warnings: list[str] = []
+    block = bss.registry_block(bss.SEASONAL.negative_registry_path, warnings,
+                               "negative_registry")
+    assert block["path"] == "data/seasonal_agent_negative_registry.md"
+    assert warnings == [] and "text" in block
