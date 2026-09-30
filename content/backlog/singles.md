@@ -38,7 +38,7 @@ slot must name two kills that earned it. If there is one idea, we want to
 see the idea.
 
 ### S4. Making "nothing today" expensive
-Status: unposted
+Status: queued 2026-09-27 (x20260927-5)
 ---
 Part 1:
 A research pipeline that can say "no trades today" will eventually say it
