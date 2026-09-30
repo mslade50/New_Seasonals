@@ -19,6 +19,7 @@ When a live rule changes, update CLAUDE.md and the matching doc here in the same
 | `strategies_3x_and_pilots.md` | 3x Bear Fade + same-day de-rate, 3x Leader Gap Fade, Monthly Weak Close, Trend Sleeve |
 | `event_sleeve.md` | Event sleeve trades, flow, MOC encoding incident, visibility and journal |
 | `daily_pitch.md` | Daily Pitch contract, short slate, stand-down, coverage incident, conventions |
+| `daily_seasonal.md` | Daily Seasonal agent: `--product seasonal` switch, grammar extensions (63 td, exit.trail, 15-50 bps), state builder, schedule |
 | `daily_posts_and_context.md` | Daily Posts (X account) and the Market Context brief |
 | `ledger_and_fills.md` | Ledger survivorship/provenance/replay caveats, stop-arming and stop-fill conventions, live fills store |
 | `automation_and_r2.md` | Local-primary automation, R2 secrets, bucket contents, `cache_io.py`, Sunday pipeline |

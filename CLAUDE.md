@@ -71,6 +71,7 @@ Read the doc before changing a subsystem. Each doc holds the live rule, the hist
 | 3x fades, same-day de-rate, Leader Gap Fade, Monthly Weak Close, trend sleeve | `strategies_3x_and_pilots.md` | `test_same_day_derate.py`, `test_lev3x_leader_gap_fade.py`, `test_monthly_weak_close.py` |
 | Event sleeve | `event_sleeve.md` | `test_event_sleeve.py`, `test_execution_report.py`, `test_event_site.py`, `test_event_moo.py` (trading_ibkr) |
 | Daily Pitch | `daily_pitch.md` | `test_pitch_grammar.py`, `test_daily_pitch.py`, `test_pitch_grader.py`, `test_pitch_lab.py`, `test_pitch_delivery_check.py`, `test_pitch_moo.py` (trading_ibkr); fills approvals: `test_pitch_fills_approval.py`; site Pitch tab: `test_pitch_transport.py`, `tests/js/test_pitch_tab.js` |
+| Daily Seasonal (`--product seasonal`, 63 td, exit.trail, 15-50 bps) | `daily_seasonal.md` | `test_seasonal_agent_grammar.py`, `test_build_seasonal_state.py`, `test_seasonal_agent_publish_paths.py`, `test_seasonal_agent_grader.py` + the Daily Pitch guards |
 | Daily Posts, Market Context | `daily_posts_and_context.md` | `test_daily_posts.py`, `test_context_engine.py`, `test_context_sender.py` |
 | Ledger, stop arming/fill conventions, live fills store | `ledger_and_fills.md` | `test_fills_harvest.py` |
 | Local-primary automation, R2, Sunday pipeline | `automation_and_r2.md` | `test_local_automation_powershell.py` |

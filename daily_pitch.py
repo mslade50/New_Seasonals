@@ -861,6 +861,18 @@ def delivery_receipt_settings(args, journal_path: Path,
     return pitch_delivery.default_receipt_path(str(asof.date()), product), True
 
 
+def email_subject(product: str, asof: pd.Timestamp, n_ideas: int = 0,
+                  stand_down_killed: int | None = None) -> str:
+    """"Daily Pitch - 2026-09-30 - 3 ideas" / "... - NO TRADES (7 killed)",
+    with the product's label in front."""
+    label = pitch_products.get_product(product).label
+    if stand_down_killed is not None:
+        return (f"{label} - {asof.date()} - NO TRADES "
+                f"({stand_down_killed} killed)")
+    return (f"{label} - {asof.date()} - {n_ideas} "
+            f"idea{'' if n_ideas == 1 else 's'}")
+
+
 def production_journal(product: str = "pitch") -> Path:
     """The pitch reads pitch_journal's global at call time (tests redirect
     it); other products take theirs from pitch_products."""
@@ -1185,8 +1197,8 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
     planned_records = stand_down_records(
         payload, asof, args.model, args.effort)
     if not args.no_send:
-        subject = (f"{label} - {asof.date()} - NO TRADES "
-                   f"({len(payload.get('killed') or [])} killed)")
+        subject = email_subject(product, asof, stand_down_killed=len(
+            payload.get("killed") or []))
         delivery = deliver_email_once(subject, html, planned_records, asof,
                                       journal_path, args)
         if delivery is None:
@@ -1329,8 +1341,7 @@ def main() -> int:
     planned_records = journal_records(
         payload, ideas, asof, args.model, args.effort)
     if not args.no_send:
-        subject = (f"{label} - {asof.date()} - {len(ideas)} "
-                   f"idea{'' if len(ideas) == 1 else 's'}")
+        subject = email_subject(product, asof, n_ideas=len(ideas))
         delivery = deliver_email_once(subject, html, planned_records, asof,
                                       journal_path, args)
         if delivery is None:
