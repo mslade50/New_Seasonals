@@ -1496,7 +1496,7 @@ function orderEditRow(o) {
     <td class="l exec-c-act" style="white-space:nowrap">
       <button class="btn xs" data-mutation onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
       <button class="btn xs ghost" onclick='execModifyAbort()'>&times;</button></td>
-  </tr>${isDayTradeOrder(o) ? '<tr><td colspan="10" class="l cap">Saving puts this futures market under manual control for the rest of today; no strategy re-entry. Other exits keep their prices and schedules.</td></tr>' : ""}`;
+  </tr>${isDayTradeOrder(o) ? '<tr><td colspan="10" class="l cap exec-c-full">Saving puts this futures market under manual control for the rest of today; no strategy re-entry. Other exits keep their prices and schedules.</td></tr>' : ""}`;
 }
 const expandedTickers = new Set();   // Open Orders: which tickers are expanded (persists across 4s polls)
 const orderEdit = { key: null, orig: null };   // inline Modify: row being edited + its pre-edit values
