@@ -1,0 +1,15 @@
+{
+  "description": "Deliberate 100-company engineering sample of cash-consuming operating businesses, biotech and positive-cash-flow controls. Not a random sample, historical universe, liquidity screen or trade recommendation. Current listing identity checked on each live run.",
+  "tickers": [
+    "VUZI", "FCEL", "PLUG", "OCGN", "BNGO", "RXRX", "SANA", "EDIT", "RGTI", "BBAI",
+    "BEAM", "NTLA", "CRSP", "VERV", "CRBU", "CRNX", "KYMR", "DNLI", "PRME", "PRTA",
+    "FATE", "ADAP", "TNYA", "SGMO", "BLUE", "SRPT", "IOVA", "ADMA", "SNDX", "SMMT",
+    "ARWR", "ALNY", "VKTX", "ALT", "MDGL", "TERN", "AKRO", "GPCR", "ARDX", "GERN",
+    "KPTI", "AGEN", "ATRA", "PGEN", "INOV", "INO", "TCRT", "TNGX", "NKTX", "GOSS",
+    "LCTX", "CLSD", "CAPR", "ATOS", "CABA", "CELU", "CMPS", "ATAI", "MNMD", "SLS",
+    "LUNR", "RKLB", "ASTS", "RDW", "BKSY", "SPCE", "JOBY", "ACHR", "EVTL", "HIMS",
+    "IONQ", "QBTS", "QUBT", "SOUN", "AI", "INDI", "INVZ", "OUST", "AEVA", "LAZR",
+    "QS", "SLDP", "ENVX", "AMPX", "EOSE", "STEM", "CHPT", "BLNK", "EVGO", "BE",
+    "RIVN", "LCID", "ABCL", "DNA", "PACB", "TWST", "NVAX", "MRNA", "AAPL", "MSFT"
+  ]
+}
