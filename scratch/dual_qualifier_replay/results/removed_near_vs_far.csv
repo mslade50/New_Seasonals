@@ -1,0 +1,3 @@
+cell,trades,episodes,avgR_trade,avgR_episode,tot_$,t_ep_vs_0,sign,p_sign
+"removed, <2% from high",53,14,-0.2747,0.114,-58072.0,0.52,9+/5-,0.424
+"removed, >=2% from high",35,10,-0.0582,0.263,-3977.0,0.731,6+/4-,0.754

@@ -1,0 +1,15 @@
+,Signal Date,Strategy,Ticker,dial,near_high,spy_dd_pct,fear,mult_incumbent,mult_A,mult_B,R_at_1.0x,PnL_at_1.0x_$,exit
+13,2026-08-10,Monday Dip,SMH,63.7,True,0.03,off,0.0,0.0,0.0,0.68,1148.0,Time
+10,2026-08-10,SPY QQQ MonFri Reversion,QQQ,63.7,True,0.03,off,0.0,0.0,0.0,0.866,4431.0,Time
+6,2026-08-17,Indices Oversold Bounce,^GSPC,84.8,True,0.67,off,0.0,0.0,0.0,-0.733,-1649.0,Time
+8,2026-08-17,SPY QQQ MonFri Reversion,SPY,84.8,True,0.67,off,0.0,0.0,0.0,,,no fill
+11,2026-08-17,SPY QQQ MonFri Reversion,QQQ,84.8,True,0.67,off,0.0,0.0,0.0,-0.499,-2554.0,Time
+9,2026-08-28,SPY QQQ MonFri Reversion,SPY,87.6,True,1.1,off,0.0,0.0,0.0,-1.045,-5347.0,Stop
+12,2026-08-28,SPY QQQ MonFri Reversion,QQQ,87.6,True,1.1,off,0.0,0.0,0.0,,,no fill
+0,2026-08-28,Weak Close Decent Sznls,XBI,87.6,True,1.1,off,0.0,0.0,0.0,1.238,3657.0,Time
+5,2026-09-02,3x Bear ETF Overbot Fade,SOXS,87.9,True,1.64,off,0.0,0.0,0.0,2.861,8047.0,Time
+7,2026-09-08,Indices Oversold Bounce,^GSPC,87.9,True,1.53,off,0.0,0.0,0.0,-0.049,-192.0,Time
+2,2026-09-10,3x Bear ETF Overbot Fade,SDOW,87.0,False,2.58,off,0.0,0.0,1.0,,,no fill
+4,2026-09-10,3x Bear ETF Overbot Fade,TZA,87.0,False,2.58,off,0.0,0.0,1.0,-1.31,-3315.0,Time
+1,2026-09-15,3x Bear ETF Overbot Fade,SQQQ,84.1,False,2.63,off,0.0,0.0,1.0,1.705,4315.0,Time
+3,2026-09-15,3x Bear ETF Overbot Fade,SDOW,84.1,False,2.63,off,0.0,0.0,1.0,-0.351,-888.0,Time

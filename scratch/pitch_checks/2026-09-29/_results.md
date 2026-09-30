@@ -1,0 +1,15 @@
+## Results (three checkers, all eight killed; no survivor reached round 3)
+
+| # | candidate | verdict | decisive numbers | scripts |
+|---|---|---|---|---|
+| C1 | Long gold after a >= 3.5% one-day crash, dollar and yields at highs | KILL: mechanism inverted in its own window, definition fragile | bare crash day +0.876% on 22-16 at h=5; with ^TNX near its 252 high -1.429% on 1-4 (GC=F 1-3); the 2 ATR form is 33-33; below-200d drawdown state 5-7 at +0.214% against +0.468% on 84-73 without a crash (86% re-anchoring, reanchor p 0.43) | kA_c1, kA_c1b |
+| C7 | Long gold from the day after a crash into the payrolls close | KILL: the filter subtracts | first breaks 2-4 sessions before NFP 8-7 at -0.300%, -0.44pp under the matched ungated run-in (+0.237% on 151-109); today's offset 2-3 at -0.724% | kA_c7 |
+| C2 | Short SLV against beta-GLD after the first complex break | KILL: registry collision (W28's GLD-beta residual, line 2776) | pair +0.412% on 61-40 at h=1 but the silver leg is 150% of it; today silver fell 1.50pp less than beta (85th pctile), the bucket that pays +0.136% at h=3 against +1.113% | kA_c2, kA_c2b |
+| C3 | Long HYG across the Q4 turn after a 2.5x-volume down day | KILL: filter subtracts, era flip, mechanism absent | spike at ME-3..-1 +0.441% on 3-1 against +1.004% on 12-3 for the washout alone; any-date parent 2018+ -0.443% on 6-8; duration-driven form (today, IEF r5 0.4) -1.249% over 10; no pre-QE volume bulge (0.97-1.00x) | kC_c3, kC_c3b, kC_c3c |
+| C6 | Long SPY from the midterm Q3-end with the index near its high | KILL: mechanism absent in today's state, era flip | near-high midterm Octobers +0.05% on 4-4 (1950+ monthly) against +4.74% on 9-2 off the high; daily near-high midterms 1-2 at -3.26% (h=10); 2013+ midterm Q4 -0.97% on 2-1; odd years +1.84% on 11-2 against even -1.43% on 6-7 | kC_c6 |
+| C4 | EWZ into and across the Brazilian first round | KILL: stated mechanism falsified in its own replication | run-in ^BVSP 6-0 (p 0.016), EWZ-EEM across +7.41% on 5-0 (p 0.031); runoffs 3-3 (pair +0.004%), reaction 2-4 at -1.89%; municipal years run in 1-4; the record tracks poll misses | kB_c4, kB_c4b |
+| C5 | Long USDJPY after the Japanese half-year book close | KILL: registry collision, mechanism falsified | Mar+Sep QE-1..QE+5 +0.305% on 33-20 against the post-QE dollar parent +0.228% (t 0.35); September +0.198%; USDJPY rises INTO the closes (+0.235% on 35-18) | kB_c5, kB_c5b |
+| C8 | Long crude into payrolls after a 63d crude thrust | KILL: the filter does not filter (and not live, rank 74.6) | +0.482% on 35-31 against +0.210% for the thrust without a print (t 0.40) | kB_c8 |
+| C8n | 21d-thrust neighbour of C8 | NEAR-MISS: today's hold holds the quarter-end close | +1.574% on 43-23 (p 0.009) against +0.082% without the print, 1st of 18 anchors, 8-cell walk charged p ~0.07; month-end inside the hold -0.397% (8-6), today's layout +0.043% (6-3), turn at or before entry +2.105% on 35-17 (Welch t 2.10) | kB_c8b, kB_c8c, kB_c8d |
+
+Red-team pass: not run, since nothing survived to be red-teamed.

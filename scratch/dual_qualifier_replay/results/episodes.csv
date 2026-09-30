@@ -1,0 +1,3 @@
+cell,trades,episodes,avgR_trade,avgR_episode
+dial>=50 & near-high,62,15,-0.0527,0.2095
+dial>=50 & NOT near-high,45,12,0.0641,0.2197

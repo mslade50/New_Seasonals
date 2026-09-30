@@ -1,0 +1,934 @@
+Signal Date,Ticker,Strategy,dial,near,fear,hi50
+2016-12-28,DIA,Weak Close Decent Sznls,0.0,True,off,False
+2018-09-10,DIA,Weak Close Decent Sznls,50.19806122536506,True,off,True
+2019-06-25,DIA,Weak Close Decent Sznls,36.90444538403717,True,off,False
+2019-06-26,DIA,Weak Close Decent Sznls,37.88074959084132,True,off,False
+2020-11-18,DIA,Weak Close Decent Sznls,10.537775496636149,True,off,False
+2020-11-20,DIA,Weak Close Decent Sznls,9.827256509840664,True,off,False
+2021-10-27,DIA,Weak Close Decent Sznls,16.654617205305314,True,off,False
+2021-11-11,DIA,Weak Close Decent Sznls,33.999848666807566,True,off,False
+2022-11-28,DIA,Weak Close Decent Sznls,0.05968474006699892,False,on,False
+2023-12-20,DIA,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2024-12-06,DIA,Weak Close Decent Sznls,57.260169453820275,True,off,True
+2024-12-09,DIA,Weak Close Decent Sznls,56.98906083031685,True,off,True
+2025-01-31,DIA,Weak Close Decent Sznls,32.61015640454191,True,off,False
+2025-02-07,DIA,Weak Close Decent Sznls,32.947383470113,True,off,False
+2025-07-15,DIA,Weak Close Decent Sznls,5.50896648366338,True,off,False
+2025-12-17,DIA,Weak Close Decent Sznls,27.38396388345442,False,off,False
+2016-08-10,IBB,Weak Close Decent Sznls,0.0,True,off,False
+2017-12-29,IBB,Weak Close Decent Sznls,33.42942700876869,True,off,False
+2018-09-06,IBB,Weak Close Decent Sznls,51.38027240871438,True,off,True
+2020-05-19,IBB,Weak Close Decent Sznls,0.5095038607969352,False,off,False
+2020-05-26,IBB,Weak Close Decent Sznls,0.3074853210627486,False,off,False
+2020-12-28,IBB,Weak Close Decent Sznls,0.0,True,off,False
+2022-07-18,IBB,Weak Close Decent Sznls,0.0,False,off,False
+2022-07-22,IBB,Weak Close Decent Sznls,0.0,False,off,False
+2022-11-28,IBB,Weak Close Decent Sznls,0.05968474006699892,False,on,False
+2023-12-20,IBB,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2025-06-17,IBB,Weak Close Decent Sznls,3.801776022655326,False,off,False
+2025-07-15,IBB,Weak Close Decent Sznls,5.50896648366338,True,off,False
+2025-07-18,IBB,Weak Close Decent Sznls,5.112489225236435,True,off,False
+2025-08-25,IBB,Weak Close Decent Sznls,8.794172391106102,True,off,False
+2016-03-23,IHI,Weak Close Decent Sznls,,False,off,False
+2016-06-13,IHI,Weak Close Decent Sznls,,True,off,False
+2017-05-08,IHI,Weak Close Decent Sznls,2.425241468126208,True,off,False
+2017-07-21,IHI,Weak Close Decent Sznls,37.79196513160845,True,off,False
+2018-09-07,IHI,Weak Close Decent Sznls,50.79901827579256,True,off,True
+2021-01-26,IHI,Weak Close Decent Sznls,19.820086585234947,True,off,False
+2021-07-14,IHI,Weak Close Decent Sznls,54.3513551512203,True,off,True
+2022-11-28,IHI,Weak Close Decent Sznls,0.05968474006699892,False,on,False
+2023-01-24,IHI,Weak Close Decent Sznls,1.3948342121919184,False,off,False
+2023-12-20,IHI,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2025-01-31,IHI,Weak Close Decent Sznls,32.61015640454191,True,off,False
+2019-07-01,ITA,Weak Close Decent Sznls,37.952488365278086,True,off,False
+2019-09-09,ITA,Weak Close Decent Sznls,14.26181930454635,True,off,False
+2019-11-21,ITA,Weak Close Decent Sznls,24.603845627597543,True,off,False
+2020-12-14,ITA,Weak Close Decent Sznls,0.29638428415724793,True,off,False
+2023-02-09,ITA,Weak Close Decent Sznls,2.3116431550510366,False,off,False
+2023-12-20,ITA,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2024-05-23,ITA,Weak Close Decent Sznls,28.049629039179013,True,off,False
+2024-12-02,ITA,Weak Close Decent Sznls,58.80518318325852,True,off,True
+2017-12-12,ITB,Weak Close Decent Sznls,21.162653248647974,True,off,False
+2020-08-27,ITB,Weak Close Decent Sznls,39.20398311150704,True,off,False
+2021-12-16,ITB,Weak Close Decent Sznls,80.55863588302103,True,on,True
+2023-01-19,ITB,Weak Close Decent Sznls,1.3013925589476698,False,off,False
+2023-01-30,ITB,Weak Close Decent Sznls,1.4923282549957995,False,off,False
+2023-02-09,ITB,Weak Close Decent Sznls,2.3116431550510366,False,off,False
+2023-11-28,ITB,Weak Close Decent Sznls,0.04229825498379375,True,off,False
+2016-03-23,IWM,Weak Close Decent Sznls,,False,off,False
+2016-12-14,IWM,Weak Close Decent Sznls,0.0,True,off,False
+2023-01-30,IWM,Weak Close Decent Sznls,1.4923282549957995,False,off,False
+2023-02-09,IWM,Weak Close Decent Sznls,2.3116431550510366,False,off,False
+2024-12-05,IWM,Weak Close Decent Sznls,57.42325996488317,True,off,True
+2024-12-09,IWM,Weak Close Decent Sznls,56.98906083031685,True,off,True
+2025-07-11,IWM,Weak Close Decent Sznls,5.729233718008435,True,off,False
+2025-07-15,IWM,Weak Close Decent Sznls,5.50896648366338,True,off,False
+2025-12-17,IWM,Weak Close Decent Sznls,27.38396388345442,False,off,False
+2016-03-23,IYR,Weak Close Decent Sznls,,False,off,False
+2017-06-27,IYR,Weak Close Decent Sznls,,True,off,False
+2017-11-27,IYR,Weak Close Decent Sznls,14.494388625001829,True,off,False
+2018-11-20,IYR,Weak Close Decent Sznls,22.64762931082754,False,on,False
+2019-06-24,IYR,Weak Close Decent Sznls,35.39342678492598,True,off,False
+2021-03-24,IYR,Weak Close Decent Sznls,15.482361515321813,False,off,False
+2021-11-10,IYR,Weak Close Decent Sznls,29.26920781373709,True,off,False
+2022-11-28,IYR,Weak Close Decent Sznls,0.05968474006699892,False,on,False
+2024-07-24,IYR,Weak Close Decent Sznls,44.51598459139553,False,off,False
+2024-07-25,IYR,Weak Close Decent Sznls,44.17889847291685,False,off,False
+2016-08-01,KRE,Weak Close Decent Sznls,0.0,True,off,False
+2016-09-09,KRE,Weak Close Decent Sznls,0.0,False,off,False
+2017-12-13,KRE,Weak Close Decent Sznls,23.771551144234163,True,off,False
+2019-09-30,KRE,Weak Close Decent Sznls,23.99737984164016,True,off,False
+2020-12-14,KRE,Weak Close Decent Sznls,0.29638428415724793,True,off,False
+2020-12-22,KRE,Weak Close Decent Sznls,0.0,True,off,False
+2021-11-10,KRE,Weak Close Decent Sznls,29.26920781373709,True,off,False
+2023-02-09,KRE,Weak Close Decent Sznls,2.3116431550510366,False,off,False
+2024-10-31,KRE,Weak Close Decent Sznls,58.5642361944728,False,off,True
+2025-07-21,KRE,Weak Close Decent Sznls,4.976062056281966,True,off,False
+2025-12-23,KRE,Weak Close Decent Sznls,23.038274711165986,True,off,False
+2016-08-16,QQQ,Weak Close Decent Sznls,0.0,True,off,False
+2020-07-13,QQQ,Weak Close Decent Sznls,0.0,False,off,False
+2020-08-11,QQQ,Weak Close Decent Sznls,8.31495170637476,True,off,False
+2020-11-18,QQQ,Weak Close Decent Sznls,10.537775496636149,True,off,False
+2020-12-23,QQQ,Weak Close Decent Sznls,0.0,True,off,False
+2023-04-12,QQQ,Weak Close Decent Sznls,2.3452313707370784,False,off,False
+2023-12-20,QQQ,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2024-01-31,QQQ,Weak Close Decent Sznls,36.658639203261465,True,off,False
+2024-06-28,QQQ,Weak Close Decent Sznls,12.752997131422276,True,off,False
+2024-07-11,QQQ,Weak Close Decent Sznls,26.90896405778427,True,off,False
+2025-11-04,QQQ,Weak Close Decent Sznls,49.39136515749593,True,off,False
+2016-09-07,SMH,Weak Close Decent Sznls,0.0,True,off,False
+2016-11-30,SMH,Weak Close Decent Sznls,0.0,True,off,False
+2016-12-28,SMH,Weak Close Decent Sznls,0.0,True,off,False
+2017-05-17,SMH,Weak Close Decent Sznls,0.0,True,off,False
+2019-05-01,SMH,Weak Close Decent Sznls,3.6991480032149253,True,off,False
+2020-10-21,SMH,Weak Close Decent Sznls,23.664653163100333,False,off,False
+2023-01-30,SMH,Weak Close Decent Sznls,1.4923282549957995,False,off,False
+2023-12-20,SMH,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2024-03-18,SMH,Weak Close Decent Sznls,37.423868484066176,True,off,False
+2025-05-22,SMH,Weak Close Decent Sznls,3.1042022976112884,False,off,False
+2025-11-04,SMH,Weak Close Decent Sznls,49.39136515749593,True,off,False
+2016-12-28,SPY,Weak Close Decent Sznls,0.0,True,off,False
+2017-12-29,SPY,Weak Close Decent Sznls,33.42942700876869,True,off,False
+2019-06-25,SPY,Weak Close Decent Sznls,36.90444538403717,True,off,False
+2019-06-26,SPY,Weak Close Decent Sznls,37.88074959084132,True,off,False
+2020-11-20,SPY,Weak Close Decent Sznls,9.827256509840664,True,off,False
+2020-12-23,SPY,Weak Close Decent Sznls,0.0,True,off,False
+2021-10-27,SPY,Weak Close Decent Sznls,16.654617205305314,True,off,False
+2021-11-11,SPY,Weak Close Decent Sznls,33.999848666807566,True,off,False
+2021-11-22,SPY,Weak Close Decent Sznls,64.95348074290487,True,off,True
+2022-11-28,SPY,Weak Close Decent Sznls,0.05968474006699892,False,on,False
+2023-02-09,SPY,Weak Close Decent Sznls,2.3116431550510366,False,off,False
+2023-04-12,SPY,Weak Close Decent Sznls,2.3452313707370784,False,off,False
+2023-11-29,SPY,Weak Close Decent Sznls,0.021133141033940143,True,off,False
+2023-12-20,SPY,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2024-01-31,SPY,Weak Close Decent Sznls,36.658639203261465,True,off,False
+2024-05-23,SPY,Weak Close Decent Sznls,28.049629039179013,True,off,False
+2025-01-31,SPY,Weak Close Decent Sznls,32.61015640454191,True,off,False
+2025-02-07,SPY,Weak Close Decent Sznls,32.947383470113,True,off,False
+2025-07-15,SPY,Weak Close Decent Sznls,5.50896648366338,True,off,False
+2025-11-04,SPY,Weak Close Decent Sznls,49.39136515749593,True,off,False
+2016-03-23,VNQ,Weak Close Decent Sznls,,False,off,False
+2017-06-27,VNQ,Weak Close Decent Sznls,,True,off,False
+2018-07-13,VNQ,Weak Close Decent Sznls,4.916593934140903,True,off,False
+2018-11-20,VNQ,Weak Close Decent Sznls,22.64762931082754,False,on,False
+2020-11-23,VNQ,Weak Close Decent Sznls,9.201489103054595,True,off,False
+2021-03-24,VNQ,Weak Close Decent Sznls,15.482361515321813,False,off,False
+2022-11-28,VNQ,Weak Close Decent Sznls,0.05968474006699892,False,on,False
+2024-07-24,VNQ,Weak Close Decent Sznls,44.51598459139553,False,off,False
+2024-07-25,VNQ,Weak Close Decent Sznls,44.17889847291685,False,off,False
+2017-07-10,XBI,Weak Close Decent Sznls,21.855510735465472,True,off,False
+2018-07-20,XBI,Weak Close Decent Sznls,19.525514291065093,True,off,False
+2020-05-26,XBI,Weak Close Decent Sznls,0.3074853210627486,False,off,False
+2020-07-13,XBI,Weak Close Decent Sznls,0.0,False,off,False
+2020-12-28,XBI,Weak Close Decent Sznls,0.0,True,off,False
+2022-07-18,XBI,Weak Close Decent Sznls,0.0,False,off,False
+2023-12-20,XBI,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2025-06-17,XBI,Weak Close Decent Sznls,3.801776022655326,False,off,False
+2025-07-21,XBI,Weak Close Decent Sznls,4.976062056281966,True,off,False
+2025-08-25,XBI,Weak Close Decent Sznls,8.794172391106102,True,off,False
+2025-12-17,XBI,Weak Close Decent Sznls,27.38396388345442,False,off,False
+2026-08-28,XBI,Weak Close Decent Sznls,87.6014085785643,True,off,True
+2016-04-21,XHB,Weak Close Decent Sznls,,True,off,False
+2017-12-12,XHB,Weak Close Decent Sznls,21.162653248647974,True,off,False
+2017-12-14,XHB,Weak Close Decent Sznls,26.46936687365967,True,off,False
+2020-12-01,XHB,Weak Close Decent Sznls,5.045878165651871,True,off,False
+2023-01-19,XHB,Weak Close Decent Sznls,1.3013925589476698,False,off,False
+2023-02-09,XHB,Weak Close Decent Sznls,2.3116431550510366,False,off,False
+2023-11-28,XHB,Weak Close Decent Sznls,0.04229825498379375,True,off,False
+2024-05-16,XHB,Weak Close Decent Sznls,28.327235277384023,True,off,False
+2025-07-15,XHB,Weak Close Decent Sznls,5.50896648366338,True,off,False
+2016-06-13,XLB,Weak Close Decent Sznls,,True,off,False
+2016-12-14,XLB,Weak Close Decent Sznls,0.0,True,off,False
+2019-07-08,XLB,Weak Close Decent Sznls,36.537177434374826,True,off,False
+2020-11-18,XLB,Weak Close Decent Sznls,10.537775496636149,True,off,False
+2020-12-02,XLB,Weak Close Decent Sznls,4.225569838978701,True,off,False
+2020-12-03,XLB,Weak Close Decent Sznls,3.4618281691589408,True,off,False
+2021-04-22,XLB,Weak Close Decent Sznls,34.80044371703531,True,off,False
+2021-11-16,XLB,Weak Close Decent Sznls,50.41076150259494,True,off,True
+2021-11-22,XLB,Weak Close Decent Sznls,64.95348074290487,True,off,True
+2022-03-31,XLB,Weak Close Decent Sznls,5.004843717062206,False,off,False
+2022-04-11,XLB,Weak Close Decent Sznls,2.8627450014994817,False,off,False
+2023-01-30,XLB,Weak Close Decent Sznls,1.4923282549957995,False,off,False
+2025-07-15,XLB,Weak Close Decent Sznls,5.50896648366338,True,off,False
+2025-12-31,XLB,Weak Close Decent Sznls,20.114443736861507,True,off,False
+2023-07-20,XLC,Weak Close Decent Sznls,42.82541632326554,True,off,False
+2024-01-04,XLC,Weak Close Decent Sznls,34.046288327359534,True,off,False
+2024-10-10,XLC,Weak Close Decent Sznls,55.657261507825034,True,off,True
+2024-12-13,XLC,Weak Close Decent Sznls,56.233636954943655,True,off,True
+2024-12-17,XLC,Weak Close Decent Sznls,56.15226366361571,True,off,True
+2025-06-18,XLC,Weak Close Decent Sznls,4.348859981640979,False,off,False
+2025-06-20,XLC,Weak Close Decent Sznls,4.868534273417045,False,off,False
+2017-12-15,XLE,Weak Close Decent Sznls,29.28965630808666,True,off,False
+2022-03-31,XLE,Weak Close Decent Sznls,5.004843717062206,False,off,False
+2022-04-05,XLE,Weak Close Decent Sznls,4.4103286382782425,False,off,False
+2022-04-11,XLE,Weak Close Decent Sznls,2.8627450014994817,False,off,False
+2022-11-02,XLE,Weak Close Decent Sznls,0.04596470945014179,False,off,False
+2024-02-09,XLE,Weak Close Decent Sznls,38.10720915444941,True,off,False
+2024-04-12,XLE,Weak Close Decent Sznls,51.88651188102146,False,off,True
+2024-04-15,XLE,Weak Close Decent Sznls,50.787009618442866,False,off,True
+2016-12-16,XLF,Weak Close Decent Sznls,0.0,True,off,False
+2016-12-28,XLF,Weak Close Decent Sznls,0.0,True,off,False
+2017-10-12,XLF,Weak Close Decent Sznls,47.383997394792715,True,off,False
+2017-11-01,XLF,Weak Close Decent Sznls,32.22434724452377,True,off,False
+2017-12-14,XLF,Weak Close Decent Sznls,26.46936687365967,True,off,False
+2017-12-29,XLF,Weak Close Decent Sznls,33.42942700876869,True,off,False
+2023-02-09,XLF,Weak Close Decent Sznls,2.3116431550510366,False,off,False
+2023-12-20,XLF,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2024-10-25,XLF,Weak Close Decent Sznls,62.75620148133652,True,off,True
+2024-12-03,XLF,Weak Close Decent Sznls,58.153717159118415,True,off,True
+2025-12-31,XLF,Weak Close Decent Sznls,20.114443736861507,True,off,False
+2017-12-14,XLI,Weak Close Decent Sznls,26.46936687365967,True,off,False
+2018-08-09,XLI,Weak Close Decent Sznls,36.146077029707286,True,off,False
+2019-09-30,XLI,Weak Close Decent Sznls,23.99737984164016,True,off,False
+2020-12-01,XLI,Weak Close Decent Sznls,5.045878165651871,True,off,False
+2023-11-28,XLI,Weak Close Decent Sznls,0.04229825498379375,True,off,False
+2023-12-20,XLI,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2024-12-02,XLI,Weak Close Decent Sznls,58.80518318325852,True,off,True
+2025-12-17,XLI,Weak Close Decent Sznls,27.38396388345442,False,off,False
+2025-12-30,XLI,Weak Close Decent Sznls,20.156332286947865,True,off,False
+2016-12-28,XLK,Weak Close Decent Sznls,0.0,True,off,False
+2017-10-26,XLK,Weak Close Decent Sznls,36.66539926104058,True,off,False
+2017-12-29,XLK,Weak Close Decent Sznls,33.42942700876869,True,off,False
+2019-06-25,XLK,Weak Close Decent Sznls,36.90444538403717,True,off,False
+2020-07-13,XLK,Weak Close Decent Sznls,0.0,False,off,False
+2020-08-11,XLK,Weak Close Decent Sznls,8.31495170637476,True,off,False
+2023-02-09,XLK,Weak Close Decent Sznls,2.3116431550510366,False,off,False
+2023-12-20,XLK,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2024-01-31,XLK,Weak Close Decent Sznls,36.658639203261465,True,off,False
+2024-03-08,XLK,Weak Close Decent Sznls,36.55288279436682,True,off,False
+2024-07-11,XLK,Weak Close Decent Sznls,26.90896405778427,True,off,False
+2025-05-21,XLK,Weak Close Decent Sznls,3.4127501428806193,False,off,False
+2025-11-04,XLK,Weak Close Decent Sznls,49.39136515749593,True,off,False
+2016-04-11,XLP,Weak Close Decent Sznls,,False,off,False
+2017-04-26,XLP,Weak Close Decent Sznls,,True,off,False
+2019-06-26,XLP,Weak Close Decent Sznls,37.88074959084132,True,off,False
+2020-01-29,XLP,Weak Close Decent Sznls,61.19823151375404,True,off,True
+2020-11-20,XLP,Weak Close Decent Sznls,9.827256509840664,True,off,False
+2024-12-06,XLP,Weak Close Decent Sznls,57.260169453820275,True,off,True
+2021-04-22,XLU,Weak Close Decent Sznls,34.80044371703531,True,off,False
+2022-04-21,XLU,Weak Close Decent Sznls,0.5411851231999408,False,off,False
+2022-12-09,XLU,Weak Close Decent Sznls,0.0012698544564060507,False,on,False
+2024-03-26,XLU,Weak Close Decent Sznls,43.00474076833729,True,off,False
+2024-05-22,XLU,Weak Close Decent Sznls,28.620627088788012,True,off,False
+2016-06-13,XLV,Weak Close Decent Sznls,,True,off,False
+2016-12-28,XLV,Weak Close Decent Sznls,0.0,True,off,False
+2017-07-06,XLV,Weak Close Decent Sznls,16.527942342959424,True,off,False
+2018-09-10,XLV,Weak Close Decent Sznls,50.19806122536506,True,off,True
+2020-12-23,XLV,Weak Close Decent Sznls,0.0,True,off,False
+2021-11-15,XLV,Weak Close Decent Sznls,45.1424951867498,True,off,False
+2023-04-18,XLV,Weak Close Decent Sznls,2.908163427354083,False,off,False
+2023-04-25,XLV,Weak Close Decent Sznls,3.308164484267388,False,off,False
+2023-12-20,XLV,Weak Close Decent Sznls,5.300542729226306,True,off,False
+2024-05-23,XLV,Weak Close Decent Sznls,28.049629039179013,True,off,False
+2024-05-24,XLV,Weak Close Decent Sznls,27.309768436484596,True,off,False
+2016-11-30,XLY,Weak Close Decent Sznls,0.0,True,off,False
+2017-02-28,XLY,Weak Close Decent Sznls,,True,off,False
+2018-09-05,XLY,Weak Close Decent Sznls,51.93282499459366,True,off,True
+2019-06-25,XLY,Weak Close Decent Sznls,36.90444538403717,True,off,False
+2020-11-20,XLY,Weak Close Decent Sznls,9.827256509840664,True,off,False
+2021-07-13,XLY,Weak Close Decent Sznls,56.07751864042759,True,off,True
+2021-07-14,XLY,Weak Close Decent Sznls,54.3513551512203,True,off,True
+2021-11-11,XLY,Weak Close Decent Sznls,33.999848666807566,True,off,False
+2024-08-29,XLY,Weak Close Decent Sznls,58.714212680686614,True,off,True
+2016-12-12,XME,Weak Close Decent Sznls,0.0,True,off,False
+2017-09-11,XME,Weak Close Decent Sznls,36.14353049535023,True,off,False
+2019-12-19,XME,Weak Close Decent Sznls,51.36125280527339,True,off,True
+2020-12-28,XME,Weak Close Decent Sznls,0.0,True,off,False
+2022-04-05,XME,Weak Close Decent Sznls,4.4103286382782425,False,off,False
+2024-05-29,XME,Weak Close Decent Sznls,25.71731378778906,True,off,False
+2025-12-30,XME,Weak Close Decent Sznls,20.156332286947865,True,off,False
+2018-05-22,XRT,Weak Close Decent Sznls,0.0,False,off,False
+2018-08-30,XRT,Weak Close Decent Sznls,52.94591071662889,True,off,True
+2019-03-06,XRT,Weak Close Decent Sznls,0.0,False,off,False
+2020-07-13,XRT,Weak Close Decent Sznls,0.0,False,off,False
+2021-11-19,XRT,Weak Close Decent Sznls,62.6338234823545,True,off,True
+2023-02-09,XRT,Weak Close Decent Sznls,2.3116431550510366,False,off,False
+2025-07-15,XRT,Weak Close Decent Sznls,5.50896648366338,True,off,False
+2025-09-12,XRT,Weak Close Decent Sznls,26.81846779116814,True,off,False
+2025-12-18,XRT,Weak Close Decent Sznls,26.271259449329296,True,off,False
+2020-09-21,SPXS,3x Bear ETF Overbot Fade,31.21903879645414,False,off,False
+2020-09-23,SPXS,3x Bear ETF Overbot Fade,27.361374620063582,False,off,False
+2020-09-24,SPXS,3x Bear ETF Overbot Fade,25.921934621025976,False,off,False
+2021-05-12,SPXS,3x Bear ETF Overbot Fade,77.57970904896293,False,off,True
+2021-09-20,SPXS,3x Bear ETF Overbot Fade,50.83044863480358,False,off,True
+2021-09-21,SPXS,3x Bear ETF Overbot Fade,48.63185780514253,False,off,False
+2021-09-30,SPXS,3x Bear ETF Overbot Fade,35.333573594436324,False,off,False
+2021-12-01,SPXS,3x Bear ETF Overbot Fade,67.9686996666426,False,off,True
+2022-01-18,SPXS,3x Bear ETF Overbot Fade,74.68571537715194,False,on,True
+2024-04-15,SPXS,3x Bear ETF Overbot Fade,50.787009618442866,False,off,True
+2024-04-16,SPXS,3x Bear ETF Overbot Fade,49.293478989420315,False,off,False
+2024-04-18,SPXS,3x Bear ETF Overbot Fade,45.27871630322234,False,off,False
+2024-04-19,SPXS,3x Bear ETF Overbot Fade,42.814025411461316,False,off,False
+2020-09-18,SQQQ,3x Bear ETF Overbot Fade,33.538588767938414,False,off,False
+2020-09-21,SQQQ,3x Bear ETF Overbot Fade,31.21903879645414,False,off,False
+2020-09-23,SQQQ,3x Bear ETF Overbot Fade,27.361374620063582,False,off,False
+2020-09-24,SQQQ,3x Bear ETF Overbot Fade,25.921934621025976,False,off,False
+2021-02-25,SQQQ,3x Bear ETF Overbot Fade,27.523435546610642,False,off,False
+2021-03-03,SQQQ,3x Bear ETF Overbot Fade,24.40067493531974,False,off,False
+2021-03-08,SQQQ,3x Bear ETF Overbot Fade,21.786302273059924,False,off,False
+2021-05-10,SQQQ,3x Bear ETF Overbot Fade,74.71872344279944,True,off,True
+2021-05-11,SQQQ,3x Bear ETF Overbot Fade,76.34175930434671,True,off,True
+2021-05-12,SQQQ,3x Bear ETF Overbot Fade,77.57970904896293,False,off,True
+2021-05-13,SQQQ,3x Bear ETF Overbot Fade,78.1662088901719,False,on,True
+2021-09-28,SQQQ,3x Bear ETF Overbot Fade,38.519931875922126,False,off,False
+2021-09-29,SQQQ,3x Bear ETF Overbot Fade,36.99399614854709,False,off,False
+2021-12-03,SQQQ,3x Bear ETF Overbot Fade,66.54787424469906,False,off,True
+2021-12-06,SQQQ,3x Bear ETF Overbot Fade,65.61433028579388,False,off,True
+2023-09-22,SQQQ,3x Bear ETF Overbot Fade,19.984385312509485,False,off,False
+2023-09-26,SQQQ,3x Bear ETF Overbot Fade,18.14624718727585,False,on,False
+2023-09-27,SQQQ,3x Bear ETF Overbot Fade,17.213450647544644,False,on,False
+2024-04-15,SQQQ,3x Bear ETF Overbot Fade,50.787009618442866,False,off,True
+2024-04-17,SQQQ,3x Bear ETF Overbot Fade,47.44507405301813,False,off,False
+2024-04-18,SQQQ,3x Bear ETF Overbot Fade,45.27871630322234,False,off,False
+2024-04-19,SQQQ,3x Bear ETF Overbot Fade,42.814025411461316,False,off,False
+2024-04-22,SQQQ,3x Bear ETF Overbot Fade,40.29180725038829,False,off,False
+2025-11-18,SQQQ,3x Bear ETF Overbot Fade,39.15146634981751,False,on,False
+2025-11-20,SQQQ,3x Bear ETF Overbot Fade,35.056942621953176,False,on,False
+2025-11-21,SQQQ,3x Bear ETF Overbot Fade,33.025189473987105,False,on,False
+2026-06-10,SQQQ,3x Bear ETF Overbot Fade,33.88741238420183,False,off,False
+2026-07-16,SQQQ,3x Bear ETF Overbot Fade,34.921517179525,True,on,False
+2026-07-17,SQQQ,3x Bear ETF Overbot Fade,37.75276402520671,True,on,False
+2026-07-20,SQQQ,3x Bear ETF Overbot Fade,40.48791370263527,False,on,False
+2026-07-23,SQQQ,3x Bear ETF Overbot Fade,46.55145391073411,False,on,False
+2026-07-24,SQQQ,3x Bear ETF Overbot Fade,47.68154027334433,False,on,False
+2026-07-27,SQQQ,3x Bear ETF Overbot Fade,48.49291153872499,False,on,False
+2026-09-15,SQQQ,3x Bear ETF Overbot Fade,84.08867537182874,False,off,True
+2020-09-21,SDOW,3x Bear ETF Overbot Fade,31.21903879645414,False,off,False
+2020-09-23,SDOW,3x Bear ETF Overbot Fade,27.361374620063582,False,off,False
+2020-09-24,SDOW,3x Bear ETF Overbot Fade,25.921934621025976,False,off,False
+2020-10-28,SDOW,3x Bear ETF Overbot Fade,19.862074199284574,False,off,False
+2020-10-29,SDOW,3x Bear ETF Overbot Fade,18.519848221050506,False,off,False
+2021-06-18,SDOW,3x Bear ETF Overbot Fade,76.65823642760819,False,off,True
+2021-09-10,SDOW,3x Bear ETF Overbot Fade,61.835508383376315,True,off,True
+2021-09-21,SDOW,3x Bear ETF Overbot Fade,48.63185780514253,False,off,False
+2026-03-05,SDOW,3x Bear ETF Overbot Fade,80.92221512564309,False,on,True
+2026-09-10,SDOW,3x Bear ETF Overbot Fade,87.04014968613748,False,off,True
+2026-09-15,SDOW,3x Bear ETF Overbot Fade,84.08867537182874,False,off,True
+2020-09-08,TZA,3x Bear ETF Overbot Fade,49.24537852815197,False,off,False
+2020-09-11,TZA,3x Bear ETF Overbot Fade,45.607066721749426,False,off,False
+2020-09-21,TZA,3x Bear ETF Overbot Fade,31.21903879645414,False,off,False
+2020-09-23,TZA,3x Bear ETF Overbot Fade,27.361374620063582,False,off,False
+2020-09-24,TZA,3x Bear ETF Overbot Fade,25.921934621025976,False,off,False
+2021-03-24,TZA,3x Bear ETF Overbot Fade,15.482361515321813,False,off,False
+2021-04-20,TZA,3x Bear ETF Overbot Fade,30.49189079399855,True,off,False
+2021-05-12,TZA,3x Bear ETF Overbot Fade,77.57970904896293,False,off,True
+2021-05-13,TZA,3x Bear ETF Overbot Fade,78.1662088901719,False,on,True
+2021-07-08,TZA,3x Bear ETF Overbot Fade,60.84826753738448,True,off,True
+2021-07-14,TZA,3x Bear ETF Overbot Fade,54.3513551512203,True,off,True
+2021-07-15,TZA,3x Bear ETF Overbot Fade,53.0180657736819,True,off,True
+2024-12-18,TZA,3x Bear ETF Overbot Fade,55.84463155379933,False,off,True
+2026-03-06,TZA,3x Bear ETF Overbot Fade,80.35232482440212,False,on,True
+2026-03-12,TZA,3x Bear ETF Overbot Fade,73.34931992496112,False,on,True
+2026-07-29,TZA,3x Bear ETF Overbot Fade,49.89486362149658,False,on,False
+2026-09-10,TZA,3x Bear ETF Overbot Fade,87.04014968613748,False,off,True
+2024-07-18,SOXS,3x Bear ETF Overbot Fade,41.48204755779579,False,off,False
+2024-07-19,SOXS,3x Bear ETF Overbot Fade,43.31005041184383,False,off,False
+2024-07-24,SOXS,3x Bear ETF Overbot Fade,44.51598459139553,False,off,False
+2024-07-25,SOXS,3x Bear ETF Overbot Fade,44.17889847291685,False,off,False
+2024-07-30,SOXS,3x Bear ETF Overbot Fade,41.42838326923602,False,off,False
+2024-10-31,SOXS,3x Bear ETF Overbot Fade,58.5642361944728,False,off,True
+2025-11-18,SOXS,3x Bear ETF Overbot Fade,39.15146634981751,False,on,False
+2025-11-20,SOXS,3x Bear ETF Overbot Fade,35.056942621953176,False,on,False
+2026-09-02,SOXS,3x Bear ETF Overbot Fade,87.90010285632006,True,off,True
+2021-06-17,FAZ,3x Bear ETF Overbot Fade,77.44871780674968,True,off,True
+2021-06-18,FAZ,3x Bear ETF Overbot Fade,76.65823642760819,False,off,True
+2021-07-16,FAZ,3x Bear ETF Overbot Fade,52.05597875014231,True,on,True
+2021-07-19,FAZ,3x Bear ETF Overbot Fade,51.17019920970844,False,on,True
+2021-09-21,FAZ,3x Bear ETF Overbot Fade,48.63185780514253,False,off,False
+2021-11-19,FAZ,3x Bear ETF Overbot Fade,62.6338234823545,True,off,True
+2021-12-20,FAZ,3x Bear ETF Overbot Fade,87.37878463848477,False,on,True
+2024-04-12,FAZ,3x Bear ETF Overbot Fade,51.88651188102146,False,off,True
+2024-04-15,FAZ,3x Bear ETF Overbot Fade,50.787009618442866,False,off,True
+2024-04-16,FAZ,3x Bear ETF Overbot Fade,49.293478989420315,False,off,False
+2024-12-18,FAZ,3x Bear ETF Overbot Fade,55.84463155379933,False,off,True
+2024-12-19,FAZ,3x Bear ETF Overbot Fade,55.16433396717538,False,off,True
+2025-01-10,FAZ,3x Bear ETF Overbot Fade,39.605952279273446,False,off,False
+2025-01-13,FAZ,3x Bear ETF Overbot Fade,38.56099060962732,False,off,False
+2025-03-04,FAZ,3x Bear ETF Overbot Fade,52.88267836222589,False,off,True
+2025-03-06,FAZ,3x Bear ETF Overbot Fade,47.83562652664138,False,off,False
+2025-03-07,FAZ,3x Bear ETF Overbot Fade,44.82516704754701,False,off,False
+2025-03-11,FAZ,3x Bear ETF Overbot Fade,38.946811320918904,False,off,False
+2025-10-10,FAZ,3x Bear ETF Overbot Fade,39.08849907809653,False,off,False
+2025-10-13,FAZ,3x Bear ETF Overbot Fade,39.810128442341174,True,off,False
+2024-04-15,TECS,3x Bear ETF Overbot Fade,50.787009618442866,False,off,True
+2024-04-16,TECS,3x Bear ETF Overbot Fade,49.293478989420315,False,off,False
+2024-04-17,TECS,3x Bear ETF Overbot Fade,47.44507405301813,False,off,False
+2024-04-18,TECS,3x Bear ETF Overbot Fade,45.27871630322234,False,off,False
+2024-04-19,TECS,3x Bear ETF Overbot Fade,42.814025411461316,False,off,False
+2024-04-22,TECS,3x Bear ETF Overbot Fade,40.29180725038829,False,off,False
+2024-05-01,TECS,3x Bear ETF Overbot Fade,26.79923808502587,False,off,False
+2024-07-18,TECS,3x Bear ETF Overbot Fade,41.48204755779579,False,off,False
+2024-07-19,TECS,3x Bear ETF Overbot Fade,43.31005041184383,False,off,False
+2025-11-18,TECS,3x Bear ETF Overbot Fade,39.15146634981751,False,on,False
+2025-11-20,TECS,3x Bear ETF Overbot Fade,35.056942621953176,False,on,False
+2025-11-21,TECS,3x Bear ETF Overbot Fade,33.025189473987105,False,on,False
+2026-07-02,TECS,3x Bear ETF Overbot Fade,20.21590443677841,True,off,False
+2026-07-16,TECS,3x Bear ETF Overbot Fade,34.921517179525,True,on,False
+2026-07-17,TECS,3x Bear ETF Overbot Fade,37.75276402520671,True,on,False
+2026-07-28,TECS,3x Bear ETF Overbot Fade,49.289878326075126,False,on,False
+2026-07-29,TECS,3x Bear ETF Overbot Fade,49.89486362149658,False,on,False
+2021-03-03,LABD,3x Bear ETF Overbot Fade,24.40067493531974,False,off,False
+2021-03-04,LABD,3x Bear ETF Overbot Fade,23.510837480268645,False,off,False
+2021-03-29,LABD,3x Bear ETF Overbot Fade,13.395835551013153,True,off,False
+2021-04-12,LABD,3x Bear ETF Overbot Fade,19.476965516862908,True,off,False
+2024-04-15,LABD,3x Bear ETF Overbot Fade,50.787009618442866,False,off,True
+2024-04-16,LABD,3x Bear ETF Overbot Fade,49.293478989420315,False,off,False
+2026-05-18,LABD,3x Bear ETF Overbot Fade,46.213953831865226,True,off,False
+2026-05-19,LABD,3x Bear ETF Overbot Fade,46.32969485390242,True,off,False
+2021-07-20,ERY,3x Bear ETF Overbot Fade,50.62712422689668,True,on,True
+2021-08-19,ERY,3x Bear ETF Overbot Fade,43.644922094293335,True,off,False
+2021-12-01,ERY,3x Bear ETF Overbot Fade,67.9686996666426,False,off,True
+2022-04-26,ERY,3x Bear ETF Overbot Fade,0.15296380045533853,False,on,False
+2022-06-16,ERY,3x Bear ETF Overbot Fade,0.0,False,on,False
+2022-06-17,ERY,3x Bear ETF Overbot Fade,0.0,False,on,False
+2022-06-23,ERY,3x Bear ETF Overbot Fade,0.0,False,on,False
+2022-06-24,ERY,3x Bear ETF Overbot Fade,0.0,False,on,False
+2022-07-06,ERY,3x Bear ETF Overbot Fade,0.0,False,off,False
+2023-03-13,ERY,3x Bear ETF Overbot Fade,3.4675932633185083,False,off,False
+2026-04-20,ERY,3x Bear ETF Overbot Fade,43.47890652753495,True,off,False
+2026-06-16,ERY,3x Bear ETF Overbot Fade,27.611019054599645,True,off,False
+2026-06-18,ERY,3x Bear ETF Overbot Fade,25.31530730098194,True,off,False
+2024-10-31,DRV,3x Bear ETF Overbot Fade,58.5642361944728,False,off,True
+2024-11-01,DRV,3x Bear ETF Overbot Fade,58.12174801109457,False,off,True
+2023-02-21,YANG,3x Bear ETF Overbot Fade,4.520554244061285,False,off,False
+2023-02-22,YANG,3x Bear ETF Overbot Fade,4.766057817698011,False,off,False
+2023-02-24,YANG,3x Bear ETF Overbot Fade,5.0933901599505464,False,off,False
+2023-02-27,YANG,3x Bear ETF Overbot Fade,5.200051051628941,False,off,False
+2023-03-09,YANG,3x Bear ETF Overbot Fade,4.004561328661294,False,off,False
+2023-04-25,YANG,3x Bear ETF Overbot Fade,3.308164484267388,False,off,False
+2023-05-25,YANG,3x Bear ETF Overbot Fade,22.908740440309664,False,off,False
+2024-11-12,YANG,3x Bear ETF Overbot Fade,64.83031704111588,True,off,True
+2024-11-25,YANG,3x Bear ETF Overbot Fade,63.771277931642544,True,off,True
+2025-01-10,YANG,3x Bear ETF Overbot Fade,39.605952279273446,False,off,False
+2025-01-13,YANG,3x Bear ETF Overbot Fade,38.56099060962732,False,off,False
+2025-04-04,YANG,3x Bear ETF Overbot Fade,14.6637326380036,False,off,False
+2025-10-10,YANG,3x Bear ETF Overbot Fade,39.08849907809653,False,off,False
+2026-06-10,EDZ,3x Bear ETF Overbot Fade,33.88741238420183,False,off,False
+2026-07-02,EDZ,3x Bear ETF Overbot Fade,20.21590443677841,True,off,False
+2026-07-16,EDZ,3x Bear ETF Overbot Fade,34.921517179525,True,on,False
+2026-07-17,EDZ,3x Bear ETF Overbot Fade,37.75276402520671,True,on,False
+2026-07-28,EDZ,3x Bear ETF Overbot Fade,49.289878326075126,False,on,False
+2026-07-29,EDZ,3x Bear ETF Overbot Fade,49.89486362149658,False,on,False
+2016-01-07,^GSPC,Indices Oversold Bounce,,False,off,False
+2016-01-08,^GSPC,Indices Oversold Bounce,,False,off,False
+2016-06-13,^GSPC,Indices Oversold Bounce,,True,off,False
+2016-09-26,^GSPC,Indices Oversold Bounce,0.0,True,off,False
+2017-03-21,^GSPC,Indices Oversold Bounce,,False,off,False
+2017-04-13,^GSPC,Indices Oversold Bounce,,False,off,False
+2017-05-17,^GSPC,Indices Oversold Bounce,0.0,True,off,False
+2017-06-27,^GSPC,Indices Oversold Bounce,,True,off,False
+2017-07-06,^GSPC,Indices Oversold Bounce,16.527942342959424,True,off,False
+2018-02-02,^GSPC,Indices Oversold Bounce,31.25645005114499,False,off,False
+2018-02-05,^GSPC,Indices Oversold Bounce,29.951082924262398,False,off,False
+2018-02-08,^GSPC,Indices Oversold Bounce,24.19706620188802,False,off,False
+2018-02-28,^GSPC,Indices Oversold Bounce,8.214621310322562,False,off,False
+2018-03-22,^GSPC,Indices Oversold Bounce,4.2315469684712514,False,off,False
+2018-03-23,^GSPC,Indices Oversold Bounce,3.8858164253928478,False,off,False
+2018-08-13,^GSPC,Indices Oversold Bounce,39.917010007157636,True,off,False
+2018-10-10,^GSPC,Indices Oversold Bounce,69.26638231391405,False,off,True
+2018-10-24,^GSPC,Indices Oversold Bounce,39.22889781843404,False,on,False
+2018-11-12,^GSPC,Indices Oversold Bounce,23.8393683608073,False,off,False
+2018-12-14,^GSPC,Indices Oversold Bounce,11.044592038076555,False,off,False
+2018-12-21,^GSPC,Indices Oversold Bounce,5.744506257356288,False,on,False
+2019-01-03,^GSPC,Indices Oversold Bounce,1.3168912834165845,False,on,False
+2019-06-25,^GSPC,Indices Oversold Bounce,36.90444538403717,True,off,False
+2019-08-23,^GSPC,Indices Oversold Bounce,15.65775909999508,False,on,False
+2019-10-01,^GSPC,Indices Oversold Bounce,23.28741238987755,False,off,False
+2019-10-08,^GSPC,Indices Oversold Bounce,18.472390119660506,False,on,False
+2020-02-25,^GSPC,Indices Oversold Bounce,68.10165892101199,False,off,True
+2020-02-26,^GSPC,Indices Oversold Bounce,64.57188237140504,False,off,True
+2020-03-09,^GSPC,Indices Oversold Bounce,22.696639581736214,False,on,False
+2020-03-12,^GSPC,Indices Oversold Bounce,12.325882019786114,False,on,False
+2020-03-16,^GSPC,Indices Oversold Bounce,8.79676712444152,False,on,False
+2020-03-20,^GSPC,Indices Oversold Bounce,3.1528087678753915,False,on,False
+2020-06-11,^GSPC,Indices Oversold Bounce,0.0,False,off,False
+2020-06-26,^GSPC,Indices Oversold Bounce,0.0,False,off,False
+2020-10-28,^GSPC,Indices Oversold Bounce,19.862074199284574,False,off,False
+2020-11-18,^GSPC,Indices Oversold Bounce,10.537775496636149,True,off,False
+2021-02-25,^GSPC,Indices Oversold Bounce,27.523435546610642,False,off,False
+2021-03-24,^GSPC,Indices Oversold Bounce,15.482361515321813,False,off,False
+2021-05-12,^GSPC,Indices Oversold Bounce,77.57970904896293,False,off,True
+2021-05-18,^GSPC,Indices Oversold Bounce,77.53888414976612,False,on,True
+2021-07-16,^GSPC,Indices Oversold Bounce,52.05597875014231,True,on,True
+2021-09-28,^GSPC,Indices Oversold Bounce,38.519931875922126,False,off,False
+2021-10-11,^GSPC,Indices Oversold Bounce,24.028984221381243,False,off,False
+2021-11-26,^GSPC,Indices Oversold Bounce,68.70795731957863,False,off,True
+2022-01-05,^GSPC,Indices Oversold Bounce,92.47466558163329,True,off,True
+2022-02-11,^GSPC,Indices Oversold Bounce,27.99041604035254,False,on,False
+2022-02-17,^GSPC,Indices Oversold Bounce,24.296676027537252,False,on,False
+2022-02-23,^GSPC,Indices Oversold Bounce,19.73301219414303,False,on,False
+2022-03-07,^GSPC,Indices Oversold Bounce,8.777555016929918,False,on,False
+2022-03-08,^GSPC,Indices Oversold Bounce,7.984115038256098,False,on,False
+2022-03-11,^GSPC,Indices Oversold Bounce,6.449685049598715,False,off,False
+2022-03-14,^GSPC,Indices Oversold Bounce,6.039938043613196,False,on,False
+2022-04-11,^GSPC,Indices Oversold Bounce,2.8627450014994817,False,off,False
+2022-06-09,^GSPC,Indices Oversold Bounce,0.0,False,on,False
+2022-06-10,^GSPC,Indices Oversold Bounce,0.0,False,on,False
+2022-06-13,^GSPC,Indices Oversold Bounce,0.0,False,on,False
+2022-06-28,^GSPC,Indices Oversold Bounce,0.0,False,on,False
+2022-08-22,^GSPC,Indices Oversold Bounce,0.0,False,off,False
+2022-08-26,^GSPC,Indices Oversold Bounce,0.5040557196407205,False,off,False
+2022-09-13,^GSPC,Indices Oversold Bounce,1.078908198098521,False,on,False
+2022-10-20,^GSPC,Indices Oversold Bounce,0.00019758974073382358,False,off,False
+2022-10-27,^GSPC,Indices Oversold Bounce,0.011753157372612446,False,off,False
+2022-11-02,^GSPC,Indices Oversold Bounce,0.04596470945014179,False,off,False
+2022-11-28,^GSPC,Indices Oversold Bounce,0.05968474006699892,False,on,False
+2022-12-28,^GSPC,Indices Oversold Bounce,0.0,False,on,False
+2023-01-30,^GSPC,Indices Oversold Bounce,1.4923282549957995,False,off,False
+2023-02-09,^GSPC,Indices Oversold Bounce,2.3116431550510366,False,off,False
+2023-03-09,^GSPC,Indices Oversold Bounce,4.004561328661294,False,off,False
+2023-04-25,^GSPC,Indices Oversold Bounce,3.308164484267388,False,off,False
+2023-05-23,^GSPC,Indices Oversold Bounce,22.75057633731974,False,off,False
+2023-06-26,^GSPC,Indices Oversold Bounce,43.29405098245512,False,off,False
+2023-07-07,^GSPC,Indices Oversold Bounce,42.26303542869106,True,off,False
+2023-10-19,^GSPC,Indices Oversold Bounce,7.520978541549903,False,off,False
+2023-10-20,^GSPC,Indices Oversold Bounce,7.207402224527302,False,off,False
+2023-10-25,^GSPC,Indices Oversold Bounce,5.988700082527656,False,off,False
+2023-12-20,^GSPC,Indices Oversold Bounce,5.300542729226306,True,off,False
+2024-01-31,^GSPC,Indices Oversold Bounce,36.658639203261465,True,off,False
+2024-04-15,^GSPC,Indices Oversold Bounce,50.787009618442866,False,off,True
+2024-05-23,^GSPC,Indices Oversold Bounce,28.049629039179013,True,off,False
+2024-10-31,^GSPC,Indices Oversold Bounce,58.5642361944728,False,off,True
+2024-12-10,^GSPC,Indices Oversold Bounce,56.70032262718579,True,off,True
+2024-12-18,^GSPC,Indices Oversold Bounce,55.84463155379933,False,off,True
+2025-03-28,^GSPC,Indices Oversold Bounce,16.994843203208923,False,off,False
+2025-04-03,^GSPC,Indices Oversold Bounce,15.477955727495944,False,off,False
+2025-04-04,^GSPC,Indices Oversold Bounce,14.6637326380036,False,off,False
+2025-05-21,^GSPC,Indices Oversold Bounce,3.4127501428806193,False,off,False
+2025-10-10,^GSPC,Indices Oversold Bounce,39.08849907809653,False,off,False
+2025-10-30,^GSPC,Indices Oversold Bounce,45.56697729934085,True,off,False
+2025-11-04,^GSPC,Indices Oversold Bounce,49.39136515749593,True,off,False
+2025-11-06,^GSPC,Indices Oversold Bounce,49.668419453824555,False,off,False
+2025-11-13,^GSPC,Indices Oversold Bounce,43.856459042299846,False,off,False
+2025-11-20,^GSPC,Indices Oversold Bounce,35.056942621953176,False,on,False
+2025-12-17,^GSPC,Indices Oversold Bounce,27.38396388345442,False,off,False
+2025-12-31,^GSPC,Indices Oversold Bounce,20.114443736861507,True,off,False
+2026-02-12,^GSPC,Indices Oversold Bounce,46.44721555264708,False,off,False
+2026-03-12,^GSPC,Indices Oversold Bounce,73.34931992496112,False,on,True
+2026-03-13,^GSPC,Indices Oversold Bounce,70.41918429098985,False,on,True
+2026-03-26,^GSPC,Indices Oversold Bounce,47.77153887448979,False,on,False
+2026-03-27,^GSPC,Indices Oversold Bounce,45.71237706921884,False,on,False
+2026-08-17,^GSPC,Indices Oversold Bounce,84.81704944931228,True,off,True
+2026-09-08,^GSPC,Indices Oversold Bounce,87.86852379056594,True,off,True
+2016-01-07,^NDX,Indices Oversold Bounce,,False,off,False
+2016-01-08,^NDX,Indices Oversold Bounce,,False,off,False
+2016-01-27,^NDX,Indices Oversold Bounce,,False,off,False
+2016-02-02,^NDX,Indices Oversold Bounce,,False,off,False
+2016-02-05,^NDX,Indices Oversold Bounce,,False,off,False
+2016-03-08,^NDX,Indices Oversold Bounce,,False,off,False
+2016-06-13,^NDX,Indices Oversold Bounce,,True,off,False
+2016-09-09,^NDX,Indices Oversold Bounce,0.0,False,off,False
+2016-10-27,^NDX,Indices Oversold Bounce,0.0,False,off,False
+2016-12-01,^NDX,Indices Oversold Bounce,0.0,True,off,False
+2016-12-30,^NDX,Indices Oversold Bounce,0.0,True,off,False
+2017-03-21,^NDX,Indices Oversold Bounce,,False,off,False
+2017-05-17,^NDX,Indices Oversold Bounce,0.0,True,off,False
+2017-06-27,^NDX,Indices Oversold Bounce,,True,off,False
+2018-02-02,^NDX,Indices Oversold Bounce,31.25645005114499,False,off,False
+2018-02-05,^NDX,Indices Oversold Bounce,29.951082924262398,False,off,False
+2018-02-08,^NDX,Indices Oversold Bounce,24.19706620188802,False,off,False
+2018-02-28,^NDX,Indices Oversold Bounce,8.214621310322562,False,off,False
+2018-03-22,^NDX,Indices Oversold Bounce,4.2315469684712514,False,off,False
+2018-03-23,^NDX,Indices Oversold Bounce,3.8858164253928478,False,off,False
+2018-10-10,^NDX,Indices Oversold Bounce,69.26638231391405,False,off,True
+2018-10-24,^NDX,Indices Oversold Bounce,39.22889781843404,False,on,False
+2018-11-12,^NDX,Indices Oversold Bounce,23.8393683608073,False,off,False
+2018-11-19,^NDX,Indices Oversold Bounce,23.428916281698594,False,on,False
+2018-12-14,^NDX,Indices Oversold Bounce,11.044592038076555,False,off,False
+2019-01-03,^NDX,Indices Oversold Bounce,1.3168912834165845,False,on,False
+2019-06-25,^NDX,Indices Oversold Bounce,36.90444538403717,True,off,False
+2019-08-23,^NDX,Indices Oversold Bounce,15.65775909999508,False,on,False
+2019-10-08,^NDX,Indices Oversold Bounce,18.472390119660506,False,on,False
+2020-01-31,^NDX,Indices Oversold Bounce,66.5807576256836,False,off,True
+2020-02-25,^NDX,Indices Oversold Bounce,68.10165892101199,False,off,True
+2020-03-09,^NDX,Indices Oversold Bounce,22.696639581736214,False,on,False
+2020-03-12,^NDX,Indices Oversold Bounce,12.325882019786114,False,on,False
+2020-03-16,^NDX,Indices Oversold Bounce,8.79676712444152,False,on,False
+2020-03-20,^NDX,Indices Oversold Bounce,3.1528087678753915,False,on,False
+2020-06-11,^NDX,Indices Oversold Bounce,0.0,False,off,False
+2020-06-26,^NDX,Indices Oversold Bounce,0.0,False,off,False
+2020-07-13,^NDX,Indices Oversold Bounce,0.0,False,off,False
+2020-08-11,^NDX,Indices Oversold Bounce,8.31495170637476,True,off,False
+2020-10-28,^NDX,Indices Oversold Bounce,19.862074199284574,False,off,False
+2021-03-24,^NDX,Indices Oversold Bounce,15.482361515321813,False,off,False
+2021-05-03,^NDX,Indices Oversold Bounce,60.691950246382774,True,off,True
+2021-05-12,^NDX,Indices Oversold Bounce,77.57970904896293,False,off,True
+2021-05-18,^NDX,Indices Oversold Bounce,77.53888414976612,False,on,True
+2021-07-16,^NDX,Indices Oversold Bounce,52.05597875014231,True,on,True
+2021-09-28,^NDX,Indices Oversold Bounce,38.519931875922126,False,off,False
+2021-10-11,^NDX,Indices Oversold Bounce,24.028984221381243,False,off,False
+2021-11-26,^NDX,Indices Oversold Bounce,68.70795731957863,False,off,True
+2021-12-31,^NDX,Indices Oversold Bounce,93.99352868306835,True,off,True
+2022-01-05,^NDX,Indices Oversold Bounce,92.47466558163329,True,off,True
+2022-02-11,^NDX,Indices Oversold Bounce,27.99041604035254,False,on,False
+2022-02-23,^NDX,Indices Oversold Bounce,19.73301219414303,False,on,False
+2022-03-07,^NDX,Indices Oversold Bounce,8.777555016929918,False,on,False
+2022-04-08,^NDX,Indices Oversold Bounce,3.2759819537772707,False,off,False
+2022-04-11,^NDX,Indices Oversold Bounce,2.8627450014994817,False,off,False
+2022-05-18,^NDX,Indices Oversold Bounce,0.0,False,on,False
+2022-06-09,^NDX,Indices Oversold Bounce,0.0,False,on,False
+2022-06-10,^NDX,Indices Oversold Bounce,0.0,False,on,False
+2022-06-13,^NDX,Indices Oversold Bounce,0.0,False,on,False
+2022-06-28,^NDX,Indices Oversold Bounce,0.0,False,on,False
+2022-08-22,^NDX,Indices Oversold Bounce,0.0,False,off,False
+2022-08-26,^NDX,Indices Oversold Bounce,0.5040557196407205,False,off,False
+2022-09-13,^NDX,Indices Oversold Bounce,1.078908198098521,False,on,False
+2022-09-21,^NDX,Indices Oversold Bounce,0.6691900069844665,False,off,False
+2022-10-27,^NDX,Indices Oversold Bounce,0.011753157372612446,False,off,False
+2022-11-01,^NDX,Indices Oversold Bounce,0.03826198507667275,False,off,False
+2022-11-02,^NDX,Indices Oversold Bounce,0.04596470945014179,False,off,False
+2022-11-03,^NDX,Indices Oversold Bounce,0.05302017987013252,False,off,False
+2022-12-27,^NDX,Indices Oversold Bounce,0.0,False,on,False
+2022-12-28,^NDX,Indices Oversold Bounce,0.0,False,on,False
+2023-01-05,^NDX,Indices Oversold Bounce,0.09272376046361824,False,on,False
+2023-01-30,^NDX,Indices Oversold Bounce,1.4923282549957995,False,off,False
+2023-03-09,^NDX,Indices Oversold Bounce,4.004561328661294,False,off,False
+2023-03-10,^NDX,Indices Oversold Bounce,3.745926582486683,False,off,False
+2023-04-12,^NDX,Indices Oversold Bounce,2.3452313707370784,False,off,False
+2023-06-26,^NDX,Indices Oversold Bounce,43.29405098245512,False,off,False
+2023-07-07,^NDX,Indices Oversold Bounce,42.26303542869106,True,off,False
+2023-10-19,^NDX,Indices Oversold Bounce,7.520978541549903,False,off,False
+2023-10-20,^NDX,Indices Oversold Bounce,7.207402224527302,False,off,False
+2023-10-25,^NDX,Indices Oversold Bounce,5.988700082527656,False,off,False
+2023-12-20,^NDX,Indices Oversold Bounce,5.300542729226306,True,off,False
+2024-01-03,^NDX,Indices Oversold Bounce,32.336790447214426,True,off,False
+2024-01-04,^NDX,Indices Oversold Bounce,34.046288327359534,True,off,False
+2024-01-31,^NDX,Indices Oversold Bounce,36.658639203261465,True,off,False
+2024-04-15,^NDX,Indices Oversold Bounce,50.787009618442866,False,off,True
+2024-04-17,^NDX,Indices Oversold Bounce,47.44507405301813,False,off,False
+2024-04-18,^NDX,Indices Oversold Bounce,45.27871630322234,False,off,False
+2024-07-11,^NDX,Indices Oversold Bounce,26.90896405778427,True,off,False
+2024-08-22,^NDX,Indices Oversold Bounce,36.5304640255094,True,off,False
+2024-10-31,^NDX,Indices Oversold Bounce,58.5642361944728,False,off,True
+2024-12-19,^NDX,Indices Oversold Bounce,55.16433396717538,False,off,True
+2024-12-31,^NDX,Indices Oversold Bounce,46.500372062001915,False,off,False
+2025-03-28,^NDX,Indices Oversold Bounce,16.994843203208923,False,off,False
+2025-04-03,^NDX,Indices Oversold Bounce,15.477955727495944,False,off,False
+2025-04-04,^NDX,Indices Oversold Bounce,14.6637326380036,False,off,False
+2025-10-10,^NDX,Indices Oversold Bounce,39.08849907809653,False,off,False
+2025-10-30,^NDX,Indices Oversold Bounce,45.56697729934085,True,off,False
+2025-11-04,^NDX,Indices Oversold Bounce,49.39136515749593,True,off,False
+2025-11-06,^NDX,Indices Oversold Bounce,49.668419453824555,False,off,False
+2025-11-20,^NDX,Indices Oversold Bounce,35.056942621953176,False,on,False
+2025-12-17,^NDX,Indices Oversold Bounce,27.38396388345442,False,off,False
+2025-12-31,^NDX,Indices Oversold Bounce,20.114443736861507,True,off,False
+2026-02-12,^NDX,Indices Oversold Bounce,46.44721555264708,False,off,False
+2026-03-12,^NDX,Indices Oversold Bounce,73.34931992496112,False,on,True
+2026-03-13,^NDX,Indices Oversold Bounce,70.41918429098985,False,on,True
+2026-03-26,^NDX,Indices Oversold Bounce,47.77153887448979,False,on,False
+2026-06-10,^NDX,Indices Oversold Bounce,33.88741238420183,False,off,False
+2016-01-08,SPY,SPY QQQ MonFri Reversion,,False,off,False
+2016-01-25,SPY,SPY QQQ MonFri Reversion,,False,on,False
+2016-02-26,SPY,SPY QQQ MonFri Reversion,,False,off,False
+2016-02-29,SPY,SPY QQQ MonFri Reversion,,False,off,False
+2016-04-11,SPY,SPY QQQ MonFri Reversion,,False,off,False
+2016-06-13,SPY,SPY QQQ MonFri Reversion,,True,off,False
+2016-06-20,SPY,SPY QQQ MonFri Reversion,,True,off,False
+2016-06-24,SPY,SPY QQQ MonFri Reversion,,False,off,False
+2016-09-09,SPY,SPY QQQ MonFri Reversion,0.0,False,off,False
+2016-10-14,SPY,SPY QQQ MonFri Reversion,0.0,False,off,False
+2016-11-04,SPY,SPY QQQ MonFri Reversion,0.0,False,off,False
+2016-11-28,SPY,SPY QQQ MonFri Reversion,0.0,True,off,False
+2018-01-29,SPY,SPY QQQ MonFri Reversion,33.98569698843558,True,off,False
+2018-02-02,SPY,SPY QQQ MonFri Reversion,31.25645005114499,False,off,False
+2018-02-05,SPY,SPY QQQ MonFri Reversion,29.951082924262398,False,off,False
+2018-03-16,SPY,SPY QQQ MonFri Reversion,5.284622047019272,False,off,False
+2018-04-30,SPY,SPY QQQ MonFri Reversion,0.0,False,off,False
+2018-06-29,SPY,SPY QQQ MonFri Reversion,0.0,False,off,False
+2018-08-13,SPY,SPY QQQ MonFri Reversion,39.917010007157636,True,off,False
+2018-10-15,SPY,SPY QQQ MonFri Reversion,62.93010665698832,False,on,True
+2018-11-12,SPY,SPY QQQ MonFri Reversion,23.8393683608073,False,off,False
+2018-12-07,SPY,SPY QQQ MonFri Reversion,13.297292987656778,False,on,False
+2018-12-14,SPY,SPY QQQ MonFri Reversion,11.044592038076555,False,off,False
+2018-12-21,SPY,SPY QQQ MonFri Reversion,5.744506257356288,False,on,False
+2018-12-24,SPY,SPY QQQ MonFri Reversion,4.789165473363868,False,on,False
+2019-02-25,SPY,SPY QQQ MonFri Reversion,0.0,False,off,False
+2019-03-22,SPY,SPY QQQ MonFri Reversion,0.0,False,off,False
+2019-05-31,SPY,SPY QQQ MonFri Reversion,16.940126154369523,False,on,False
+2019-06-21,SPY,SPY QQQ MonFri Reversion,33.333505211805445,True,off,False
+2019-07-19,SPY,SPY QQQ MonFri Reversion,31.93144931465879,True,off,False
+2019-08-23,SPY,SPY QQQ MonFri Reversion,15.65775909999508,False,on,False
+2019-10-07,SPY,SPY QQQ MonFri Reversion,19.5013435869804,False,off,False
+2019-12-02,SPY,SPY QQQ MonFri Reversion,27.966260172800236,True,off,False
+2019-12-09,SPY,SPY QQQ MonFri Reversion,32.00818237318187,True,off,False
+2020-02-24,SPY,SPY QQQ MonFri Reversion,70.7412253521169,False,off,True
+2020-03-09,SPY,SPY QQQ MonFri Reversion,22.696639581736214,False,on,False
+2020-03-16,SPY,SPY QQQ MonFri Reversion,8.79676712444152,False,on,False
+2020-03-20,SPY,SPY QQQ MonFri Reversion,3.1528087678753915,False,on,False
+2020-04-20,SPY,SPY QQQ MonFri Reversion,0.5890610685155042,False,off,False
+2020-05-01,SPY,SPY QQQ MonFri Reversion,0.8903490677611418,False,off,False
+2020-06-26,SPY,SPY QQQ MonFri Reversion,0.0,False,off,False
+2020-07-13,SPY,SPY QQQ MonFri Reversion,0.0,False,off,False
+2020-08-31,SPY,SPY QQQ MonFri Reversion,44.34213076434631,True,off,False
+2020-10-16,SPY,SPY QQQ MonFri Reversion,23.776876595817548,False,off,False
+2020-10-19,SPY,SPY QQQ MonFri Reversion,23.89884397494568,False,off,False
+2020-11-09,SPY,SPY QQQ MonFri Reversion,11.00820180096277,True,off,False
+2020-11-20,SPY,SPY QQQ MonFri Reversion,9.827256509840664,True,off,False
+2020-12-14,SPY,SPY QQQ MonFri Reversion,0.29638428415724793,True,off,False
+2021-02-22,SPY,SPY QQQ MonFri Reversion,29.79742046403541,True,off,False
+2021-03-08,SPY,SPY QQQ MonFri Reversion,21.786302273059924,False,off,False
+2021-05-10,SPY,SPY QQQ MonFri Reversion,74.71872344279944,True,off,True
+2021-05-21,SPY,SPY QQQ MonFri Reversion,74.17933290065191,True,on,True
+2021-07-16,SPY,SPY QQQ MonFri Reversion,52.05597875014231,True,on,True
+2021-08-02,SPY,SPY QQQ MonFri Reversion,51.27068040454374,True,off,True
+2021-09-17,SPY,SPY QQQ MonFri Reversion,52.93972962400553,False,off,True
+2021-10-11,SPY,SPY QQQ MonFri Reversion,24.028984221381243,False,off,False
+2021-11-22,SPY,SPY QQQ MonFri Reversion,64.95348074290487,True,off,True
+2021-12-13,SPY,SPY QQQ MonFri Reversion,69.6551655780397,True,on,True
+2021-12-31,SPY,SPY QQQ MonFri Reversion,93.99352868306835,True,off,True
+2022-01-21,SPY,SPY QQQ MonFri Reversion,63.68903837927845,False,on,True
+2022-02-11,SPY,SPY QQQ MonFri Reversion,27.99041604035254,False,on,False
+2022-03-07,SPY,SPY QQQ MonFri Reversion,8.777555016929918,False,on,False
+2022-03-11,SPY,SPY QQQ MonFri Reversion,6.449685049598715,False,off,False
+2022-03-14,SPY,SPY QQQ MonFri Reversion,6.039938043613196,False,on,False
+2022-04-11,SPY,SPY QQQ MonFri Reversion,2.8627450014994817,False,off,False
+2022-04-22,SPY,SPY QQQ MonFri Reversion,0.37704603254837477,False,off,False
+2022-04-29,SPY,SPY QQQ MonFri Reversion,0.01596652280101605,False,on,False
+2022-06-10,SPY,SPY QQQ MonFri Reversion,0.0,False,on,False
+2022-08-26,SPY,SPY QQQ MonFri Reversion,0.5040557196407205,False,off,False
+2022-09-30,SPY,SPY QQQ MonFri Reversion,0.14433132361833784,False,on,False
+2022-10-07,SPY,SPY QQQ MonFri Reversion,0.004908394342781766,False,on,False
+2022-11-14,SPY,SPY QQQ MonFri Reversion,0.04957710760287707,False,on,False
+2022-11-28,SPY,SPY QQQ MonFri Reversion,0.05968474006699892,False,on,False
+2022-12-09,SPY,SPY QQQ MonFri Reversion,0.0012698544564060507,False,on,False
+2023-01-30,SPY,SPY QQQ MonFri Reversion,1.4923282549957995,False,off,False
+2023-05-01,SPY,SPY QQQ MonFri Reversion,6.013379704502341,False,off,False
+2023-06-16,SPY,SPY QQQ MonFri Reversion,32.21529504434989,True,off,False
+2023-06-26,SPY,SPY QQQ MonFri Reversion,43.29405098245512,False,off,False
+2023-07-07,SPY,SPY QQQ MonFri Reversion,42.26303542869106,True,off,False
+2023-07-21,SPY,SPY QQQ MonFri Reversion,42.45352927528974,True,off,False
+2023-08-04,SPY,SPY QQQ MonFri Reversion,44.10497569871817,False,off,False
+2023-09-15,SPY,SPY QQQ MonFri Reversion,23.78422121207624,False,on,False
+2023-09-22,SPY,SPY QQQ MonFri Reversion,19.984385312509485,False,off,False
+2023-10-20,SPY,SPY QQQ MonFri Reversion,7.207402224527302,False,off,False
+2024-02-26,SPY,SPY QQQ MonFri Reversion,36.66864575015194,True,off,False
+2024-03-04,SPY,SPY QQQ MonFri Reversion,36.42459809667046,True,off,False
+2024-03-08,SPY,SPY QQQ MonFri Reversion,36.55288279436682,True,off,False
+2024-03-18,SPY,SPY QQQ MonFri Reversion,37.423868484066176,True,off,False
+2024-03-22,SPY,SPY QQQ MonFri Reversion,40.349757268256454,True,off,False
+2024-03-25,SPY,SPY QQQ MonFri Reversion,41.527811545482564,True,off,False
+2024-04-15,SPY,SPY QQQ MonFri Reversion,50.787009618442866,False,off,True
+2024-06-24,SPY,SPY QQQ MonFri Reversion,13.053730777830712,True,off,False
+2024-10-28,SPY,SPY QQQ MonFri Reversion,61.540415084526764,True,off,True
+2024-11-01,SPY,SPY QQQ MonFri Reversion,58.12174801109457,False,off,True
+2025-01-31,SPY,SPY QQQ MonFri Reversion,32.61015640454191,True,off,False
+2025-02-07,SPY,SPY QQQ MonFri Reversion,32.947383470113,True,off,False
+2025-02-21,SPY,SPY QQQ MonFri Reversion,51.00962009243996,False,off,True
+2025-02-24,SPY,SPY QQQ MonFri Reversion,53.101607679851824,False,off,True
+2025-03-28,SPY,SPY QQQ MonFri Reversion,16.994843203208923,False,off,False
+2025-04-04,SPY,SPY QQQ MonFri Reversion,14.6637326380036,False,off,False
+2025-07-21,SPY,SPY QQQ MonFri Reversion,4.976062056281966,True,off,False
+2025-08-25,SPY,SPY QQQ MonFri Reversion,8.794172391106102,True,off,False
+2026-05-01,SPY,SPY QQQ MonFri Reversion,42.44045474585823,True,off,False
+2026-06-08,SPY,SPY QQQ MonFri Reversion,36.608193066472424,False,off,False
+2026-07-20,SPY,SPY QQQ MonFri Reversion,40.48791370263527,False,on,False
+2026-08-17,SPY,SPY QQQ MonFri Reversion,84.81704944931228,True,off,True
+2026-08-28,SPY,SPY QQQ MonFri Reversion,87.6014085785643,True,off,True
+2016-01-08,QQQ,SPY QQQ MonFri Reversion,,False,off,False
+2016-01-25,QQQ,SPY QQQ MonFri Reversion,,False,on,False
+2016-02-05,QQQ,SPY QQQ MonFri Reversion,,False,off,False
+2016-02-29,QQQ,SPY QQQ MonFri Reversion,,False,off,False
+2016-04-11,QQQ,SPY QQQ MonFri Reversion,,False,off,False
+2016-05-23,QQQ,SPY QQQ MonFri Reversion,,False,on,False
+2016-06-13,QQQ,SPY QQQ MonFri Reversion,,True,off,False
+2016-06-20,QQQ,SPY QQQ MonFri Reversion,,True,off,False
+2016-06-24,QQQ,SPY QQQ MonFri Reversion,,False,off,False
+2016-09-09,QQQ,SPY QQQ MonFri Reversion,0.0,False,off,False
+2016-10-14,QQQ,SPY QQQ MonFri Reversion,0.0,False,off,False
+2016-10-31,QQQ,SPY QQQ MonFri Reversion,0.0,False,off,False
+2018-02-02,QQQ,SPY QQQ MonFri Reversion,31.25645005114499,False,off,False
+2018-02-05,QQQ,SPY QQQ MonFri Reversion,29.951082924262398,False,off,False
+2018-02-16,QQQ,SPY QQQ MonFri Reversion,11.487025663111245,False,on,False
+2018-03-16,QQQ,SPY QQQ MonFri Reversion,5.284622047019272,False,off,False
+2018-04-09,QQQ,SPY QQQ MonFri Reversion,0.6123798582571356,False,on,False
+2018-04-30,QQQ,SPY QQQ MonFri Reversion,0.0,False,off,False
+2018-08-13,QQQ,SPY QQQ MonFri Reversion,39.917010007157636,True,off,False
+2018-09-17,QQQ,SPY QQQ MonFri Reversion,47.417936019276766,True,off,False
+2018-11-12,QQQ,SPY QQQ MonFri Reversion,23.8393683608073,False,off,False
+2018-11-19,QQQ,SPY QQQ MonFri Reversion,23.428916281698594,False,on,False
+2018-12-07,QQQ,SPY QQQ MonFri Reversion,13.297292987656778,False,on,False
+2018-12-14,QQQ,SPY QQQ MonFri Reversion,11.044592038076555,False,off,False
+2018-12-21,QQQ,SPY QQQ MonFri Reversion,5.744506257356288,False,on,False
+2018-12-24,QQQ,SPY QQQ MonFri Reversion,4.789165473363868,False,on,False
+2019-02-25,QQQ,SPY QQQ MonFri Reversion,0.0,False,off,False
+2019-03-22,QQQ,SPY QQQ MonFri Reversion,0.0,False,off,False
+2019-05-17,QQQ,SPY QQQ MonFri Reversion,23.32008445444479,False,on,False
+2019-05-24,QQQ,SPY QQQ MonFri Reversion,18.870946350578432,False,on,False
+2019-05-31,QQQ,SPY QQQ MonFri Reversion,16.940126154369523,False,on,False
+2019-07-19,QQQ,SPY QQQ MonFri Reversion,31.93144931465879,True,off,False
+2019-12-09,QQQ,SPY QQQ MonFri Reversion,32.00818237318187,True,off,False
+2020-01-31,QQQ,SPY QQQ MonFri Reversion,66.5807576256836,False,off,True
+2020-03-16,QQQ,SPY QQQ MonFri Reversion,8.79676712444152,False,on,False
+2020-03-20,QQQ,SPY QQQ MonFri Reversion,3.1528087678753915,False,on,False
+2020-03-27,QQQ,SPY QQQ MonFri Reversion,0.13570788190094082,False,on,False
+2020-04-20,QQQ,SPY QQQ MonFri Reversion,0.5890610685155042,False,off,False
+2020-06-26,QQQ,SPY QQQ MonFri Reversion,0.0,False,off,False
+2020-07-13,QQQ,SPY QQQ MonFri Reversion,0.0,False,off,False
+2020-10-02,QQQ,SPY QQQ MonFri Reversion,20.398004128985438,False,off,False
+2020-10-16,QQQ,SPY QQQ MonFri Reversion,23.776876595817548,False,off,False
+2020-10-19,QQQ,SPY QQQ MonFri Reversion,23.89884397494568,False,off,False
+2020-11-09,QQQ,SPY QQQ MonFri Reversion,11.00820180096277,True,off,False
+2020-11-20,QQQ,SPY QQQ MonFri Reversion,9.827256509840664,True,off,False
+2021-02-22,QQQ,SPY QQQ MonFri Reversion,29.79742046403541,True,off,False
+2021-03-08,QQQ,SPY QQQ MonFri Reversion,21.786302273059924,False,off,False
+2021-05-03,QQQ,SPY QQQ MonFri Reversion,60.691950246382774,True,off,True
+2021-05-10,QQQ,SPY QQQ MonFri Reversion,74.71872344279944,True,off,True
+2021-05-21,QQQ,SPY QQQ MonFri Reversion,74.17933290065191,True,on,True
+2021-07-16,QQQ,SPY QQQ MonFri Reversion,52.05597875014231,True,on,True
+2021-10-08,QQQ,SPY QQQ MonFri Reversion,25.496822886621334,False,off,False
+2021-10-11,QQQ,SPY QQQ MonFri Reversion,24.028984221381243,False,off,False
+2021-11-22,QQQ,SPY QQQ MonFri Reversion,64.95348074290487,True,off,True
+2021-12-13,QQQ,SPY QQQ MonFri Reversion,69.6551655780397,True,on,True
+2021-12-31,QQQ,SPY QQQ MonFri Reversion,93.99352868306835,True,off,True
+2022-01-21,QQQ,SPY QQQ MonFri Reversion,63.68903837927845,False,on,True
+2022-02-11,QQQ,SPY QQQ MonFri Reversion,27.99041604035254,False,on,False
+2022-03-07,QQQ,SPY QQQ MonFri Reversion,8.777555016929918,False,on,False
+2022-03-11,QQQ,SPY QQQ MonFri Reversion,6.449685049598715,False,off,False
+2022-03-14,QQQ,SPY QQQ MonFri Reversion,6.039938043613196,False,on,False
+2022-04-08,QQQ,SPY QQQ MonFri Reversion,3.2759819537772707,False,off,False
+2022-04-11,QQQ,SPY QQQ MonFri Reversion,2.8627450014994817,False,off,False
+2022-04-22,QQQ,SPY QQQ MonFri Reversion,0.37704603254837477,False,off,False
+2022-04-29,QQQ,SPY QQQ MonFri Reversion,0.01596652280101605,False,on,False
+2022-05-09,QQQ,SPY QQQ MonFri Reversion,0.0,False,on,False
+2022-06-10,QQQ,SPY QQQ MonFri Reversion,0.0,False,on,False
+2022-06-13,QQQ,SPY QQQ MonFri Reversion,0.0,False,on,False
+2022-08-26,QQQ,SPY QQQ MonFri Reversion,0.5040557196407205,False,off,False
+2022-09-26,QQQ,SPY QQQ MonFri Reversion,0.4659094825413496,False,on,False
+2022-09-30,QQQ,SPY QQQ MonFri Reversion,0.14433132361833784,False,on,False
+2022-12-09,QQQ,SPY QQQ MonFri Reversion,0.0012698544564060507,False,on,False
+2023-01-30,QQQ,SPY QQQ MonFri Reversion,1.4923282549957995,False,off,False
+2023-06-16,QQQ,SPY QQQ MonFri Reversion,32.21529504434989,True,off,False
+2023-06-26,QQQ,SPY QQQ MonFri Reversion,43.29405098245512,False,off,False
+2023-07-07,QQQ,SPY QQQ MonFri Reversion,42.26303542869106,True,off,False
+2023-07-21,QQQ,SPY QQQ MonFri Reversion,42.45352927528974,True,off,False
+2023-08-04,QQQ,SPY QQQ MonFri Reversion,44.10497569871817,False,off,False
+2023-09-15,QQQ,SPY QQQ MonFri Reversion,23.78422121207624,False,on,False
+2023-09-22,QQQ,SPY QQQ MonFri Reversion,19.984385312509485,False,off,False
+2023-10-20,QQQ,SPY QQQ MonFri Reversion,7.207402224527302,False,off,False
+2024-02-16,QQQ,SPY QQQ MonFri Reversion,37.27505623749467,True,off,False
+2024-02-26,QQQ,SPY QQQ MonFri Reversion,36.66864575015194,True,off,False
+2024-03-04,QQQ,SPY QQQ MonFri Reversion,36.42459809667046,True,off,False
+2024-03-08,QQQ,SPY QQQ MonFri Reversion,36.55288279436682,True,off,False
+2024-03-18,QQQ,SPY QQQ MonFri Reversion,37.423868484066176,True,off,False
+2024-04-15,QQQ,SPY QQQ MonFri Reversion,50.787009618442866,False,off,True
+2024-06-24,QQQ,SPY QQQ MonFri Reversion,13.053730777830712,True,off,False
+2024-10-28,QQQ,SPY QQQ MonFri Reversion,61.540415084526764,True,off,True
+2025-01-31,QQQ,SPY QQQ MonFri Reversion,32.61015640454191,True,off,False
+2025-02-21,QQQ,SPY QQQ MonFri Reversion,51.00962009243996,False,off,True
+2025-02-24,QQQ,SPY QQQ MonFri Reversion,53.101607679851824,False,off,True
+2025-03-28,QQQ,SPY QQQ MonFri Reversion,16.994843203208923,False,off,False
+2025-04-04,QQQ,SPY QQQ MonFri Reversion,14.6637326380036,False,off,False
+2025-12-15,QQQ,SPY QQQ MonFri Reversion,29.244915239701253,True,off,False
+2026-03-27,QQQ,SPY QQQ MonFri Reversion,45.71237706921884,False,on,False
+2026-07-20,QQQ,SPY QQQ MonFri Reversion,40.48791370263527,False,on,False
+2026-08-10,QQQ,SPY QQQ MonFri Reversion,63.69250744765935,True,off,True
+2026-08-17,QQQ,SPY QQQ MonFri Reversion,84.81704944931228,True,off,True
+2026-08-28,QQQ,SPY QQQ MonFri Reversion,87.6014085785643,True,off,True
+2016-06-13,IWM,Monday Dip,,True,off,False
+2016-09-26,IWM,Monday Dip,0.0,True,off,False
+2016-11-28,IWM,Monday Dip,0.0,True,off,False
+2018-01-29,IWM,Monday Dip,33.98569698843558,True,off,False
+2018-02-05,IWM,Monday Dip,29.951082924262398,False,off,False
+2018-04-09,IWM,Monday Dip,0.6123798582571356,False,on,False
+2018-04-30,IWM,Monday Dip,0.0,False,off,False
+2018-07-30,IWM,Monday Dip,32.42119030949556,True,off,False
+2019-12-02,IWM,Monday Dip,27.966260172800236,True,off,False
+2020-08-31,IWM,Monday Dip,44.34213076434631,True,off,False
+2020-10-19,IWM,Monday Dip,23.89884397494568,False,off,False
+2020-12-14,IWM,Monday Dip,0.29638428415724793,True,off,False
+2020-12-28,IWM,Monday Dip,0.0,True,off,False
+2021-03-29,IWM,Monday Dip,13.395835551013153,True,off,False
+2021-05-10,IWM,Monday Dip,74.71872344279944,True,off,True
+2021-11-22,IWM,Monday Dip,64.95348074290487,True,off,True
+2023-09-11,IWM,Monday Dip,24.91969908602474,False,off,False
+2024-03-18,IWM,Monday Dip,37.423868484066176,True,off,False
+2024-03-25,IWM,Monday Dip,41.527811545482564,True,off,False
+2024-04-01,IWM,Monday Dip,48.12193707565721,True,off,False
+2024-05-13,IWM,Monday Dip,27.191579547444945,True,off,False
+2024-10-21,IWM,Monday Dip,64.35335417081872,True,off,True
+2024-12-09,IWM,Monday Dip,56.98906083031685,True,off,True
+2025-07-21,IWM,Monday Dip,4.976062056281966,True,off,False
+2025-12-01,IWM,Monday Dip,26.403416950645198,True,on,False
+2025-12-15,IWM,Monday Dip,29.244915239701253,True,off,False
+2026-07-20,IWM,Monday Dip,40.48791370263527,False,on,False
+2016-04-11,DIA,Monday Dip,,False,off,False
+2016-06-13,DIA,Monday Dip,,True,off,False
+2018-04-09,DIA,Monday Dip,0.6123798582571356,False,on,False
+2018-04-30,DIA,Monday Dip,0.0,False,off,False
+2018-07-30,DIA,Monday Dip,32.42119030949556,True,off,False
+2018-09-10,DIA,Monday Dip,50.19806122536506,True,off,True
+2019-06-24,DIA,Monday Dip,35.39342678492598,True,off,False
+2019-12-02,DIA,Monday Dip,27.966260172800236,True,off,False
+2020-10-19,DIA,Monday Dip,23.89884397494568,False,off,False
+2020-12-14,DIA,Monday Dip,0.29638428415724793,True,off,False
+2021-08-02,DIA,Monday Dip,51.27068040454374,True,off,True
+2021-10-11,DIA,Monday Dip,24.028984221381243,False,off,False
+2021-11-22,DIA,Monday Dip,64.95348074290487,True,off,True
+2022-11-28,DIA,Monday Dip,0.05968474006699892,False,on,False
+2023-01-30,DIA,Monday Dip,1.4923282549957995,False,off,False
+2024-03-25,DIA,Monday Dip,41.527811545482564,True,off,False
+2024-04-15,DIA,Monday Dip,50.787009618442866,False,off,True
+2024-10-21,DIA,Monday Dip,64.35335417081872,True,off,True
+2024-12-09,DIA,Monday Dip,56.98906083031685,True,off,True
+2025-07-21,DIA,Monday Dip,4.976062056281966,True,off,False
+2025-12-01,DIA,Monday Dip,26.403416950645198,True,on,False
+2026-02-23,DIA,Monday Dip,69.50641750207578,False,on,True
+2026-05-04,DIA,Monday Dip,41.82904672133629,True,off,False
+2026-06-08,DIA,Monday Dip,36.608193066472424,False,off,False
+2026-07-20,DIA,Monday Dip,40.48791370263527,False,on,False
+2016-06-13,SMH,Monday Dip,,True,off,False
+2016-10-10,SMH,Monday Dip,0.0,True,off,False
+2018-02-05,SMH,Monday Dip,29.951082924262398,False,off,False
+2018-04-09,SMH,Monday Dip,0.6123798582571356,False,on,False
+2018-08-13,SMH,Monday Dip,39.917010007157636,True,off,False
+2019-12-02,SMH,Monday Dip,27.966260172800236,True,off,False
+2020-07-13,SMH,Monday Dip,0.0,False,off,False
+2021-02-22,SMH,Monday Dip,29.79742046403541,True,off,False
+2021-03-08,SMH,Monday Dip,21.786302273059924,False,off,False
+2021-05-03,SMH,Monday Dip,60.691950246382774,True,off,True
+2021-05-10,SMH,Monday Dip,74.71872344279944,True,off,True
+2021-10-11,SMH,Monday Dip,24.028984221381243,False,off,False
+2021-11-22,SMH,Monday Dip,64.95348074290487,True,off,True
+2021-12-13,SMH,Monday Dip,69.6551655780397,True,on,True
+2023-02-27,SMH,Monday Dip,5.200051051628941,False,off,False
+2023-06-26,SMH,Monday Dip,43.29405098245512,False,off,False
+2024-03-18,SMH,Monday Dip,37.423868484066176,True,off,False
+2024-04-15,SMH,Monday Dip,50.787009618442866,False,off,True
+2024-06-24,SMH,Monday Dip,13.053730777830712,True,off,False
+2025-07-21,SMH,Monday Dip,4.976062056281966,True,off,False
+2025-12-15,SMH,Monday Dip,29.244915239701253,True,off,False
+2026-03-30,SMH,Monday Dip,43.4505923908071,False,on,False
+2026-07-06,SMH,Monday Dip,19.677130241866166,True,off,False
+2026-07-20,SMH,Monday Dip,40.48791370263527,False,on,False
+2026-08-10,SMH,Monday Dip,63.69250744765935,True,off,True
+2020-01-31,SPY,Monthly Weak Close,66.5807576256836,False,off,True
+2020-10-30,SPY,Monthly Weak Close,17.049168248453356,False,off,False
+2021-09-30,SPY,Monthly Weak Close,35.333573594436324,False,off,False
+2021-11-30,SPY,Monthly Weak Close,68.6438306956512,False,off,True
+2023-02-28,SPY,Monthly Weak Close,5.193233425980096,False,off,False
+2019-05-31,QQQ,Monthly Weak Close,16.940126154369523,False,on,False
+2020-10-30,QQQ,Monthly Weak Close,17.049168248453356,False,off,False
+2021-02-26,QQQ,Monthly Weak Close,26.697050697870072,False,off,False
+2021-09-30,QQQ,Monthly Weak Close,35.333573594436324,False,off,False
+2023-02-28,QQQ,Monthly Weak Close,5.193233425980096,False,off,False
+2024-12-31,QQQ,Monthly Weak Close,46.500372062001915,False,off,False
