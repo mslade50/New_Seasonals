@@ -275,6 +275,15 @@ def _window_pick_positions(doy_arr, years_arr, target_doy, asof_year,
     return idx[order][first]
 
 
+def _lagged(fwd: np.ndarray, picks: np.ndarray, lag: int) -> np.ndarray:
+    """fwd[picks + lag], NaN where the shifted position runs off the series."""
+    pos = picks + int(lag)
+    out = np.full(pos.shape, np.nan)
+    ok = pos < fwd.size
+    out[ok] = fwd[pos[ok]]
+    return out
+
+
 def seasonal_window_returns(
     price_df: pd.DataFrame,
     asof,
@@ -283,12 +292,17 @@ def seasonal_window_returns(
     doy_tol: int = 2,
     min_years: int = 3,
     exclude_current_year: bool = True,
+    entry_lag: int = 0,
 ) -> dict | None:
     """Realized forward returns for THIS calendar window across prior years.
 
     Picks, in each prior year, the trading day whose day-of-year is closest to
     `asof`'s day-of-year (within +/-doy_tol), and records the realized
-    `forward_window`-day return from there. With cycle_phase_filter set to
+    `forward_window`-day return from there. `entry_lag` shifts the measurement
+    start `entry_lag` sessions past that anchor (close[p+lag] -> close[p+lag+N]):
+    a ticket that enters T+k measures from ITS entry close with entry_lag=k, so
+    the sessions that elapse before the fill are not counted (2026-09-30). The
+    default 0 is the plain calendar-window stat. With cycle_phase_filter set to
     asof.year%4 you get the literal "in midterm years it did X" — the stat the
     blended rank cannot express because the cycle weighting is collapsed in.
 
@@ -320,7 +334,7 @@ def seasonal_window_returns(
             fwd[:-N] = cv[N:] / cv[:-N] - 1.0
     picks = _window_pick_positions(doy, years, target_doy, asof.year,
                                    cycle_phase_filter, doy_tol, exclude_current_year)
-    r = fwd[picks]
+    r = _lagged(fwd, picks, entry_lag)
     valid = ~np.isnan(r)
     rets = r[valid]
     yrs = years[picks][valid]
@@ -561,10 +575,12 @@ def atr_wilder(price_df: pd.DataFrame, n: int = 14) -> pd.Series:
 
 def expected_atr_move(price_df, asof, forward_window, cycle_phase_filter=None,
                       doy_tol: int = 2, min_years: int = 3,
-                      exclude_current_year: bool = True):
+                      exclude_current_year: bool = True, entry_lag: int = 0):
     """Mean ATR-normalized seasonal forward move ((Close[t+N]-Close[t])/ATR) for
-    this calendar window across prior years. This is the magnitude estimate that
-    sizes a ticket's target. Returns float (ATR units) or None."""
+    this calendar window across prior years. This is the ticket's expected-move
+    estimate. With entry_lag=k the move is measured from the entry close
+    (Close[t+k+N]-Close[t+k]), still divided by the anchor bar's ATR (the as-of
+    analog: the live ticket's ATR is the as-of ATR). Returns float or None."""
     if price_df is None or price_df.empty:
         return None
     close = price_df["Close"].dropna().sort_index()
@@ -580,14 +596,14 @@ def expected_atr_move(price_df, asof, forward_window, cycle_phase_filter=None,
     target_doy = int(doy[le][-1])
     cv = close.values.astype(np.float64)
     N = int(forward_window)
-    fwd = np.full(cv.shape, np.nan)
+    move = np.full(cv.shape, np.nan)
     if 0 < N < cv.size:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            fwd[:-N] = (cv[N:] - cv[:-N]) / atr[:-N]
+        move[:-N] = cv[N:] - cv[:-N]
     picks = _window_pick_positions(doy, years, target_doy, asof.year,
                                    cycle_phase_filter, doy_tol, exclude_current_year)
-    v = fwd[picks]
-    v = v[~np.isnan(v)]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        v = _lagged(move, picks, entry_lag) / atr[picks]
+    v = v[np.isfinite(v)]
     if v.size < min_years:
         return None
     return float(v.mean())
@@ -636,15 +652,25 @@ def qualifying_extension(price_df, direction: str, asof=None, *,
     return None
 
 
-def build_trade_ticket(price_df, asof, direction, forward_window, expected_move_atr,
-                       *, min_rr: float = 2.0, min_stop_atr: float = 0.8,
-                       swing_lookback: int = 20) -> dict | None:
-    """Concrete trade ticket from TA structure + the expected seasonal move.
+# Ticket structure (McKinley 2026-09-30): TIME-EXIT PRIMARY with a catastrophe
+# stop. Seasonal windows are dip-then-rally shapes; 0.6-1.6 ATR structure stops
+# cut the edge (TRV Oct: a 0.8 ATR stop touched 19/26 years, 14 of them eventual
+# winners, mean +4.84% -> +1.23%). One stop distance at every horizon (the site
+# sizer risks 30 bps off it); no price target; the expected move must clear
+# MIN_EXPECTED_MOVE_ATR (R/R against a catastrophe stop is meaningless).
+CAT_STOP_ATR = 3.0
+MIN_EXPECTED_MOVE_ATR = 1.0
 
-    target = full expected seasonal move (ATR units); stop sits at the recent
-    swing (structure) but is bounded so reward/risk >= min_rr, floored at
-    min_stop_atr ATR; time-stop = the seasonal window. is_ticket flags whether
-    R/R clears min_rr (below that it's a 'lean', not a standalone swing)."""
+
+def build_trade_ticket(price_df, asof, direction, forward_window, expected_move_atr,
+                       *, cat_stop_atr: float = CAT_STOP_ATR,
+                       min_expected_atr: float = MIN_EXPECTED_MOVE_ATR,
+                       swing_lookback: int = 20) -> dict | None:
+    """Concrete trade ticket: time exit after `forward_window` sessions held from
+    entry, catastrophe stop `cat_stop_atr` ATR from the as-of close, no target.
+    `expected_move_atr` (the entry-anchored 75/25 blended seasonal move) is kept
+    as an informational field; is_ticket = |expected move| >= min_expected_atr.
+    `target` and `rr` are None (fields kept so old consumers see the key)."""
     if price_df is None or len(price_df) < 30:
         return None
     atr = float(atr_wilder(price_df).iloc[-1])
@@ -656,23 +682,12 @@ def build_trade_ticket(price_df, asof, direction, forward_window, expected_move_
     em = abs(float(expected_move_atr))
     if em <= 0:
         return None
-    if direction == "short":
-        struct_dist = (hi - entry) / atr if hi > entry else 99.0
-    else:
-        struct_dist = (entry - lo) / atr if lo < entry else 99.0
-    stop_dist = max(min(struct_dist, em / min_rr), min_stop_atr)
-    rr = em / stop_dist
-    if direction == "short":
-        stop = entry + stop_dist * atr
-        target = entry - em * atr
-    else:
-        stop = entry - stop_dist * atr
-        target = entry + em * atr
+    stop = entry + cat_stop_atr * atr if direction == "short" else entry - cat_stop_atr * atr
     return {
-        "entry": round(entry, 4), "stop": round(stop, 4), "target": round(target, 4),
-        "atr": round(atr, 4), "stop_atr": round(stop_dist, 2),
-        "time_stop_days": int(forward_window), "rr": round(rr, 2),
-        "is_ticket": bool(rr >= min_rr - 1e-9),
+        "entry": round(entry, 4), "stop": round(stop, 4), "target": None,
+        "atr": round(atr, 4), "stop_atr": round(float(cat_stop_atr), 2),
+        "time_stop_days": int(forward_window), "rr": None,
+        "is_ticket": bool(em >= min_expected_atr - 1e-9),
         "swing_hi": round(hi, 4), "swing_lo": round(lo, 4),
         "expected_move_atr": round(float(expected_move_atr), 2),
     }
@@ -700,16 +715,20 @@ def cycle_blended_expected_move(px, asof, N, blend: float = 0.75):
     return blend * cyc + (1 - blend) * allm
 
 
-def seasonal_window_blended(px, asof, N, blend: float = 0.75) -> dict | None:
+def seasonal_window_blended(px, asof, N, blend: float = 0.75,
+                            entry_lag: int = 0) -> dict | None:
     """Blend current-cycle and all-years realized window stats (cycle gets
     `blend` weight - the rank engine's 75/25). Confirmation and sizing both key
     off this so the tool screens and sizes on the SAME seasonal the rank is
     built from. Returns blended mean/pct_down, the blended ATR expected move,
-    both component stat dicts, and a sign-conflict `disagree` flag."""
-    s_all = seasonal_window_returns(px, asof, N)
+    both component stat dicts, and a sign-conflict `disagree` flag.
+    entry_lag measures every component from the ticket's entry close
+    (entry_offset_days + 1 sessions past the anchor), N sessions forward."""
+    phase = pd.Timestamp(asof).year % 4
+    s_all = seasonal_window_returns(px, asof, N, entry_lag=entry_lag)
     if not s_all or s_all.get("insufficient"):
         return None
-    s_cyc = seasonal_window_returns(px, asof, N, cycle_phase_filter=pd.Timestamp(asof).year % 4)
+    s_cyc = seasonal_window_returns(px, asof, N, cycle_phase_filter=phase, entry_lag=entry_lag)
     cyc_ok = bool(s_cyc and not s_cyc.get("insufficient"))
     if cyc_ok:
         b_mean = blend * s_cyc["mean"] + (1 - blend) * s_all["mean"]
@@ -717,8 +736,8 @@ def seasonal_window_blended(px, asof, N, blend: float = 0.75) -> dict | None:
     else:
         b_mean, b_pct_down = s_all["mean"], s_all["pct_down"]
     disagree = cyc_ok and (np.sign(s_cyc["mean"]) != np.sign(s_all["mean"]))
-    ea_all = expected_atr_move(px, asof, N)
-    ea_cyc = expected_atr_move(px, asof, N, cycle_phase_filter=pd.Timestamp(asof).year % 4)
+    ea_all = expected_atr_move(px, asof, N, entry_lag=entry_lag)
+    ea_cyc = expected_atr_move(px, asof, N, cycle_phase_filter=phase, entry_lag=entry_lag)
     if ea_all is None:
         ea = ea_cyc
     elif ea_cyc is None:
@@ -727,7 +746,8 @@ def seasonal_window_blended(px, asof, N, blend: float = 0.75) -> dict | None:
         ea = blend * ea_cyc + (1 - blend) * ea_all
     return {"mean": b_mean, "pct_down": b_pct_down, "ea": ea,
             "ea_all": ea_all, "ea_cyc": ea_cyc,
-            "all": s_all, "cyc": s_cyc, "cyc_ok": cyc_ok, "disagree": disagree}
+            "all": s_all, "cyc": s_cyc, "cyc_ok": cyc_ok, "disagree": disagree,
+            "entry_lag": int(entry_lag)}
 
 
 def _confirms_blended(blend, direction, min_n: int = 8) -> bool:
@@ -802,11 +822,35 @@ def _grade_2x2(cyc_leg: str, all_leg: str, disagree: bool) -> str:
     return "C"
 
 
+def seasonal_entry_offset(px, asof, h, direction) -> tuple[int, str]:
+    """Expected seasonal-path entry timing: the day the average prior-years path
+    bottoms (long) / peaks (short). CYCLE-years path when >= 3 same-cycle
+    observations exist, all-years otherwise (McKinley 2026-07-24 - the cycle is
+    what times the window). Returns (0-indexed offset, 0 = T+1; basis label).
+    Best-effort: a failure or short history leaves the default T+1."""
+    phase = pd.Timestamp(asof).year % 4
+    entry_off, path_basis = 0, "all-yrs"
+    try:
+        pth = expected_seasonal_path(px, asof, h, cycle_phase_filter=phase)
+        if pth is not None and len(pth):
+            path_basis = _CYCLE_NAME[phase]
+        else:
+            pth = expected_seasonal_path(px, asof, h)
+        if pth is not None and len(pth):
+            entry_off = int(np.argmin(pth)) if direction == "long" else int(np.argmax(pth))
+    except Exception:
+        entry_off = 0
+    return entry_off, path_basis
+
+
 def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, bucket,
-                        ext_pct=None, ext_window=None):
+                        ext_pct=None, ext_window=None, entry_timing=None):
     """Build one ticketed candidate from a confirmed (direction, horizon). Sizing
     and screening are 75/25 cycle-blended; both the cycle and all-years realized
-    counts are shown, and a sign-conflict between them is flagged."""
+    counts are shown, and a sign-conflict between them is flagged. `blend` must
+    be measured from the ticket's entry close (entry_lag = offset + 1);
+    `entry_timing` = (offset, basis) from seasonal_entry_offset, recomputed
+    here when omitted."""
     s_all, s_cyc = blend["all"], blend["cyc"]
     ea, ea_all, ea_cyc = blend["ea"], blend["ea_all"], blend["ea_cyc"]
     phase = pd.Timestamp(asof).year % 4
@@ -829,20 +873,28 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
     all_leg = _leg_grade(all_hit, ea_all, h)
     conviction = _grade_2x2(cyc_leg, all_leg, blend["disagree"])
 
+    # Entry timing (0-indexed offset, 0 = T+1). The realized stats above are
+    # measured from THIS entry's close (blend["entry_lag"] = offset + 1).
+    if entry_timing is None:
+        entry_timing = seasonal_entry_offset(px, asof, h, direction)
+    entry_off, path_basis = entry_timing
+    em = float(ticket.get("expected_move_atr", ea) or 0.0)
+
     verb = "SELL" if direction == "short" else "BUY"
     head = f"{verb} {t} - {h}d {bucket} window"
     if cyc_shown:
         head += f", {cyc_name} {ndir_cyc}/{s_cyc['n']}"
     head += f" + all-yrs {ndir_all}/{s_all['n']} {word}"
+    basis = f"from T+{entry_off + 1} close"
     ev = {
-        "TICKET": (f"{verb} ~{ticket['entry']:.2f} | stop {ticket['stop']:.2f} ({ticket['stop_atr']:.1f} ATR) | "
-                   f"target {ticket['target']:.2f} | time-stop {h}td | R/R {ticket['rr']:.1f}"),
+        "TICKET": (f"{verb} ~{ticket['entry']:.2f} | cat-stop {ticket['stop']:.2f} ({ticket['stop_atr']:.1f} ATR) | "
+                   f"expected {em:+.2f} ATR / {h}td | time-exit {h}td"),
         "quality": f"cycle {cyc_leg} / all-years {all_leg} (magnitude x consistency)",
-        f"{cyc_name} cycle": (f"{ndir_cyc}/{s_cyc['n']} {word}, {ea_cyc:+.1f} ATR"
+        f"{cyc_name} cycle": (f"{ndir_cyc}/{s_cyc['n']} {word}, {ea_cyc:+.1f} ATR {basis}"
                               if cyc_shown and ea_cyc is not None else "insufficient cycle history"),
-        "all-years": (f"{ndir_all}/{s_all['n']} {word}, {ea_all:+.1f} ATR"
-                      if ea_all is not None else f"{ndir_all}/{s_all['n']} {word}"),
-        "blended target": f"{ea:+.2f} ATR over {h}td (75/25 cycle-blend)",
+        "all-years": (f"{ndir_all}/{s_all['n']} {word}, {ea_all:+.1f} ATR {basis}"
+                      if ea_all is not None else f"{ndir_all}/{s_all['n']} {word} {basis}"),
+        "expected move": f"{ea:+.2f} ATR over {h}td held from entry (75/25 cycle-blend)",
         "rank": f"atr_sznl_{h}d = {rk:.0f}",
         "binomial p (all-yrs)": f"{binom_p:.3f}" if np.isfinite(binom_p) else "n/a",
     }
@@ -850,25 +902,6 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
         stretched = "oversold" if direction == "long" else "overbought"
         stretch_h = int(ext_window or h)
         ev["extension"] = f"{stretch_h}d return at {_ordinal(round(ext_pct))} %ile - {stretched} into the window"
-    # Expected seasonal-path entry timing: the day the average prior-years path
-    # bottoms (long) / peaks (short). CYCLE-years path when >= 3 same-cycle
-    # observations exist, all-years otherwise (McKinley 2026-07-24 — the cycle
-    # is what times the window; the basis used is labeled on the card).
-    # Best-effort — a failure or short history just leaves the default T+1.
-    # Displayed only; the live order path still stages T+1. 0-indexed offset
-    # (0 = T+1 = day 1).
-    entry_off = 0
-    path_basis = "all-yrs"
-    try:
-        _pth = expected_seasonal_path(px, asof, h, cycle_phase_filter=phase)
-        if _pth is not None and len(_pth):
-            path_basis = cyc_name
-        else:
-            _pth = expected_seasonal_path(px, asof, h)
-        if _pth is not None and len(_pth):
-            entry_off = int(np.argmin(_pth)) if direction == "long" else int(np.argmax(_pth))
-    except Exception:
-        entry_off = 0
     ev["entry timing"] = (
         f"enter T+{entry_off + 1} (expected {path_basis} path "
         f"{'nadir' if direction == 'long' else 'peak'} day)"
@@ -879,21 +912,26 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
     if blend["disagree"]:
         notes = f"all-years seasonal disagrees in sign with {cyc_name} - graded C (conflict)"
 
-    # rank by grade tier, then magnitude x consistency (cycle-weighted), then R/R
+    # rank by grade tier, then magnitude x consistency (cycle-weighted), then the
+    # expected move in catastrophe-stop units (replaces the retired R/R term)
     base = {"A": 300.0, "B": 200.0, "C": 100.0}[conviction]
     cyc_s = (cyc_hit if np.isfinite(cyc_hit) else 0.0) * abs(ea_cyc or 0.0)
     all_s = all_hit * abs(ea_all or 0.0)
-    sort_key = base + 6.5 * cyc_s + 3.5 * all_s + ticket["rr"]
+    stop_atr = float(ticket.get("stop_atr") or CAT_STOP_ATR)
+    sort_key = base + 6.5 * cyc_s + 3.5 * all_s + abs(em) / stop_atr
     cand = make_candidate(
         channel, t, direction, head, horizon=f"{h}d", evidence=ev,
         conviction=conviction, p_value=float(binom_p) if np.isfinite(binom_p) else None,
         sort_key=sort_key, asof=asof, notes=notes,
     )
     cand["entry_offset_days"] = entry_off
+    cand["expected_move_atr"] = round(em, 2)
     return cand
 
 
-def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
+def scan_seasonal_tickets(universe, asof, channel, *,
+                          min_expected_atr: float = MIN_EXPECTED_MOVE_ATR,
+                          cat_stop_atr: float = CAT_STOP_ATR,
                           ranks: pd.DataFrame | None = None,
                           horizons=(5, 10, 21), short_thr: float = 15,
                           long_thr: float = 85, min_dollar_vol: float = 5e6,
@@ -902,14 +940,20 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                           ext_low: float = 15.0, ext_high: float = 85.0,
                           extension_horizons=(5, 10, 21),
                           max_rank_age_days: int = 10) -> list:
-    """Scan `universe` across `horizons`; emit swing tickets (R/R >= min_rr).
+    """Scan `universe` across `horizons`; emit time-exit tickets.
 
-    Horizon selection: a name can yield up to TWO tickets - one tactical (<=21d)
-    and one swing (>=63d) - when it clears the R/R + realized gate in both
-    buckets. Within a bucket the horizon with the best R/R wins, ties broken
-    toward the SHORTER window (so a tight tactical setup is not buried by a
-    larger-but-sprawling long-horizon move). Names whose seasonal move is too
-    small to clear the R/R bar at any horizon are dropped.
+    2026-09-30 (McKinley): every realized stat that feeds a ticket (cycle and
+    all-years k/n, ATR magnitudes, binomial p, expected move) is measured from
+    the ticket's OWN entry close - entry_offset_days + 1 sessions past the
+    as-of analog - forward `h` sessions, so sessions that elapse before the
+    fill no longer count. The path-nadir/peak offset is chosen first, then the
+    stats and every gate below run on the re-anchored numbers. The ticket is
+    time-exit primary with a `cat_stop_atr` catastrophe stop and no target; the
+    old R/R >= 2 gate is replaced by |expected move| >= min_expected_atr.
+
+    Horizon selection: within a bucket the horizon with the largest
+    sqrt(time)-scaled expected move wins, ties broken toward the SHORTER
+    window.
 
     2026-07-24 gate redesign (McKinley): a ticket must ALSO clear
     - an explicit cycle-cohort win gate: >= min_cyc_hit directional hit rate
@@ -957,7 +1001,7 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                 continue
 
         # collect every (direction, horizon) that clears the 75/25-blended
-        # realized gate AND the R/R bar (confirmation + sizing both cycle-blended)
+        # realized gate AND the expected-move bar, all measured from the entry
         quals = []
         extension_matches = {}
         for h in horizons:
@@ -968,7 +1012,9 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
             for direction, ext in (("short", rk < short_thr), ("long", rk > long_thr)):
                 if not ext:
                     continue
-                blend = seasonal_window_blended(px, asof, h, blend=cycle_blend)
+                timing = seasonal_entry_offset(px, asof, h, direction)
+                blend = seasonal_window_blended(px, asof, h, blend=cycle_blend,
+                                                entry_lag=timing[0] + 1)
                 if not _confirms_blended(blend, direction):
                     continue
                 # All-years directional hit-rate gate (2026-06-25). Walk-forward
@@ -1008,25 +1054,30 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                     continue
                 if (direction == "short" and ea >= 0) or (direction == "long" and ea <= 0):
                     continue  # blended expected move sign must match the trade
-                ticket = build_trade_ticket(px, asof, direction, h, ea, min_rr=min_rr,
-                                            min_stop_atr=max(0.5, 0.8 * _horizon_scale(h)))
+                ticket = build_trade_ticket(px, asof, direction, h, ea,
+                                            cat_stop_atr=cat_stop_atr,
+                                            min_expected_atr=min_expected_atr)
                 if ticket is None or not ticket["is_ticket"]:
-                    continue  # swing tickets only
+                    continue  # expected-move gate
                 quals.append({"h": h, "direction": direction, "blend": blend,
                               "ticket": ticket, "rk": rk, "ext_pct": ext_pct,
-                              "ext_window": ext_window})
+                              "ext_window": ext_window, "timing": timing})
         if not quals:
             continue
 
-        # one ticket per bucket: best R/R, tie-break toward the shorter horizon
+        # one ticket per bucket: largest sqrt(time)-scaled expected move,
+        # tie-break toward the shorter horizon
         for bucket_hz, bucket_name in ((TACTICAL_HORIZONS, "tactical"), (SWING_HORIZONS, "swing")):
             bucket = [q for q in quals if q["h"] in bucket_hz]
             if not bucket:
                 continue
-            q = sorted(bucket, key=lambda x: (-x["ticket"]["rr"], x["h"]))[0]
+            q = sorted(bucket, key=lambda x: (
+                -round(abs(x["ticket"]["expected_move_atr"]) / _horizon_scale(x["h"]), 6),
+                x["h"]))[0]
             out.append(_seasonal_candidate(channel, t, px, asof, q["h"], q["direction"],
                                            q["blend"], q["ticket"], q["rk"], bucket_name,
-                                           ext_pct=q["ext_pct"], ext_window=q["ext_window"]))
+                                           ext_pct=q["ext_pct"], ext_window=q["ext_window"],
+                                           entry_timing=q["timing"]))
     return out
 
 

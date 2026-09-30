@@ -19,7 +19,10 @@ Conventions (documented because they drive every number downstream):
   - Window: the seasonal time-stop = `time_stop_days` trading days after the asof
     (the close[t+N]-close[t] window the edge is measured over). Stops/targets are
     checked intrabar on each bar in the window; if neither triggers, the trade
-    time-exits at the last window bar's close.
+    time-exits at the last window bar's close. TIME-EXIT tickets (2026-09-30:
+    catastrophe stop, target None) instead hold `time_stop_days` sessions from
+    the entry bar (exit = close of forward bar entry+N, matching the entry-
+    anchored stats); only the stop or the time exit can fire.
   - Within-bar tie: stop checked before target (conservative), matching the
     book-wide convention that ambiguous intrabar timing favors the stop.
   - Price basis is the CALLER's choice (raw vs adjusted) — the scorer passes raw
@@ -33,39 +36,71 @@ import re
 import numpy as np
 import pandas as pd
 
+# Legacy (through 2026-09-29), stop + 2:1 target, window counted from the asof:
 # BUY ~53.63 | stop 54.25 (0.6 ATR) | target 52.39 | time-stop 5td | R/R 2.0
 _TICKET_RE = re.compile(
     r"(BUY|SELL)\s+~?(-?[\d.]+)\s*\|\s*stop\s+(-?[\d.]+).*?"
     r"target\s+(-?[\d.]+).*?time-stop\s+(\d+)\s*td.*?R/R\s+(-?[\d.]+)",
     re.IGNORECASE,
 )
+# Time-exit primary (2026-09-30), catastrophe stop, no target, hold counted
+# from the entry:
+# BUY ~363.21 | cat-stop 343.35 (3.0 ATR) | expected +2.79 ATR / 21td | time-exit 21td
+_TIME_EXIT_RE = re.compile(
+    r"(BUY|SELL)\s+~?(-?[\d.]+)\s*\|\s*cat-stop\s+(-?[\d.]+)\s*\(([\d.]+)\s*ATR\)"
+    r".*?expected\s+([+-]?[\d.]+)\s*ATR.*?time-exit\s+(\d+)\s*td",
+    re.IGNORECASE,
+)
+
+
+def _num_or_none(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if np.isfinite(f) else None
 
 
 def parse_ticket(cand: dict) -> dict | None:
     """Lift a candidate's frozen TICKET into structured fields. Returns None for
     non-tradeable rows (context/regime with no TICKET, or an unparseable string).
-    Prefers a structured `ticket` dict if a future emit adds one."""
+    Prefers a structured `ticket` dict if a future emit adds one. A time-exit
+    ticket parses with target=None, rr=None and hold_from_entry=True."""
     if not isinstance(cand, dict):
         return None
     tk = cand.get("ticket")
+    expected = None
+    hold_from_entry = False
     if isinstance(tk, dict) and {"entry", "stop", "target"} <= set(tk):
-        entry, stop, target = float(tk["entry"]), float(tk["stop"]), float(tk["target"])
+        entry, stop = float(tk["entry"]), float(tk["stop"])
+        target = _num_or_none(tk["target"])
         tsd = int(tk.get("time_stop_days") or _horizon_to_days(cand.get("horizon")))
         direction = cand.get("direction", "long")
-        rr = float(tk.get("rr") or 0.0)
+        rr = _num_or_none(tk.get("rr"))
+        hold_from_entry = target is None
+        expected = _num_or_none(tk.get("expected_move_atr"))
     else:
         ev = cand.get("evidence") or {}
         s = ev.get("TICKET")
         if not s:
             return None
-        m = _TICKET_RE.search(str(s))
-        if not m:
+        m_new = _TIME_EXIT_RE.search(str(s))
+        m = None if m_new else _TICKET_RE.search(str(s))
+        if m_new:
+            verb, entry, stop, _stop_atr, expected, tsd = m_new.groups()
+            entry, stop, expected = float(entry), float(stop), float(expected)
+            target = rr = None
+            hold_from_entry = True
+        elif m:
+            verb, entry, stop, target, tsd, rr = m.groups()
+            entry, stop, target, rr = float(entry), float(stop), float(target), float(rr)
+        else:
             return None
-        verb, entry, stop, target, tsd, rr = m.groups()
         direction = "long" if verb.upper() == "BUY" else "short"
-        entry, stop, target, rr = float(entry), float(stop), float(target), float(rr)
         tsd = int(tsd)
-    if not (np.isfinite(entry) and np.isfinite(stop) and np.isfinite(target)) or tsd <= 0:
+    if not (np.isfinite(entry) and np.isfinite(stop)) or tsd <= 0:
+        return None
+    if target is not None and not np.isfinite(target):
         return None
     if abs(entry - stop) <= 0:
         return None
@@ -79,6 +114,7 @@ def parse_ticket(cand: dict) -> dict | None:
         "asof": cand.get("asof"),
         "entry": entry, "stop": stop, "target": target,
         "time_stop_days": tsd, "rr": rr,
+        "expected_move_atr": expected, "hold_from_entry": hold_from_entry,
         "headline": cand.get("headline"),
     }
 
@@ -142,15 +178,24 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
 
     risk = abs(tk["entry"] - tk["stop"])
     sign = 1.0 if tk["direction"] == "long" else -1.0
-    stop, target = tk["stop"], tk["target"]
+    stop = tk["stop"]
+    target = _num_or_none(tk.get("target"))
     n = int(tk["time_stop_days"])
+    # Time-exit tickets (2026-09-30, no target) hold n sessions FROM THE ENTRY:
+    # the exit is fwd bar d+n (d = entry bar), the close the ticket's realized
+    # stats measure to. Legacy target tickets keep the asof+n window.
+    hold_from_entry = bool(tk.get("hold_from_entry", target is None))
+
+    def _end(d: int) -> int:
+        return d + n + 1 if hold_from_entry else n
 
     if entry_mode == "asof_close":
         if asof not in df.index:
             return None
         entry_price = float(df.loc[asof, "Close"])
         entry_date = asof
-        window = fwd.iloc[:n]
+        end = _end(-1)
+        window = fwd.iloc[:end]
     elif entry_mode == "limit":
         # Limit on the favorable side of the T+1 open: long buys at
         # open - mult*ATR, short sells at open + mult*ATR. Filled only if the
@@ -174,7 +219,8 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
                     "bars_held": 0, "risk_per_unit": round(float(risk), 4)}
         entry_price = float(lim)
         entry_date = fwd.index[0]
-        window = fwd.iloc[:n]
+        end = _end(0)
+        window = fwd.iloc[:end]
     elif entry_mode == "oracle":
         # LOOK-AHEAD ceiling (NOT tradeable): enter at the best price actually
         # reached in the first `entry_window` forward bars that does not breach
@@ -196,7 +242,8 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
             reached = search.index[(search["High"] >= entry_price).values]
         entry_date = reached[0] if len(reached) else fwd.index[0]
         epos = int(fwd.index.get_loc(entry_date))
-        window = fwd.iloc[epos:n] if n > epos else fwd.iloc[epos:epos + 1]
+        end = _end(epos)
+        window = fwd.iloc[epos:end] if end > epos else fwd.iloc[epos:epos + 1]
     elif entry_mode == "delayed":
         # Enter at the OPEN of forward bar `entry_window` (0-indexed: 0 = T+1),
         # then hold to the original time-stop (asof + n). Used to enter at the
@@ -207,7 +254,8 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
             return None
         entry_price = float(fwd.iloc[d]["Open"])
         entry_date = fwd.index[d]
-        window = fwd.iloc[d:n]
+        end = _end(d)
+        window = fwd.iloc[d:end]
     elif entry_mode == "delayed_close":
         # MOC on the expected path-nadir day: enter at that day's CLOSE (the low
         # of the close-to-close path) and hold to the time-stop. Stop/target are
@@ -217,7 +265,8 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
             return None
         entry_price = float(fwd.iloc[d]["Close"])
         entry_date = fwd.index[d]
-        window = fwd.iloc[d + 1:n]
+        end = _end(d)
+        window = fwd.iloc[d + 1:end]
     elif entry_mode == "limit_persistent":
         # Limit on the favorable side of the T+1 open, GTC for the whole window:
         # fills the FIRST day in [T+1, asof+n] the price trades through it (the
@@ -243,7 +292,8 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
         d = int(fills[0])
         entry_price = float(lim)
         entry_date = fwd.index[d]
-        window = fwd.iloc[d:n]
+        end = _end(d)
+        window = fwd.iloc[d:end]
     elif entry_mode == "delayed_limit":
         # COMBINED: wait to the expected path-nadir day `entry_window`, then rest a
         # persistent limit at THAT day's open -/+ mult*ATR through the time-stop.
@@ -276,11 +326,13 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
                     "exit_price": np.nan, "mae_R": np.nan, "mfe_R": np.nan,
                     "bars_held": 0, "risk_per_unit": round(float(risk), 4)}
         entry_date = fwd.index[d]
-        window = fwd.iloc[d:n]
+        end = _end(d)
+        window = fwd.iloc[d:end]
     else:  # t1_open
         entry_price = float(fwd.iloc[0]["Open"])
         entry_date = fwd.index[0]
-        window = fwd.iloc[:n]
+        end = _end(0)
+        window = fwd.iloc[:end]
 
     if window.empty:
         return None
@@ -290,13 +342,15 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
         # sits below the ticket's fixed stop (which would phantom-exit at the stop
         # for a gain). risk (= stop distance) is unchanged.
         sd = abs(tk["entry"] - tk["stop"])
-        td = abs(tk["target"] - tk["entry"])
+        td = abs(target - tk["entry"]) if target is not None else None
         if tk["direction"] == "long":
-            stop, target = entry_price - sd, entry_price + td
+            stop = entry_price - sd
+            target = entry_price + td if td is not None else None
         else:
-            stop, target = entry_price + sd, entry_price - td
+            stop = entry_price + sd
+            target = entry_price - td if td is not None else None
     # require the window to be complete for a settled outcome (else still open)
-    matured = len(fwd) >= n
+    matured = len(fwd) >= end
 
     exit_price = exit_date = exit_type = None
     mae = mfe = 0.0  # in R, signed against the trade
@@ -308,9 +362,11 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
         mfe = max(mfe, fav)
         mae = min(mae, adv)
         if tk["direction"] == "long":
-            hit_stop, hit_tgt = lo <= stop, hi >= target
+            hit_stop = lo <= stop
+            hit_tgt = target is not None and hi >= target
         else:
-            hit_stop, hit_tgt = hi >= stop, lo <= target
+            hit_stop = hi >= stop
+            hit_tgt = target is not None and lo <= target
         # On a limit fill the intrabar order is ambiguous: the bar can dip to the
         # limit AND tag the target the same day, but we can't know which came
         # first. entry_day_target=False forbids crediting the target on the fill

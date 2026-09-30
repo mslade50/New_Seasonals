@@ -5,10 +5,11 @@
    HERE — but each card (and the free-form sizer at the top) can prefill the
    Execution tab's entry-bracket ticket via a deep link (execution.html?stage=…).
 
-   Sizing conventions (manual seasonal trades, 2026-07-09):
-     risk 30 bps of NLV per trade; stop distance by hold window
-     5d -> 1.0 ATR, 10d -> 1.3 ATR, 21d -> 1.6 ATR; target 2:1; time stop at
-     the window's end. Close/ATR come from data/sizer.json (adjusted
+   Sizing conventions (time-exit primary, McKinley 2026-09-30; was 1.0/1.3/1.6
+   ATR stops + 2:1 target from 2026-07-09):
+     risk 30 bps of NLV per trade off a 3.0 ATR CATASTROPHE stop at every hold
+     window; no price target; the time exit (N sessions held) is the trade.
+     Close/ATR come from data/sizer.json (adjusted
      master_prices, Wilder ATR14); NLVs from the live execution book when the
      agent is online, else sizes are shown per $100k NLV. */
 "use strict";
@@ -17,12 +18,13 @@ document.addEventListener("DOMContentLoaded", initSeasonal);
 
 // evidence rows intentionally hidden on the board ("entry timing" unhidden
 // 2026-07-24: with the nadir surface filter retired, the expected path
-// peak/nadir day is context the card should show, not a gate)
-const HIDE_EV = new Set(["TICKET", "binomial p (all-yrs)"]);
+// peak/nadir day is context the card should show, not a gate; TICKET unhidden
+// 2026-09-30: the time-exit line carries the cat-stop + expected move)
+const HIDE_EV = new Set(["binomial p (all-yrs)"]);
 
-const WINDOWS = [[5, 1.0], [10, 1.3], [21, 1.6]];   // [hold td, stop ATR mult]
+const CAT_STOP_ATR = 3.0;
+const WINDOWS = [[5, CAT_STOP_ATR], [10, CAT_STOP_ATR], [21, CAT_STOP_ATR]];   // [hold td, stop ATR mult]
 const RISK_BPS = 30;
-const TGT_RR = 2;
 
 const SZ = { sizer: null, nlvs: null };   // sizer.json tickers + {primary, pa} NLVs
 
@@ -126,7 +128,7 @@ function sizeLine(ticker, win) {
   if (!rec) return null;
   const [days, mult] = win;
   const dist = mult * rec.atr;
-  const bits = [`stop ${mult.toFixed(1)} ATR = ${fmt.num(dist, 2)}`];
+  const bits = [`cat-stop ${mult.toFixed(1)} ATR = ${fmt.num(dist, 2)}`];
   if (SZ.nlvs) {
     for (const k of ["primary", "pa"]) {
       if (SZ.nlvs[k] != null) bits.push(`${k} <b>${sharesAt(SZ.nlvs[k], dist).toLocaleString()}</b> sh`);
@@ -136,13 +138,16 @@ function sizeLine(ticker, win) {
   }
   return `${days}d @ ${RISK_BPS} bps: ${bits.join(" · ")}`;
 }
-function stageUrl(ticker, direction, win, entryPx) {
+/* off = the ticket's entry_offset_days (0 = T+1): the time exit is N sessions
+   held from the entry, so Execution pushes the time stop out by it. */
+function stageUrl(ticker, direction, win, entryPx, off) {
   const rec = sizerRec(ticker);
   if (!rec) return null;
   const px = entryPx > 0 ? entryPx : rec.close;
   const side = String(direction || "").toLowerCase() === "short" ? "SELL" : "BUY";
+  const o = Number.isInteger(off) && off > 0 ? `&off=${off}` : "";
   return `execution.html?stage=1&sym=${encodeURIComponent(String(ticker).toUpperCase())}` +
-         `&side=${side}&win=${win[0]}&atr=${rec.atr}&px=${px}`;
+         `&side=${side}&win=${win[0]}&atr=${rec.atr}&px=${px}${o}`;
 }
 
 /* ---------- free-form sizer card ---------- */
@@ -157,11 +162,11 @@ function sizerCard() {
     : "execution agent offline — sizes shown per $100k NLV";
   return `<div class="card" style="margin-bottom:14px">
     <div style="font:700 14px inherit;margin-bottom:4px">Manual seasonal sizer
-      <span class="cap" style="display:inline;font-weight:400">· ${RISK_BPS} bps risk · stop 1.0/1.3/1.6 ATR
-      by window · target ${TGT_RR}:1 · prices asof ${esc(asof || "?")}</span></div>
+      <span class="cap" style="display:inline;font-weight:400">· ${RISK_BPS} bps risk · cat-stop ${CAT_STOP_ATR.toFixed(1)} ATR
+      · no target · time exit is the trade · prices asof ${esc(asof || "?")}</span></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
       <label class="cap">Ticker</label><input id="sz_tkr" placeholder="SMH" style="width:80px;text-transform:uppercase">
-      <label class="cap">Entry</label><input id="sz_entry" placeholder="last" style="width:80px" title="Optional — defaults to the last close; stop/target/stage anchor to what's here">
+      <label class="cap">Entry</label><input id="sz_entry" placeholder="last" style="width:80px" title="Optional — defaults to the last close; the stop and stage anchor to what's here">
       <label class="cap">Window</label><span class="seg" id="sz_win">
         ${WINDOWS.map(([d], i) => `<button ${i === 1 ? 'class="on"' : ""} data-d="${d}">${d}d</button>`).join("")}</span>
       <label class="cap">Direction</label><span class="seg" id="sz_dir">
@@ -223,12 +228,11 @@ function wireSizer() {
     const custom = entryVal();
     const px = custom != null ? custom : rec.close;
     const stop = long ? px - dist : px + dist;
-    const tgt = long ? px + TGT_RR * dist : px - TGT_RR * dist;
     const rows = [
       `entry <b>${fmt.num(px, 2)}</b> ${custom != null ? `(custom · last ${fmt.num(rec.close, 2)})` : "(last)"} · ` +
       `ATR <b>${fmt.num(rec.atr, 2)}</b> · ` +
-      `stop <b>${fmt.num(stop, 2)}</b> (${mult.toFixed(1)} ATR) · target <b>${fmt.num(tgt, 2)}</b> (${TGT_RR}:1) · ` +
-      `time stop <b>${days}td</b>`,
+      `cat-stop <b>${fmt.num(stop, 2)}</b> (${mult.toFixed(1)} ATR) · no target · ` +
+      `time-exit <b>${days}td</b>`,
     ];
     if (SZ.nlvs) {
       rows.push(Object.entries(SZ.nlvs)
@@ -256,7 +260,7 @@ function card(c) {
   // manual-trade sizing line + stage link (only when the ticker prices)
   const win = winFor(c.horizon);
   const sz = sizeLine(c.ticker, win);
-  const url = sz ? stageUrl(c.ticker, c.direction, win) : null;
+  const url = sz ? stageUrl(c.ticker, c.direction, win, null, c.entry_offset_days) : null;
   const sizeRow = sz
     ? `<div class="cap" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span>${sz}</span>

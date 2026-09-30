@@ -76,6 +76,32 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   than baked into `dist/` (the radar runs on a weekend cadence independent of
   the 2x-daily deploy, same reasoning as `morning-orders.js`). Stage prefills
   the Execution ticket. Full section: "Momentum Radar — staging + trail".
+- **Seasonal tab (seasonal board)** (`seasonal.html` + `assets/seasonal.js`,
+  display-only, fed by `ideas.json` from `daily_seasonal_ideas.py` ->
+  `scripts/seasonal_edge.scan_seasonal_tickets`). Live rule:
+  - **Entry-anchored stats.** The path nadir/peak picks `entry_offset_days`
+    (0 = T+1) first; every realized stat that feeds the ticket (cycle and
+    all-years k/n, ATR magnitudes, binomial p, expected move) is then measured
+    from the entry close, `offset + 1` sessions past each prior year's anchor,
+    forward `h` sessions (`seasonal_window_blended(..., entry_lag=)`). The
+    all-years >= 2/3 and cycle >= 60% gates run on those numbers.
+    `entry_lag` defaults to 0 for other callers (context engine).
+  - **Time-exit primary.** `TICKET: BUY ~363.21 | cat-stop 343.35 (3.0 ATR) |
+    expected +2.79 ATR / 21td | time-exit 21td`. One 3.0 ATR catastrophe stop
+    at every horizon, no price target, hold `h` sessions from the entry.
+    Gate: blended expected move >= 1.0 ATR (replaces R/R >= 2). The site
+    sizer and the Execution deep link (`?stage=1&...&off=`) risk 30 bps off
+    the 3.0 ATR distance and leave the target blank.
+  - `simulate_ticket` holds a no-target ticket `N` sessions from its entry
+    bar; ledger rows before 2026-09-30 keep their target and asof+N window.
+    `seasonal_order_staging.py` (off) parses both formats.
+  - History: 2026-09-30 audit found stats anchored at lag 0 (TXN short
+    printed midterm 5/6 lower from the as-of bar, 13/26 all-years from its
+    T+5 entry) and stops too tight (TRV Oct: a 0.8 ATR stop touched 19/26
+    years, 14 eventual winners, mean +4.84% -> +1.23%, 1.6 ATR +0.79%;
+    forward ledger since 2026-07-24 1 win / 10 stops, -9.3R).
+  Guards: `tests/test_seasonal_edge_entry_anchor.py`,
+  `tests/test_seasonal_ticket_sim.py`, `tests/test_seasonal_extension_gate.py`.
 - **Monte Carlo tab** (`montecarlo.html` + `assets/montecarlo.js`,
   2026-07-28): day/month/year outcome distributions for the current book —
   empirical daily stats (P(up), loss-threshold frequencies, VaR/CVaR, worst

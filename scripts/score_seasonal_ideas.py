@@ -88,8 +88,13 @@ def score(scored_at: str | None = None, upload: bool = True) -> pd.DataFrame:
             print(f"  [{ticker}] no raw data — skip ({len(grp)} ideas deferred)")
             continue
         for _, r in grp.iterrows():
+            # Rows from 2026-09-30 on are time-exit tickets with no target (NaN):
+            # the simulator then holds time_stop_days from the entry and only the
+            # catastrophe stop or the time exit fires. Older rows keep theirs.
+            _tgt = r["target"] if "target" in r else None
             tk = {"ticker": ticker, "direction": r["direction"], "entry": float(r["entry"]),
-                  "stop": float(r["stop"]), "target": float(r["target"]),
+                  "stop": float(r["stop"]),
+                  "target": float(_tgt) if _tgt is not None and pd.notna(_tgt) else None,
                   "time_stop_days": int(r["time_stop_days"])}
             # Live-consistent model (2026-06): enter on the expected seasonal-path
             # nadir/peak day (entry_offset_days; 0 = T+1) and anchor the bracket to

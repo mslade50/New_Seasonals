@@ -19,10 +19,10 @@ import scripts.seasonal_edge as se
 
 
 def detect_seasonal(asof, ctx=None) -> list:
-    """Seasonal swing tickets over the megacap-equity universe (all horizons,
-    R/R-gated). Thin wrapper over the shared scan_seasonal_tickets primitive."""
-    min_rr = float((ctx or {}).get("min_rr", 2.0))
-    return se.scan_seasonal_tickets(se.MEGACAP_TICKERS, asof, "detect_seasonal", min_rr=min_rr)
+    """Seasonal time-exit tickets over the megacap-equity universe (all horizons,
+    expected-move-gated). Thin wrapper over the shared scan_seasonal_tickets
+    primitive. ctx["min_rr"] is retired (2026-09-30) and ignored."""
+    return se.scan_seasonal_tickets(se.MEGACAP_TICKERS, asof, "detect_seasonal")
 
 
 # =============================================================================
@@ -670,8 +670,7 @@ def detect_regime_sleeve(asof, ctx=None):
 def detect_cross_asset(asof, ctx=None) -> list:
     """Seasonal swing tickets over the macro / cross-asset universe (indices,
     commodities, FX, crypto, bonds). Thin wrapper over scan_seasonal_tickets."""
-    min_rr = float((ctx or {}).get("min_rr", 2.0))
-    return se.scan_seasonal_tickets(se.MACRO_TICKERS, asof, "detect_cross_asset", min_rr=min_rr)
+    return se.scan_seasonal_tickets(se.MACRO_TICKERS, asof, "detect_cross_asset")
 
 
 # =============================================================================

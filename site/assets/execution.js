@@ -72,13 +72,15 @@ const hedgePrefs = {
 };
 const hedgeScopes = new Map();   // account -> checked strategies; intentionally session-only
 
-/* Deep-link prefill from the Seasonal tab (execution.html?stage=1&sym=&side=&win=&atr=&px=):
-   fills the entry-bracket ticket per the manual-seasonal conventions —
-   stop 1.0 / 1.3 / 1.6 ATR for a 5 / 10 / 21 td window, target 2:1, time stop
-   at the window end (weekends skipped; holidays are NOT — nudge the date if it
-   lands on one), qty = 30 bps of the SELECTED account's NLV once the book
-   loads. Everything lands in editable fields — nothing is sent. */
-const STAGE_MULTS = { 5: 1.0, 10: 1.3, 21: 1.6 };
+/* Deep-link prefill from the Seasonal tab (execution.html?stage=1&sym=&side=&win=&atr=&px=[&off=]):
+   fills the entry-bracket ticket per the seasonal conventions (time-exit
+   primary, McKinley 2026-09-30) — 3.0 ATR CATASTROPHE stop at every 5 / 10 /
+   21 td window, NO target, time stop `win` sessions after the entry (off = the
+   ticket's entry offset, 0 = T+1; weekends skipped, holidays are NOT — nudge
+   the date if it lands on one), qty = 30 bps of the SELECTED account's NLV off
+   the stop distance once the book loads. Everything lands in editable fields —
+   nothing is sent. */
+const STAGE_MULTS = { 5: 3.0, 10: 3.0, 21: 3.0 };
 const STAGE_RISK_BPS = 30;
 const stage = (() => {
   const q = new URLSearchParams(location.search);
@@ -88,9 +90,11 @@ const stage = (() => {
   const win = parseInt(q.get("win") || "", 10);
   const atr = parseFloat(q.get("atr") || "");
   const px = parseFloat(q.get("px") || "");
+  const offRaw = parseInt(q.get("off") || "0", 10);
+  const off = Number.isFinite(offRaw) && offRaw > 0 ? offRaw : 0;
   const mult = STAGE_MULTS[win];
   if (!sym || !mult || !(atr > 0) || !(px > 0)) return null;
-  return { sym, side, win, atr, px, mult, qtyPending: true };
+  return { sym, side, win, off, atr, px, mult, qtyPending: true };
 })();
 
 function addTradingDays(from, n) {
@@ -271,11 +275,11 @@ function applyStagePrefill() {
   setv("f_symbol", stage.sym);
   setv("f_entry", stage.px.toFixed(2));
   setv("f_stop", (stage.px - sgn * dist).toFixed(2));
-  setv("f_target", (stage.px + sgn * 2 * dist).toFixed(2));
-  setv("f_timestop", addTradingDays(new Date(), stage.win));
+  setv("f_target", "");
+  setv("f_timestop", addTradingDays(new Date(), stage.win + stage.off));
   updateReadout();
   const msg = document.getElementById("cmdMsg");
-  if (msg) msg.textContent = `prefilled from Seasonal — ${stage.win}d window, ${stage.mult} ATR stop, 2:1 target; qty fills from the ${state.account} NLV`;
+  if (msg) msg.textContent = `prefilled from Seasonal — ${stage.win}d time exit, ${stage.mult.toFixed(1)} ATR catastrophe stop, no target; qty fills from the ${state.account} NLV`;
 }
 
 function fillStageQty() {

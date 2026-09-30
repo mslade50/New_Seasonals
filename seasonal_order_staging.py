@@ -108,6 +108,14 @@ _TICKET_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Time-exit primary (2026-09-30): catastrophe stop, no target, hold from entry.
+# BUY ~363.21 | cat-stop 343.35 (3.0 ATR) | expected +2.79 ATR / 21td | time-exit 21td
+_TIME_EXIT_RE = re.compile(
+    r"(BUY|SELL)\s+~?(-?[\d.]+)\s*\|\s*cat-stop\s+(-?[\d.]+)\s*\(([\d.]+)\s*ATR\)"
+    r".*?time-exit\s+(\d+)\s*td",
+    re.IGNORECASE,
+)
+
 _STK_RE = re.compile(r"[A-Z]{1,5}")  # plain US equity / ETF symbol
 
 
@@ -152,25 +160,39 @@ def parse_seasonal_ticket(cand: dict) -> dict | None:
     s = ev.get("TICKET")
     if not s:
         return None
-    m = _TICKET_RE.search(str(s))
-    if not m:
+    m_new = _TIME_EXIT_RE.search(str(s))
+    m = None if m_new else _TICKET_RE.search(str(s))
+    if m_new:
+        verb, entry, stop, stop_atr, tsd = m_new.groups()
+        entry, stop, stop_atr = float(entry), float(stop), float(stop_atr)
+        target = rr = None
+    elif m:
+        verb, entry, stop, stop_atr, target, tsd, rr = m.groups()
+        entry, stop, stop_atr, target, rr = (float(entry), float(stop),
+                                             float(stop_atr), float(target), float(rr))
+    else:
         return None
-    verb, entry, stop, stop_atr, target, tsd, rr = m.groups()
-    entry, stop, stop_atr, target, rr = (float(entry), float(stop),
-                                         float(stop_atr), float(target), float(rr))
     tsd = int(tsd)
     direction = "Long" if verb.upper() == "BUY" else "Short"
     risk_ps = abs(entry - stop)
     if risk_ps <= 0 or stop_atr <= 0 or tsd <= 0:
         return None
     atr = risk_ps / stop_atr                 # back out the ATR from stop distance
-    tgt_atr = abs(target - entry) / atr if atr > 0 else 0.0
+    tgt_atr = abs(target - entry) / atr if (target is not None and atr > 0) else 0.0
     return {
         "entry": entry, "stop": stop, "target": target, "rr": rr,
+        "hold_from_entry": target is None,
         "direction": direction, "time_stop_days": tsd,
         "risk_ps": risk_ps, "atr": atr,
         "stop_atr": stop_atr, "tgt_atr": tgt_atr,
     }
+
+
+def _time_exit_date(tk: dict, asof: str, entry_off: int) -> str:
+    """Legacy target tickets exit asof + N; time-exit tickets (2026-09-30) hold
+    N sessions from the T+(entry_off+1) entry."""
+    days = tk["time_stop_days"] + (entry_off + 1 if tk.get("hold_from_entry") else 0)
+    return (pd.Timestamp(asof) + pd.tseries.offsets.BDay(days)).strftime("%Y-%m-%d")
 
 
 def _row(cand: dict, tk: dict, risk_bps: float, account_value: float, asof: str,
@@ -192,7 +214,6 @@ def _row(cand: dict, tk: dict, risk_bps: float, account_value: float, asof: str,
     else:
         order_type, offset, tif, limit_price = "REL_OPEN", ENTRY_ATR_OFFSET, "DAY", 0.0
 
-    time_exit = (pd.Timestamp(asof) + pd.tseries.offsets.BDay(tk["time_stop_days"])).strftime("%Y-%m-%d")
     horizon = cand.get("horizon", "")
     conv = cand.get("conviction", "")
     # Expected seasonal-path entry day: 0 = T+1 (next session), k = T+(k+1). The
@@ -200,6 +221,7 @@ def _row(cand: dict, tk: dict, risk_bps: float, account_value: float, asof: str,
     # session instead of T+1. order_staging reads this; default 0 keeps T+1.
     entry_off = int(cand.get("entry_offset_days", 0) or 0)
     activate = (pd.Timestamp(asof) + pd.tseries.offsets.BDay(entry_off + 1)).strftime("%Y-%m-%d")
+    time_exit = _time_exit_date(tk, asof, entry_off)
 
     return {
         "Scan_Date": asof,
@@ -219,7 +241,7 @@ def _row(cand: dict, tk: dict, risk_bps: float, account_value: float, asof: str,
         "Strategy_Ref": (f"Seasonal/{conv}/{horizon}".rstrip("/") + (f" {note}" if note else "")),
         "Tgt_ATR_Mult": round(tk["tgt_atr"], 3),
         "Stop_ATR_Mult": round(tk["stop_atr"], 3),
-        "Use_Target": True,
+        "Use_Target": tk["target"] is not None,
         "Use_Stop": True,
         "Hold_Days": tk["time_stop_days"],
         "Trade_Direction": direction,
@@ -237,7 +259,7 @@ def _deferred_row(cand: dict, tk: dict, asof: str) -> dict:
     the ticket's reference levels but Quantity 0 — it needs a proxy ETF to trade."""
     ticker = str(cand["ticker"]).strip().upper()
     direction = tk["direction"]
-    time_exit = (pd.Timestamp(asof) + pd.tseries.offsets.BDay(tk["time_stop_days"])).strftime("%Y-%m-%d")
+    time_exit = _time_exit_date(tk, asof, int(cand.get("entry_offset_days", 0) or 0))
     return {
         "Scan_Date": asof, "Symbol": ticker, "SecType": sectype_of(ticker),
         "Exchange": "", "Action": "BUY" if direction == "Long" else "SELL",
@@ -247,7 +269,7 @@ def _deferred_row(cand: dict, tk: dict, asof: str) -> dict:
         "Time_Exit_Date": time_exit,
         "Strategy_Ref": f"Seasonal/{cand.get('conviction','')}/{cand.get('horizon','')}".rstrip("/") + " [need-proxy]",
         "Tgt_ATR_Mult": round(tk["tgt_atr"], 3), "Stop_ATR_Mult": round(tk["stop_atr"], 3),
-        "Use_Target": True, "Use_Stop": True, "Hold_Days": tk["time_stop_days"],
+        "Use_Target": tk["target"] is not None, "Use_Stop": True, "Hold_Days": tk["time_stop_days"],
         "Trade_Direction": direction, "Rank_252D": "", "Risk_Amt": 0.0, "Risk_Bps": 0,
         "Scan_Source": NOSTAGE_SOURCE,
     }

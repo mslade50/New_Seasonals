@@ -86,7 +86,9 @@ METHODOLOGY = (
     "win rates in BOTH cohorts (all-years >= 2/3, same-cycle years >= 60%), AND price stretched against the move "
     "on ANY 5d/10d/21d window (trailing return <= 15th %ile for longs / >= 85th for shorts); they surface only when "
     "the expected cycle-path turn is within T+5, max 5 tickets per direction per day (window tightens toward T+1 "
-    "on crowded days). Near-miss is "
+    "on crowded days). Since 2026-09-30 every realized count, magnitude and the expected move are measured from "
+    "the ticket's own entry close (T+k), not the as-of close, and the ticket is time-exit primary: 3.0 ATR "
+    "catastrophe stop, no price target, expected move >= 1.0 ATR required. Near-miss is "
     "negative-filtered against the live book so it never duplicates a systematic signal. 'midterm' stats are "
     "re-derived from raw prices filtered to year%4==2, since the blended seasonal rank collapses the cycle and "
     "cannot express it."
@@ -320,7 +322,7 @@ def nadir_filter(candidates: list[dict]) -> list[dict]:
 # -----------------------------------------------------------------------------
 def build(asof: pd.Timestamp, grades=("A", "B")) -> tuple[str, dict]:
     regime = load_regime(asof)
-    ctx = {"asof": asof, "regime": regime, "min_rr": 2.0, "universe": list(IDEA_UNIVERSE)}
+    ctx = {"asof": asof, "regime": regime, "universe": list(IDEA_UNIVERSE)}
     print(f"[regime] {regime.get('summary')}")
 
     candidates = run_detectors(asof, ctx)

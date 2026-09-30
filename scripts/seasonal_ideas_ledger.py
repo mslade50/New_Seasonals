@@ -44,8 +44,11 @@ def rows_from_payload(payload: dict, logged_at: str | None = None) -> pd.DataFra
             "ticker": tk["ticker"], "channel": tk["channel"],
             "direction": tk["direction"], "horizon": tk["horizon"],
             "conviction": tk["conviction"], "p_value": tk["p_value"],
-            "entry": tk["entry"], "stop": tk["stop"], "target": tk["target"],
-            "time_stop_days": tk["time_stop_days"], "rr": tk["rr"],
+            # time-exit tickets (2026-09-30) carry no target / R/R -> NaN
+            "entry": tk["entry"], "stop": tk["stop"],
+            "target": tk["target"] if tk["target"] is not None else float("nan"),
+            "time_stop_days": tk["time_stop_days"],
+            "rr": tk["rr"] if tk["rr"] is not None else float("nan"),
             "entry_offset_days": int(c.get("entry_offset_days", 0) or 0),
             "headline": tk["headline"], "logged_at": logged_at or "",
         })
