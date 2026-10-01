@@ -1,4 +1,4 @@
-# Registers the weekday 07:00 Daily Seasonal run.
+# Registers the weekday 04:30 Daily Seasonal run.
 #
 # Intentionally inert until run by the operator. Registration creates a
 # recurring unattended agent session that reads this repo, writes check
@@ -24,11 +24,13 @@ if (-not (Test-Path $bat)) { throw "Cannot find $bat" }
 $action = New-ScheduledTaskAction -Execute 'cmd.exe' `
     -Argument "/c `"$bat`"" -WorkingDirectory (Split-Path -Parent $dir)
 
-# 07:00, after the 5:10 Daily Pitch (owner decision 2026-09-30). The pitch
-# delivers around 6:20, so its journal fingerprints are in this morning's
-# seasonal state and the two products never pitch the same trade.
+# 04:30, before the 5:10 Daily Pitch (owner decision 2026-10-01, was 07:00).
+# Today's pitch has not published when this run builds its state, so the
+# seasonal dedup against the pitch journal only sees prior days' pitch ideas,
+# and the pitch does not dedup against the seasonal journal. A same-day
+# duplicate across the two products is now possible.
 $trigger = New-ScheduledTaskTrigger -Weekly `
-    -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '7:00AM'
+    -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '4:30AM'
 
 # Interactive, same as the pitch: S4U needs an elevated shell.
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME `
@@ -43,7 +45,7 @@ $settings = New-ScheduledTaskSettingsSet `
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
     -Principal $principal -Settings $settings -Force | Out-Null
 
-Write-Host "Registered task '$taskName' -> weekdays 7:00 AM"
+Write-Host "Registered task '$taskName' -> weekdays 4:30 AM"
 Write-Host "  Command: cmd /c `"$bat`""
 Write-Host "  Log:     scripts\logs\daily_seasonal_last_run.log"
 $task = Get-ScheduledTask -TaskName $taskName

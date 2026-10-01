@@ -1,6 +1,6 @@
 ---
 name: daily-seasonal
-description: Produce the Daily Seasonal - up to three falsified seasonal trade ideas across every rank outlier, cycle cell and calendar cell, with horizons from 3 to 63 sessions and exits developed from the pattern's shape. Use when running the morning seasonal run (scheduled 07:00 ET after the Daily Pitch, or on request), or when McKinley asks for seasonal ideas, the seasonal slate, or a rerun.
+description: Produce the Daily Seasonal - up to three falsified seasonal trade ideas across every rank outlier, cycle cell and calendar cell, with horizons from 3 to 63 sessions and exits developed from the pattern's shape. Use when running the morning seasonal run (scheduled 04:30 ET before the Daily Pitch, or on request), or when McKinley asks for seasonal ideas, the seasonal slate, or a rerun.
 ---
 
 # Daily Seasonal
@@ -10,7 +10,8 @@ interrogated against the data before they reach McKinley. He reads them, says ye
 per idea, and places orders. There is no conversation: the ideas must be finished when
 they arrive.
 
-The run is 07:00 ET on weekdays, after the Daily Pitch has published. Three is the full
+The run is 04:30 ET on weekdays, before the Daily Pitch runs. Today's pitch has not
+published yet, so the pitch dedup below covers prior days only. Three is the full
 slate. One or two ship when that is what survived, with the empty slots paid for; a
 morning where nothing survives ships a stand-down. Never pad, never publish nothing.
 

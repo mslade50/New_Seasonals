@@ -14,9 +14,9 @@ REM   3. hand the state to the /daily-seasonal skill, which surveys, falsifies,
 REM      composes and publishes via daily_pitch.py --product seasonal
 REM   4. verify something was actually delivered, so a quiet failure is loud
 REM
-REM Scheduled weekdays 07:00 local, after the 5:10 Daily Pitch (owner
-REM decision 2026-09-30), so the pitch journal's fingerprints are already in
-REM this morning's state and the two products never pitch the same trade.
+REM Scheduled weekdays 04:30 local, before the 5:10 Daily Pitch (owner
+REM decision 2026-10-01, was 07:00). Today's pitch has not published yet,
+REM so the dedup against the pitch journal covers prior days only.         
 REM
 REM Permissions, model and effort: identical to the pitch and for the same
 REM reasons (see run_daily_pitch.bat). The session can write in this repo and

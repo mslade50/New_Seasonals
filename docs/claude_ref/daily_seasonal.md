@@ -1,7 +1,7 @@
 # Daily Seasonal
 
 Built 2026-09-30 from `docs/seasonal_agent_design_2026-09-30.md` (owner
-decisions the same day: MORNING run after the pitch; 30 bps default with the
+decisions the same day: MORNING run after the pitch, moved 2026-10-01 to 04:30, before the pitch; 30 bps default with the
 agent free to pick 15-50 bps by conviction; the site board's ticket channel
 stays live; own negative registry, the pitch's read-only).
 
@@ -12,7 +12,7 @@ product switch, not a second pipeline. Nothing places orders in v1.
 
 ## Live rule
 
-Flow (weekdays 07:00 local, Task Scheduler job "Daily Seasonal (agent)"):
+Flow (weekdays 04:30 local, moved from 07:00 on 2026-10-01, Task Scheduler job "Daily Seasonal (agent)"):
 `scripts/run_daily_seasonal.bat` ->
 `pull_scan_caches.py --set pitch` (includes the ROOT `atr_seasonal_ranks.parquet`) ->
 `grade_pitch_journal.py --product seasonal` ->
@@ -55,7 +55,8 @@ The pitch reads its module globals (`pitch_journal.JOURNAL_PATH`,
 
 The seasonal publisher also blocks any idea whose fingerprint the PITCH journal
 shows inside the 10-td repetition window (read-only), unless `changed_since`
-says what changed.
+says what changed. Since the 2026-10-01 move to 04:30 the run precedes the
+pitch, so this dedup covers prior days only and a same-day duplicate is possible.
 
 ### Grammar extensions (`pitch_grammar.py`, `product="seasonal"`)
 
@@ -130,5 +131,6 @@ plus every Daily Pitch guard (the switch runs through the pitch's code).
 
 - The pitch state builder does not yet read the seasonal journal's
   fingerprints (the design's reverse direction); the pitch publisher does not
-  block seasonal fingerprints.
+  block seasonal fingerprints. Since the 04:30 move the seasonal run also
+  precedes the pitch, so a same-day duplicate across the two products is possible.
 - No site tab, no auto-staging, no overflow-tier ranks (the 1,025 rank names only).
