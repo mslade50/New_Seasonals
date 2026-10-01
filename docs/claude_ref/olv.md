@@ -97,7 +97,49 @@ Aligned sites — change together:
   guard: `test_olv_exits.py` (OneDrive)
 - Guard: `tests/test_olv_stop_and_cap.py` (engine + scan + config invariants)
 
-### OLV sizing fallback — complete capacity observation (2026-09-15)
+### OLV sizing capacity: whole-ticker broker holdings (live rule, 2026-09-16)
+
+Live rule: the 50%-NAV single-stock cap sizes a new OLV entry against ALL
+stock the Primary broker account holds in that ticker (absolute market value,
+any sleeve, tagged or not), plus remaining OLV BUY-parent limit reservations,
+over actual Primary NAV, all from one validated broker observation.
+`olv_capacity.load_capacity(*, now, bookend, reader, book_loader)` takes no
+exit inventory. Bookend scans read the dated 16:05 closing evidence in
+`ops/olv_capacity/` (source `prior_close_conservative`) until the next cash
+open, then fall back to a fresh read-only broker query (source
+`broker_conservative`). If neither is valid, Capacity.known is False and the
+scanner bypasses this optional overlay with an `OLV CAP` exception row, as
+before. Exit inventory and its reconciliation are separate and never supply
+capacity inputs.
+
+Why: the 9/15 version below preferred reconciled tagged inventory when its
+status was known. Strategy attribution can omit other holdings in the same
+ticker, so a verified exit inventory could hide exposure. Regression: $600k
+NAV, $280k held in the ticker by another attribution, $15k pending; a 100-share
+order at $100 must become 50 shares. The 9/15 path admitted all 100.
+
+Shipped to the pinned runtime as bb2136c8 (runtime tag
+automation-runtime-2026-09-16.1) and ported to main on 2026-10-01 so main and
+the runtime agree. Release evidence: `docs/olv_ticker_capacity_2026-09-16.md`
+(written as a candidate before activation; it is now live).
+
+Aligned sites, change together:
+- `olv_capacity.py`: `load_capacity`, `from_book`, `read_snapshot` (source of truth)
+- `daily_scan.py`: the `load_capacity(bookend=not is_intraday_partial)` call,
+  the `OLV CAP SOURCE` / `OLV CAP` exception rows, and the cap-branch comment
+- `closing_inventory.py` / `scripts/capture_closing_inventory.py`: the 16:05
+  capture that writes the closing evidence
+- `scripts/query_capacity_snapshot.py`: the read-only live fallback query
+- Guards: `tests/test_olv_capacity_fallback.py` (includes
+  `test_known_exit_inventory_cannot_hide_other_same_ticker_holdings`),
+  `tests/test_olv_stop_and_cap.py`, `tests/test_closing_inventory.py`,
+  `tests/test_olv_pending_orders.py`
+
+### History: OLV sizing fallback, complete capacity observation (2026-09-15, superseded 2026-09-16)
+
+Superseded: this version read reconciled tagged inventory first when it was
+known and used the broker observation only as a fallback. The text below is
+kept as history.
 
 The September 14 order-reference patch supplied held notional but left the
 actual scanner cap, NAV and pending-order checks dependent on reconciled

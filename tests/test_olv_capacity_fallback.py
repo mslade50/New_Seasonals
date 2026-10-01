@@ -45,7 +45,7 @@ def scanner_blocks():
 
 def run_scanner(monkeypatch, *, b=None, known=True, exempt=False, when=AT, saved=None, inventory=None, clock_at=None, ticker='SNA'):
     real_loader=cap.load_capacity
-    def load(inv,**kw):
+    def load(**kw):
         def read(key):
             if saved is None:raise FileNotFoundError()
             return saved
@@ -53,7 +53,7 @@ def run_scanner(monkeypatch, *, b=None, known=True, exempt=False, when=AT, saved
             if not known:raise ConnectionError()
             return b if b is not None else book()
         kw.setdefault('now',clock_at or when)
-        return real_loader(inv,**kw,reader=read,book_loader=fetch)
+        return real_loader(**kw,reader=read,book_loader=fetch)
     monkeypatch.setattr(cap,'load_capacity',load)
     inventory=inventory or TaggedInventory(reasons=['bridge refuses'])
     context=dict(_actual_inventory=inventory,_cap_strats={STRATEGY},now_eastern=pd.Timestamp(when),
@@ -72,6 +72,18 @@ def test_actual_scanner_caps_unknown_inventory_with_partial_pending_order(monkey
     assert result['_pending_notionals'][('SNA',STRATEGY)]==20000
     assert '100 -> 50 sh' in result['sizing_note']
     assert inv.status=='unknown' and not inv.exit_metadata_known and inv.tranches==[]
+
+
+def test_known_exit_inventory_cannot_hide_other_same_ticker_holdings(monkeypatch):
+    import actual_inventory_io
+    # Exit attribution omits holdings from other strategies; the broker actually
+    # holds $280k. With $15k pending and $600k NAV, only $5k is available.
+    inv=TaggedInventory(status='known',asof_utc=AT)
+    monkeypatch.setattr(actual_inventory_io,'load_primary_nav',lambda *a,**k:600000)
+    monkeypatch.setattr(actual_inventory_io,'load_pending_entry_notionals',lambda *a,**k:{})
+    result=run_scanner(monkeypatch,inventory=inv)
+    assert result['shares']==50
+    assert result['_capacity'].held[('SNA',STRATEGY)]==280000
 
 
 @pytest.mark.parametrize('exempt,available,expected',[(True,True,100),(False,False,100)])
@@ -117,7 +129,7 @@ def test_flat_book_is_known_zero_usage():
 ])
 def test_bad_capacity_never_pretends_to_be_known(fault):
     b=book();fault(b['accounts'][0])
-    result=cap.load_capacity(TaggedInventory(),now=AT,book_loader=lambda *_:b)
+    result=cap.load_capacity(now=AT,book_loader=lambda *_:b)
     assert not result.known and result.nav is None and not result.held and not result.pending
 
 
@@ -157,7 +169,7 @@ def test_live_clock_is_sampled_after_broker_query(monkeypatch):
             return pd.Timestamp(AT)-pd.Timedelta(seconds=10) if self.calls==1 else pd.Timestamp(AT)
     clock=Clock()
     monkeypatch.setattr(cap,'utc_now',clock)
-    result=cap.load_capacity(TaggedInventory(),book_loader=lambda:book())
+    result=cap.load_capacity(book_loader=lambda:book())
     assert result.known and clock.calls==2
 
 
@@ -184,7 +196,7 @@ def test_collection_fill_cannot_disappear_between_holdings_and_orders(monkeypatc
 ])
 def test_missing_collection_proof_or_contract_mismatch_refuses(fault):
     b=book();fault(b)
-    assert not cap.load_capacity(TaggedInventory(),now=AT,book_loader=lambda:b).known
+    assert not cap.load_capacity(now=AT,book_loader=lambda:b).known
 
 
 @pytest.mark.parametrize('fault',[
@@ -199,7 +211,7 @@ def test_invalid_collection_fill_never_becomes_zero(fault):
     b=book();f=dict(exec_id='fill.01',account='TEST',con_id=42,symbol='SNA',sec_type='STK',currency='USD',
                   side='BOT',qty=150,price=100,time=(pd.Timestamp(AT)-pd.Timedelta(seconds=2)).isoformat())
     fault(f);b['accounts'][0]['fills']=[f]
-    assert not cap.load_capacity(TaggedInventory(),now=AT,book_loader=lambda:b).known
+    assert not cap.load_capacity(now=AT,book_loader=lambda:b).known
 
 
 @pytest.mark.parametrize('when',['2026-09-15T13:30:00Z','2026-09-16T08:15:00Z','2026-09-14T20:04:00Z'])
