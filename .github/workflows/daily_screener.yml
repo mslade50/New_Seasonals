@@ -65,7 +65,22 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas pyarrow numpy yfinance gspread google-auth boto3 'exchange-calendars>=4,<5'
+          pip install pandas pyarrow numpy yfinance gspread google-auth boto3 'exchange-calendars>=4,<5' requests python-dotenv
+
+      - name: Ensure fresh canonical earnings calendar (AM bookend only)
+        # Same pre-step as the local scan_am (2026-09-30 incident): a stale
+        # canonical calendar is republished through the normal producer, or
+        # the run stops here, before anything is staged, written or emailed.
+        if: inputs.bookend == 'am'
+        timeout-minutes: 20
+        env:
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          LOCAL_AUTOMATION_STRICT: '1'
+        run: python scripts/ensure_earnings_calendar.py
 
       - name: Pull caches from R2 (fail-closed for load-bearing keys)
         # scripts/pull_scan_caches.py: REQUIRED keys (master_prices,

@@ -62,6 +62,12 @@ A held supervisor lock is never a traceback. ``run-pipeline --retry`` prints
 ``health`` print a FAIL line naming how long the lock has been held and exit
 1, and ``health`` still runs its read-only battery without the lock.
 
+Alerts: ``run``/``run-pipeline`` email the operator once per pipeline run that
+counted a failure, indeterminate or blocked outcome, and ``health`` emails its
+summary block on any FAIL (EMAIL_USER/EMAIL_PASS; recipients from
+NEW_SEASONALS_ALERT_RECIPIENTS; NEW_SEASONALS_ALERT_EMAIL=0 disables). A send
+failure is one log line and never changes the exit code.
+
 Runtime logs go to ``<state-root>/logs/<ET date>/<pipeline>-<stub>.log``.
 The Task Scheduler runner passes ``--state-root <ConfigRoot>/artifacts/automation``
 so logs, the lock, and the health receipt cache live OUTSIDE the pinned
@@ -78,6 +84,7 @@ import hashlib
 import json
 import os
 import queue
+import re
 import shlex
 import subprocess
 import sys
@@ -552,6 +559,18 @@ def build_catalog() -> dict[str, PipelineSpec]:
                 description="Unified liquid + overflow premarket scan",
                 local_gate="nyse_session",
                 commands=(
+                    # Before the side-effect boundary on purpose (2026-09-30):
+                    # a stale canonical calendar is republished by the normal
+                    # producer when possible; otherwise the job fails here,
+                    # before the boundary, and the immediate GitHub fallback
+                    # gets its chance. If that fallback also fails, scan_am
+                    # still ends indeterminate (not rerun-safe), so the 05:45
+                    # retry is NOT guaranteed. The scanner's gate is unchanged.
+                    _py(
+                        "ensure fresh canonical earnings calendar",
+                        "scripts/ensure_earnings_calendar.py",
+                        timeout=1200,
+                    ),
                     pull_scan,
                     _py(
                         "run unified scanner",
@@ -2359,8 +2378,7 @@ class AutomationSupervisor:
             if existing.status == "indeterminate":
                 note = (
                     "; pre-existing, never re-run automatically; clear with: "
-                    f"resolve --pipeline {pipeline.id} --job {job.id} --date {run_date} "
-                    "--disposition success|retryable_failure --reason ..."
+                    + _resolve_hint(pipeline.id, job.id, run_date)
                 )
             logger.line(
                 f"skip {job.id}: {existing.status} receipt from {existing.source} "
@@ -2774,6 +2792,201 @@ def _dependents_of(pipeline: PipelineSpec, job_id: str) -> list[JobSpec]:
             downstream.add(job.id)
             ordered.append(job)
     return ordered
+
+
+def _resolve_hint(pipeline_id: str, job_id: str, run_date: str) -> str:
+    return (
+        f"resolve --pipeline {pipeline_id} --job {job_id} --date {run_date} "
+        "--disposition success|retryable_failure --reason ..."
+    )
+
+
+# Operator alert (2026-09-30 incident: a failed earnings refresh skipped
+# scan_pm, the next scan_am went indeterminate, and nobody was told). One
+# plain-text email per run that produced a counted non-success, over the
+# reports' Gmail convention. Never raises: an alert must not change a run's
+# exit code or receipts.
+ALERT_SWITCH_ENV = "NEW_SEASONALS_ALERT_EMAIL"
+ALERT_RECIPIENTS_ENV = "NEW_SEASONALS_ALERT_RECIPIENTS"
+DEFAULT_ALERT_RECIPIENT = "mckinleyslade@gmail.com"
+_SUPERVISOR_START = re.compile(r"^start \S+: .*; token=\S+$")
+_ERROR_MARKERS = re.compile(r"error|exception|traceback|fail", re.IGNORECASE)
+_SECRET_ASSIGNMENT = re.compile(r"(apikey|api_key|token|key|password|secret)=[^&\s]+", re.IGNORECASE)
+# (env, subject, body, run log path) built under the supervisor lock, sent after it.
+PendingAlert = tuple[Mapping[str, str], str, str, Path | None]
+
+
+def _send_alert_email(env: Mapping[str, str], subject: str, body: str) -> None:
+    import smtplib
+    from email.mime.text import MIMEText
+
+    sender, password = env.get("EMAIL_USER"), env.get("EMAIL_PASS")
+    if not sender or not password:
+        raise AutomationError("EMAIL_USER/EMAIL_PASS not set")
+    recipients = [
+        address.strip()
+        for address in env.get(ALERT_RECIPIENTS_ENV, DEFAULT_ALERT_RECIPIENT).split(",")
+        if address.strip()
+    ]
+    message = MIMEText(body, "plain", "utf-8")
+    message["Subject"] = subject
+    message["From"] = sender
+    message["To"] = ", ".join(recipients)
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+        server.starttls()
+        server.login(sender, password)
+        server.sendmail(sender, recipients, message.as_string())
+
+
+def redact_secrets(text: str) -> str:
+    return _SECRET_ASSIGNMENT.sub(r"\1=<redacted>", text)
+
+
+def deliver_alert(
+    env: Mapping[str, str], subject: str, body: str, log: Callable[[str], None]
+) -> bool:
+    subject, body = redact_secrets(subject), redact_secrets(body)
+    if str(env.get(ALERT_SWITCH_ENV, "1")).strip().lower() in {"0", "false", "no", "off"}:
+        log(f"alert: email disabled by {ALERT_SWITCH_ENV}=0; not sent: {subject}")
+        return False
+    try:
+        _send_alert_email(env, subject, body)
+    except Exception as exc:  # noqa: BLE001 - the alert path never fails the run
+        log(redact_secrets(f"WARNING: alert email not sent ({type(exc).__name__}: {exc}): {subject}"))
+        return False
+    log(f"alert: emailed {subject}")
+    return True
+
+
+def send_pending_alerts(pending: Sequence[PendingAlert]) -> None:
+    """Deliver alerts after the lock is released; stdout plus an append to the run log."""
+    for env, subject, body, log_path in pending:
+
+        def log(text: str, log_path: Path | None = log_path) -> None:
+            print(text, flush=True)
+            if log_path is None:
+                return
+            try:
+                with Path(log_path).open("a", encoding="utf-8") as handle:
+                    handle.write(text + "\n")
+            except OSError:
+                pass
+
+        try:
+            deliver_alert(env, subject, body, log)
+        except Exception as exc:  # noqa: BLE001 - the alert path never fails the run
+            log(f"WARNING: alert email not sent ({type(exc).__name__})")
+
+
+def _read_log_lines(log_path: Path | None) -> list[str]:
+    if log_path is None:
+        return []
+    try:
+        return Path(log_path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+
+def _last_error_line(lines: Sequence[str], job_id: str) -> str | None:
+    """Last error-looking child line inside ``job_id``'s section of the run log."""
+    starts = [i for i, line in enumerate(lines) if line.startswith(f"start {job_id}: ")]
+    if not starts:
+        return None
+    section: list[str] = []
+    for line in lines[starts[-1] + 1:]:
+        if _SUPERVISOR_START.match(line):
+            break
+        section.append(line.strip())
+    own = (f"ERROR: local {job_id} ", f"ERROR: {job_id} ")
+    for line in reversed(section):
+        if line and not line.startswith(own) and _ERROR_MARKERS.search(line):
+            return line
+    return None
+
+
+def build_failure_alert(
+    *,
+    pipeline_id: str,
+    run_date: str,
+    mode: str,
+    outcomes: Sequence[JobOutcome],
+    counted: set[str],
+    log_path: Path | None,
+) -> tuple[str, str]:
+    lines_in_log = _read_log_lines(log_path)
+    labels = (("failure", "failed"), ("indeterminate", "indeterminate"), ("blocked", "blocked"))
+    tally = {
+        status: sum(1 for o in outcomes if o.status == status and o.job_id in counted)
+        for status, _ in labels
+    }
+    summary = ", ".join(f"{tally[status]} {label}" for status, label in labels if tally[status])
+    subject = f"[New Seasonals] {pipeline_id} {run_date}: {summary}"
+
+    def tag(outcome: JobOutcome) -> str:
+        return "" if outcome.job_id in counted else " (pre-existing receipt; reported, not counted)"
+
+    body = [
+        f"Pipeline: {pipeline_id}",
+        f"ET date:  {run_date}",
+        f"Mode:     {mode}",
+        f"Log:      {log_path or '(stdout only)'}",
+        "",
+    ]
+    problems = [o for o in outcomes if o.status in {"failure", "indeterminate"}]
+    blocked = [o for o in outcomes if o.status == "blocked"]
+    if problems:
+        body.append("Jobs that did not succeed:")
+        for outcome in problems:
+            body.append(
+                f"  {outcome.job_id}: {outcome.status}, source {outcome.source or '-'}{tag(outcome)}"
+            )
+            if outcome.detail:
+                body.append(f"    detail: {outcome.detail}")
+            last = _last_error_line(lines_in_log, outcome.job_id)
+            if last and last != outcome.detail:
+                body.append(f"    last error line: {last}")
+        body.append("")
+    if blocked:
+        body.append("Skipped for unsatisfied dependencies:")
+        for outcome in blocked:
+            waiting = (outcome.detail or "").removeprefix("unsatisfied dependencies: ")
+            body.append(f"  {outcome.job_id}: waiting on {waiting or '?'}{tag(outcome)}")
+        body.append("")
+    indeterminate = [o for o in problems if o.status == "indeterminate"]
+    if indeterminate:
+        body.append(
+            "Indeterminate receipts are never re-run automatically. After review, "
+            "clear each with:"
+        )
+        for outcome in indeterminate:
+            body.append(
+                "  python scripts/automation_supervisor.py "
+                + _resolve_hint(pipeline_id, outcome.job_id, run_date)
+            )
+        body.append("")
+    return subject, "\n".join(body).rstrip() + "\n"
+
+
+def build_health_alert(
+    *, run_date: str, rc: int, locked_out: str | None, log_path: Path | None
+) -> tuple[str, str]:
+    lines = _read_log_lines(log_path)
+    starts = [i for i, line in enumerate(lines) if line.startswith("===== SUMMARY:")]
+    block = lines[starts[-1]:] if starts else []
+    fails = re.search(r"SUMMARY: (\d+) FAIL", block[0]) if block else None
+    if fails and int(fails.group(1)):
+        headline = f"{fails.group(1)} FAIL"
+    elif locked_out:
+        headline = "supervisor lock still held"
+    else:
+        headline = f"battery exited {rc}"
+    body = [f"ET date: {run_date}", f"Log:     {log_path or '(stdout only)'}", ""]
+    if locked_out:
+        body += [locked_out, ""]
+    body += [line.strip("\n") for line in block] or [
+        f"(no summary block in the log; battery exited {rc})"
+    ]
+    return f"[New Seasonals] health {run_date}: {headline}", "\n".join(body).rstrip() + "\n"
 
 
 RUNTIME_MARKER_RELPATH = Path(".local") / "automation-runtime.json"
@@ -3199,6 +3412,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         rc = 1  # bound before anything can raise: a red default, never NameError
         lock = GlobalFileLock(state_root / "automation_supervisor.lock")
         locked_out: str | None = None
+        pending_alerts: list[PendingAlert] = []
         try:
             lock.acquire()
         except LockUnavailable as exc:
@@ -3232,8 +3446,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                     timeout_seconds=3600,
                     logger=logger,
                 )
+                if locked_out or rc != 0:
+                    try:
+                        subject, body = build_health_alert(
+                            run_date=run_date,
+                            rc=rc,
+                            locked_out=locked_out,
+                            log_path=getattr(logger, "path", None),
+                        )
+                        pending_alerts.append(
+                            (health_env, subject, body, getattr(logger, "path", None))
+                        )
+                    except Exception as exc:  # noqa: BLE001 - the alert path never fails the run
+                        logger.line(f"WARNING: alert not built ({type(exc).__name__}: {exc})")
         finally:
             lock.release()
+        send_pending_alerts(pending_alerts)
         if locked_out:
             return 1
         return 0 if rc == 0 else 1
@@ -3346,6 +3574,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     scoped_exit = args.command == "fallback-due" or retry_mode
     mode = "retry" if retry_mode else args.command
     failures = 0
+    pending_alerts: list[PendingAlert] = []
     try:
         lock.acquire()
     except LockUnavailable as exc:
@@ -3391,6 +3620,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ),
                     logger=logger,
                 )
+                counted: set[str] = set()
                 for outcome in outcomes:
                     if outcome.status not in {"failure", "blocked", "indeterminate"}:
                         continue
@@ -3398,14 +3628,36 @@ def main(argv: Sequence[str] | None = None) -> int:
                         reported.append(f"{pipeline_id}/{outcome.job_id} ({outcome.status})")
                         continue
                     failures += 1
+                    counted.add(outcome.job_id)
                 if reported:
                     logger.line(
                         f"reported, not counted against this {mode} run for {run_date}: "
                         + ", ".join(reported)
                         + " (pre-existing receipts; operator resolution required)"
                     )
+                # Alert on exactly what turns this run red. A retry whose only
+                # non-successes predate it stays quiet: the run that produced
+                # them already alerted. fallback-due ticks hourly and never mails.
+                # Built under the lock, sent after it is released: a stalled
+                # SMTP session must never hold the lock into the next pipeline.
+                if counted and args.command in {"run", "run-pipeline"}:
+                    try:
+                        subject, body = build_failure_alert(
+                            pipeline_id=pipeline_id,
+                            run_date=run_date,
+                            mode=mode,
+                            outcomes=outcomes,
+                            counted=counted,
+                            log_path=log_path,
+                        )
+                        pending_alerts.append(
+                            (getattr(supervisor, "env", {}), subject, body, log_path)
+                        )
+                    except Exception as exc:  # noqa: BLE001 - the alert path never fails the run
+                        logger.line(f"WARNING: alert not built ({type(exc).__name__}: {exc})")
     finally:
         lock.release()
+    send_pending_alerts(pending_alerts)
     return 1 if failures else 0
 
 
