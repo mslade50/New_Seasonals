@@ -8,6 +8,12 @@ this is also the retry target when the 18:30 freshness gate finds a stale bar
 Exit 0 on a successful pull, 1 when R2 could not serve the key. Fail-loud on
 purpose: a silent no-op here becomes a brief written on yesterday's tape.
 
+The macro release history (releases_today and the P12 lane) rides along as an
+optional input. Nothing else refreshes the dev checkout's copy, which is why it
+sat at 2026-08-07 for weeks. A failed macro pull prints a warning and never
+changes the exit code; the sweep's own staleness check turns an old file into a
+state warning.
+
     python scripts/pull_context_prices.py [--quiet]
 """
 from __future__ import annotations
@@ -23,12 +29,18 @@ from cache_io import download_to_local  # noqa: E402
 
 KEY = "master_prices.parquet"
 DEST = ROOT / "data" / "master_prices.parquet"
+MACRO_KEY = "macro_release_history.parquet"
+MACRO_DEST = ROOT / "data" / MACRO_KEY
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
+
+    if not download_to_local(MACRO_KEY, str(MACRO_DEST)):
+        print(f"WARNING: could not pull r2://{MACRO_KEY}. The sweep reads "
+              f"the copy on disk and warns if it is stale.")
 
     if not download_to_local(KEY, str(DEST)):
         print(f"ERROR: could not pull r2://{KEY}. The sweep will run on "

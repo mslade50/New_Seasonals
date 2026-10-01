@@ -410,3 +410,24 @@ def test_index_line_resolves_to_a_cell():
     assert len(index) == 1
     assert index[0]["subjects"][0]["fp"] == "P1:new_52w_high|X"
     assert index[0]["subjects"][0]["n"] == 3
+
+
+@pytest.mark.parametrize("newest, stale", [("2026-09-24", False),
+                                           ("2026-08-07", True)])
+def test_release_history_staleness_is_a_state_warning(tmp_path, monkeypatch,
+                                                      newest, stale):
+    """The dev checkout's macro copy sat at 2026-08-07 for weeks with no
+    warning. A failed R2 pull must show up in the state, not stop the sweep."""
+    import macro_releases
+    path = tmp_path / "macro.parquet"
+    pd.DataFrame({"event_id": ["initial_jobless_claims"] * 2,
+                  "release_date": pd.to_datetime(["2026-07-02", newest]),
+                  "release_ts_utc": pd.to_datetime(["2026-07-02", newest], utc=True),
+                  "actual": [200.0, 197.0]}).to_parquet(path)
+    real = macro_releases.load_macro_releases
+    monkeypatch.setattr(macro_releases, "load_macro_releases",
+                        lambda **kw: real(path=path, **kw))
+    warnings: list[str] = []
+    hist = ctx.load_releases(pd.Timestamp("2026-09-30"), warnings)
+    assert len(hist) == 2
+    assert any("history stale" in w for w in warnings) is stale

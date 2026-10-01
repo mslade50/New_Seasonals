@@ -5,6 +5,9 @@ politely still exits 0. Task Scheduler would show green on an evening with no
 Slack post. This checks the only durable evidence of delivery: a journal
 record dated for tonight's run.
 
+When the launcher stopped before the agent ([CRITICAL] in the dated run log),
+the last FAILED: line carries that reason so the health battery reports it.
+
 A QUIET TAPE evening counts as delivered. It is a verdict, it posts, and it
 journals a `quiet` record. What this still catches is the failure it exists
 for: a run that finished having published nothing at all.
@@ -69,7 +72,33 @@ def main() -> int:
           f"record. The brief did not deliver.")
     print(f"  brief on disk:    {brief.exists()}  ({brief})")
     print(f"  cell map on disk: {cell_map.exists()}  ({cell_map})")
+    reason = launcher_failure(Path(args.journal).resolve().parents[1]
+                              / "scripts" / "logs"
+                              / f"market_context_{args.run_date}.log")
+    if reason:
+        # Last FAILED: line on purpose: the health battery's delivery:context
+        # check reports the last one, so the real reason reaches it.
+        print(f"FAILED: {reason}")
     return 1
+
+
+def launcher_failure(log: Path) -> str | None:
+    """The launcher's [CRITICAL] line plus the error that preceded it.
+
+    run_market_context.bat stops before the agent when the sweep dies, so no
+    journal record and no Slack post exist; the dated log is the only place
+    the reason survives."""
+    if not log.exists():
+        return None
+    lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("[CRITICAL]"):
+            continue
+        error = next((prev.strip() for prev in reversed(lines[:i])
+                      if prev.strip() and not prev.startswith(("[", " "))),
+                     None)
+        return f"{line.strip()} {error}" if error else line.strip()
+    return None
 
 
 if __name__ == "__main__":

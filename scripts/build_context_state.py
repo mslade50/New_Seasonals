@@ -1166,6 +1166,7 @@ RELEASE_EVENTS = ["cpi_yoy", "cpi_mom", "core_cpi_yoy", "core_cpi_mom", "nfp",
 RELEASE_HEADLINE = {"cpi_yoy", "cpi_mom", "core_cpi_yoy", "core_cpi_mom",
                     "nfp", "unemployment_rate", "core_pce_mom", "pce_mom"}
 RELEASE_MINOR_SUBJECTS = ["SPY", "TLT", "DX-Y.NYB", "GC=F"]
+RELEASE_STALE_DAYS = 10
 
 
 def load_releases(asof: pd.Timestamp, warnings: list[str]) -> pd.DataFrame:
@@ -1175,10 +1176,18 @@ def load_releases(asof: pd.Timestamp, warnings: list[str]) -> pd.DataFrame:
     prints that had not happened."""
     try:
         from macro_releases import load_macro_releases
-        return load_macro_releases(events=RELEASE_EVENTS, end=asof)
+        hist = load_macro_releases(events=RELEASE_EVENTS, end=asof)
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"releases: history unavailable ({exc})")
         return pd.DataFrame()
+    # Weekly claims print every week, so a newest print more than
+    # RELEASE_STALE_DAYS old means the R2 pull failed or the producer stopped.
+    newest = hist.loc[hist["actual"].notna(), "release_date"].max()
+    if pd.isna(newest) or (asof - newest).days > RELEASE_STALE_DAYS:
+        warnings.append(f"releases: history stale (newest print "
+                        f"{'none' if pd.isna(newest) else newest.date()}); "
+                        f"releases_today may be missing prints")
+    return hist
 
 
 def releases_today(hist: pd.DataFrame, asof: pd.Timestamp) -> list[dict]:

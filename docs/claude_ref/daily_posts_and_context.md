@@ -89,6 +89,21 @@ lane with a stale banner. The runner pulls master_prices from R2 first
 (`scripts/pull_context_prices.py`) and, on a still-stale bar, retries once
 after 10 minutes (`--require-fresh` exits 2, state still written).
 
+The same puller fetches `macro_release_history.parquet` from R2 (added
+2026-10-01; the dev copy had sat at 2026-08-07 because nothing refreshed it).
+It is optional: a failed macro pull prints a WARNING and never changes the exit
+code, and `load_releases` writes a `releases: history stale` state warning when
+the newest print is more than `RELEASE_STALE_DAYS` (10) days old. Since FMP
+went away (last FMP row 2026-09-23) the official producer adds actuals only,
+with no consensus, so P12 follow-through cells cannot fire on new prints;
+`releases_today` still lists them.
+
+A sweep crash stops the launcher before the agent, so nothing journals and
+nothing posts. `check_context_delivered.py` then reads the dated run log and
+prints the `[CRITICAL]` line plus the preceding error as its last `FAILED:`
+line, which is what the health battery's `delivery:context` check reports.
+There is no separate failure alert channel for this product.
+
 That retry is NOT for the cron-timing hazard the spec cites: it read CLAUDE.md
 when the PM price cron was documented as 20:30 UTC, and the workflow had
 already moved to 21:10 UTC (17:10 ET EDT / 16:10 ET EST), which clears 18:30

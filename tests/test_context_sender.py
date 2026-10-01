@@ -293,3 +293,24 @@ def test_quiet_evening_still_journals_one_record(tmp_path, monkeypatch):
                        "2026-08-09", Path("2026-08-09.md"))
     rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1 and rows[0]["kind"] == "quiet"
+
+
+def test_delivery_check_reports_the_launcher_failure_reason(tmp_path, monkeypatch, capsys):
+    """A sweep crash stops the launcher before the agent, so the dated log is
+    the only record. The health battery reads the LAST FAILED: line."""
+    import check_context_delivered as chk
+    (tmp_path / "data").mkdir()
+    logs = tmp_path / "scripts" / "logs"
+    logs.mkdir(parents=True)
+    (logs / "market_context_2026-09-30.log").write_text(
+        "Traceback (most recent call last):\n"
+        '  File "build_context_state.py", line 1516, in main\n'
+        "TypeError: Object of type bool_ is not JSON serializable\n"
+        "[build_context_state exit code: 1] \n"
+        "[CRITICAL] sweep failed; not running the brief. \n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["x", "--run-date", "2026-09-30", "--journal",
+                                      str(tmp_path / "data" / "context_journal.jsonl")])
+    assert chk.main() == 1
+    failed = [l for l in capsys.readouterr().out.splitlines() if l.startswith("FAILED:")]
+    assert failed[-1] == ("FAILED: [CRITICAL] sweep failed; not running the brief. "
+                          "TypeError: Object of type bool_ is not JSON serializable")
