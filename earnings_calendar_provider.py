@@ -144,10 +144,20 @@ def reconcile_primary_confirmations(prior, alpha, confirmations, as_of):
     return normalize(result), alpha
 
 
+def redated_periods(frame, alpha_dates):
+    """Rows whose fiscal period Alpha now publishes on a different (non-past) date."""
+    if "fiscalDateEnding" not in frame:
+        return pd.Series(False, index=frame.index)
+    return pd.Series([pd.notna(p) and (t, p) in alpha_dates and alpha_dates[(t, p)] != d
+                      for t, p, d in zip(frame.ticker, frame.fiscalDateEnding, frame.date)], index=frame.index, dtype=bool)
+
+
 def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirmation_provider="fmp"):
     """Retain legacy history; replace forward expectations; confirm new history.
 
     FMP actuals remain the default; offline SEC confirmations are supported.
+    Calendar-only mode preserves disappeared dates as schedule_unverified for
+    risk filters, without claiming a release occurred or refreshing actuals.
     An Alpha expectation that moves
     into the past without an exact-date actual must not become confirmed history.
     Publication stops (or uses the explicit FMP fallback) until reconciled.
@@ -166,6 +176,9 @@ def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirm
     if confirmation_provider == "sec":
         prior, alpha = reconcile_primary_confirmations(prior, alpha, confirmations, as_of)
         confirmations = pd.DataFrame()
+    elif confirmation_provider == "calendar":
+        if not confirmations.empty:
+            raise CalendarError("Calendar-only refresh cannot confirm financial actuals")
     elif confirmation_provider != "fmp":
         raise CalendarError("Unknown earnings confirmation provider")
     has_actual = prior.eps_actual.notna() | prior.revenue_actual.notna()
@@ -188,15 +201,28 @@ def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirm
         # Patch recent rows only; older versioned financial history is frozen.
         actuals = actuals.loc[actuals.date.ge(as_of - 10 * TRADING_DAY)]
         history = pd.concat([actuals, history], ignore_index=True).drop_duplicates(["ticker", "date"], keep="first")
+    # A same-period date that Alpha will publish replaces an unconfirmed old
+    # date; keeping both makes the stale date the nearest event downstream.
+    alpha_dates = {(t, p): d for t, p, d in zip(alpha.ticker, alpha.fiscalDateEnding, alpha.date) if d >= as_of}
     pending = history.loc[history.event_status.eq("expected")]
     if not pending.empty:
-        raise CalendarError("Unconfirmed elapsed Alpha events: " + ", ".join(sorted(pending.ticker.unique())))
+        if confirmation_provider == "calendar":
+            history = history.drop(pending.index[redated_periods(pending, alpha_dates)])
+            pending = history.loc[history.event_status.eq("expected")]
+            history.loc[pending.index, "event_status"] = "schedule_unverified"
+        else:
+            raise CalendarError("Unconfirmed elapsed Alpha events: " + ", ".join(sorted(pending.ticker.unique())))
     # Calendars may stop listing an event immediately after its release. That
     # is not permission to remove today's blackout before actuals arrive.
     today_before = set(prior.loc[prior.date.eq(as_of), "ticker"])
     today_after = set(alpha.loc[alpha.date.eq(as_of), "ticker"]) | set(history.loc[history.date.eq(as_of), "ticker"])
     if today_before - today_after:
-        raise CalendarError("Unconfirmed disappearance of today's earnings: " + ", ".join(sorted(today_before - today_after)))
+        if confirmation_provider != "calendar":
+            raise CalendarError("Unconfirmed disappearance of today's earnings: " + ", ".join(sorted(today_before - today_after)))
+        retained = prior.loc[prior.date.eq(as_of) & prior.ticker.isin(today_before - today_after)].copy()
+        retained = retained.loc[~redated_periods(retained, alpha_dates)].copy()
+        retained["event_status"] = "schedule_unverified"
+        history = pd.concat([history, retained], ignore_index=True)
     if {"event_source", "fiscalDateEnding"}.issubset(prior.columns):
         upcoming = prior.loc[prior.event_source.eq("alpha_vantage") & prior.date.between(as_of, as_of + 10 * TRADING_DAY)]
         current_periods = set(zip(alpha.ticker, alpha.fiscalDateEnding))
@@ -205,7 +231,21 @@ def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirm
         vanished = [r.ticker for r in upcoming.itertuples()
                     if (r.ticker, r.fiscalDateEnding) not in current_periods and (r.ticker, r.date) not in confirmed_keys]
         if vanished:
-            raise CalendarError("Near-term Alpha periods vanished without confirmation: " + ", ".join(sorted(set(vanished))))
+            if confirmation_provider != "calendar":
+                raise CalendarError("Near-term Alpha periods vanished without confirmation: " + ", ".join(sorted(set(vanished))))
+    if confirmation_provider == "calendar":
+        # A bulk schedule does not prove a release occurred or was cancelled.
+        # Keep disappeared near-term dates usable by blackout/size consumers,
+        # explicitly unverified; a same-period revision supersedes the old date.
+        upcoming = prior.loc[prior.date.gt(as_of) & prior.date.le(as_of + 10 * TRADING_DAY)].copy()
+        current_periods = set(zip(alpha.ticker, alpha.fiscalDateEnding))
+        alpha_tickers = set(alpha.ticker)
+        keep = [((r.ticker, getattr(r, "fiscalDateEnding", None)) not in current_periods
+                 if pd.notna(getattr(r, "fiscalDateEnding", None)) else r.ticker not in alpha_tickers)
+                for r in upcoming.itertuples()]
+        retained = upcoming.loc[keep].copy()
+        retained["event_status"] = "schedule_unverified"
+        history = pd.concat([history, retained], ignore_index=True)
     future = alpha.loc[alpha.date.ge(as_of)].copy()
     if future.empty:
         raise CalendarError("Alpha has no future events for the tracked universe")

@@ -46,8 +46,25 @@ def test_adp_units_sign_and_publication_time(direction, amount, expected):
 
 
 def test_adp_reference_month_and_explicit_time_required():
-    for raw in [adp().replace("in August", "in September"), adp().replace("ITEMDATE:", "DATE:")]:
+    for raw in [adp().replace("in August", "in October"), adp().replace("in August", "in July"),
+                adp().replace("ITEMDATE:", "DATE:")]:
         with pytest.raises(ValueError): parse_adp(raw, source=ADP, **META)
+
+
+def test_adp_same_month_release_when_jobs_report_slips():
+    # 2026-09-30: ADP released September data because BLS published on October 2.
+    raw = (adp().replace("38,000 Jobs in August", "90,000 Jobs in September")
+           .replace("2026-09-02 08:15", "2026-09-30 08:15").replace("September 30, 2026", "November 4, 2026"))
+    rows, schedule = parse_adp(raw, source=ADP, fetched_at="2026-09-30T21:00:00Z", digest="d")
+    assert rows[0]["reference_period"] == "2026-09" and rows[0]["actual"] == 90
+    assert rows[0]["release_ts_utc"] == pd.Timestamp("2026-09-30T12:15:00Z")
+    assert schedule["release_ts_utc"] == pd.Timestamp("2026-11-04T13:15:00Z")
+
+
+def test_adp_prior_month_across_year_end():
+    raw = adp().replace("in August", "in December").replace("2026-09-02 08:15:00 EDT", "2027-01-06 08:15:00 EST")
+    rows, _ = parse_adp(raw, source=ADP, fetched_at="2027-01-06T18:00:00Z", digest="d")
+    assert rows[0]["reference_period"] == "2026-12"
 
 
 def test_discovery_uses_newest_period_not_link_order():

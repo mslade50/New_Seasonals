@@ -1,6 +1,6 @@
-"""Production earnings entry point with an opt-in Alpha primary and FMP fallback.
+"""Production earnings entry point with a configured Alpha-only calendar mode.
 
-Default provider is the checked-in config (initially FMP). All Alpha work is
+Default provider and confirmation policy come from checked-in config. All Alpha work is
 assembled under artifacts before any canonical write. --no-upload requires an
 explicit artifact destination and never touches data/ or R2. Snapshot replay is
 available only in that mode. Publication uses a conditional single-object write.
@@ -30,6 +30,8 @@ from trading_calendar import TRADING_DAY
 from alpha_calendar_snapshot import daily_alpha, SnapshotError
 
 KEY = "earnings_calendar.parquet"
+NEAR_TERM_COVERAGE_MIN = .80
+FORWARD_SHRINK_MIN = .80
 
 
 def digest(path):
@@ -103,9 +105,15 @@ def stamp(frame, as_of, provider):
 def coverage_gate(prior, candidate, as_of):
     """Historical row counts cannot mask a truncated forward response."""
     horizon = as_of + 10 * TRADING_DAY
-    previous = set(prior.loc[prior.date.between(as_of, horizon), "ticker"])
-    current = set(candidate.loc[candidate.date.between(as_of, horizon), "ticker"])
-    if previous and len(current) < len(previous) * .80:
+    # Calendar-only mode re-inserts vanished forward rows as unverified; they are
+    # not coverage on either side. Today's reporters may leave the feed after release.
+    def verified(frame):
+        if "event_status" not in frame:
+            return True
+        return ~(frame.event_status.eq("schedule_unverified") & frame.date.gt(as_of))
+    previous = set(prior.loc[prior.date.between(as_of, horizon) & verified(prior), "ticker"])
+    current = set(candidate.loc[candidate.date.between(as_of, horizon) & verified(candidate), "ticker"])
+    if previous and len(current) < len(previous) * NEAR_TERM_COVERAGE_MIN:
         raise CalendarError("Near-term earnings coverage fell by more than 20%; refusing publication")
     historical = prior.date.lt(as_of)
     if "event_status" in prior:
@@ -114,6 +122,21 @@ def coverage_gate(prior, candidate, as_of):
     keys = set(zip(candidate.ticker, candidate.date))
     if any(key not in keys for key in zip(history.ticker, history.date)):
         raise CalendarError("Candidate lost an existing historical event")
+
+
+def forward_shrink_gate(prior, candidate, as_of):
+    """Calendar-only mode: a valid but truncated Alpha feed must not publish."""
+    if not {"event_status", "event_source"}.issubset(prior.columns):
+        return
+    # Retained unverified rows keep their alpha_vantage source; they are not fresh.
+    # No Alpha-horizon bound: the feed is date-sorted, so truncation shortens it.
+    def forward(frame):
+        return int((frame.event_source.eq("alpha_vantage") & frame.event_status.eq("expected")
+                    & frame.date.gt(as_of)).sum())
+    previous, current = forward(prior), forward(candidate)
+    if previous and current < previous * FORWARD_SHRINK_MIN:
+        raise CalendarError(f"Forward Alpha calendar shrank to {current} of {previous} prior expected rows; "
+                            "refusing publication")
 
 
 def fmp_fallback(prior, universe, as_of, key):
@@ -198,15 +221,20 @@ def main(argv=None):
     ap.add_argument("--symbol-master", type=Path)
     ap.add_argument("--alpha-snapshot", type=Path, help="Existing observer run with alpha_raw.csv and summary.json")
     ap.add_argument("--confirmations", type=Path, help="Offline actuals or SEC date-proof snapshot, selected by --confirmation-provider")
-    ap.add_argument("--confirmation-provider", choices=("fmp", "sec"), default="fmp",
+    ap.add_argument("--confirmation-provider", choices=("fmp", "sec", "calendar"),
                     help="SEC date-only proof is available for explicit offline replay only")
     ap.add_argument("--as-of")
     ap.add_argument("--reference-only", action="store_true", help="Refresh an independent FMP observer baseline under artifacts")
     args = ap.parse_args(argv)
-    if args.confirmation_provider == "sec" and not (args.no_upload and args.alpha_snapshot and args.confirmations):
-        raise CalendarError("SEC confirmations require --no-upload --alpha-snapshot --confirmations")
     load_dotenv(ROOT / ".env", override=False)
     config = json.loads((ROOT / "config/earnings_calendar.json").read_text())
+    args.confirmation_provider = args.confirmation_provider or config.get("confirmation_provider", "fmp")
+    if args.confirmation_provider not in {"fmp", "sec", "calendar"}:
+        raise CalendarError("Invalid earnings confirmation provider")
+    if args.confirmation_provider == "sec" and not (args.no_upload and args.alpha_snapshot and args.confirmations):
+        raise CalendarError("SEC confirmations require --no-upload --alpha-snapshot --confirmations")
+    if args.confirmation_provider == "calendar" and config.get("alpha_fallback") != "stop":
+        raise CalendarError("Calendar-only production requires Alpha failure to stop; FMP fallback is disabled")
     provider = args.provider or config["provider"]
     if provider not in {"fmp", "alpha"} or config.get("alpha_fallback") not in {"fmp", "stop"}:
         raise CalendarError("Invalid earnings provider configuration")
@@ -215,7 +243,8 @@ def main(argv=None):
             raise CalendarError("--reference-only requires --no-upload --output-dir and cannot replay other inputs")
         return refresh_reference(args.output_dir, args.symbol_master or ROOT / "data/symbol_master.parquet")
     replay_flags = (args.baseline, args.overflow_baseline, args.symbol_master, args.alpha_snapshot, args.confirmations, args.as_of)
-    if not args.no_upload and (any(replay_flags) or provider != config["provider"]):
+    if not args.no_upload and (any(replay_flags) or provider != config["provider"]
+                              or args.confirmation_provider != config.get("confirmation_provider", "fmp")):
         raise CalendarError("Replay/provider overrides require --no-upload; activation is a reviewed config change")
     if provider == "fmp":
         if args.no_upload:
@@ -260,7 +289,7 @@ def main(argv=None):
         universe = set(CSV_UNIVERSE) | set(symbols.ticker.str.upper())
         receipt.update(baseline_sha256=digest(baseline), overflow_sha256=digest(overflow), universe_count=len(universe),
                        historical_actuals_provider=args.confirmation_provider, snapshot_replay=bool(args.alpha_snapshot))
-        if not args.no_upload:
+        if not args.no_upload and args.confirmation_provider == "fmp":
             # The legacy overflow sidecar may be months stale. Bootstrap its
             # current history once, instead of promoting those stale dates as
             # the permanent history of an authoritative all-universe calendar.
@@ -298,7 +327,9 @@ def main(argv=None):
             (run / "alpha_raw.csv").write_text(raw, encoding="utf-8")
             alpha = align_alpha_symbols(alpha, universe)
             needed = recent_tickers(prior, as_of)
-            if args.alpha_snapshot:
+            if args.confirmation_provider == "calendar":
+                confirmations, failed, empty = pd.DataFrame(), [], []
+            elif args.alpha_snapshot:
                 # Historical replay is fully offline. Existing FMP history is
                 # enough for a first-generation candidate; elapsed expectations
                 # still require exact actuals and otherwise fail build_candidate.
@@ -308,12 +339,17 @@ def main(argv=None):
                 confirmations, failed, empty = fetch_fmp_rows(needed, fmp.load_env())
             if failed:
                 raise CalendarError("Recent-actual confirmation failed: " + ", ".join(failed))
-            receipt.update(recent_actuals_requested=needed, recent_actuals_empty=empty)
+            receipt.update(recent_actuals_requested=[] if args.confirmation_provider == "calendar" else needed,
+                           recent_actuals_empty=empty)
             overrides = json.loads((ROOT / "config/earnings_calendar_overrides.json").read_text())["overrides"]
             candidate, applied = build_candidate(prior, alpha, confirmations, as_of, overrides,
                                                 confirmation_provider=args.confirmation_provider)
             receipt["overrides_applied"] = applied
+            receipt["unverified_schedule_rows"] = int((candidate.event_status.eq("schedule_unverified")
+                                                       & candidate.date.ge(as_of)).sum())
             coverage_gate(prior, candidate, as_of)
+            if args.confirmation_provider == "calendar":
+                forward_shrink_gate(prior, candidate, as_of)
             selected = "alpha"
         except Exception as exc:
             # Never turn a failed replay into live requests; never log raw errors
