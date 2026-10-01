@@ -39,8 +39,30 @@ through preflight, entries, protection and timed exits. At 10:45 ET on October 1
 read-only IBKR what-if previews accepted BUY/SELL MNQ and MES `STP LMT` + GTD +
 OCA type 1 without warnings; execution-contract Last feeds were observed and the
 working-order set was unchanged. Evidence: `artifacts/open_breakout_execution/broker_preview.json`.
-This does not verify a live stop-limit fill. The next session's broker journal is
+This preview does not verify a live stop-limit fill. The next session's broker journal is
 the acceptance check for real trigger, fill, OCA and expiry behavior.
+
+**Live execution test (2026-10-01, owner-authorized outside the entry window).**
+An isolated one-MNQ test reused the production fill, protective-stop and exit
+lifecycle, with a supplied SELL trigger five points below live MNQ Last and an
+exit five minutes after submission. At 11:56:56 ET, Last was 30,611; IBKR accepted
+stop 30,606 / limit 30,605.50. It filled at 30,605.75 at 11:57:00, then created a
+one-contract BUY stop at 30,704.25 and a BUY market exit held until 12:01:56, linked
+by OCA type 2. The timed exit filled at 30,612.75 at 12:01:56, cancelling the stop.
+Independent broker readback confirmed MNQ flat, both executions and no test orders.
+Evidence: `artifacts/mnq_strategy_fill_test/receipt.json`. This verifies live
+stop-limit filling, fill-created protection, broker-held timed closing and exit
+sibling cancellation; normal opening-range arming and entry OCA remain next-session checks.
+
+The test exposed an execution-before-status race: cancellation of the already
+filled parent returned IBKR 10148 and unnecessarily halted the controller. Both
+broker-held exits survived the disconnect and closed correctly. The adapter now
+skips cancellation when the latest execution's cumulative quantity confirms a
+full fill, and logs 10148 without halting only for a verified fully executed order.
+Partial or unknown orders retain cancellation and error handling. Four regression
+cases failed before the repair; the focused suites pass 240 tests with one skip.
+The repair loads at the next strategy launch; existing session processes retain
+their loaded code and configuration.
 
 Shadow/replay stop-limits trigger from `execution_trade` captures and fill only
 inside their limit. Micro Last uses normal streaming market-data updates to avoid

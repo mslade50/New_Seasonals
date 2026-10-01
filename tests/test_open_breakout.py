@@ -257,6 +257,39 @@ def test_resting_ibkr_order_fields_and_unhealthy_connection(config):
     with pytest.raises(RuntimeError,match='Unhealthy broker connection'):adapter.send(21,m,body)
 
 
+@pytest.mark.parametrize('filled,status,should_cancel',[(1,'Submitted',False),(0,'Filled',False),(.5,'Submitted',True),(0,'Submitted',True)])
+def test_ibkr_cancel_uses_actual_fills_before_status(config,filled,status,should_cancel):
+    from types import SimpleNamespace as NS
+    from open_breakout.ibkr import IBKR
+    async def run():
+        adapter=IBKR(replace(config,mode='paper'))
+        trade=NS(order=NS(totalQuantity=1),orderStatus=NS(status=status),
+                 fills=[NS(execution=NS(shares=filled,cumQty=filled))] if filled else [])
+        adapter.trades[21]=trade
+        cancelled=[];adapter.ib.cancelOrder=lambda order:cancelled.append(order)
+        adapter.cancel(21)
+        assert bool(cancelled)==should_cancel
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('filled,status,known,halts',[(1,'Submitted',True,False),(0,'Filled',True,False),(.5,'Submitted',True,True),(0,'Submitted',True,True),(1,'Filled',False,True)])
+def test_ibkr_already_filled_cancel_error_does_not_halt(config,filled,status,known,halts):
+    from types import SimpleNamespace as NS
+    from open_breakout.ibkr import IBKR
+    async def run():
+        adapter=IBKR(config)
+        if known:
+            adapter.trades[21]=NS(order=NS(totalQuantity=1),orderStatus=NS(status=status),
+                                  fills=[NS(execution=NS(shares=filled,cumQty=filled))] if filled else [])
+        errors=[];reasons=[]
+        adapter.order_error_callback=lambda *args:errors.append(args)
+        adapter.halt_callback=reasons.append
+        adapter._error(21,10148,'cannot be cancelled, state: Filled',None)
+        assert bool(reasons)==halts and adapter.healthy!=halts
+        assert bool(errors)==known
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize('bad',[None,'market',{},[]])
 def test_resting_config_rejects_unknown_types(config,tmp_path,bad):
     raw=json.loads((tmp_path/'config.json').read_text())

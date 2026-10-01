@@ -16,6 +16,14 @@ def session_start(now=None):
     return local.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+def fully_executed(trade):
+    """Execution reports can confirm a complete fill before orderStatus catches up."""
+    if trade.orderStatus.status == 'Filled':
+        return True
+    return bool(trade.fills and trade.order.totalQuantity > 0
+                and trade.fills[-1].execution.cumQty >= trade.order.totalQuantity)
+
+
 def attribute_executions(fills, account, since=None):
     """Signed position per conId from execution reports: (OpenBreakout's own, other strategies', own exec keys).
     Attribution is the execution's orderRef strategy field; executions without one (manual TWS orders)
@@ -97,6 +105,10 @@ class IBKR:
     def _error(self,req_id,code,message,contract):
         if req_id in self.trades:
             self.order_error_callback(req_id,code,message)
+            # A cancel can lose the race with the final fill. Keep the error in
+            # the journal, but a verified complete fill is not a transport failure.
+            if code == 10148 and fully_executed(self.trades[req_id]):
+                return
         # 2103/2105 farm blips are warnings: stream staleness catches a real data outage.
         if code in {1100,1101,1102,1300,201,10147,10148,354,10167,10168,10089,10090,10189}:
             self._halt(f'IB_ERROR:{code}:{message}')
@@ -150,6 +162,8 @@ class IBKR:
             raise PermissionError('Order cancellation is available only in paper or authorized live mode')
         trade=self.trades.get(oid)
         if trade is None:raise ValueError(f'Unknown order {oid}')
+        if fully_executed(trade):
+            return
         self.ib.cancelOrder(trade.order)
 
     def status(self,oid):
