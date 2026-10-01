@@ -62,9 +62,24 @@ def verified_raw(payload, digest):
     raise ValueError("Alpha snapshot digest mismatch")
 
 
+def r2_alpha_snapshot(today, store=None):
+    """Read today's shared Alpha snapshot from R2. Read-only: never claims the
+    day or calls the provider, which daily_alpha would on a missing key."""
+    from alpha_calendar_snapshot import R2SnapshotStore, SnapshotError, validate_snapshot
+    key = f"provider_snapshots/alpha_earnings/{today}.json"
+    value, _ = (store or R2SnapshotStore()).read(key)
+    if value is None:
+        raise SnapshotError(f"No shared Alpha snapshot at {key}")
+    raw, _ = validate_snapshot(value, str(today), parse_alpha_csv)
+    return raw, key
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--snapshot-dir", type=Path, required=True)
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--snapshot-dir", type=Path)
+    source.add_argument("--alpha-r2", action="store_true",
+                        help="Use today's shared R2 Alpha snapshot; no observer or FMP baseline needed")
     ap.add_argument("--symbol-master", type=Path, required=True)
     ap.add_argument("--fmp-reference", type=Path)
     ap.add_argument("--output-dir", type=Path, required=True)
@@ -72,18 +87,24 @@ def main(argv=None):
     out = args.output_dir.resolve()
     if not out.is_relative_to((ROOT / "artifacts").resolve()):
         ap.error("Output must be a new directory under repository artifacts")
-    meta = json.loads((args.snapshot_dir / "summary.json").read_text())
-    if meta.get("mode") != "authenticated":
-        ap.error("Issuer review requires an authenticated snapshot")
-    stamp = pd.Timestamp(meta["captured_at_utc"])
     today = pd.Timestamp.now(tz="America/New_York").date()
-    if stamp.tz_convert("America/New_York").date() != today:
-        ap.error("Snapshot must be from today's New York date; do not treat stale dates as current")
-    raw = verified_raw((args.snapshot_dir / "alpha_raw.csv").read_bytes(),
-                       meta.get("alpha_snapshot", {}).get("sha256"))
+    if args.alpha_r2:
+        from alpha_calendar_snapshot import SnapshotError
+        try:
+            raw, snapshot_source = r2_alpha_snapshot(today)
+        except SnapshotError as exc:
+            ap.error(str(exc))
+    else:
+        meta = json.loads((args.snapshot_dir / "summary.json").read_text())
+        if meta.get("mode") != "authenticated":
+            ap.error("Issuer review requires an authenticated snapshot")
+        stamp = pd.Timestamp(meta["captured_at_utc"])
+        if stamp.tz_convert("America/New_York").date() != today:
+            ap.error("Snapshot must be from today's New York date; do not treat stale dates as current")
+        raw = verified_raw((args.snapshot_dir / "alpha_raw.csv").read_bytes(),
+                           meta.get("alpha_snapshot", {}).get("sha256"))
+        snapshot_source = str(args.snapshot_dir.resolve())
     digest = hashlib.sha256(raw.encode()).hexdigest()
-    if digest != meta.get("alpha_snapshot", {}).get("sha256"):
-        ap.error("Alpha snapshot digest mismatch")
     alpha = parse_alpha_csv(raw)
     universe = set(CSV_UNIVERSE) | set(pd.read_parquet(args.symbol_master).ticker.str.upper())
     fmp = None
@@ -97,7 +118,7 @@ def main(argv=None):
             ap.error("Independent same-day FMP reference did not validate")
         fmp = pd.read_parquet(path)
     queue = review_queue(alpha, universe, today, fmp)
-    result = dict(as_of=str(today), snapshot_dir=str(args.snapshot_dir.resolve()),
+    result = dict(as_of=str(today), snapshot_dir=snapshot_source,
         snapshot_sha256=digest, counts=snapshot_counts(alpha, universe, today),
         review_window_calendar_days=[8, 15], companies=len(queue), queue=queue,
         verification_status="pending issuer-site research; a queue is not verification",

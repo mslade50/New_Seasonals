@@ -67,20 +67,54 @@ lag the gain misses 1.8 sigma. The basis string moved v1 to
 `tests/test_nyse_risk.py`.
 
 **Breadth collection is AUTOMATED twice a trading day since 2026-09-21**
-(`scripts/collect_market_breadth.py`). It reads the public WSJ Markets Diary
-JSON with a browser User-Agent (`marketsDiaryType=diaries`, Latest Close,
-NYSE + NASDAQ) and imports through `scripts/maintain_market_breadth.py`, so
-all existing validation and the digest-keyed revision logic apply unchanged.
-Do NOT switch it to `marketsDiaryType=overview`: that set disagrees with the
-diary on NASDAQ (2026-09-18: 72/244 vs 81/246) and timestamps its publication
-rather than its session. `breadth_pm` runs in postclose AFTER
-`master_prices_pm` and BEFORE `risk_pm`, which is the whole point: the evening
-dial now carries the same day's NYSE floor instead of scoring unfloored until
-the AM correction. `breadth_am` runs in premarket after `cboe_am` and before
-`risk_am`, purely for overnight AMENDMENTS. Exit 2 (the diary has not
-published the expected session) is declared non-blocking in the supervisor
+(`scripts/collect_market_breadth.py`), from two Dow Jones feeds with a fixed
+order of authority.
+
+- **The detailed WSJ diary is the authoritative close value.**
+  `marketsDiaryType=diaries` (Latest Close, NYSE + NASDAQ, session named in
+  full) is the default source, stored as `wsj`. Never replace it with the
+  overview, and never let an overview capture outrank it.
+- **The overview is allowed only as a dated preliminary for the evening run.**
+  `breadth_pm` runs `--source overview --wait-minutes 20` (the "Issues At"
+  table, stored as `dow_jones_overview`). The import requires a real trading
+  date, an explicit Eastern publication stamp of 16:15 or later, and the
+  completed-session and count checks; a stale date is never relabeled as
+  today.
+- **The morning diary amends it.** `breadth_am` reads the diary with
+  `--allow-stale` and `maintain_market_breadth.py` ranks sources
+  `workbook` 0 < `dow_jones_overview` 1 < `wsj` 2, so the diary wins for the
+  same date even when an overview is captured later. Both observations and
+  every distinct revision stay in `market_breadth.sqlite`.
+
+The two feeds differ by a few names (2026-09-30 NYSE: overview 21/301, net
+-280; diary 23/301, net -278; 2026-09-29: -384 vs -383) and by more on
+NASDAQ, whose universe differs between them (2026-09-18: overview 72/244,
+diary 81/246). The live signal uses NYSE only. History: the 2026-09-21
+morning release was diary-only and this doc said not to use the overview at
+all, because it timestamps its publication rather than naming the session.
+The same evening the diary was found still on the prior session through the
+17:13-17:33 window, so commit 4dcdecbf (runtime release
+`breadth_overview_release`, 2026-09-22 01:05 UTC) moved `breadth_pm` to the
+dated overview with the 16:15 ET publication gate standing in for the session
+label. Arrival by 17:10 had not been measured over multiple sessions at the
+time; the collector keeps its bounded 20-minute retry.
+
+`breadth_pm` runs in postclose AFTER `master_prices_pm` and BEFORE `risk_pm`,
+which is the whole point: the evening dial carries the same day's preliminary
+NYSE floor instead of scoring unfloored until the AM correction. `breadth_am`
+runs in premarket after `cboe_am` and before `risk_am`, so the AM
+`--refresh-last` rescore uses the diary value. Exit 2 (the expected session is
+not published) is declared non-blocking for `breadth_pm` in the supervisor
 catalog: the receipt records `health_status=degraded`, the pipeline continues
-and the dial keeps its documented unfloored fallback. Both
+and the dial keeps its documented unfloored fallback.
+
+Aligned sites, change together: `scripts/collect_market_breadth.py`
+(`--source`, `parse_overview`, the 16:15 gate), `scripts/maintain_market_breadth.py`
+(`validate_overview`, `import_overview`, the source priority map), the
+`breadth_pm` / `breadth_am` JobSpecs in `scripts/automation_supervisor.py`,
+`docs/operations_current.md` "Preliminary afternoon breadth", and the
+"Breadth collection" section of `docs/nyse_risk_dial_2026-09-17.md` (whose
+"overview is deliberately NOT used" paragraph predates 4dcdecbf). Both
 `market_breadth.parquet` and `market_breadth.sqlite` are canonical R2 objects
 so the pinned runtime bootstraps the store instead of starting empty. Manual
 in-app-browser capture (`--observation`) is now the FALLBACK. Guards:
