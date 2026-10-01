@@ -1262,8 +1262,8 @@ def novelty_for(cells: list[dict], flags: dict, asof: pd.Timestamp,
         moved = None
         if last_num is not None and current is not None:
             try:
-                moved = (np.sign(last_num) != np.sign(current)
-                         or abs(current - last_num) > 0.25 * abs(last_num))
+                moved = bool(np.sign(last_num) != np.sign(current)
+                             or abs(current - last_num) > 0.25 * abs(last_num))
             except TypeError:
                 moved = None
         td_since = None
