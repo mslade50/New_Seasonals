@@ -93,6 +93,7 @@ async def main_async(args):
                     timestamp=aware(e['time'])
                     if e['kind']=='quote':broker.update_quote(e['market'],e['bid'],e['ask'],timestamp)
                     elif e['kind']=='trade':service.tick(e['market'],timestamp,e['price'])
+                    elif e['kind']=='execution_trade':broker.update_trade(e['market'],e['price'],timestamp)
                     else:raise ValueError('Unknown replay event type')
                     await service.drain()
                     await service.watchdog()
@@ -106,7 +107,7 @@ async def main_async(args):
     if args.command!='run':
         from .standby import OrderGate
         OrderGate(transport.ib.client)
-    store=None
+    store=None;service=None
     try:
         await transport.connect()
         if args.command=='reconcile':
@@ -163,6 +164,8 @@ async def main_async(args):
                 capture_file.write(json.dumps(event)+'\n');capture_file.flush()
                 if config.mode=='shadow' and event['kind']=='quote':
                     broker.update_quote(event['market'],event['bid'],event['ask'],event['time'])
+                elif config.mode=='shadow' and event['kind']=='execution_trade':
+                    broker.update_trade(event['market'],event['price'],event['time'])
             transport.subscribe(service.tick,capture)
             reported=False
             reported_markets=set()
@@ -178,6 +181,9 @@ async def main_async(args):
                 if local.time()>=time(16,1):break
             await service.drain()
     finally:
+        if args.command=='run' and service:
+            await service.cancel_resting_entries()
+            await service.drain()
         transport.close()
         if store:store.close()
 

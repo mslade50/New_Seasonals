@@ -129,6 +129,8 @@ class Config:
     prior_range_filter: RangeFilter | None = None
     # Account ceiling breach: alert-only unless true (owner rule 2026-09-27). Absent key keeps the fingerprint.
     ceiling_halts: bool = False
+    # Explicit opt-in keeps retained IOC manifests/replays reproducible.
+    entry_order_type: str = 'ioc'
 
     @property
     def range_filter_on(self):
@@ -141,11 +143,13 @@ class Config:
                    'max_daily_risk_bps','max_open_risk_bps','max_margin_fraction',
                    'fee_per_contract_side','max_entry_slippage_ticks',
                    'exit_slippage_reserve_ticks','stale_seconds','max_open_delay_seconds','allow_live'}
-        optional = {'pilot','watchdog_stale_seconds','prior_range_filter','ceiling_halts'}
+        optional = {'pilot','watchdog_stale_seconds','prior_range_filter','ceiling_halts','entry_order_type'}
         if not allowed <= set(raw) or set(raw) - allowed - optional:
             raise ValueError(f'Configuration fields differ: {sorted((set(raw) - optional) ^ allowed)}')
         if 'ceiling_halts' in raw and not isinstance(raw['ceiling_halts'], bool):
             raise ValueError('ceiling_halts must be a JSON boolean')
+        if not isinstance(raw.get('entry_order_type', 'ioc'), str) or raw.get('entry_order_type', 'ioc') not in {'ioc', 'stop_limit'}:
+            raise ValueError('entry_order_type must be "ioc" or "stop_limit"')
         if 'watchdog_stale_seconds' in raw:
             raw['watchdog_stale_seconds'] = positive(raw['watchdog_stale_seconds'], 'watchdog_stale_seconds')
             if raw['watchdog_stale_seconds'] > 300:

@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime, time, timezone
 import math
 from .strategy import State, NY, aware, on_price, size_order, snap
+from .resting import RestingEntries
 
 TERMINAL = {'Filled','Cancelled','ApiCancelled','Inactive','REJECTED'}
 ACKNOWLEDGED = {'PreSubmitted','Submitted','Filled'}
@@ -45,7 +46,7 @@ def prior_range_skip(config, item) -> bool:
 # Own position UNKNOWN (executions call failed, or it lacks our journaled fills) this long -> loud alert.
 OWN_UNKNOWN_ALERT_SECONDS = 30.
 
-class Service:
+class Service(RestingEntries):
     def __init__(self, config, manifest, store, broker, clock=None, margin_day_cap=None, margin_detail=None):
         self.config,self.manifest,self.store,self.broker = config,manifest,store,broker
         self.clock = clock or (lambda:datetime.now(timezone.utc))
@@ -55,6 +56,7 @@ class Service:
             m.name:State(manifest['day'],m.name,manifest['markets'][m.name]['prior_tr'],manifest['score']) for m in config.markets}
         self.tasks = set()
         self.entry_lock = asyncio.Lock()
+        self.entry_cancel_lock = asyncio.Lock()
         self.notify = lambda text:None
         self.alerted = set()
         self.flatten_delay = 1.
@@ -67,6 +69,8 @@ class Service:
         self.own_unknown_since = None
         self.own_unknown_alerted = False
         self.cancel_requested = set()
+        self.resting_fill_tasks = set()
+        self.entry_cancel_queued = False
         self.manual_markets = set(store.get('manual_markets', []))
         self.unexpected = set()
         self.flattened = set(store.get('flattened',[]))
@@ -132,6 +136,9 @@ class Service:
     def halt(self, reason):
         self.halted = True
         self.store.set('halted',True)
+        if self.resting_entries and not self.entry_cancel_queued:
+            self.entry_cancel_queued = True
+            self._spawn(self.cancel_resting_entries())
         if self.store.get('halt_reason') != str(reason):
             self.store.event('HALT',{'reason':str(reason)})
             self.store.set('halt_reason',str(reason))
@@ -166,6 +173,11 @@ class Service:
         if order_id in orders:
             self.store.order_status(order_id,status)
             self.store.event('ORDER_STATUS',dict(id=order_id,status=status))
+            if self.resting_entries and orders[order_id]['role']=='ENTRY' and status in CANCELLED:
+                s=self.states[orders[order_id]['market']]
+                if (not s.qty and order_id not in self.cancel_requested
+                        and self.clock().astimezone(NY).time()<time(11,30)):
+                    self._spawn(self.check_entry_cancel(s,order_id))
             if status in {'Inactive','REJECTED'}:
                 self.halt(f'ORDER_REJECTED:{order_id}')
             if status in STOP_DEAD and orders[order_id]['role'] == 'STOP':
@@ -327,6 +339,9 @@ class Service:
                         stale_seconds=self.config.stale_seconds,open_delay=self.config.max_open_delay_seconds)
         if side is not None or before!=(s.opening,s.phase):
             self.store.save(s)
+        if self.resting_entries:
+            self.queue_resting(s)
+            return
         if side is None or self.halted:
             return
         s.phase='RESERVING'
@@ -500,6 +515,13 @@ class Service:
                 if not self.store.add_fill(exec_id,dict(order_id=order_id,qty=qty,price=price)):
                     return
                 if order['role']=='ENTRY':
+                    resting=(self.resting_entries and order_id in s.entry_orders
+                             and s.phase=='RESTING' and not s.qty and not self.halted
+                             and self.clock().astimezone(NY).time()<time(11,30))
+                    if resting:
+                        s.entry_order=order_id;s.side=order['body']['side'];s.phase='PENDING'
+                        s.oca=f'OB-{self.config.client_id}-{order_id}'
+                        s.planned_risk=s.entry_risks[str(order_id)]
                     if order_id!=s.entry_order or s.phase not in {'PENDING','OPEN'}:
                         # A real execution after the IOC looked terminal: record and protect it, then halt.
                         if order_id!=s.entry_order:
@@ -529,15 +551,21 @@ class Service:
                     self._send(s,'TIME',dict(kind='MKT',side=-s.side,qty=s.qty,tif='GTC',oca=s.oca,
                         good_after=f'{s.day.replace("-","")} 15:55:00 America/New_York',
                         account=self.config.account,ref=self._ref(s,'TIME')),s.time_order)
-                    late=late or f'ENTRY_EXECUTION_AFTER_TIMED_EXIT:{s.market}:{order_id}'
+                    if not self.resting_entries or self.clock().astimezone(NY).time()>=time(11,30):
+                        late=late or f'ENTRY_EXECUTION_AFTER_TIMED_EXIT:{s.market}:{order_id}'
                 self.notify(f'{s.market} ENTRY FILL ({self.config.mode}): {"BUY" if s.side==1 else "SELL"} {qty} '
                             f'{self.markets[s.market].execution.symbol} @ {price}; stop {s.stop} sent (order {s.stop_order})')
                 if late:
                     self.halt(late)
                     self.loud(f'{s.market} LATE ENTRY FILL recorded and stop sent; session halted for review')
                     self._spawn(self._late_time_exit(s))
+                if self.resting_entries and s.market not in self.resting_fill_tasks:
+                    self.resting_fill_tasks.add(s.market)
+                    self._spawn(self.finish_resting_fill(s))
             elif s.qty==0:
                 self._cancel_siblings(s,order_id)
+                if self.resting_entries:
+                    self._spawn(self.cancel_resting_entries(s.market))
         except Exception as exc:
             self.halt(f'EXECUTION_OR_STOP:{exc}')
 
@@ -642,6 +670,8 @@ class Service:
         Scope: orders and executions carrying an OpenBreakout orderRef. Other strategies' positions and
         working orders in the same contracts are logged, never reconciled."""
         try:
+            if self.resting_entries and (self.halted or self.clock().astimezone(NY).time()>=time(11,30)):
+                await self.cancel_resting_entries()
             before = self._expected()
             snapshot = await asyncio.wait_for(self.broker.snapshot(),5.)
             orders=self.store.orders()
@@ -691,6 +721,13 @@ class Service:
                         s.phase='BLOCKED';s.note='MISSED_0930_OPEN';self.store.save(s)
                         self.store.event('MARKET_BLOCKED',dict(market=s.market,reason=s.note))
                     continue
+                if self.resting_entries and s.phase=='RESTING':
+                    for oid in self.working_entries(s):
+                        parked=working.get(oid);body=orders[oid]['body']
+                        fields=('side','stop','limit','tif','oca','oca_type')
+                        if (not parked or parked['remaining']!=body['qty'] or parked['kind']!='STP LMT'
+                                or any(parked.get(k)!=body[k] for k in fields)):
+                            issues.append('Broker resting entry differs from journal')
                 if stable and s.qty and s.phase=='OPEN':
                     stop=working.get(s.stop_order)
                     if not stop or stop['remaining']!=s.qty or stop['kind']!='STP' or stop['side']!=-s.side or stop['stop']!=s.stop:

@@ -22,6 +22,7 @@ def at(text):return datetime.fromisoformat(DAY+'T'+text).replace(tzinfo=NY)
 def config(tmp_path):
     raw=json.loads((ROOT/'config/open_breakout.example.json').read_text(encoding='utf-8-sig'))
     raw['account']='DU_TEST'
+    raw['entry_order_type']='ioc' # Retain the historical IOC regression suite.
     for i,m in enumerate(raw['markets']):
         for j,key in enumerate(['signal','execution']):
             m[key].update(con_id=100+i*2+j,expiry='20261218')
@@ -73,6 +74,243 @@ async def tick(service,broker,now,price,stamp,market='NQ'):
     broker.update_quote(market,price-.25,price,now[0])
     service.tick(market,now[0],price)
     await service.drain()
+
+
+def test_resting_entries_are_held_before_crossing(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            entries=[o for o in store.orders().values() if o['role']=='ENTRY']
+            assert len(entries)==2
+            assert {o['body']['stop'] for o in entries}=={19990.,20010.}
+            assert {o['body']['kind'] for o in entries}=={'STP LMT'}
+            assert {o['body']['tif'] for o in entries}=={'GTD'}
+            assert all(o['body']['good_till']==DAY.replace('-','')+' 11:30:00 America/New_York' for o in entries)
+            assert all(o['body']['oca_type']==1 for o in entries)
+            assert len({o['body']['oca'] for o in entries})==1
+            assert not store.fill_ids() and service.states['NQ'].phase=='RESTING'
+        finally:store.close()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('side',[1,-1])
+def test_resting_fill_cancels_entries_and_protects_actual_size(config,tmp_path,side):
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            s=service.states['NQ'];price=20000+side*10
+            now[0]=at('09:30:01')
+            b.update_quote('NQ',price-.25,price,now[0])
+            assert not s.qty # A quote crossing alone is not a Last trigger.
+            b.update_trade('NQ',price,now[0])
+            await service.drain()
+            assert not service.halted and s.phase=='OPEN' and s.side==side and s.qty>0
+            assert not service.working_entries(s)
+            orders=store.orders()
+            assert orders[s.stop_order]['body']['qty']==s.qty
+            assert orders[s.time_order]['body']['qty']==s.qty
+            assert orders[s.stop_order]['body']['side']==-side
+            assert s.stop==snap(s.entry-side*10,.25,side==-1)
+            assert orders[s.time_order]['body']['good_after'].endswith('15:55:00 America/New_York')
+            await service.watchdog()
+            assert not service.halted
+        finally:store.close()
+    from open_breakout.strategy import snap
+    asyncio.run(run())
+
+
+def test_resting_gap_leaves_triggered_limit_working_until_fill(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            s=service.states['NQ'];entries=s.entry_orders.copy()
+            now[0]=at('09:30:01')
+            b.update_quote('NQ',19988.,19988.25,now[0])
+            b.update_trade('NQ',19988.,now[0])
+            await service.drain()
+            assert s.qty==0 and s.attempts==1 and s.phase=='RESTING'
+            assert all(b.status(oid)=='Submitted' for oid in entries)
+            now[0]=at('09:30:02')
+            b.update_quote('NQ',19989.5,19989.75,now[0])
+            await service.drain()
+            assert s.qty>0 and s.side==-1 and s.attempts==1 and not service.halted
+        finally:store.close()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('reason',['cutoff','halt','shutdown','external_cancel'])
+def test_resting_entries_cancel_without_fills(config,tmp_path,reason):
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            s=service.states['NQ'];entries=s.entry_orders.copy()
+            if reason=='cutoff':
+                now[0]=at('11:30:00');await service.watchdog()
+            elif reason=='halt':service.halt('TEST_FEED_FAILURE')
+            elif reason=='external_cancel':b.cancel(entries[0])
+            else:await service.cancel_resting_entries()
+            await service.drain()
+            assert all(b.status(oid)=='Cancelled' for oid in entries)
+            assert not store.fill_ids() and not s.qty
+            if reason in {'halt','external_cancel'}:assert service.halted
+            if reason=='cutoff':
+                await tick(service,b,now,20010,'11:30:01')
+                assert s.entry_orders==entries and not service.halted
+        finally:store.close()
+    asyncio.run(run())
+
+
+def test_resting_partial_fill_cancels_remainder_and_tracks_burst(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            s=service.states['NQ']
+            oid=next(oid for oid in s.entry_orders if b.orders[oid]['body']['side']==1)
+            cid=config.markets[0].execution.con_id
+            for i,price in enumerate([20010.,20010.25]):
+                b.record(cid,1,b.orders[oid]['body']['ref'],f'PART-{i}')
+                service.fill(oid,f'PART-{i}',1,price)
+            await service.drain()
+            assert s.qty==2 and s.entry==20010.125 and not service.halted
+            assert b.status(oid)=='Cancelled' and not service.working_entries(s)
+            assert b.orders[s.stop_order]['body']['qty']==2
+            assert b.orders[s.time_order]['body']['qty']==2
+            service.halt('FEED_LOSS');await service.drain()
+            assert b.status(s.stop_order)=='Submitted' and b.status(s.time_order)=='Submitted'
+        finally:store.close()
+    asyncio.run(run())
+
+
+def test_resting_short_gate_risk_and_margin_caps(config,tmp_path):
+    async def run():
+        c=replace(config,entry_order_type='stop_limit')
+        service,b,store,now=setup_service(c,tmp_path)
+        service.margin_day_cap={'NQ':2}
+        service.states['NQ'].score=19.99
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            entries=[o['body'] for o in store.orders().values() if o['role']=='ENTRY']
+            assert len(entries)==1 and entries[0]['side']==1 and entries[0]['qty']==2
+            nq_risk=service.states['NQ'].planned_risk
+            await tick(service,b,now,5000,'09:30:00',market='ES')
+            total=sum(s.planned_risk for s in service.states.values())
+            assert total<=c.shadow_equity*c.max_open_risk_bps/10000
+            assert store.get('daily_reserved')==pytest.approx(total) and nq_risk>0
+            assert not service.halted
+        finally:store.close()
+    asyncio.run(run())
+
+
+def test_resting_reentry_requires_return_inside_and_max_three_cycles(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            s=service.states['NQ']
+            for attempt in range(1,4):
+                now[0]=at(f'09:30:{attempt*3:02}')
+                b.update_quote('NQ',20009.75,20010.,now[0]);b.update_trade('NQ',20010.,now[0])
+                await service.drain()
+                assert s.qty and s.attempts==attempt
+                await tick(service,b,now,20000,f'09:30:{attempt*3+1:02}')
+                await service.watchdog()
+                await tick(service,b,now,20000,f'09:30:{attempt*3+2:02}')
+            assert not s.qty and s.attempts==3 and not service.working_entries(s)
+            assert not service.halted
+        finally:store.close()
+    asyncio.run(run())
+
+
+def test_resting_cancel_uncertainty_halts(config,tmp_path):
+    class IgnoreCancel(SimBroker):
+        def cancel(self,oid):pass
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path,IgnoreCancel)
+        service.cancel_timeout=0.
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            now[0]=at('11:30:00');await service.watchdog();await service.drain()
+            assert service.halted and 'ENTRY_CANCEL_UNCONFIRMED' in store.get('halt_reason')
+            assert not store.fill_ids()
+        finally:store.close()
+    asyncio.run(run())
+
+
+def test_resting_ibkr_order_fields_and_unhealthy_connection(config):
+    from open_breakout.ibkr import IBKR
+    c=replace(config,mode='paper',entry_order_type='stop_limit')
+    async def make_adapter():return IBKR(c)
+    adapter=asyncio.run(make_adapter());m=c.markets[0]
+    body=dict(kind='STP LMT',side=-1,qty=5,stop=30688.5,limit=30688.,tif='GTD',
+              good_till='20261001 11:30:00 America/New_York',oca='ENTRY',oca_type=1,
+              trigger_method=2,account=c.account,ref='MNQ|SELL|OpenBreakout|2026-10-01|NQ-1-ENTRY')
+    order=adapter._order(21,body)
+    assert order.orderType=='STP LMT' and order.auxPrice==30688.5 and order.lmtPrice==30688.
+    assert order.tif=='GTD' and order.goodTillDate==body['good_till']
+    assert order.ocaType==1 and order.triggerMethod==2 and order.transmit
+    adapter.healthy=False
+    with pytest.raises(RuntimeError,match='Unhealthy broker connection'):adapter.send(21,m,body)
+
+
+@pytest.mark.parametrize('bad',[None,'market',{},[]])
+def test_resting_config_rejects_unknown_types(config,tmp_path,bad):
+    raw=json.loads((tmp_path/'config.json').read_text())
+    raw['entry_order_type']=bad
+    path=tmp_path/'bad-entry.json';path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError,match='entry_order_type'):Config.load(path)
+
+
+def test_resting_oca_cancel_can_precede_execution_report(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            s=service.states['NQ'];buy,sell=s.entry_orders
+            b.cancel(sell) # Broker cancels the sibling before delivering the fill.
+            b.record(config.markets[0].execution.con_id,1,b.orders[buy]['body']['ref'],'RACE')
+            service.fill(buy,'RACE',1,20010.)
+            await service.drain()
+            assert not service.halted and s.qty==1 and s.stop_order and s.time_order
+        finally:store.close()
+    asyncio.run(run())
+
+
+def test_resting_broker_expiry_and_late_fill_are_safe(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            s=service.states['NQ'];buy=s.entry_orders[0]
+            now[0]=at('11:30:00')
+            b.update_trade('NQ',20010.,now[0]) # GTD expires without a process watchdog.
+            assert not s.qty and all(b.status(o)=='Cancelled' for o in s.entry_orders)
+            b.record(config.markets[0].execution.con_id,1,b.orders[buy]['body']['ref'],'LATE')
+            service.fill(buy,'LATE',1,20010.)
+            await service.drain()
+            assert service.halted and s.qty==1 and s.stop_order and s.time_order
+            assert 'LATE_ENTRY_EXECUTION' in store.get('halt_reason')
+        finally:store.close()
+    asyncio.run(run())
+
+
+def test_resting_watchdog_detects_modified_entry(config,tmp_path):
+    async def run():
+        service,b,store,now=setup_service(replace(config,entry_order_type='stop_limit'),tmp_path)
+        try:
+            await tick(service,b,now,20000,'09:30:00')
+            s=service.states['NQ']
+            b.orders[s.entry_orders[0]]['body']['limit']+=1.
+            for _ in range(3):await service.watchdog()
+            await service.drain()
+            assert service.halted and 'Broker resting entry differs' in store.get('halt_reason')
+            assert not service.working_entries(s)
+        finally:store.close()
+    asyncio.run(run())
 
 
 def test_config_boundaries(config,tmp_path,monkeypatch):
@@ -780,7 +1018,7 @@ LIVE_ACCOUNT='U9990001'
 def live_raw(**changes):
     raw=json.loads((ROOT/'config/open_breakout.example.json').read_text(encoding='utf-8-sig'))
     raw.update(mode='live',allow_live=True,account=LIVE_ACCOUNT,port=7496,client_id=927999,
-               pilot={'max_contracts_per_market':1})
+               pilot={'max_contracts_per_market':1},entry_order_type='ioc')
     for i,m in enumerate(raw['markets']):
         m['max_contracts']=1
         for j,key in enumerate(['signal','execution']):
@@ -1481,15 +1719,15 @@ def test_live_send_refuses_above_effective_cap(tmp_path,monkeypatch):
             assert len(sent)==1
     asyncio.run(run())
 
-@pytest.mark.parametrize('sizing',['one_lot','normal','margin_capped'])
+@pytest.mark.parametrize('sizing',['one_lot','normal','margin_capped','resting'])
 def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,capsys,sizing):
     monkeypatch.setenv('EXECUTION_OWNER_REGISTRY',str(tmp_path/'owners'))
     import sqlite3
     from types import SimpleNamespace as NS
     from open_breakout import standby
     from open_breakout.__main__ import main_async
-    if sizing in {'normal','margin_capped'}:
-        live=load_raw(tmp_path,normal_raw()) # overwrites live.json with the 2026-09-29 shape
+    if sizing in {'normal','margin_capped','resting'}:
+        live=load_raw(tmp_path,{**normal_raw(),'entry_order_type':'stop_limit' if sizing=='resting' else 'ioc'})
     clock=[at('08:59:59')]
     class ClockDateTime(datetime):
         @classmethod
@@ -1541,6 +1779,7 @@ def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,
                 feed.update_quote(m,price-.25,price,clock[0])
                 feed.capture(dict(kind='quote',market=m,time=clock[0].isoformat(),bid=price-.25,ask=price))
                 feed.on_tick(m,clock[0],price)
+                if sizing=='resting':feed.update_trade(m,price,clock[0])
         for _ in range(20):await original_sleep(0)
     monkeypatch.setattr(standby.asyncio,'sleep',advance)
     risk=tmp_path/'risk.parquet'
@@ -1558,6 +1797,9 @@ def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,
         ack=json.loads(db.execute("SELECT value FROM meta WHERE key='live_ack'").fetchone()[0])
     assert ack==meta['live_ack']
     entries=[b for role,b in orders if role=='ENTRY']
+    if sizing=='resting':
+        assert len(entries)==4 and all(b['kind']=='STP LMT' and b['tif']=='GTD' for b in entries)
+        entries=[b for b in entries if b['side']==1]
     assert len(placed)==len(orders) and all(b['account']==LIVE_ACCOUNT for _,b in orders)
     armed=[l for l in capsys.readouterr().out.splitlines() if 'ARMED LIVE' in l]
     if sizing=='one_lot':
@@ -1589,7 +1831,7 @@ def test_live_session_arms_after_preflight_and_trades(live,tmp_path,monkeypatch,
         # per-market cap since 2026-09-28 late; 60 is the fat-finger ceiling). 1,113.90 + 737.10 fits the 25bp
         # open cap ($1,875), so neither is sized down.
         assert sorted((b['ref'].split('|')[0],b['qty']) for b in entries)==[('MES',13),('MNQ',47)]
-        assert sorted(role for role,_ in orders)==['ENTRY','ENTRY','STOP','STOP','TIME','TIME']
+        assert sorted(role for role,_ in orders)==['ENTRY']*(4 if sizing=='resting' else 2)+['STOP','STOP','TIME','TIME']
         # Stop and timed exit carry the filled quantity.
         assert sorted(b['qty'] for role,b in orders if role in {'STOP','TIME'})==[13,13,47,47]
         assert meta['day_r']['NQ']['trades']==1 and meta['day_r']['ES']['trades']==1

@@ -1,5 +1,54 @@
 # NQ / ES opening breakout: IBKR service
 
+**Entry amendment (2026-10-01, effective next launch / 2026-10-02): resting stop-limits.**
+The owner requested broker-held entries after three five-MNQ software-triggered IOC
+short orders cancelled without fills on October 1 (10:00:52, 10:08:43, 10:08:44 ET).
+Live and shadow launcher configs now select `entry_order_type: "stop_limit"`.
+Today's processes continue with their loaded IOC configuration; no restart or
+additional live order was used to deploy this change. An absent setting or `"ioc"`
+retains the legacy path for historical manifests and replay.
+
+After the first 09:30 NQ/ES Last establishes the opening, the service parks eligible
+BUY and SELL `STP LMT` entries on the corresponding MNQ/MES contract. Stops are the
+tick-rounded opening +/- 25% of prior TR. Limits are the stop plus two ticks for
+BUY, minus two ticks for SELL (`max_entry_slippage_ticks`, unchanged). IBKR triggers
+on the execution contract's Last, not a software-observed mini crossing. Thus
+mini/micro timing may differ even though level calculations retain the mini basis.
+Entries are linked in a separate OCA type 1 group (cancel remaining, with block),
+and `GTD` at **11:30 ET**, backed by explicit cutoff cancellation. A gap through the
+limit leaves a triggered limit working until it fills or expires; it does not burn
+repeated IOC retries. Resting means broker-held; exchange versus IBKR simulation
+depends on IBKR's handling of the futures order.
+
+Each arming cycle reserves the worse eligible side's risk (one side can fill),
+including pending exposure in the pooled cap. At most three cycles per market/day
+are submitted. After an exit, a fresh return inside the boundary on mini prices
+and executable micro quotes is required before re-arming. Range/short filters,
+capital basis, fees, sizing ceilings, margin day caps, protective-stop distance
+from the actual fill, and the 15:55 exit are retained. Each partial fill is protected;
+the unfilled parent remainder and opposite entry are cancelled. Halt and orderly
+shutdown cancel entry orders only; actual-position exits remain. Unconfirmed entry
+cancellation halts and alerts. Manual control still transfers the selected market
+to Execution/TWS.
+
+Verification: the regression demonstrated zero resting orders before this change.
+Lifecycle tests cover pre-cross placement, both sides, quote-vs-Last triggering,
+gap/no-fill persistence, partials, risk/margin/short gates, re-entry/attempt limits,
+cutoff/halt/shutdown cancellation and uncertainty, and a complete mocked live day
+through preflight, entries, protection and timed exits. At 10:45 ET on October 1,
+read-only IBKR what-if previews accepted BUY/SELL MNQ and MES `STP LMT` + GTD +
+OCA type 1 without warnings; execution-contract Last feeds were observed and the
+working-order set was unchanged. Evidence: `artifacts/open_breakout_execution/broker_preview.json`.
+This does not verify a live stop-limit fill. The next session's broker journal is
+the acceptance check for real trigger, fill, OCA and expiry behavior.
+
+Shadow/replay stop-limits trigger from `execution_trade` captures and fill only
+inside their limit. Micro Last uses normal streaming market-data updates to avoid
+extra tick-by-tick subscriptions; the shadow is approximate and has no liquidity
+or queue model. Existing captures without execution Last cannot establish native
+stop-limit outcomes. Original October 1 configs are retained beside that session's
+journals as `config.original.json` for reconciliation with the original fingerprints.
+
 Status (2026-09-28 evening): **live at normal sizing from Tuesday 2026-09-29** (owner
 decision 2026-09-28). Monday 2026-09-28 was the first live session at one contract per
 market (1 MNQ / 1 MES, both shorts stopped, mechanics verified). From 2026-09-29 the live
@@ -17,7 +66,7 @@ the pilot ceiling, when present, in 1..60) + the exact session/account acknowled
 
 ## Frozen candidate
 
-- Signals: NQ and ES mini futures; execution: same expiry NQ/MNQ and ES/MES.
+- Level inputs: NQ and ES mini futures; execution: same expiry NQ/MNQ and ES/MES.
 - Open: first live Last print at 09:30 ET, arriving within two seconds by default.
 - Entry thresholds: open +/- 25% of the previous full CME session true range.
   Range is raw same-contract 18:00-17:00 ET OHLC with the preceding session close.
@@ -27,7 +76,7 @@ the pilot ceiling, when present, in 1..60) + the exact session/account acknowled
   **previous cash-session legacy 63d risk score, smoothed over 10 observations,
   to be >=20**. The newer dashboard `main_score` is intentionally not selected.
 - Entry cutoff 11:30 ET exclusive; 15:55 ET timed market exit; one position and at
-  most three entry submissions per market/day; fresh recross after a closed trade.
+  most three entry cycles per market/day; fresh return inside before re-arming.
 - Example 15bp NQ / 5bp ES and $100,000 shadow equity are **illustrative**, not an
   approved allocation or actual account balance. All bps here are effective:
   the stock book's global multiplier is not applied. Configure the final budgets,
@@ -105,8 +154,9 @@ no unattended email/SMS escalation installed. Keep a human watching paper runs.
 
 ## Execution and recovery
 
-Entries are marketable IOC limit orders, with a configured maximum chase beyond
-the current bid/ask. This bounds the entry price but can produce partial/no fills.
+Entries are broker-held stop-limits (see the October 1 amendment above). The legacy
+`entry_order_type: "ioc"` path uses marketable IOC limits beyond current bid/ask.
+Both paths bound the entry price and can produce partial/no fills.
 Sizing includes stop rounding, configured round-trip fees and an exit-slippage
 reserve. Caps include total daily submitted risk and simultaneous open risk; unused
 risk from an unfilled IOC stays consumed for that day. Paper sizing uses the

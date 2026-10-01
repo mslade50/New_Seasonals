@@ -1,6 +1,6 @@
 """Tick-driven strategy decisions. No broker imports, I/O or break-even logic."""
 from __future__ import annotations
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime, time
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 import math
@@ -45,6 +45,8 @@ class State:
     note: str = ''
     # Prior-range filter, mode "half" (never live): half the computed contracts, floored.
     half_size: bool = False
+    entry_orders: list[int] = field(default_factory=list)
+    entry_risks: dict[str, float] = field(default_factory=dict)
 
     @property
     def distance(self):

@@ -17,6 +17,7 @@ class SimBroker:
         # executions_error: reqExecutions failed. foreign_visible=False: other clients' executions are not
         # returned to this client (the unconfirmed IB behaviour), so foreign positions show only in the account.
         self.executions_error=None;self.foreign_visible=True
+        self.last_trades={};self.triggered=set()
     def last_error_code(self,oid):return self.error_codes.get(oid)
     def next_id(self):self.serial+=1;return self.serial
     async def equity(self):return self.config.shadow_equity
@@ -56,9 +57,35 @@ class SimBroker:
         for oid,order in list(self.orders.items()):
             if order['market'].name!=name or order['status']!='Submitted':continue
             body=order['body'];price=bid if body['side']==-1 else ask
+            if self._expire(oid,stamp):continue
+            if body['kind']=='STP LMT':
+                self._fill_resting(oid)
+                continue
             triggered=body['kind']=='STP' and (price-body['stop'])*body['side']>=0
             timed=body['kind']=='MKT' and aware(stamp).astimezone(NY).time()>=time(15,55)
             if triggered or timed:self.execute(oid,body['qty'],price)
+    def _expire(self,oid,stamp):
+        body=self.orders[oid]['body']
+        if body.get('good_till') and aware(stamp).astimezone(NY).time()>=time(11,30):
+            self.cancel(oid);return True
+        return False
+    def update_trade(self,name,price,stamp):
+        """Execution-contract Last triggers a stop; quotes alone never trigger it."""
+        self.last_trades[name]=(price,aware(stamp))
+        for oid,order in list(self.orders.items()):
+            if order['market'].name!=name or order['status']!='Submitted':continue
+            if self._expire(oid,stamp):continue
+            body=order['body']
+            if body['kind']=='STP LMT' and (price-body['stop'])*body['side']>=0:
+                self.triggered.add(oid)
+                self._fill_resting(oid)
+    def _fill_resting(self,oid):
+        order=self.orders[oid];body=order['body']
+        if oid not in self.triggered or order['status']!='Submitted':return
+        bid,ask,_=self.quote(order['market'].name)
+        price=ask if body['side']==1 else bid
+        if (price-body['limit'])*body['side']<=0:
+            self.execute(oid,body['qty'],price)
     def record(self,cid,signed,ref,exec_id=None):
         self.positions[cid]=self.positions.get(cid,0)+signed
         self.executions.append((cid,signed,ref,exec_id))
@@ -80,5 +107,7 @@ class SimBroker:
             own_exec_ids=None if failed else self._own_ids(),executions_error=self.executions_error,
             orders=[dict(id=oid,client_id=self.config.client_id,
             con_id=o['market'].execution.con_id,ref=o['body']['ref'],remaining=o['body']['qty'],
-            kind=o['body']['kind'],side=o['body']['side'],stop=o['body'].get('stop',0)) for oid,o in self.orders.items() if o['status']=='Submitted']
+            kind=o['body']['kind'],side=o['body']['side'],stop=o['body'].get('stop',0),
+            limit=o['body'].get('limit',0),tif=o['body']['tif'],good_till=o['body'].get('good_till',''),
+            oca=o['body'].get('oca',''),oca_type=o['body'].get('oca_type',2)) for oid,o in self.orders.items() if o['status']=='Submitted']
             +[dict(o) for o in self.foreign_orders])

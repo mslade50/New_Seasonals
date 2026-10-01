@@ -426,6 +426,8 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
         capture.write(event,clock())
         if service and event['kind']=='quote':
             service.broker.update_quote(event['market'],event['bid'],event['ask'],event['time'])
+        elif service and event['kind']=='execution_trade':
+            service.broker.update_trade(event['market'],event['price'],event['time'])
     def on_tick(name,stamp,price):
         if service:service.tick(name,stamp,price)
     final='STOPPED'
@@ -500,6 +502,9 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
         final='FAILED';runtime.set('last_error',f'{type(exc).__name__}: {exc}')
         raise
     finally:
+        if service:
+            await service.cancel_resting_entries()
+            await service.drain()
         record_day_r(runtime,ledger,config)
         runtime.set('phase',final);runtime.set('finished_at',clock().isoformat())
         runtime.event('FINISH',{'phase':final,'events':capture.count})
@@ -685,6 +690,9 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
         alert(f'LIVE PROCESS FAILED: {type(exc).__name__}: {exc}')
         raise
     finally:
+        if service:
+            await service.cancel_resting_entries()
+            await service.drain()
         if owner_server:await owner_server.close()
         if gate:gate.open=False
         record_day_r(runtime,ledger,config)

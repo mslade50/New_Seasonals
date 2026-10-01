@@ -5,6 +5,7 @@
   "client_id": 71,
   "account": "REPLACE_WITH_EXPLICIT_ACCOUNT",
   "allow_live": false,
+  "entry_order_type": "stop_limit",
   "markets": [
     {"name": "NQ", "signal": {"symbol": "NQ", "expiry": "YYYYMMDD", "con_id": 0}, "execution": {"symbol": "MNQ", "expiry": "YYYYMMDD", "con_id": 0}, "risk_bps": 15, "max_contracts": 10},
     {"name": "ES", "signal": {"symbol": "ES", "expiry": "YYYYMMDD", "con_id": 0}, "execution": {"symbol": "MES", "expiry": "YYYYMMDD", "con_id": 0}, "risk_bps": 5, "max_contracts": 10}

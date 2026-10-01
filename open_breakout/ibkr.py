@@ -122,8 +122,10 @@ class IBKR:
                     orderType=body['kind'],tif=body['tif'],orderRef=body['ref'],transmit=True,outsideRth=True)
         if 'limit' in body:fields['lmtPrice']=body['limit']
         if 'stop' in body:fields['auxPrice']=body['stop']
-        if 'oca' in body:fields.update(ocaGroup=body['oca'],ocaType=2)
+        if 'oca' in body:fields.update(ocaGroup=body['oca'],ocaType=body.get('oca_type',2))
         if 'good_after' in body:fields['goodAfterTime']=body['good_after']
+        if 'good_till' in body:fields['goodTillDate']=body['good_till']
+        if 'trigger_method' in body:fields['triggerMethod']=body['trigger_method']
         return Order(**fields)
 
     def send(self,oid,market,body):
@@ -137,7 +139,7 @@ class IBKR:
             if isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 0<qty<=cap:
                 raise PermissionError(f'Live quantity cap exceeded: qty {qty} must be a whole number in [1, {cap}]')
         # A halted feed still permits protective exits for actual executions.
-        if body['kind']=='LMT' and (not self.healthy or not self.ib.isConnected()):
+        if body['kind'] in {'LMT','STP LMT'} and (not self.healthy or not self.ib.isConnected()):
             raise RuntimeError('Unhealthy broker connection')
         order=self._order(oid,body)
         self.trades[oid]=self.ib.placeOrder(self.contracts[market.execution.con_id],order)
@@ -266,7 +268,9 @@ class IBKR:
                     own=own,foreign=other,own_exec_ids=ids,executions_error=error,
                     orders=[dict(id=t.order.orderId,client_id=t.order.clientId,con_id=t.contract.conId,ref=t.order.orderRef,
                         remaining=t.order.totalQuantity-t.orderStatus.filled,kind=t.order.orderType,
-                        side=1 if t.order.action=='BUY' else -1,stop=t.order.auxPrice)
+                        side=1 if t.order.action=='BUY' else -1,stop=t.order.auxPrice,
+                        limit=t.order.lmtPrice,tif=t.order.tif,good_till=t.order.goodTillDate,
+                        oca=t.order.ocaGroup,oca_type=t.order.ocaType)
                             for t in trades if t.order.account==self.config.account])
 
     async def history(self):
@@ -330,6 +334,10 @@ class IBKR:
         for m in self.config.markets:
             self.ib.reqTickByTickData(self.contracts[m.signal.con_id],'Last',0,False)
             self.ib.reqTickByTickData(self.contracts[m.execution.con_id],'BidAsk',0,False)
+            if self.config.entry_order_type=='stop_limit' and m.execution.con_id!=m.signal.con_id:
+                # Normal Last updates suffice for the approximate shadow model;
+                # avoid another tick-by-tick subscription/pacing limit per micro.
+                self.ib.reqMktData(self.contracts[m.execution.con_id],'',False,False)
 
     def _ticks(self,tickers,on_tick,capture):
         for ticker in tickers:
@@ -345,6 +353,16 @@ class IBKR:
                     elif ticker.contract.conId==m.signal.con_id and hasattr(t,'price'):
                         self.last_seen[f'{m.name}:trade']=datetime.now(timezone.utc)
                         capture(dict(kind='trade',market=m.name,time=t.time.isoformat(),price=t.price))
+                        if self.config.entry_order_type=='stop_limit' and m.execution.con_id==m.signal.con_id:
+                            capture(dict(kind='execution_trade',market=m.name,time=t.time.isoformat(),price=t.price))
                         on_tick(m.name,t.time,t.price)
+                    elif ticker.contract.conId==m.execution.con_id and hasattr(t,'price'):
+                        capture(dict(kind='execution_trade',market=m.name,time=t.time.isoformat(),price=t.price))
+            if self.config.entry_order_type=='stop_limit':
+                for m in self.config.markets:
+                    if ticker.contract.conId==m.execution.con_id and m.execution.con_id!=m.signal.con_id:
+                        for t in ticker.ticks:
+                            if t.tickType==4:
+                                capture(dict(kind='execution_trade',market=m.name,time=t.time.isoformat(),price=t.price))
 
     def close(self):self.ib.disconnect()
