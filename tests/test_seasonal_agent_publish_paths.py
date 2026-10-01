@@ -198,7 +198,8 @@ def test_seasonal_idea_ids_never_collide_with_pitch_ids(survey, monkeypatch):
     idea = fixture["ideas"][0]
     idea["sizing"] = {"risk_bps": 30, "stop_atr_for_sizing": 3.0}
     payload = {"asof": "2026-09-30", "ideas": [idea, dict(fixture["ideas"][1], sizing={
-        "risk_bps": 30, "stop_atr_for_sizing": 3.0})], "killed": fixture.get("killed", []),
+        "risk_bps": 30, "stop_atr_for_sizing": 3.0}, novelty_axis="calendar_cell")],
+        "killed": fixture.get("killed", []),
         "short_slate": {"reason": "x" * 130, "candidates_considered": 8,
                         "axes": ["a", "b", "c", "d"], "asset_classes": ["1", "2", "3", "4"],
                         "closest": [{"title": "t", "decisive": "d", "why_died": "w"}]}}

@@ -76,6 +76,16 @@ NOVELTY_AXES = {
     "instrument_translation", "interaction_cell", "relative_value",
     "inversion", "historical_analogue", "flow_mechanics", "event_fingerprint",
 }
+# The Daily Seasonal's own vocabulary (skill stage B2): the seasonal search
+# modes plus the four pitch axes that carry over. Product-scoped, so neither
+# product can label an idea with the other's search modes.
+SEASONAL_NOVELTY_AXES = {
+    "rank_outlier", "cycle_cell", "calendar_cell", "path_turn",
+    "relative_value", "instrument_translation", "inversion",
+    "historical_analogue",
+}
+NOVELTY_AXES_BY_PRODUCT = {"pitch": NOVELTY_AXES,
+                           "seasonal": SEASONAL_NOVELTY_AXES}
 
 # --- product rules (spec sections 2 and 5) ---------------------------------
 IDEA_COUNT = 3            # the full slate; never padded to reach it, and a
@@ -734,9 +744,10 @@ def validate_idea(idea, where: str, product: str = "pitch") -> list[str]:
     if grade not in GRADES:
         errors.append(f"{where}: grade must be A, B or C")
     axis = str(idea.get("novelty_axis", "")).lower()
-    if axis not in NOVELTY_AXES:
+    axes = NOVELTY_AXES_BY_PRODUCT[product]
+    if axis not in axes:
         errors.append(f"{where}: novelty_axis {axis!r} not in "
-                      f"{sorted(NOVELTY_AXES)}")
+                      f"{sorted(axes)}")
     horizon = idea.get("horizon_td")
     if not isinstance(horizon, int) or not 1 <= horizon <= max_horizon:
         errors.append(f"{where}: horizon_td must be an int in "

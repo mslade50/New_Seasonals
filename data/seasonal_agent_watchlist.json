@@ -1,3 +1,41 @@
 {
- "entries": []
+ "entries": [
+  {
+   "added": "2026-10-01",
+   "title": "Short UNG through the fourth quarter",
+   "cell": "instrument_translation x energy (October first-session close, h63)",
+   "trigger": "SPY closes more than 2% below its 52w closing high (below 760.43) by the 10/06 close. Entry offsets +1 to +3 sessions hold +14% to +16% overall, and the off-high branch is 11-0 at +23.3% against a near-high branch with no excess (+4.21% 5-3 vs +5.51% drift). If it fires, size off at least 6 ATR, time-only: any stop up to 3 ATR guts the result (2018 adverse move 26.9 ATR).",
+   "script": "scratch/seasonal_checks/2026-10-01/c6_natgas_q4_r1.py",
+   "source": "closest",
+   "expires": "2026-10-06"
+  },
+  {
+   "added": "2026-10-01",
+   "title": "Long a P&C insurer basket into the end of cat season",
+   "cell": "rank_outlier x us_large (TRV CB HIG AIG ALL PGR SIGI RLI, h21)",
+   "trigger": "SPY closes below 760.43 (2% under its 52w high) by the 10/08 close, AND a fresh test shows the October off-high basket minus XLF beating the generic off-high insurer drift (+0.73% per month, 131-91), where October ranked only 4th of 12. Without the second condition the branch flip alone does not make it a seasonal.",
+   "script": "scratch/seasonal_checks/2026-10-01/a4_insurers_b.py",
+   "source": "closest",
+   "expires": "2026-10-08"
+  },
+  {
+   "added": "2026-10-01",
+   "title": "Long XLF against SPY for the fourth quarter from a near-high start",
+   "cell": "rank_outlier x us_large (XLF-SPY, near-high branch, h63)",
+   "trigger": "Only a stated mechanism plus robustness revives it: the near-high 10-1 (p 0.006, +2.82%) holds at exactly h63 but is 7-4 at h42 and 6-4 with the start moved 3 sessions. Revive if a pre-specified re-test shows h42 and h84 both at 8-3 or better from a fixed October entry.",
+   "script": "scratch/seasonal_checks/2026-10-01/a3_banks_b_sectors.py",
+   "source": "closest",
+   "expires": "2026-10-22"
+  },
+  {
+   "added": "2026-10-01",
+   "title": "Long XLB against SPY for the fourth quarter",
+   "cell": "rank_outlier x us_large (XLB-SPY, October first-session close, h63)",
+   "trigger": "SPY closes below 760.43 (2% under its 52w high) by the 10/08 close. All years 21-5 (p 0.001) but -0.09% in the near-high branch; re-test the off-high branch from that close with drop-two-best and the last decade before shipping.",
+   "script": "scratch/seasonal_checks/2026-10-01/a3_banks_b_sectors.py",
+   "source": "near_miss",
+   "expires": "2026-10-08"
+  }
+ ],
+ "expired": []
 }

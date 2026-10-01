@@ -1,1 +1,107 @@
-{}
+{
+ "generated": "2026-10-01 07:43:59",
+ "asof": "2026-10-01",
+ "rolling_60d": {
+  "n": 2,
+  "graded": 0,
+  "fill_rate": 0.0,
+  "avg_r": null,
+  "median_r": null,
+  "hit_rate": null,
+  "total_pnl": 0,
+  "by_grade": {
+   "B": {
+    "n": 1,
+    "graded": 0,
+    "fill_rate": 0.0,
+    "avg_r": null,
+    "median_r": null,
+    "hit_rate": null,
+    "total_pnl": 0
+   },
+   "C": {
+    "n": 1,
+    "graded": 0,
+    "fill_rate": 0.0,
+    "avg_r": null,
+    "median_r": null,
+    "hit_rate": null,
+    "total_pnl": 0
+   }
+  },
+  "by_axis": {
+   "calendar_cell": {
+    "n": 1,
+    "graded": 0,
+    "fill_rate": 0.0,
+    "avg_r": null,
+    "median_r": null,
+    "hit_rate": null,
+    "total_pnl": 0
+   },
+   "cycle_cell": {
+    "n": 1,
+    "graded": 0,
+    "fill_rate": 0.0,
+    "avg_r": null,
+    "median_r": null,
+    "hit_rate": null,
+    "total_pnl": 0
+   }
+  },
+  "by_model": {
+   "opus": {
+    "n": 2,
+    "graded": 0,
+    "fill_rate": 0.0,
+    "avg_r": null,
+    "median_r": null,
+    "hit_rate": null,
+    "total_pnl": 0
+   }
+  },
+  "approved_vs_declined": null,
+  "window_td": 60,
+  "since": "2026-07-08"
+ },
+ "lifetime": {
+  "n": 2,
+  "graded": 0,
+  "fill_rate": 0.0,
+  "avg_r": null,
+  "median_r": null,
+  "hit_rate": null,
+  "total_pnl": 0,
+  "by_grade": {
+   "B": {
+    "n": 1,
+    "graded": 0,
+    "fill_rate": 0.0,
+    "avg_r": null,
+    "median_r": null,
+    "hit_rate": null,
+    "total_pnl": 0
+   },
+   "C": {
+    "n": 1,
+    "graded": 0,
+    "fill_rate": 0.0,
+    "avg_r": null,
+    "median_r": null,
+    "hit_rate": null,
+    "total_pnl": 0
+   }
+  },
+  "by_model": {
+   "opus": {
+    "n": 2,
+    "graded": 0,
+    "fill_rate": 0.0,
+    "avg_r": null,
+    "median_r": null,
+    "hit_rate": null,
+    "total_pnl": 0
+   }
+  }
+ }
+}

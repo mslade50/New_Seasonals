@@ -52,6 +52,21 @@ def test_seasonal_horizon_cap_is_63():
     assert any("horizon_td" in e for e in errors_for(idea))
 
 
+@pytest.mark.parametrize("axis", ["rank_outlier", "cycle_cell",
+                                  "calendar_cell", "path_turn"])
+def test_seasonal_axes_are_seasonal_only(axis):
+    assert errors_for(seasonal_idea(novelty_axis=axis)) == []
+    idea = seasonal_idea(novelty_axis=axis, sizing=None)
+    assert any("novelty_axis" in e for e in errors_for(idea, "pitch"))
+
+
+@pytest.mark.parametrize("axis", ["interaction_cell", "flow_mechanics",
+                                  "event_fingerprint"])
+def test_pitch_only_axes_are_refused_on_the_seasonal(axis):
+    assert any("novelty_axis" in e
+               for e in errors_for(seasonal_idea(novelty_axis=axis)))
+
+
 def test_pitch_horizon_cap_unchanged():
     assert pg.MAX_HORIZON_TD_BY_PRODUCT["pitch"] == pg.MAX_HORIZON_TD == 63
     idea = seasonal_idea(horizon_td=64, sizing=None)

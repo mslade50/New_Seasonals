@@ -69,6 +69,13 @@ pitch, so this dedup covers prior days only and a same-day duplicate is possible
 - Sizing: always `risk_bps`, 15..50 (default 30 when omitted);
   `stop_atr_for_sizing` REQUIRED and >= 1.0; with no `stop_atr` (time-only
   exit) it is the catastrophe distance and must be >= 3.0.
+- `novelty_axis` is product-scoped (`NOVELTY_AXES_BY_PRODUCT`): the seasonal
+  takes `SEASONAL_NOVELTY_AXES` (rank_outlier, cycle_cell, calendar_cell,
+  path_turn, relative_value, instrument_translation, inversion,
+  historical_analogue), the skill's stage B2 list. The pitch-only axes
+  (interaction_cell, flow_mechanics, event_fingerprint) are refused on a
+  seasonal idea and the seasonal-only ones on a pitch idea. Added 2026-10-01:
+  the first live run's valid seasonal axes failed against the pitch set.
 - Everything else is the pitch's: survey-map gate, `dev_script`, short slate
   and stand-down floors, kill-lint, one grade C, and the ATR-risk caps
   (60 bps per idea, 150 bps per slate, 4 legs).
