@@ -1,5 +1,44 @@
 # Alpha earnings cutover — prepared September 22, 2026
 
+## Live state: Alpha Vantage only (2026-10-01)
+
+Production earnings come from Alpha Vantage alone since the runtime release at
+10:11 ET on 2026-10-01 (pin `a7f49f00865fdaf6ef598845b6a1504a9899478b`, tag
+`automation-runtime-2026-10-01.earnings-alpha-only`). `config/earnings_calendar.json`
+sets provider `alpha`, `alpha_fallback` `stop`, `confirmation_provider` `calendar`.
+There is no FMP bootstrap, confirmation or fallback. FMP has returned HTTP 429
+since 2026-09-30 and the renewal was cancelled; the remaining FMP history bootstrap
+is what failed the 9/30 run ([incident](incidents/2026-10-01_earnings_fmp_scan_skip.md)).
+
+- `be52b79f`: events that vanish from Alpha (past, same-day or near-term) are
+  kept with `event_status` `schedule_unverified`; a new date for the same fiscal
+  period replaces the old one; the supervisor job requires `ALPHA_VANTAGE_API_KEY`.
+- `8bfe68b9`: a re-dated elapsed or same-day unconfirmed event does not publish
+  both dates; `coverage_gate` ignores forward `schedule_unverified` rows on both
+  sides (`NEAR_TERM_COVERAGE_MIN` 0.80); new `forward_shrink_gate`
+  (`FORWARD_SHRINK_MIN` 0.80) compares fresh Alpha `expected` rows with the
+  prior's; the receipt's `unverified_schedule_rows` counts only rows dated on or
+  after `as_of`.
+- One Alpha request per NY date, coordinated by the R2 claim
+  `provider_snapshots/alpha_earnings/<NY date>.json` (`alpha_calendar_snapshot.py`)
+  and shared by the 17:10 producer, the 06:30 monitor and any manual run. A
+  terminal failure locks the date.
+- Known gaps: a row already `schedule_unverified` from an earlier night is not
+  superseded if Alpha re-lists that period; a single far-dated vanished event is
+  dropped silently; a relabelled fiscal period publishes both dates; no actuals,
+  EPS or surprise values are populated after the cutover (only
+  `pages/backtester.py` and filters that are off use them); the universe is still
+  the symbol_master frozen 2026-06-05.
+- Monitoring: `scripts/prepare_earnings_issuer_review.py --alpha-r2` works
+  without FMP. `scripts/compare_earnings_shadow.py` still requires an FMP
+  baseline, so the reference collection and replay commands further down no
+  longer run.
+
+Release record: [earnings_alpha_only_release_2026-10-01.md](earnings_alpha_only_release_2026-10-01.md).
+Everything below this section is history from the FMP-backed trial.
+
+## History
+
 **September 24 trial activated; first run selected FMP fallback.** Production
 runtime `36cbf9c0234e26743c10b91af9a57647710f83c6` requests Alpha but refused
 an unconfirmed disappearance of RZLT's expected September 24 release. It published
@@ -86,7 +125,10 @@ Activation remains gated on disposition of these differences, not a headline
 percentage. FMP agreement alone is not ground truth. Repeat the current-date
 replay immediately before promotion; this evidence is not evergreen.
 
-## Remaining activation procedure
+## Remaining activation procedure (superseded)
+
+Superseded on 2026-10-01 by the Alpha-only release above. Kept as history; the
+FMP confirmation, fallback and independent-reference steps no longer apply.
 
 1. Resolve the remaining dates with issuer evidence, or explicitly agree an
    exception policy and test its effects. Do not silently convert estimates to
@@ -121,11 +163,18 @@ snapshot when already collected. A live observer call without `--alpha-csv` make
 one Alpha request, so coordinate it with the producer/heartbeat rather than
 fetching twice unnecessarily.
 
-Rollback requires restoring the archived pre-cutover canonical object with a
-conditional write, restoring the previous runtime/fallback/config, and verifying
-fresh FMP generation. A config flip alone is insufficient: the legacy builder's
-coverage gate can reject shrinking an all-universe calendar back to CSV_UNIVERSE.
-If readback fails after a successful remote write, investigate the published
-generation first; do not blindly republish or assume nothing changed.
+Rollback (as of 2026-10-01): there is no FMP rollback. The previous pin
+`3ee156c3` and its tag are recorded in
+`artifacts/earnings-alpha-only-release/rollback-facts.json`, but that runtime's
+producer requests FMP and fails while FMP returns 429. Restoring an earlier
+calendar object still needs a conditional write against the current ETag and a
+readback. If readback fails after a successful remote write, investigate the
+published generation first; do not blindly republish or assume nothing changed.
+
+The September 22 rollback text, kept as history: rollback required restoring the
+archived pre-cutover canonical object with a conditional write, restoring the
+previous runtime/fallback/config, and verifying fresh FMP generation. A config
+flip alone was insufficient: the legacy builder's coverage gate can reject
+shrinking an all-universe calendar back to CSV_UNIVERSE.
 
 FMP cancellation is a separate migration: see [remaining dependencies](fmp_retirement_inventory.md).

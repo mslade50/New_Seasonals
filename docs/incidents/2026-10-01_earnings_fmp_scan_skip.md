@@ -7,8 +7,9 @@ Written 2026-10-01 under cutover cadence rule 3 (`docs/local_automation_task_sch
 - Runtime logs, copied forward into the dev checkout: `artifacts/automation/logs/2026-09-30/postclose-274761df.log`, `artifacts/automation/logs/2026-10-01/premarket-67cf01e7.log` (04:10 run), `premarket-810bc4c2.log` (05:45 retry), `premarket-84c4193f.log` (06:07 operator-started retry).
 - Runtime source at the v9 pin (`3ee156c3`, tag `automation-runtime-2026-09-30.earnings-retries-issuer-review.v2`): `scripts/refresh_earnings_calendar.py`, `scripts/automation_supervisor.py`, `daily_scan.py`, `earnings_filter.py`, `earnings_calendar_provider.py`. Read only.
 - GitHub runs 36778522282 and 36798279276 (`build_earnings_calendar.yml`), 36780590846 (`build_macro_releases.yml`), 36847690283 (`deploy_site.yml`).
-- Git on main: `be52b79f`, `8bfe68b9`, `e316fb6d`.
-- Release preparation: `artifacts/earnings-alpha-only-release/` (`release.py`, `rollback-facts.json`, `marker-before.json`, test logs).
+- Git on main: `be52b79f`, `8bfe68b9`, `e316fb6d`, `55017156`, `71e44658`, `9344b8b0`, `f65eb5db`, `7cb1560a`.
+- Release preparation and receipts: `artifacts/earnings-alpha-only-release/` (`release.py`, `release.log`, `release.json`, `rollback-facts.json`, `marker-before.json`, `marker-after.json`, test logs). Gitignored.
+- Release record: `docs/earnings_alpha_only_release_2026-10-01.md`.
 - Background on the FMP expiry: `docs/earnings_monitor_promotion_2026-09-30.md`, `docs/fmp_cutover_2026-09-24.md`.
 
 ## 1. Summary
@@ -17,9 +18,9 @@ Written 2026-10-01 under cutover cadence rule 3 (`docs/local_automation_task_sch
 2. Knock-on: `portfolio_report`, `scan_pm`, `private_site_pm` and `shared_site_pm` were skipped on unsatisfied dependencies. The next morning `scan_am` stopped at the scanner's own earnings freshness gate at about 04:16 and was left `indeterminate`, so nothing retried it automatically.
 3. Impact on trading: the 9/30 evening scan and portfolio email did not run. The 10/01 AM scan ran at 06:12 instead of about 04:20, ahead of the 09:05 event auction, 09:10 OLV exits and 09:31 order chain. As far as the runtime logs show, no order was placed in error or missed. That statement comes from logs, not from broker records.
 4. Recovery: the calendar was republished at 06:05 from a clean export of `be52b79f` (Alpha Vantage only, no FMP request), the `scan_am` receipt was resolved to `retryable_failure` at 06:06, and the scheduled task's own retry command ran the scan to success at 06:12. The runtime itself was not changed.
-5. Not yet fixed in production: the v9 runtime still runs the FMP-dependent producer. Until `be52b79f` and `8bfe68b9` are released into v9, the 17:10 earnings job on 2026-10-01 will fail the same way.
+5. Production fix: `be52b79f`, `8bfe68b9` and `55017156` were released into v9 at 10:11 ET on 2026-10-01 (pin `a7f49f00865fdaf6ef598845b6a1504a9899478b`, tag `automation-runtime-2026-10-01.earnings-alpha-only`). The earnings job no longer makes any FMP request. The first scheduled proof is the 17:10 ET postclose run on 2026-10-01, which is still owed.
 
-## 2. Timeline, 2026-09-30 17:10 to 2026-10-01 06:12 ET
+## 2. Timeline, 2026-09-30 17:10 to 2026-10-01 10:14 ET
 
 | ET | Event | Source |
 |---|---|---|
@@ -44,6 +45,12 @@ Written 2026-10-01 under cutover cadence rule 3 (`docs/local_automation_task_sch
 | 06:12 | Scan completes: 1 signal (FORM, Overbot Vol Spike, Overflow tier), Signals Log synced (944 rows), `moc_orders` cleared, `Order_Staging` cleared (no Liquid rows), 1 instruction row staged, scan email sent (`SCAN_AUDIT_JSON generated_at 10:12:12Z`), `exposure_state.json` published and verified. `success scan_am (local)`. | `premarket-84c4193f.log` lines 8182-8201 |
 | 06:12 onward | Site deploys dispatched: `deploy_site.yml` run 36847690283 for `private_site_am`, then `deploy_shared_seasonals.yml` run 36849767503 for `shared_site_am`. Both succeeded; the wrapper exited 0 at 06:34. | `premarket-84c4193f.log` line 8202 onward |
 | 06:26 to 06:27 | `8bfe68b9` (guard hardening) and `e316fb6d` (keep the GitHub fallback pin on the live tag) committed on main. All three commits pushed. | `git log` |
+| 06:56 | `55017156` committed on main: BEA GDP title match accepts the comma form, BEA links limited to `https://www.bea.gov/news/`, GDP and PCE parsed independently, ADP reference month may be the publication month or the month before. This is the fix for the separate 9/30 `macro_releases` failure. | `git log` |
+| 07:11 | `71e44658`: `scripts/prepare_earnings_issuer_review.py --alpha-r2` reads the day's R2 Alpha snapshot read-only, so the issuer review no longer needs FMP. | `git log` |
+| 07:13 | `9344b8b0`: stale automation tests fixed on main; `scripts/repo_health_check.py` blind spots fixed. Not in the runtime. | `git log` |
+| 08:10 | Reviewed flat trend sleeve bootstrap state published to R2 `trend_sleeve_state.json`. The 9/30 `trend_sleeve` receipt was resolved `retryable_failure` the same day (section 6). | operator record |
+| 10:11 | Runtime release in the clean slot: v9 pin `a7f49f00`, tag `automation-runtime-2026-10-01.earnings-alpha-only`, cherry-picks of `be52b79f`, `8bfe68b9` and `55017156` onto `3ee156c3`. Main pin commit `f65eb5db` moves `AUTOMATION_RUNTIME_REF` to the new tag. `released_at_utc` 14:11:31Z. | `release.log`, `release.json`, `marker-after.json` |
+| 10:14 | `7cb1560a` committed on main: supervisor failure email and the `scan_am` earnings pre-step. Not in the runtime; needs the next release. | `git log` |
 
 ## 3. Root cause
 
@@ -76,7 +83,18 @@ Written 2026-10-01 under cutover cadence rule 3 (`docs/local_automation_task_sch
 2. **`8bfe68b9`** (2026-10-01 06:26), "Harden Alpha-only earnings calendar guards": a re-dated event no longer publishes both dates; the coverage gate ignores re-inserted forward unverified rows on both sides; new forward shrink gate at 80%; the receipt counts only current and future unverified rows. Validated by replay over every saved day pair from 9/16 to 10/01 and reviewed independently.
 3. **`e316fb6d`** (2026-10-01 06:27): keeps the GitHub fallback pin on the live runtime tag until the runtime release, so the controller and the local runtime stay on the same code.
 
-### Why the runtime was not released
+4. **`55017156`** (2026-10-01 06:56): macro release parser fixes (timeline). Released with the earnings commits.
+5. **`f65eb5db`** (2026-10-01 10:11): main pin commit, `AUTOMATION_RUNTIME_REF` moves to `automation-runtime-2026-10-01.earnings-alpha-only`.
+6. **`7cb1560a`** (2026-10-01 10:14), on main only, needs the next release:
+   - Failure email. After `run` or `run-pipeline`, one plain-text email goes out when any counted job ends failed, indeterminate or blocked. `health` emails its SUMMARY block on any FAIL or when the lock is held. Gmail SMTP through `EMAIL_USER` / `EMAIL_PASS`; recipients from `NEW_SEASONALS_ALERT_RECIPIENTS` (default: the operator address the scan email already uses); off switch `NEW_SEASONALS_ALERT_EMAIL=0`. Sent after the supervisor lock is released, secrets redacted, never changes an exit code, nothing on dry-run, plan, status or fallback-due.
+   - `scan_am` pre-step `scripts/ensure_earnings_calendar.py`, before the side-effect boundary. It checks the canonical R2 calendar with `validate_freshness`; if stale, it runs the normal producer once; if R2 is unreadable it exits 1 without calling the producer. `.github/workflows/daily_screener.yml` gets the same step for the AM bookend. The `scan_am` local lease grows from 1800 s to 3000 s because the pre-step's 1200 s timeout now counts before the boundary.
+   - Limits: if the local pre-step fails and the GitHub fallback also fails, `scan_am` still ends `indeterminate` and the 05:45 retry skips it. A morning repair spends that date's one Alpha request, so the 17:10 job reuses the morning snapshot.
+
+### Runtime release (2026-10-01 10:11 ET)
+
+v9 pin `a7f49f00865fdaf6ef598845b6a1504a9899478b`, tag `automation-runtime-2026-10-01.earnings-alpha-only`: cherry-picks of `be52b79f`, `8bfe68b9` and `55017156` onto the previous pin `3ee156c3` (tag `automation-runtime-2026-09-30.earnings-retries-issuer-review.v2`). The local marker gained `earnings_source_commit` `8bfe68b9…`, `earnings_alpha_only_release_at_utc` and `macro_releases_source_commit` `55017156…`. Main commit `f65eb5db` moved the GitHub fallback pin to the same tag, so the controller and the local runtime run the same code. Details: `docs/earnings_alpha_only_release_2026-10-01.md`.
+
+### Why the runtime was not released overnight
 
 The release was ready on the evening of 9/30. The session's permission gate blocked the release script as a production deploy, and owner approval arrived at about 05:58 on 10/01, inside the 04:00 to 09:35 window. Releasing then would have broken cadence rule 2, so the release was held. The calendar was repaired from a clean export instead, and the scan was rerun on the unchanged runtime with the scheduled task's own command.
 
@@ -86,17 +104,22 @@ The release was ready on the evening of 9/30. The session's permission gate bloc
 - Content check against the stale calendar: no date changed inside 2026-09-17..2026-10-16, so the blackout decisions the 9/30 calendar would have produced are the same as the 10/01 calendar's (`decision_differences` 0).
 - `scan_am` 2026-10-01: `success scan_am (local)` at 06:12 (`premarket-84c4193f.log` line 8201). The run logged degraded coverage (`DX-Y-NYB` unavailable; prior-close OLV inventory `NoSuchKey`; the OLV-EXIT warning in section 6). These are not caused by this incident.
 - Site deploys: `private_site_am` (run 36847690283) and `shared_site_am` (run 36849767503) both succeeded; the premarket retry finished with exit 0 at 06:34.
+- Runtime release at 10:11: 174 earnings and macro tests passed in the runtime. The two automation test failures on the runtime line (`test_installer_defines_the_required_local_clock_schedule`, `test_only_guarded_controller_retains_a_cron_for_migrated_jobs`) were present before the release and are stale Discretionary-retirement tests, fixed on main in `9344b8b0` and not yet in the runtime. `run_local_automation.ps1 -ValidateOnly` passed for `premarket` and `postclose`.
+- No-publish smoke runs from the released runtime: earnings with provider `alpha`, 147,801 rows, `decision_differences` 0; macro with 29 official series and `fmp_requests` 0.
+- Still owed: the first scheduled proof of the released runtime, the 17:10 ET `postclose` run on 2026-10-01.
 
 ## 6. Still open
 
 | Item | Detail | Needed by |
 |---|---|---|
-| Runtime release | Release `be52b79f` + `8bfe68b9` into v9 under tag `automation-runtime-2026-10-01.earnings-alpha-only`. Script and rollback facts in `artifacts/earnings-alpha-only-release/`. Must run in the clean slot after 10:00 ET and before the 17:10 postclose. Until then the 17:10 earnings job will fail again. | 2026-10-01 before 17:10 |
-| Known gaps in `8bfe68b9` | A row already `schedule_unverified` from an earlier night is not superseded if Alpha re-lists the same period later. A single far-dated vanished event is dropped silently. A relabelled fiscal period publishes both dates. | open |
-| Earnings monitor | `scripts/compare_earnings_shadow.py` and `scripts/prepare_earnings_issuer_review.py` still compare against an FMP reference and lose their baseline. The Codex monitor prompt (`~/.codex/automations/compare-alpha-vantage-earnings-with-fmp/automation.toml`) names the old SHA and tag. | open |
+| Runtime release | DONE 2026-10-01 10:11 ET: pin `a7f49f00`, tag `automation-runtime-2026-10-01.earnings-alpha-only`, cherry-picks of `be52b79f`, `8bfe68b9`, `55017156`. First scheduled proof is the 17:10 ET postclose on 2026-10-01. | proof owed 2026-10-01 17:10 |
+| Failure alerting and `scan_am` pre-step | Done on main in `7cb1560a`, not in the runtime. Waits for the next runtime release. | next release |
+| Single point of failure | The earnings calendar still gates both scans: `scan_pm` through the supervisor dependency, `scan_am` through the scanner's freshness gate at `daily_scan.py:3005`. The pre-step in `7cb1560a` narrows the morning half once released. | open |
+| Known gaps in `8bfe68b9` | A row already `schedule_unverified` from an earlier night is not superseded if Alpha re-lists the same period later. A single far-dated vanished event is dropped silently. A relabelled fiscal period publishes both dates. No actuals, EPS or surprise values are populated after the cutover. The earnings universe is still the symbol_master frozen 2026-06-05. | open |
+| Earnings monitor | Still degraded. `scripts/prepare_earnings_issuer_review.py --alpha-r2` (`71e44658`) works without FMP. `scripts/compare_earnings_shadow.py` still requires an FMP baseline, so the Alpha versus FMP comparison is unavailable. The Codex monitor prompt (`~/.codex/automations/compare-alpha-vantage-earnings-with-fmp/automation.toml`) still names the old pin and the FMP steps; not edited. | open |
 | Failure logging | Write the failed symbol list (and status) to `failure.json` for any future provider failure. | open |
-| Stale docs | FMP descriptions in `docs/operations_current.md`, `docs/claude_ref/automation_and_r2.md`, `docs/fmp_retirement_inventory.md`, `AGENTS.md`. | open |
-| `trend_sleeve` 2026-09-30 | Indeterminate after side effects (`trend_sleeve.py:456`). Needs an operator `resolve`. Not part of this incident. | open |
-| `macro_releases` 2026-09-30 | "official coverage gate failed"; GitHub fallback 36780590846 failed too. Cause not investigated here. | open |
+| Stale docs | Being fixed in this pass for `docs/operations_current.md`, `docs/claude_ref/automation_and_r2.md`, `docs/fmp_retirement_inventory.md` and `docs/earnings_alpha_cutover.md`. `AGENTS.md` not touched in this pass. | in progress |
+| `trend_sleeve` 2026-09-30 | Resolved. The run raised at `trend_sleeve.py:456` because the R2 state lacked `inventory_basis`; no side effect. Receipt resolved `retryable_failure`; reviewed flat bootstrap state published to R2 at 08:10 on 10/01. Next month-end run 2026-10-30. See `docs/claude_ref/strategies_3x_and_pilots.md`. | done |
+| `macro_releases` 2026-09-30 | Fixed by `55017156` (BEA GDP comma-form title, BEA link checks, independent GDP/PCE parsing, ADP reference month) and released at 10:11. Official sources carry no consensus, so Market Context's P12 surprise lane has no cells for prints after 2026-09-23. | done |
 | OLV exits | `[OLV-EXIT] WARNING: actual OLV inventory/exit metadata unverified (ValueError); prior staging preserved` in the AM scan on 9/29, 9/30 and 10/01, so `OLV_Exits_Primary` has not been rewritten for three mornings. Unrelated to this incident; needs its own look. | open |
-| Automation tests | `test_only_guarded_controller_retains_a_cron_for_migrated_jobs` and `test_installer_defines_the_required_local_clock_schedule` already fail on main and on the runtime line. | open |
+| Automation tests | `test_only_guarded_controller_retains_a_cron_for_migrated_jobs` and `test_installer_defines_the_required_local_clock_schedule` are fixed on main in `9344b8b0` and still fail on the runtime line until the next release. | next release |

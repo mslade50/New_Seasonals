@@ -139,18 +139,59 @@ IWM EFA EEM FXI VNQ GLD SLV DBC TLT LQD — NO USO (roll decay) and NO UUP
 +0.5% -> -1.9%, accepted). Sector-ETF / intl-single expansion tested and
 REJECTED (equity slots crowd out diversifiers, 2008/2022 flip negative);
 exhaustion scale-down overlay REJECTED (Sharpe flat). Signals on the month's
-last trading-day close, staged MOO (TIF=OPG) to the `Trend` Sheets tab for
-next-session execution; held-share state in `trend_sleeve_state.json` (R2 —
-the month-end run computes DELTAS against it; if staged orders were never
-executed, clear the state or the next rebalance is wrong). The workflow runs
-weekdays 21:35 UTC (AFTER update_master_prices' 21:10 PM cron — the script
-hard-fails if today's close is missing) and no-ops except on the last trading
-day; `Execute_On` (next ET trading day after the run) gates submission.
-FULLY AUTOMATED end-to-end: order_staging.py (`load_trend_rows`) reads the
-tab on Execute_On morning and emits naked-MOO rows (appended AFTER risk caps,
-excluded from PA/execution_2); eq_order_entry.py places them as MKT/OPG
-parent-only (Exit_Condition_Time='NONE' -> no exit legs — positions unwind
-via future rebalance SELL rows). Ballast ONLY — it loses ~-0.4%/mo in
+last trading-day close, staged as rebalance deltas to the `Trend` Sheets tab
+for next-session execution. Production runs it as the `trend_sleeve` job in the
+local `postclose` pipeline (17:10 ET, after `master_prices_pm`; the script
+hard-fails if today's close is missing), with `trend_sleeve.yml` as the GitHub
+backup; it no-ops except on the last trading day. `Execute_On` (next ET
+trading day after the run) gates submission.
+
+**Inventory basis (live rule).** Current holdings come from verified fills
+attributed to `Trend Sleeve` (`sleeve_fills.signed_inventory`), not from the
+share counts saved in state. A live month-end run raises at
+`trend_sleeve.py:456` ("Trend legacy inventory requires a reviewed fill-history
+bootstrap") unless the R2 state `trend_sleeve_state.json` carries
+`inventory_basis` `attributed_executions`. Dry runs skip the check.
+
+**Order routing (live rule).** `trading_ibkr/order_staging.py` (~1595-1606)
+decides by the file `trend_moo_enabled.flag` next to it. The flag is absent, so
+Trend runs on the legacy path: the 09:31 chain calls `load_trend_rows`, appends
+the rows due today after risk caps on the PRIMARY account only (the small
+account frame is built before they are added), and `eq_order_entry.py` places
+them as MKT with TIF DAY, parent-only (`Exit_Condition_Time` 'NONE', no exit
+legs; positions unwind via later rebalance SELL rows). The pre-market true-MOO
+runner `trading_ibkr/trend_moo.py` (MKT, TIF OPG, primary only) exists but is
+not enabled; `register_trend_moo_task.ps1` creates the flag only after its
+09:12 task registers, and from then on the 09:31 chain excludes Trend.
+
+**Open defect.** `order_staging.py` returns early ("No orders to process") when
+both the main and overflow staging tabs are empty, before it reaches the legacy
+Trend step. A zero-row first session of a month would therefore skip the Trend
+rebalance. Not fixed.
+
+**2026-09-30 month-end.** The run raised at `trend_sleeve.py:456` because the
+R2 state lacked `inventory_basis`; no side effect. On 2026-10-01 at 08:10 ET a
+reviewed flat bootstrap state (`inventory_basis` `attributed_executions`,
+`positions` `{}`, reviewed by McKinley Slade) was published to R2
+`trend_sleeve_state.json`, with a create-only provenance copy at
+`ops/trend_inventory_bootstrap/2026-09-30.json`. `save_state` drops the
+bootstrap block at the next month-end save. The 9/30 receipt was resolved
+`retryable_failure`. Next month end: 2026-10-30.
+
+History: the original pilot staged naked MOO rows that `eq_order_entry.py`
+placed as MKT/OPG, and this doc said so until 2026-10-01. The legacy adapter
+sets TIF DAY because the 09:31 chain runs after the open and exchanges reject
+OPG after the auction. Before the
+attributed-executions basis, the run computed deltas against the share counts
+in state, and unexecuted staged orders had to be cleared by hand.
+
+Aligned sites, change together: `trend_sleeve.py` (`load_state`, `save_state`,
+the inventory check), `sleeve_fills.py`, `trading_ibkr/order_staging.py`
+(`load_trend_rows`, `TREND_TRUE_MOO_FLAG`), `trading_ibkr/trend_moo.py`,
+`trading_ibkr/register_trend_moo_task.ps1`, the `trend_sleeve` job in
+`scripts/automation_supervisor.py`.
+
+Ballast ONLY — it loses ~-0.4%/mo in
 high-fragility months (frag_risk_bands handles that hole). Scale to 1.0x of
 the fraction only after 2 clean quarters. Studies: scratch/tf_universe_study.py,
 scratch/ultracode_research/trend-following.md + trend_prework_gates.md.

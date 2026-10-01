@@ -5,12 +5,24 @@ The compatible owner handoff loads on the next normal day-trade service launch;
 an already-running session retains its original code. Native handoff acknowledgements
 must be distinguished from inert broker/protocol verification.
 
-September 24 data-provider trial: [production evidence and monitoring](fmp_cutover_2026-09-24.md).
-Official economic releases are active for 29 series. The Alpha-primary earnings
-trial selected an explicit FMP fallback on its first run because RZLT disappeared
-without confirmation; earnings are not yet independent of FMP. Runtime/fallback
-SHA is `3ee156c3cd2f0cbfd9680e887757ffea205f562c`. September 30 [retry and issuer-review promotion](earnings_monitor_promotion_2026-09-30.md)
-is active; issuer checks alert on conflicts and do not automatically correct dates.
+Earnings calendar, October 1: [Alpha Vantage only release](earnings_alpha_only_release_2026-10-01.md).
+Production earnings come from Alpha Vantage alone (`config/earnings_calendar.json`:
+provider `alpha`, `alpha_fallback` `stop`, `confirmation_provider` `calendar`). No
+FMP bootstrap, confirmation or fallback remains; FMP has returned HTTP 429 since
+2026-09-30 and the renewal was cancelled. Runtime pin
+`a7f49f00865fdaf6ef598845b6a1504a9899478b`, tag and GitHub fallback ref
+`automation-runtime-2026-10-01.earnings-alpha-only`, released 10:11 ET. The first
+scheduled proof is the 17:10 ET postclose run on 2026-10-01 and is still owed.
+Supervisor failure email and the `scan_am` earnings pre-step are on main
+(`7cb1560a`) and wait for the next release. Background: [9/30 incident](incidents/2026-10-01_earnings_fmp_scan_skip.md).
+
+Official economic releases are active for 29 series with no FMP request; parser
+fixes `55017156` are in the runtime. The September 24 [data-provider trial](fmp_cutover_2026-09-24.md)
+and the September 30 [retry and issuer-review promotion](earnings_monitor_promotion_2026-09-30.md)
+are history: the Alpha retry ladder and the one-request-per-day claim carry over,
+the FMP fallback does not. Issuer checks alert on conflicts and do not
+automatically correct dates; `scripts/prepare_earnings_issuer_review.py --alpha-r2`
+runs them without FMP.
 
 Latest priority-3 inventory work: [Primary OLV cutover](olv_inventory_cutover_2026-09-09.md).
 Its prepared source and reconciled opening candidate are not yet active.

@@ -57,6 +57,11 @@ direct HTTP; that applied to the rendered HTML page, not to this endpoint,
 and nothing about this path bypasses access control. An endpoint that refuses
 us is an error to report, never something to work around.
 
+Superseded note (2026-10-01): the paragraph below is history. Since commit
+`4dcdecbf` (2026-09-21) the 17:10 ET evening breadth run has used the dated,
+16:15 ET-gated `overview` as a preliminary observation, amended by the 04:10 ET
+morning diary. The live rule is in `docs/claude_ref/fragility_dial.md`.
+
 The collector requests `marketsDiaryType=diaries`, which is exactly the table
 this document already specified. `marketsDiaryType=overview` is deliberately
 NOT used: its "Issues At" block agrees with the diary on NYSE but not on
