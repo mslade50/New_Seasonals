@@ -82,9 +82,11 @@ def parse_adp(raw, *, source, fetched_at, digest):
     m = _match(r"ADP National Employment Report: Private.?Sector Employment (Increased by|Decreased by|Shed) ([\d,]+) Jobs in ([A-Za-z]+)", title["content"])
     stamp = _match(r"ITEMDATE:\s*(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):\d{2} E[DS]T", raw)
     released = release_time(stamp[1], stamp[2])
-    # Reference month is the month preceding publication, including January.
-    period = pd.Period(pd.Timestamp(stamp[1]), freq="M") - 1
-    if period.strftime("%B").lower() != m[3].lower():
+    # ADP usually publishes the prior month, but releases the same month when
+    # the BLS jobs report slips into the next month (Sep 2026 data on Sep 30).
+    published = pd.Period(pd.Timestamp(stamp[1]), freq="M")
+    period = next((p for p in (published, published - 1) if p.strftime("%B").lower() == m[3].lower()), None)
+    if period is None:
         raise ValueError("ADP reference month does not match publication")
     value = float(m[2].replace(",", "")) / 1000
     if m[1].lower() != "increased by":

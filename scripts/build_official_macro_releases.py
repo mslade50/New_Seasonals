@@ -12,6 +12,7 @@ import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -38,6 +39,17 @@ REQUIRED = set(BLS_SERIES) | {"pce_mom", "core_pce_mom", "pce_yoy", "core_pce_yo
     "ism_manufacturing_pmi", "ism_services_pmi", "adp_employment_change", "retail_sales_ex_autos_mom",
     "jolts_job_openings"}
 UNRESOLVED = []
+# BEA titled the 2026-09-30 combined release "GDP, (Third Estimate), Industries, ...".
+BEA_TITLES = {"gdp": r"GDP,?\s*\(", "pce": r"Personal Income and Outlays,"}
+
+
+def bea_release_url(link):
+    url = (link or "").strip()
+    if url.startswith("www.bea.gov/"):
+        url = f"https://{url}"
+    if not url.startswith("https://www.bea.gov/news/"):
+        raise ValueError("unexpected BEA release URL")
+    return url
 
 
 def artifact_output(path):
@@ -101,20 +113,23 @@ def collect(output, *, source_dir=None, calendar_path=ROOT / "data/macro_events.
     try:
         raw, _ = get("bea_rss.txt", URLS["bea_rss.txt"])
         items = ET.fromstring(raw).findall("./channel/item")
-        for kind, token in [("gdp", "GDP ("), ("pce", "Personal Income and Outlays,")]:
-            candidates = [i for i in items if (i.findtext("title") or "").startswith(token)]
+    except Exception as exc:
+        gaps.append(f"BEA: {type(exc).__name__}: {exc}")
+        items = None
+    # GDP and PCE fail independently so one release's gap cannot hide the other.
+    for kind, pattern in BEA_TITLES.items() if items is not None else ():
+        try:
+            candidates = [i for i in items if re.match(pattern, i.findtext("title") or "")]
             if not candidates:
                 raise ValueError(f"BEA RSS has no {kind} release")
             item = max(candidates, key=lambda i: parsedate_to_datetime(i.findtext("pubDate")))
-            url = item.findtext("link")
-            if not url or not url.startswith("https://www.bea.gov/news/"):
-                raise ValueError("unexpected BEA release URL")
+            url = bea_release_url(item.findtext("link"))
             raw, meta = get(f"{kind}.html", url)
             html = raw.decode("utf-8", errors="replace")
             rows.extend(parse_bea(html, kind, source=url, **meta))
             schedules.append(next_release(html, kind, source=url))
-    except Exception as exc:
-        gaps.append(f"BEA: {type(exc).__name__}: {exc}")
+        except Exception as exc:
+            gaps.append(f"BEA {kind}: {type(exc).__name__}: {exc}")
     for name, parser in [("retail.pdf", parse_retail), ("claims.pdf", parse_claims)]:
         try:
             from pypdf import PdfReader
