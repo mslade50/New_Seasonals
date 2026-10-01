@@ -144,6 +144,14 @@ def reconcile_primary_confirmations(prior, alpha, confirmations, as_of):
     return normalize(result), alpha
 
 
+def redated_periods(frame, alpha_dates):
+    """Rows whose fiscal period Alpha now publishes on a different (non-past) date."""
+    if "fiscalDateEnding" not in frame:
+        return pd.Series(False, index=frame.index)
+    return pd.Series([pd.notna(p) and (t, p) in alpha_dates and alpha_dates[(t, p)] != d
+                      for t, p, d in zip(frame.ticker, frame.fiscalDateEnding, frame.date)], index=frame.index, dtype=bool)
+
+
 def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirmation_provider="fmp"):
     """Retain legacy history; replace forward expectations; confirm new history.
 
@@ -193,9 +201,14 @@ def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirm
         # Patch recent rows only; older versioned financial history is frozen.
         actuals = actuals.loc[actuals.date.ge(as_of - 10 * TRADING_DAY)]
         history = pd.concat([actuals, history], ignore_index=True).drop_duplicates(["ticker", "date"], keep="first")
+    # A same-period date that Alpha will publish replaces an unconfirmed old
+    # date; keeping both makes the stale date the nearest event downstream.
+    alpha_dates = {(t, p): d for t, p, d in zip(alpha.ticker, alpha.fiscalDateEnding, alpha.date) if d >= as_of}
     pending = history.loc[history.event_status.eq("expected")]
     if not pending.empty:
         if confirmation_provider == "calendar":
+            history = history.drop(pending.index[redated_periods(pending, alpha_dates)])
+            pending = history.loc[history.event_status.eq("expected")]
             history.loc[pending.index, "event_status"] = "schedule_unverified"
         else:
             raise CalendarError("Unconfirmed elapsed Alpha events: " + ", ".join(sorted(pending.ticker.unique())))
@@ -207,6 +220,7 @@ def build_candidate(prior, alpha, confirmations, as_of, overrides=(), *, confirm
         if confirmation_provider != "calendar":
             raise CalendarError("Unconfirmed disappearance of today's earnings: " + ", ".join(sorted(today_before - today_after)))
         retained = prior.loc[prior.date.eq(as_of) & prior.ticker.isin(today_before - today_after)].copy()
+        retained = retained.loc[~redated_periods(retained, alpha_dates)].copy()
         retained["event_status"] = "schedule_unverified"
         history = pd.concat([history, retained], ignore_index=True)
     if {"event_source", "fiscalDateEnding"}.issubset(prior.columns):

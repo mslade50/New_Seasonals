@@ -74,6 +74,97 @@ def test_calendar_only_same_period_revision_supersedes_old_schedule():
     assert result.event_status.tolist() == ["expected"]
 
 
+@pytest.mark.parametrize("old_date", ["2026-09-21", "2026-09-22"])
+def test_calendar_only_redated_elapsed_or_today_event_publishes_only_new_date(old_date):
+    old = prior(("AAA", old_date, None, 1, None, None), ("AAA", "2026-06-20", 2, 1, 100, 99)).assign(
+        event_status=["expected", "confirmed"], event_source="alpha_vantage", fiscalDateEnding=["2026-08-31", "2026-05-31"])
+    result, _ = build_candidate(old, alpha(), pd.DataFrame(), DAY, confirmation_provider="calendar")
+    assert list(result.date.dt.strftime("%Y-%m-%d")) == ["2026-06-20", "2026-09-24"]
+    assert earnings_filter.signed_offset(DAY, result.date.to_numpy(dtype="datetime64[D]")) == -2
+    runner.coverage_gate(old, result, DAY)
+
+
+def test_calendar_only_redate_never_drops_confirmed_or_unmatched_rows():
+    old = prior(("AAA", "2026-09-21", 2, 1, 100, 99), ("BBB", "2026-09-21", None, 1, None, None),
+                ("CCC", "2026-09-21", None, 1, None, None)).assign(
+        event_status=["confirmed", "expected", "expected"], event_source="alpha_vantage",
+        fiscalDateEnding=["2026-08-31", "2026-08-31", None])
+    source = alpha("AAA,A,2026-09-24,2026-08-31,1,USD\nCCC,C,2026-09-24,2026-08-31,1,USD\n")
+    result, _ = build_candidate(old, source, pd.DataFrame(), DAY, confirmation_provider="calendar")
+    status = dict(zip(zip(result.ticker, result.date.dt.strftime("%Y-%m-%d")), result.event_status))
+    assert status == {("AAA", "2026-09-21"): "confirmed", ("AAA", "2026-09-24"): "expected",
+                      ("BBB", "2026-09-21"): "schedule_unverified", ("CCC", "2026-09-21"): "schedule_unverified",
+                      ("CCC", "2026-09-24"): "expected"}
+
+
+def calendar_day(n_alpha, report="2026-10-15", n_prior=20):
+    old = prior(*[(f"T{i:02d}", report, None, 1, None, None) for i in range(n_prior)],
+                ("AAA", "2026-09-21", None, 1, None, None)).assign(
+        event_status="expected", event_source="alpha_vantage", fiscalDateEnding="2026-08-31")
+    source = alpha("".join(f"T{i:02d},T,{report},2026-08-31,1,USD\n" for i in range(n_alpha)))
+    return old, build_candidate(old, source, pd.DataFrame(), DAY, confirmation_provider="calendar")[0]
+
+
+def test_forward_shrink_gate_refuses_truncated_calendar_feed():
+    old, candidate = calendar_day(16)
+    runner.coverage_gate(old, candidate, DAY)
+    runner.forward_shrink_gate(old, candidate, DAY)
+    old, truncated = calendar_day(5)
+    with pytest.raises(CalendarError, match="5 of 20"):
+        runner.forward_shrink_gate(old, truncated, DAY)
+    # Near-term vanished rows are re-inserted as unverified but are not fresh coverage.
+    old, truncated = calendar_day(5, report="2026-09-24")
+    assert truncated.event_status.eq("schedule_unverified").sum() == 16
+    with pytest.raises(CalendarError, match="5 of 20"):
+        runner.forward_shrink_gate(old, truncated, DAY)
+
+
+def test_forward_shrink_gate_refuses_date_sorted_feed_cut_in_half():
+    dates = ["2026-10-20"] * 10 + ["2026-11-20"] * 10
+    old = prior(*[(f"T{i:02d}", d, None, 1, None, None) for i, d in enumerate(dates)]).assign(
+        event_status="expected", event_source="alpha_vantage", fiscalDateEnding="2026-08-31")
+    rows = [f"T{i:02d},T,{d},2026-08-31,1,USD\n" for i, d in enumerate(dates)]
+    full, _ = build_candidate(old, alpha("".join(rows)), pd.DataFrame(), DAY, confirmation_provider="calendar")
+    runner.forward_shrink_gate(old, full, DAY)
+    half, _ = build_candidate(old, alpha("".join(rows[:10])), pd.DataFrame(), DAY, confirmation_provider="calendar")
+    runner.coverage_gate(old, half, DAY)  # Near-term coverage alone cannot see this cut.
+    with pytest.raises(CalendarError, match="10 of 20"):
+        runner.forward_shrink_gate(old, half, DAY)
+
+
+def test_near_term_coverage_ignores_reinserted_unverified_rows():
+    old = prior(*[(f"T{i}", "2026-09-24", None, 1, None, None) for i in range(10)]).assign(
+        event_status="expected", event_source="alpha_vantage", fiscalDateEnding="2026-08-31")
+    candidate, _ = build_candidate(old, alpha("T0,T,2026-09-24,2026-08-31,1,USD\n"), pd.DataFrame(), DAY,
+                                   confirmation_provider="calendar")
+    assert len(candidate) == 10
+    with pytest.raises(CalendarError, match="20%"):
+        runner.coverage_gate(old, candidate, DAY)
+
+
+def test_near_term_coverage_survives_heavy_release_day_drop():
+    old = prior(*[(f"D{i:02d}", "2026-09-22", None, 1, None, None) for i in range(30)],
+                *[(f"N{i}", "2026-09-24", None, 1, None, None) for i in range(10)]).assign(
+        event_status="expected", event_source="alpha_vantage", fiscalDateEnding="2026-08-31")
+    source = alpha("".join(f"N{i},N,2026-09-24,2026-08-31,1,USD\n" for i in range(10)))
+    candidate, _ = build_candidate(old, source, pd.DataFrame(), DAY, confirmation_provider="calendar")
+    assert candidate.loc[candidate.date.eq(DAY), "event_status"].eq("schedule_unverified").sum() == 30
+    runner.coverage_gate(old, candidate, DAY)
+    runner.forward_shrink_gate(old, candidate, DAY)
+
+
+def test_prior_forward_unverified_rows_do_not_cause_refusal():
+    old = prior(*[(f"V{i}", "2026-09-24", None, 1, None, None) for i in range(5)],
+                *[(f"N{i:02d}", "2026-09-25", None, 1, None, None) for i in range(17)]).assign(
+        event_status=["schedule_unverified"] * 5 + ["expected"] * 17, event_source="alpha_vantage",
+        fiscalDateEnding="2026-08-31")
+    source = alpha("".join(f"N{i:02d},N,2026-09-25,2026-08-31,1,USD\n" for i in range(17)))
+    candidate, _ = build_candidate(old, source, pd.DataFrame(), DAY, confirmation_provider="calendar")
+    assert candidate.event_status.eq("schedule_unverified").sum() == 5
+    runner.coverage_gate(old, candidate, DAY)
+    runner.forward_shrink_gate(old, candidate, DAY)
+
+
 def test_calendar_only_preserves_existing_actuals_and_rejects_new_confirmations():
     old = prior(("AAA", "2026-06-20", 0, 1, 100, 99))
     result, _ = build_candidate(old, alpha(), pd.DataFrame(), DAY, confirmation_provider="calendar")
@@ -296,6 +387,70 @@ def test_production_path_and_fallback_verify_publication(tmp_path, monkeypatch, 
     if calendar_only:
         assert receipt["historical_actuals_provider"] == "calendar"
         assert receipt["recent_actuals_requested"] == []
+
+
+def run_calendar_production(tmp_path, monkeypatch, old, alpha_rows):
+    """Calendar-only production run against fake R2; returns (exit code, published keys)."""
+    import cache_io
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    monkeypatch.setattr(runner, "CSV_UNIVERSE", set())
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "fake-alpha")
+    config = tmp_path / "config"; config.mkdir()
+    (config / "earnings_calendar.json").write_text(json.dumps(
+        {"provider": "alpha", "alpha_fallback": "stop", "confirmation_provider": "calendar"}))
+    (config / "earnings_calendar_overrides.json").write_text('{"overrides": []}')
+    remote = {}
+    for name, frame in ((runner.KEY, old), ("earnings_calendar_overflow.parquet", old),
+                        ("symbol_master.parquet", pd.DataFrame({"ticker": sorted(set(old.ticker))}))):
+        frame.to_parquet(tmp_path / name); remote[name] = (tmp_path / name).read_bytes()
+    def download(key, dest):
+        Path(dest).write_bytes(remote[key]); return True
+    published = []
+    def upload(path, key, **kwargs):
+        published.append(key); remote[key] = Path(path).read_bytes()
+        return "uploaded", '"new"'
+    monkeypatch.setattr(cache_io, "head", lambda key: {"ETag": '"prior"'})
+    monkeypatch.setattr(cache_io, "download_to_local", download)
+    monkeypatch.setattr(cache_io, "conditional_upload_from_local", upload)
+    csv = HEADER + alpha_rows
+    monkeypatch.setattr(runner, "daily_alpha", lambda **kwargs: (csv, parse_alpha_csv(csv), {"test": True}))
+    monkeypatch.setattr(runner, "fetch_fmp_rows", lambda *a: pytest.fail("Alpha-only production must never request FMP"))
+    return runner.main([]), published
+
+
+def ny_day(n):
+    return str((pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize() + pd.Timedelta(days=n)).date())
+
+
+@pytest.mark.parametrize("listed", [10, 2])
+def test_calendar_only_production_refuses_truncated_feed(tmp_path, monkeypatch, listed):
+    tickers = [f"T{i}" for i in range(10)]
+    old = prior(*[(t, ny_day(40), None, 1, None, None) for t in tickers]).assign(
+        event_status="expected", event_source="alpha_vantage", fiscalDateEnding=ny_day(-10), calendar_scope=SCOPE)
+    rows = "".join(f"{t},T,{ny_day(40)},{ny_day(-10)},1,USD\n" for t in tickers[:listed])
+    code, published = run_calendar_production(tmp_path, monkeypatch, old, rows)
+    if listed == 10:
+        assert code == 0 and published == [runner.KEY]
+        return
+    assert code == 1
+    assert not published and not (tmp_path / "data").exists()
+    failure = json.loads(next((tmp_path / "artifacts/earnings_provider").glob("*/failure.json")).read_text())
+    assert "2 of 10" in failure["error"]
+
+
+def test_unverified_receipt_counts_only_current_and_future_rows(tmp_path, monkeypatch):
+    listed = [f"K{i}" for i in range(5)]
+    old = prior(("OLD", ny_day(-30), None, 1, None, None), ("GONE", ny_day(1), None, 1, None, None),
+                *[(t, ny_day(2), None, 1, None, None) for t in listed]).assign(
+        event_status=["schedule_unverified"] + ["expected"] * 6, event_source="alpha_vantage",
+        fiscalDateEnding=ny_day(-60), calendar_scope=SCOPE)
+    rows = "".join(f"{t},K,{ny_day(2)},{ny_day(-60)},1,USD\n" for t in listed)
+    code, published = run_calendar_production(tmp_path, monkeypatch, old, rows)
+    assert code == 0 and published == [runner.KEY]
+    receipt = json.loads((tmp_path / "data" / (runner.KEY + ".status.json")).read_text())
+    candidate = pd.read_parquet(tmp_path / "data" / runner.KEY)
+    assert set(candidate.loc[candidate.event_status.eq("schedule_unverified"), "ticker"]) == {"OLD", "GONE"}
+    assert receipt["unverified_schedule_rows"] == 1
 
 
 def test_readback_mismatch_leaves_local_untouched(tmp_path, monkeypatch):

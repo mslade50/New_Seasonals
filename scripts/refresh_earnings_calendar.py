@@ -30,6 +30,8 @@ from trading_calendar import TRADING_DAY
 from alpha_calendar_snapshot import daily_alpha, SnapshotError
 
 KEY = "earnings_calendar.parquet"
+NEAR_TERM_COVERAGE_MIN = .80
+FORWARD_SHRINK_MIN = .80
 
 
 def digest(path):
@@ -103,9 +105,15 @@ def stamp(frame, as_of, provider):
 def coverage_gate(prior, candidate, as_of):
     """Historical row counts cannot mask a truncated forward response."""
     horizon = as_of + 10 * TRADING_DAY
-    previous = set(prior.loc[prior.date.between(as_of, horizon), "ticker"])
-    current = set(candidate.loc[candidate.date.between(as_of, horizon), "ticker"])
-    if previous and len(current) < len(previous) * .80:
+    # Calendar-only mode re-inserts vanished forward rows as unverified; they are
+    # not coverage on either side. Today's reporters may leave the feed after release.
+    def verified(frame):
+        if "event_status" not in frame:
+            return True
+        return ~(frame.event_status.eq("schedule_unverified") & frame.date.gt(as_of))
+    previous = set(prior.loc[prior.date.between(as_of, horizon) & verified(prior), "ticker"])
+    current = set(candidate.loc[candidate.date.between(as_of, horizon) & verified(candidate), "ticker"])
+    if previous and len(current) < len(previous) * NEAR_TERM_COVERAGE_MIN:
         raise CalendarError("Near-term earnings coverage fell by more than 20%; refusing publication")
     historical = prior.date.lt(as_of)
     if "event_status" in prior:
@@ -114,6 +122,21 @@ def coverage_gate(prior, candidate, as_of):
     keys = set(zip(candidate.ticker, candidate.date))
     if any(key not in keys for key in zip(history.ticker, history.date)):
         raise CalendarError("Candidate lost an existing historical event")
+
+
+def forward_shrink_gate(prior, candidate, as_of):
+    """Calendar-only mode: a valid but truncated Alpha feed must not publish."""
+    if not {"event_status", "event_source"}.issubset(prior.columns):
+        return
+    # Retained unverified rows keep their alpha_vantage source; they are not fresh.
+    # No Alpha-horizon bound: the feed is date-sorted, so truncation shortens it.
+    def forward(frame):
+        return int((frame.event_source.eq("alpha_vantage") & frame.event_status.eq("expected")
+                    & frame.date.gt(as_of)).sum())
+    previous, current = forward(prior), forward(candidate)
+    if previous and current < previous * FORWARD_SHRINK_MIN:
+        raise CalendarError(f"Forward Alpha calendar shrank to {current} of {previous} prior expected rows; "
+                            "refusing publication")
 
 
 def fmp_fallback(prior, universe, as_of, key):
@@ -322,8 +345,11 @@ def main(argv=None):
             candidate, applied = build_candidate(prior, alpha, confirmations, as_of, overrides,
                                                 confirmation_provider=args.confirmation_provider)
             receipt["overrides_applied"] = applied
-            receipt["unverified_schedule_rows"] = int(candidate.event_status.eq("schedule_unverified").sum())
+            receipt["unverified_schedule_rows"] = int((candidate.event_status.eq("schedule_unverified")
+                                                       & candidate.date.ge(as_of)).sum())
             coverage_gate(prior, candidate, as_of)
+            if args.confirmation_provider == "calendar":
+                forward_shrink_gate(prior, candidate, as_of)
             selected = "alpha"
         except Exception as exc:
             # Never turn a failed replay into live requests; never log raw errors
