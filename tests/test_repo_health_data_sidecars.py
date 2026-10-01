@@ -8,6 +8,7 @@ def test_producer_status_is_expected_but_partial_write_still_warns(tmp_path, mon
     data.mkdir()
     (data / 'master_prices.parquet.status.json').write_text('{}')
     monkeypatch.setattr(health, 'ROOT', tmp_path)
+    monkeypatch.setattr(health, 'AUTOMATION_RUNTIME', tmp_path)
     monkeypatch.setattr(health, '_last_index_date', lambda p: dt.date.today())
     reports = []
     monkeypatch.setattr(health, 'report', lambda *args: reports.append(args))

@@ -23,8 +23,10 @@ Checks:
                         the most recent expected run date; pitch requires the
                         canonical local receipt and matching R2 evidence
   6. Trigger logs     - pinned Task Scheduler runtime log recency
-  7. Guard tests      - pytest --collect-only: collection errors FAIL, guard
-                        files contributing zero tests WARN
+  7. Guard tests      - pytest --collect-only: collection errors FAIL (a
+                        missing broker-only module such as ib_insync WARNs as
+                        an environment gap), guard files contributing zero
+                        tests WARN on the same pass
 """
 from __future__ import annotations
 
@@ -33,6 +35,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -48,13 +51,40 @@ import cache_io  # noqa: E402
 STATE_PATH = ROOT / "data" / "health_check_state.json"
 CONFIG_ROOT = Path(os.environ.get("NEW_SEASONALS_CONFIG_ROOT", str(ROOT))).resolve()
 JOURNAL_DATA_ROOT = CONFIG_ROOT / "data"
-_DEFAULT_AUTOMATION_RUNTIME = (
-    ROOT if (ROOT / ".local" / "automation-runtime.json").is_file()
-    else ROOT.parent / "New_Seasonals-automation-runtime"
-)
+RUNTIME_MARKER = Path(".local") / "automation-runtime.json"
+
+
+def _resolve_automation_runtime(root: Path) -> tuple[Path | None, dict]:
+    """ROOT when it is the pinned runtime, else the newest sibling runtime-vN with a marker."""
+    runtime = root if (root / RUNTIME_MARKER).is_file() else None
+    if runtime is None:
+        versions = []
+        for candidate in root.parent.glob("New_Seasonals-automation-runtime-v*"):
+            match = re.fullmatch(r"New_Seasonals-automation-runtime-v(\d+)", candidate.name)
+            if match and (candidate / RUNTIME_MARKER).is_file():
+                versions.append((int(match.group(1)), candidate))
+        if not versions:
+            return None, {}
+        runtime = max(versions)[1]
+    try:
+        marker = json.loads((runtime / RUNTIME_MARKER).read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        marker = {}
+    return runtime, marker if isinstance(marker, dict) else {}
+
+
+def _default_automation_state_root(runtime: Path | None, marker: dict) -> Path:
+    # Pipeline logs and health receipts live under the marker's config root,
+    # not inside the immutable runtime checkout.
+    if marker.get("config_root"):
+        return Path(marker["config_root"]) / "artifacts" / "automation"
+    return (runtime or ROOT) / "artifacts" / "automation"
+
+
+AUTOMATION_RUNTIME, _RUNTIME_MARKER_DATA = _resolve_automation_runtime(ROOT)
 AUTOMATION_STATE_ROOT = Path(os.environ.get(
     "NEW_SEASONALS_AUTOMATION_STATE_ROOT",
-    str(_DEFAULT_AUTOMATION_RUNTIME / "artifacts" / "automation"),
+    str(_default_automation_state_root(AUTOMATION_RUNTIME, _RUNTIME_MARKER_DATA)),
 ))
 AUTOMATION_LOG_DIR = AUTOMATION_STATE_ROOT / "logs"
 AUTOMATION_RECEIPT_SCHEMA = "automation-receipt.v1"
@@ -241,6 +271,15 @@ def _spy_last_session(path: Path) -> dt.date | None:
     return pd.to_datetime(frame["date"]).max().date()
 
 
+def _local_data_dir() -> tuple[Path, str]:
+    # A dev checkout's data/ is not refreshed by the producers; read the
+    # pinned runtime's copy instead and say so in every detail line.
+    runtime = AUTOMATION_RUNTIME
+    if runtime is None or runtime.resolve() == ROOT.resolve():
+        return ROOT / "data", ""
+    return runtime / "data", f" [read from pinned runtime {runtime / 'data'}]"
+
+
 def check_breadth_alignment() -> None:
     """The collected NYSE diary must cover the newest SPY session.
 
@@ -251,61 +290,64 @@ def check_breadth_alignment() -> None:
     degraded window (PM collection missed, AM correction still owed), and two
     or more means the floor has been off for a full cycle.
     """
-    breadth_path = ROOT / "data" / "market_breadth.parquet"
+    data_dir, source = _local_data_dir()
+    breadth_path = data_dir / "market_breadth.parquet"
     try:
         breadth = _last_index_date(breadth_path)
     except Exception as exc:
-        report("FAIL", "data:breadth-alignment", f"market_breadth unreadable: {exc}")
+        report("FAIL", "data:breadth-alignment", f"market_breadth unreadable: {exc}{source}")
         return
-    spy = _spy_last_session(ROOT / "data" / "master_prices.parquet")
+    spy = _spy_last_session(data_dir / "master_prices.parquet")
     if breadth is None or spy is None:
         missing = "market_breadth.parquet" if breadth is None else "SPY in master_prices.parquet"
-        report("WARN", "data:breadth-alignment", f"cannot compare: {missing} unavailable")
+        report("WARN", "data:breadth-alignment",
+               f"cannot compare: {missing} unavailable{source}")
         return
     behind = bdays_behind(breadth, spy)
     if behind <= 0:
         report("OK", "data:breadth-alignment",
-               f"breadth covers the newest SPY session ({breadth})")
+               f"breadth covers the newest SPY session ({breadth}){source}")
     elif behind == 1:
         report("WARN", "data:breadth-alignment",
                f"breadth last {breadth}, SPY last {spy} - the dial is scoring "
-               f"unfloored for one session; the next collection should close it")
+               f"unfloored for one session; the next collection should close it{source}")
     else:
         report("FAIL", "data:breadth-alignment",
                f"breadth last {breadth}, SPY last {spy} ({behind} bd behind) - "
-               f"the NYSE floor has been absent for a full cycle")
+               f"the NYSE floor has been absent for a full cycle{source}")
 
 
 def check_local_data() -> None:
     today = dt.date.today()
+    data_dir, source = _local_data_dir()
     for name, warn_bd, fail_bd in [
         ("master_prices.parquet", 2, 3),
         ("rd2_fragility.parquet", 2, 4),   # FRAG_STALE_TD=3: >3 means live
         ("cboe_putcall.parquet", 2, 4),    # sizing already fell back silently
     ]:
-        path = ROOT / "data" / name
+        path = data_dir / name
         try:
             last = _last_index_date(path)
         except Exception as exc:
-            report("FAIL", f"data:{name}", f"unreadable: {exc}")
+            report("FAIL", f"data:{name}", f"unreadable: {exc}{source}")
             continue
         if last is None:
-            report("FAIL", f"data:{name}", "file missing")
+            report("FAIL", f"data:{name}", f"file missing{source}")
             continue
         behind = bdays_behind(last, today)
         tier = "FAIL" if behind >= fail_bd else "WARN" if behind >= warn_bd else "OK"
         note = "" if tier == "OK" else " (the pinned runtime may need a canonical R2 pull)"
-        report(tier, f"data:{name}", f"last row {last}, {behind} bd behind{note}")
+        report(tier, f"data:{name}", f"last row {last}, {behind} bd behind{note}{source}")
 
     check_breadth_alignment()
 
-    strays = [p for p in (ROOT / "data").glob("*.parquet.*")
+    strays = [p for p in data_dir.glob("*.parquet.*")
               if p.is_file() and not p.name.endswith(".parquet.status.json")]
     if strays:
         report("WARN", "data:stray-temp-files",
-               "partial-write artifacts: " + ", ".join(p.name for p in strays))
+               "partial-write artifacts: " + ", ".join(p.name for p in strays) + source)
     else:
-        report("OK", "data:stray-temp-files", "none")
+        report("OK", "data:stray-temp-files", f"none{source}")
 
 
 # ---------------------------------------------------------------- 3. PIT
@@ -506,27 +548,66 @@ def check_trigger_logs() -> None:
 
 
 # ---------------------------------------------------------------- 7. tests
+# Broker-only dependencies a health interpreter may legitimately lack; a test
+# file that fails to import one is an environment gap, not a code fault.
+ENVIRONMENT_OPTIONAL_MODULES = frozenset({"ib_insync"})
+
+
+def _collection_errors(stdout: str) -> dict[str, str]:
+    """Map each file pytest could not collect to its last ``E`` diagnostic line."""
+    errors: dict[str, str] = {}
+    current = None
+    for line in stdout.splitlines():
+        header = re.fullmatch(r"_+ ERROR collecting (\S+) _+", line.strip())
+        if header:
+            current = header.group(1).replace("\\", "/")
+            errors[current] = ""
+        elif line.startswith("="):
+            current = None
+        elif current and line.startswith("E "):
+            errors[current] = line[1:].strip()
+    return errors
+
+
 def check_test_collection() -> None:
     out = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q",
          "-p", "no:cacheprovider", "tests"],
         cwd=ROOT, capture_output=True, text=True, timeout=600)
-    if out.returncode not in (0, 5):
+    collected = {line.split("::")[0].replace("\\", "/")
+                 for line in out.stdout.splitlines() if "::" in line}
+    errors = _collection_errors(out.stdout)
+    if out.returncode not in (0, 5) and not errors:
         diagnostic = (out.stderr or out.stdout).strip().splitlines()
         tail = diagnostic[-1] if diagnostic else "no diagnostic output"
         report("FAIL", "tests:collect",
                f"collection process failed (exit {out.returncode}: {tail}); "
                f"run pytest --collect-only tests for detail")
-        return
-    collected = {line.split("::")[0].replace("\\", "/")
-                 for line in out.stdout.splitlines() if "::" in line}
+        if not collected:
+            return
+    hard: list[str] = []
+    missing_env: dict[str, list[str]] = {}
+    for path, diagnostic in errors.items():
+        missing = re.search(r"No module named '([^']+)'", diagnostic)
+        module = missing.group(1).split(".")[0] if missing else None
+        if module in ENVIRONMENT_OPTIONAL_MODULES:
+            missing_env.setdefault(module, []).append(Path(path).name)
+        else:
+            hard.append(f"{Path(path).name} ({diagnostic or 'no diagnostic'})")
+    if hard:
+        report("FAIL", "tests:collect",
+               f"{len(hard)} file(s) fail to collect: " + "; ".join(hard))
+    for module, names in sorted(missing_env.items()):
+        report("WARN", "tests:collect-env",
+               f"{sys.executable} lacks {module} (environment, not code): "
+               f"{len(names)} file(s) not collected: " + ", ".join(names))
     empty = [p.name for p in sorted((ROOT / "tests").glob("test_*.py"))
-             if f"tests/{p.name}" not in collected]
+             if f"tests/{p.name}" not in collected and f"tests/{p.name}" not in errors]
     if empty:
         report("WARN", "tests:collect",
                f"guard files with ZERO collectable tests (never run in CI): "
                + ", ".join(empty))
-    else:
+    elif not (hard or missing_env) and out.returncode in (0, 5):
         report("OK", "tests:collect", f"{len(collected)} test files collect")
 
 

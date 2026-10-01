@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import re
 
 from scripts import automation_supervisor as supervisor
@@ -62,32 +63,47 @@ def test_every_local_job_backup_enables_fail_closed_producer_mode() -> None:
         assert "\nenv:\n  LOCAL_AUTOMATION_STRICT: '1'\n" in "\n" + workflow, name
 
 
+def _local_runtime_marker() -> dict | None:
+    markers = []
+    for candidate in ROOT.parent.glob("New_Seasonals-automation-runtime-v*"):
+        version = re.fullmatch(r"New_Seasonals-automation-runtime-v(\d+)", candidate.name)
+        marker = candidate / ".local" / "automation-runtime.json"
+        if version and marker.is_file():
+            markers.append((int(version.group(1)), marker))
+    if not markers:
+        return None
+    return json.loads(max(markers)[1].read_text(encoding="utf-8"))
+
+
 def test_only_guarded_controller_retains_a_cron_for_migrated_jobs() -> None:
     fallback = _text("local_automation_fallback.yml")
     assert "  schedule:" in fallback
-    assert "- cron: '47 * * * *'" in fallback
     # 2026-09-04 (incident 2026-09-03): ~20-minute spacing across the premarket
     # fallback window 05:20-08:55 ET in both DST regimes (09-13 UTC covers
-    # EDT 09:20-12:55 and EST 10:20-13:55), weekdays only.
-    assert "- cron: '7 9-13 * * 1-5'" in fallback
-    assert "- cron: '27 9-13 * * 1-5'" in fallback
-    # 2026-09-04 round 2: the six off-window ticks and, by name, the EDT
-    # 13:07Z tick that lands at 09:07 ET inside the discretionary window under
-    # the 'general' concurrency group, are documented where the crons live.
-    assert "13:07Z tick lands at 09:07 ET" in fallback
-    assert "08:50-09:20 ET" in fallback
-    assert "'general' concurrency group" in fallback
-    for off_window in ("EDT 05:07", "09:27", "EST 04:07", "04:27"):
-        assert off_window in fallback
-    assert "- cron: '50 12,13 * * 1-5'" in fallback
+    # EDT 09:20-12:55 and EST 10:20-13:55), weekdays only. The discretionary
+    # 12:50/13:50 probe and its concurrency group retired 2026-09-23 (2ef9fa21).
+    assert re.findall(r"(?m)^\s*- cron: '([^']+)'", fallback) == [
+        "47 * * * *",
+        "7 9-13 * * 1-5",
+        "27 9-13 * * 1-5",
+    ]
+    assert "05:20-08:55 ET" in fallback
+    assert "discretionary" not in fallback
+    assert "group: local-automation-guarded-fallback-general" in fallback
+    assert "PIPELINE: ${{ inputs.pipeline || 'all' }}" in fallback
     assert (
         'scripts/automation_supervisor.py fallback-due --pipeline "$PIPELINE" '
         '--ref "$AUTOMATION_RUNTIME_REF"'
     ) in fallback
-    assert "AUTOMATION_RUNTIME_REF: automation-runtime-2026-09-21.breadth-canonical" in fallback
+    pin = re.search(
+        r"(?m)^  AUTOMATION_RUNTIME_REF: (automation-runtime-\d{4}-\d{2}-\d{2}\.[A-Za-z0-9][A-Za-z0-9._-]*)\s*$",
+        fallback,
+    )
+    assert pin, "fallback must pin an immutable automation-runtime tag"
+    marker = _local_runtime_marker()
+    if marker is not None:
+        assert pin.group(1) == marker["fallback_ref"]
     assert "ref: ${{ env.AUTOMATION_RUNTIME_REF }}" in fallback
-    assert "&& 'discretionary' || inputs.pipeline || 'all'" in fallback
-    assert "&& 'discretionary' || 'general'" in fallback
     assert "uses: ./.github/workflows/" not in fallback
 
 

@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+from scripts import automation_supervisor as supervisor
+
+ROOT =Path(__file__).resolve().parents[1]
 RUNNER = (ROOT / "scripts" / "run_local_automation.ps1").read_text(encoding="utf-8")
 INSTALLER = (ROOT / "scripts" / "install_local_automation_tasks.ps1").read_text(encoding="utf-8")
 POWERSHELL = Path(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
@@ -94,20 +96,27 @@ def test_scheduled_runner_never_mutates_or_updates_code():
 
 
 def test_installer_defines_the_required_local_clock_schedule():
-    for pipeline, at, mask in (
-        ("premarket", "04:10:00", "62"),
-        ("premarket-retry", "05:45:00", "62"),
-        ("discretionary", "08:35:00", "62"),
-        ("execution", "16:30:00", "62"),
-        ("inventory-close", "16:05:00", "62"),
-        ("postclose", "17:10:00", "62"),
-        ("indicator", "03:00:00", "2"),
-        ("weekly-rundown", "08:00:00", "1"),
-        ("health", "07:30:00", "62"),
-    ):
-        assert f"Id = '{pipeline}'" in INSTALLER
-        assert f"Time = '{at}'" in INSTALLER
-        assert f"DaysMask = {mask}" in INSTALLER
+    rows = {
+        pipeline: (at, int(mask))
+        for pipeline, at, mask in re.findall(
+            r"Id = '([^']+)';\s*Time = '([^']+)';\s*DaysMask = (\d+);", INSTALLER
+        )
+    }
+    # Discretionary Focus retired 2026-09-23 (2ef9fa21): its row is gone and
+    # its catalog pipeline carries no jobs.
+    assert rows == {
+        "premarket": ("04:10:00", 62),
+        "premarket-retry": ("05:45:00", 62),
+        "inventory-close": ("16:05:00", 62),
+        "execution": ("16:30:00", 62),
+        "postclose": ("17:10:00", 62),
+        "indicator": ("03:00:00", 2),
+        "weekly-rundown": ("08:00:00", 1),
+        "health": ("07:30:00", 62),
+    }
+    live = {name for name, pipeline in supervisor.CATALOG.items() if pipeline.jobs}
+    assert live <= set(rows)
+    assert not (set(supervisor.CATALOG) - live) & set(rows)
     assert "Eastern Standard Time" in INSTALLER
 
 

@@ -127,9 +127,11 @@ def test_direct_script_pull_intraday_imports_repo_module_offline(tmp_path):
     assert "No module named 'cache_io'" not in output
 
 
-def test_direct_script_discretionary_gate_imports_scripts_package_without_pythonpath(
+def test_direct_script_session_gate_imports_scripts_package_without_pythonpath(
     tmp_path,
 ):
+    # Retargeted 2026-10-01 from the retired discretionary delivery window to
+    # the live scan_am NYSE session gate, which uses the same lazy import.
     probe = textwrap.dedent(
         """
         import datetime as dt
@@ -141,8 +143,8 @@ def test_direct_script_discretionary_gate_imports_scripts_package_without_python
         catalog = namespace["CATALOG"]
         job = next(
             item
-            for item in catalog["discretionary"].jobs
-            if item.local_gate == "discretionary_delivery_window"
+            for item in catalog["premarket"].jobs
+            if item.id == "scan_am" and item.local_gate == "nyse_session"
         )
         fake = SimpleNamespace(
             now=lambda: dt.datetime(2026, 8, 31, 12, 35, tzinfo=dt.timezone.utc)
@@ -165,7 +167,7 @@ def test_direct_script_discretionary_gate_imports_scripts_package_without_python
 
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
-    assert "allowed=True detail=NYSE delivery gate for 2026-08-31" in output
+    assert "allowed=True detail=NYSE session gate for 2026-08-31" in output
     assert "ModuleNotFoundError" not in output
     assert "No module named 'scripts'" not in output
 

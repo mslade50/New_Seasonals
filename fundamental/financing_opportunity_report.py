@@ -32,7 +32,7 @@ def num(value, kind="number"):
 def link(url, label):
     if not url or not str(url).startswith("https://"):
         return esc(label)
-    return f'<a href="{esc(url)}" target="_blank" rel="noopener noreferrer">{esc(label)} ↗</a>'
+    return f'<a href="{esc(url)}" target="_blank" rel="noopener noreferrer">{esc(label)} &#8599;</a>'
 
 
 def apply_reviews(rows, reviews, manifest):

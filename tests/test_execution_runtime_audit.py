@@ -103,8 +103,18 @@ def test_position_action_subprocess_emits_one_real_terminal_result(tmp_path, add
     if not source.exists():
         source = Path(__file__).parent / "fixtures/execution_runtime/execute_order.py"
     text = source.read_text(encoding="utf-8-sig")
-    out_node = next(n for n in ast.parse(text).body if isinstance(n, ast.FunctionDef) and n.name == "_out")
-    actual_out = ast.get_source_segment(text, out_node)
+    body = ast.parse(text).body
+    out_node = next(n for n in body if isinstance(n, ast.FunctionDef) and n.name == "_out")
+    # Carry the module-level state _out reads (e.g. the live _NOTICES list).
+    used = {n.id for n in ast.walk(out_node) if isinstance(n, ast.Name)}
+    globals_used = [
+        ast.get_source_segment(text, n)
+        for n in body
+        if isinstance(n, ast.Assign)
+        and isinstance(n.value, (ast.Constant, ast.List, ast.Dict, ast.Set, ast.Tuple))
+        and any(isinstance(t, ast.Name) and t.id in used for t in n.targets)
+    ]
+    actual_out = "\n".join([*globals_used, ast.get_source_segment(text, out_node)])
     script = f'''
 import json
 from pathlib import Path
