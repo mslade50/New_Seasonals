@@ -788,7 +788,7 @@ def build_catalog() -> dict[str, PipelineSpec]:
                     ),
                 ),
                 workflow=WorkflowSpec("build_earnings_calendar.yml", (), 7200),
-                required_env=R2_ENV + ("FMP_API_KEY",),
+                required_env=R2_ENV + ("ALPHA_VANTAGE_API_KEY",),
                 rerun_safe=True,
                 outputs=(
                     _out("data/earnings_calendar.parquet", "earnings_calendar.parquet", minimum=10_000),

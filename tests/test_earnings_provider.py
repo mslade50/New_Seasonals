@@ -53,6 +53,35 @@ def test_zero_actual_is_valid_confirmation():
     assert result.iloc[0].event_status == "confirmed"
 
 
+def test_calendar_only_retains_elapsed_and_disappeared_dates_without_confirming():
+    old = prior(("PAST", "2026-09-21", None, 1, None, None),
+                ("TODAY", "2026-09-22", None, 1, None, None),
+                ("MISSING", "2026-09-24", None, 1, None, None)).assign(
+        event_status="expected", event_source="alpha_vantage", fiscalDateEnding="2026-08-31")
+    result, _ = build_candidate(old, alpha(), pd.DataFrame(), DAY, confirmation_provider="calendar")
+    protected = result.loc[result.ticker.isin(old.ticker)]
+    assert set(protected.ticker) == set(old.ticker)
+    assert protected.event_status.eq("schedule_unverified").all()
+    assert protected.eps_actual.isna().all() and protected.revenue_actual.isna().all()
+    assert earnings_filter.in_blackout(DAY, protected.loc[protected.ticker.eq("TODAY"), "date"].to_numpy(dtype="datetime64[D]"), 10)
+
+
+def test_calendar_only_same_period_revision_supersedes_old_schedule():
+    old = prior(("AAA", "2026-09-23", None, 1, None, None)).assign(
+        event_status="expected", event_source="alpha_vantage", fiscalDateEnding="2026-08-31")
+    result, _ = build_candidate(old, alpha(), pd.DataFrame(), DAY, confirmation_provider="calendar")
+    assert result.date.tolist() == [pd.Timestamp("2026-09-24")]
+    assert result.event_status.tolist() == ["expected"]
+
+
+def test_calendar_only_preserves_existing_actuals_and_rejects_new_confirmations():
+    old = prior(("AAA", "2026-06-20", 0, 1, 100, 99))
+    result, _ = build_candidate(old, alpha(), pd.DataFrame(), DAY, confirmation_provider="calendar")
+    assert result.iloc[0].eps_actual == 0 and result.iloc[0].revenue_actual == 100
+    with pytest.raises(CalendarError, match="cannot confirm"):
+        build_candidate(old, alpha(), old, DAY, confirmation_provider="calendar")
+
+
 def test_release_day_disappearance_needs_actuals_and_keeps_today_blackout():
     old = prior(("AAA", "2026-09-22", None, 1, None, None)).assign(event_status="expected", event_source="alpha_vantage")
     next_quarter = alpha("AAA,A,2026-12-22,2026-11-30,1,USD\n")
@@ -210,7 +239,8 @@ def test_grade_job_retired_without_renaming_receipt_dependency():
 
 
 @pytest.mark.parametrize("alpha_fails", [False, True])
-def test_production_path_and_fallback_verify_publication(tmp_path, monkeypatch, alpha_fails):
+@pytest.mark.parametrize("calendar_only", [False, True])
+def test_production_path_and_fallback_verify_publication(tmp_path, monkeypatch, alpha_fails, calendar_only):
     """Exercise failure -> fallback -> CAS -> readback -> local receipt end to end."""
     import cache_io
     from scripts.compare_earnings_shadow import ShadowError
@@ -219,7 +249,10 @@ def test_production_path_and_fallback_verify_publication(tmp_path, monkeypatch, 
     monkeypatch.setattr(runner.fmp, "load_env", lambda: "fake-fmp")
     monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "fake-alpha")
     config = tmp_path / "config"; config.mkdir()
-    (config / "earnings_calendar.json").write_text(json.dumps({"provider": "alpha", "alpha_fallback": "fmp"}))
+    settings = {"provider": "alpha", "alpha_fallback": "fmp"}
+    if calendar_only:
+        settings.update(alpha_fallback="stop", confirmation_provider="calendar")
+    (config / "earnings_calendar.json").write_text(json.dumps(settings))
     (config / "earnings_calendar_overrides.json").write_text('{"overrides": []}')
     now = pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize()
     fresh = prior(("AAA", str((now-pd.Timedelta(days=40)).date()), 1, 1, 1, 1),
@@ -227,7 +260,7 @@ def test_production_path_and_fallback_verify_publication(tmp_path, monkeypatch, 
     inputs = tmp_path / "inputs"; inputs.mkdir()
     for name in (runner.KEY, "earnings_calendar_overflow.parquet"):
         fresh.to_parquet(inputs / name)
-    pd.DataFrame({"ticker": ["AAA"]}).to_parquet(inputs / "symbol_master.parquet")
+    pd.DataFrame({"ticker": ["AAA", "NEW"]}).to_parquet(inputs / "symbol_master.parquet")
     remote = {name: (inputs / name).read_bytes() for name in (runner.KEY, "earnings_calendar_overflow.parquet", "symbol_master.parquet")}
     def download(key, dest):
         Path(dest).write_bytes(remote[key]); return True
@@ -246,13 +279,23 @@ def test_production_path_and_fallback_verify_publication(tmp_path, monkeypatch, 
         return csv, parse_alpha_csv(csv)
     monkeypatch.setattr(runner, "fetch_alpha", quota)
     monkeypatch.setattr(runner, "daily_alpha", lambda **kwargs: (*quota(kwargs["key"]), {"test": True}))
-    monkeypatch.setattr(runner, "fetch_fmp_rows", lambda *a: (fresh, [], []))
+    def fmp_rows(*args):
+        assert not calendar_only, "Alpha-only production must never request FMP"
+        return fresh, [], []
+    monkeypatch.setattr(runner, "fetch_fmp_rows", fmp_rows)
+    if calendar_only and alpha_fails:
+        assert runner.main([]) == 1
+        assert not published and not (tmp_path / "data").exists()
+        return
     assert runner.main([]) == 0
     receipt = json.loads((tmp_path / "data" / (runner.KEY + ".status.json")).read_text())
     assert receipt["provider_selected"] == ("fmp_fallback" if alpha_fails else "alpha")
     assert receipt["published"] and receipt["status"] == ("degraded" if alpha_fails else "ok")
     assert published == [runner.KEY]
     assert (receipt["comparison"] is None) == alpha_fails
+    if calendar_only:
+        assert receipt["historical_actuals_provider"] == "calendar"
+        assert receipt["recent_actuals_requested"] == []
 
 
 def test_readback_mismatch_leaves_local_untouched(tmp_path, monkeypatch):

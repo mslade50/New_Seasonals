@@ -1,6 +1,7 @@
 {
   "provider": "alpha",
-  "alpha_fallback": "fmp",
+  "alpha_fallback": "stop",
+  "confirmation_provider": "calendar",
   "horizon_trading_days": 10,
-  "activation_note": "Prepared September 24 trial: Alpha primary with FMP confirmations/fallback. Activate only after owner approval of runtime promotion and reviewed policy differences."
+  "activation_note": "Owner-approved September 30 Alpha-only production schedule. Preserve financial history; retain disappeared near-term schedules as unverified safeguards. No FMP bootstrap, confirmations, or fallback."
 }
