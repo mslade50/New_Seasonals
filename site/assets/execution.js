@@ -2153,6 +2153,52 @@ function futTicketMetrics(spec, qty, worst, stop) {
   const mult = spec ? futPointValue(spec) : 1;
   return { mult, risk: qty * Math.abs(worst - stop) * mult, notional: qty * worst * mult };
 }
+// CBOT grains and CME livestock are closed at 15:59 ET. Their spec carries the
+// close of the session before that window (IBKR tradingHours, via
+// contract_reference.py) and the executor fires the TIME exit one minute before
+// it on the exit date. Same rule here so the ticket shows the real ET time.
+function futTimeExitSpec(sym) {
+  const key = String(sym || "").toUpperCase().trim();
+  const direct = futSpec(key);
+  if (direct || !key) return direct;
+  const hits = Object.values(FUT_SPECS).filter((s) => s && s.time_exit_session_close
+    && (String(s.trading_class || "").toUpperCase() === key || String(s.ib_symbol || "").toUpperCase() === key));
+  return hits.length === 1 ? hits[0] : null;
+}
+function zoneOffsetMs(ms, tz) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric",
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(ms));
+  const g = (type) => Number(parts.find((p) => p.type === type).value);
+  return Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute")) - ms;
+}
+function futTimeExitClock(spec, dateStr) {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ""));
+  const c = /^(\d{2}):(\d{2})$/.exec(String((spec && spec.time_exit_session_close) || ""));
+  const tz = spec && spec.time_exit_session_tz;
+  if (!d || !c || !tz) return "15:59";
+  try {
+    const wall = Date.UTC(+d[1], +d[2] - 1, +d[3], +c[1], +c[2]) - 60000;   // close minus one minute
+    const utc = wall - zoneOffsetMs(wall - zoneOffsetMs(wall, tz), tz);
+    const et = new Date(utc + zoneOffsetMs(utc, "America/New_York"));
+    const hhmm = `${String(et.getUTCHours()).padStart(2, "0")}:${String(et.getUTCMinutes()).padStart(2, "0")}`;
+    return hhmm < "15:59" ? hhmm : "15:59";
+  } catch (e) { return "15:59"; }
+}
+// The agent's preview prints every TIME leg at 15:59; restate a FUT leg at the
+// time the executor will actually use.
+function truthfulTimeLeg(leg, payload) {
+  const p = payload || {};
+  if (String(p.sec_type || "").toUpperCase() !== "FUT" || p.time_stop_at === "open") return leg;
+  return String(leg).replace(/^(\s*\w*\s*TIME\b.*MKT @ )(\d{4}-\d{2}-\d{2}) 15:59\b/, (all, head, day) => {
+    const clock = futTimeExitClock(futTimeExitSpec(p.symbol), day);
+    return clock === "15:59" ? all : `${head}${day} ${clock} ET`;
+  });
+}
+function timeExitSuffix(p) {
+  if (!p || !p.time_stop || String(p.sec_type || "").toUpperCase() !== "FUT" || p.time_stop_at === "open") return "";
+  const clock = futTimeExitClock(futTimeExitSpec(p.symbol), p.time_stop);
+  return clock === "15:59" ? "" : ` ${clock} ET`;
+}
 function selectedFutExchange() {
   const spec = futSpec(val("f_symbol"));
   return String(val("f_futexch") || (spec && spec.exchange) || "").toUpperCase();
@@ -2477,7 +2523,8 @@ function updateReadout() {
     const ts = val("f_timestop");
     const pitchX = pitchExecFields(stop, ts, sym);
     if (pitchX.stop_arm) parts.push(`Stop arms <b>next session</b> <span class="cap" style="display:inline">(pitch convention)</span>`);
-    if (ts) parts.push(`Time-exit <b>${ts}</b>${pitchX.time_stop_at ? ` at the <b>${pitchX.time_stop_at === "open" ? "OPEN" : "close"}</b>` : ""}`);
+    const tsClock = isFut && pitchX.time_stop_at !== "open" ? futTimeExitClock(spec, ts) : "15:59";
+    if (ts) parts.push(`Time-exit <b>${ts}${tsClock !== "15:59" ? ` ${tsClock} ET` : ""}</b>${tsClock !== "15:59" ? ` <span class="cap" style="display:inline">(session close &minus; 1 min)</span>` : pitchX.time_stop_at ? ` at the <b>${pitchX.time_stop_at === "open" ? "OPEN" : "close"}</b>` : ""}`);
     const ex = (orderType === "LMT" || orderType === "STP_LMT") ? val("f_expiry") : null;
     parts.push(`TIF <b>${orderType === "MOO" ? "OPG" : ex ? "GTD " + ex : "DAY"}</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
@@ -2494,7 +2541,8 @@ function updateReadout() {
     const parts = [`Position <b>${fmt.num(pos.position, 0)}</b> ${esc(String(pos.symbol).toUpperCase())}`];
     if (stop != null) parts.push(`Stop <b>${close} ${fmt.num(held, 0)} STP @ ${stop}</b>`);
     if (target != null) parts.push(`Target <b>${close} ${fmt.num(held, 0)} LMT @ ${target}</b>`);
-    if (ts) parts.push(`Time <b>MKT ${ts} 15:59 ET</b>`);
+    const tsClock = String(pos.sec_type || "").toUpperCase() === "FUT" ? futTimeExitClock(futTimeExitSpec(pos.symbol), ts) : "15:59";
+    if (ts) parts.push(`Time <b>MKT ${ts} ${tsClock} ET</b>`);
     parts.push(`OCA group &middot; GTC`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;&middot;&nbsp; ")}</span>`;
   } else if (CLOSE_COMMANDS.has(t)) {
@@ -2693,9 +2741,9 @@ function sendTicket() {
       : p.entry_type === "STP_LMT" ? `STP LMT trigger ${p.entry}, worst fill ${p.entry_cap}`
       : `${p.entry_type} (risk ref ${p.entry}; no price protection)`;
     const summary = t === "entry_bracket"
-      ? `${p.action} ${p.quantity} ${inst} ${entryDesc} [${p.entry_type === "MOO" ? "OPG" : p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}${p.stop_arm === "next_session" ? " arming NEXT SESSION" : ""}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""}${p.time_stop_at ? " at the " + (p.time_stop_at === "open" ? "OPEN" : "close") : ""})`
+      ? `${p.action} ${p.quantity} ${inst} ${entryDesc} [${p.entry_type === "MOO" ? "OPG" : p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}${p.stop_arm === "next_session" ? " arming NEXT SESSION" : ""}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop + timeExitSuffix(p) : ""}${p.time_stop_at ? " at the " + (p.time_stop_at === "open" ? "OPEN" : "close") : ""})`
       : t === "exit_attach"
-        ? `attach exits to ${p.symbol} (${[p.stop != null ? "stop " + p.stop : "", p.target != null ? "target " + p.target : "", p.time_stop ? "time " + p.time_stop : ""].filter(Boolean).join(", ")}) — full held size, OCA GTC`
+        ? `attach exits to ${p.symbol} (${[p.stop != null ? "stop " + p.stop : "", p.target != null ? "target " + p.target : "", p.time_stop ? "time " + p.time_stop + timeExitSuffix(p) : ""].filter(Boolean).join(", ")}) — full held size, OCA GTC`
         : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +
           `${p.order_type === "LMT" ? " @ " + p.limit : ""}${p.outside_rth ? " OUTSIDE RTH" : ""} (${p.tif})` +
           `${t === "close_only" ? " — ALL WORKING ORDERS STAY UNCHANGED"
@@ -3134,7 +3182,7 @@ function resultCell(c) {
   if (c.type === "position_action_resolve") html += lockSnapshotHtml(res);
   const pv = res.preview || {};
   if (pv.legs && pv.legs.length) {
-    html += `<div class="exec-legs">${pv.legs.map((l) => esc(l)).join("<br>")}` +
+    html += `<div class="exec-legs">${pv.legs.map((l) => esc(truthfulTimeLeg(l, c.payload))).join("<br>")}` +
       (pv.summary ? `<br><span style="color:#c7ccd6;font-weight:600">${esc(pv.summary)}</span>` : "") + `</div>`;
   }
   if (res.fill) {

@@ -1130,6 +1130,50 @@ def _execution_deadline(value, clock, sec_type=None):
         return when.astimezone(datetime.timezone.utc).strftime("%Y%m%d-%H:%M:%S")
     return when.strftime("%Y%m%d %H:%M:%S") + " US/Eastern"
 
+def _fut_time_exit_session(contract):
+    """(close 'HH:MM', IANA zone) of the trading session that ends before the
+    15:59 ET closed window of this FUT (CBOT grains, CME livestock), from
+    contract_reference.json, which contract_reference.py derives from IBKR
+    tradingHours. None = no closed window recorded: keep 15:59 ET."""
+    keys = (("trading_class", str(getattr(contract, "tradingClass", "") or "").upper()),
+            ("symbol", str(getattr(contract, "symbol", "") or "").upper()),
+            ("alias", str(getattr(contract, "symbol", "") or "").upper()))
+    try:
+        with open(os.path.join(_THIS_DIR, "contract_reference.json")) as f:
+            rows = json.load(f)
+    except Exception:  # noqa: BLE001
+        return None
+    for field, key in keys:
+        hits = [r for r in rows if key and str(r.get(field) or "").upper() == key]
+        if hits:
+            close, tz = hits[0].get("time_exit_session_close"), hits[0].get("time_exit_session_tz")
+            return (close, tz) if close or tz else None
+    return None
+
+def _time_exit_deadline(value, clock, sec_type=None, session=None):
+    """goodAfterTime for a TIME exit. A FUT whose 15:59 ET close clock falls in a
+    closed window carries `session` (see _fut_time_exit_session): the exit then
+    fires at that session's close minus one minute on the same exit date, never
+    later than 15:59 ET. Converted per exit date, so DST is the date's own.
+    Stocks, CASH, the 09:30 open clock and a FUT without `session` are unchanged.
+    An unreadable session raises ValueError so the command fails closed."""
+    from zoneinfo import ZoneInfo
+    default = _execution_deadline(value, clock, sec_type)
+    if str(sec_type or "").upper() != "FUT" or not session or clock != TIME_STOP_AT_CLOCK["close"]:
+        return default
+    close, tz = session
+    date = datetime.datetime.strptime(str(value).strip().replace("-", ""), "%Y%m%d").date()
+    try:
+        local = datetime.datetime.combine(date, datetime.time.fromisoformat(str(close)), ZoneInfo(str(tz)))
+    except (KeyError, TypeError, ValueError) as exc:  # ZoneInfoNotFoundError is a KeyError
+        raise ValueError(f"unreadable session close {close!r} {tz!r}") from exc
+    et = (local - datetime.timedelta(minutes=1)).astimezone(ZoneInfo("America/New_York"))
+    if et.date() != date:
+        raise ValueError(f"session close {close} {tz} is not on the exit date")
+    if et.strftime("%H:%M:%S") >= clock:
+        return default
+    return _execution_deadline(et.strftime("%Y-%m-%d"), et.strftime("%H:%M:%S"), sec_type)
+
 def next_session_gat():
     """goodAfterTime string for the open of the NEXT trading session.
 
@@ -1193,8 +1237,6 @@ def _do_exit_attach(ib, p, acct):
         return _out(False, "rejected",
                     f"live gate: exit_attach supports only STK/CASH/FUT, not "
                     f"{sec_type or 'unknown'}; one-leg option closes can dismantle a hedge")
-    if time_gat:
-        time_gat = _execution_deadline(time_stop, time_clock, sec_type)  # FUT: UTC form
     # positions() contracts carry a BLANK exchange; stocks must SMART-route
     # (same 10311/201 failure class as the flatten path), FUT/CASH keep the
     # qualified venue.
@@ -1206,6 +1248,12 @@ def _do_exit_attach(ib, p, acct):
     except (ValueError, BrokerMutationBlocked) as exc:
         return _out(False, "rejected", str(exc))
     ref = pos.contract
+    if time_gat:  # FUT: UTC form, moved out of a closed window by the qualified class
+        try:
+            time_gat = _time_exit_deadline(time_stop, time_clock, sec_type,
+                                           _fut_time_exit_session(ref) if sec_type == "FUT" else None)
+        except ValueError as exc:
+            return _out(False, "rejected", f"live gate: time_stop must be a future valid date ({exc})")
     live_position = float(pos.position)
     held = int(round(abs(live_position)))
     if held <= 0:
@@ -1610,7 +1658,8 @@ def _do_entry_bracket(ib, p, acct):
     time_gat = None
     if time_stop:
         try:
-            time_gat = _execution_deadline(time_stop, time_clock, sec_type)
+            time_gat = _time_exit_deadline(time_stop, time_clock, sec_type,
+                                           _fut_time_exit_session(c) if sec_type == "FUT" else None)
         except ValueError as exc:
             return _out(False, "rejected", f"live gate: time_stop must be a future valid date ({exc})")
     expiry = p.get("expiry")

@@ -172,6 +172,30 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   GTD parents that day). Stocks/CASH keep `YYYYMMDD HH:MM:SS US/Eastern`. The UTC
   form is unproven live on the order side until the first FUT GTD/time-exit ticket
   acknowledges. Guard: `tests/test_execution_order_time_strings.py`.
+- **Futures time exit vs closed windows** (2026-10-02): CBOT grains/oilseeds
+  (ZC ZS ZW ZL ZM, XC XK XW, MZC MZS MZW MZL MZM) and CME livestock (LE GF HE) are
+  shut at 15:59 ET, so a TIME leg waking then would fill at the evening reopen.
+  `contract_reference.py` (trading_ibkr) reads IBKR `tradingHours` + `timeZoneId`
+  and, only for those rows, stores `time_exit_session_close` (local HH:MM of the
+  session that ends before the 15:59 ET gap) and `time_exit_session_tz`: grains
+  13:20 US/Central, livestock 13:05 US/Central. `execute_order._time_exit_deadline`
+  (entry-bracket TIME child and the exit_attach time exit, looked up by the
+  qualified contract's trading class via `_fut_time_exit_session`) fires at that
+  close minus one minute on the exit date (14:19 / 14:04 ET), converted per date
+  so both sides of a DST change are right, never later than 15:59 ET. Missing
+  field = 15:59 ET; stocks, CASH and the 09:30 open clock are unchanged; an
+  unreadable field rejects the command. `tradingHours`, not `liquidHours`: it is
+  the hours an order can execute (both agreed on every row on the 2026-10-02
+  pull). Aligned sites, change together: `contract_reference.json` ->
+  `site/assets/futures_specs.json` (hand-mirrored, same two fields) and
+  `futures_front.py` (passes the row's fields through); `execution.js`
+  `futTimeExitClock` restates the ticket readout, confirm text and the agent's
+  `TIME ... MKT @ <date> 15:59` preview line in ET. Known limitation: no exchange
+  holiday or early-close calendar, so a time exit on a CME half day or holiday
+  still uses the normal session close; the parent GTD expiry (16:00 ET) is not
+  adjusted. Guards: `tests/test_execution_order_time_strings.py`,
+  `tests/js/test_execution_fut_time_exit.js`, `test_exit_timing_fields.py`
+  (trading_ibkr).
 - **Hedge panel (Exec tab, display-only)** (`assets/execution.js`, 2026-08-25):
   attributes each selected account's live stock positions to strategy-tagged
   working brackets, marks them, applies 63d or 252d SPY betas, nets counted
