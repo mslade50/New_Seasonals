@@ -61,8 +61,22 @@ def test_seasonal_product_paths():
         pp.get_product("posts")
 
 
-def test_seeded_files_load_as_empty():
-    s = pp.SEASONAL
+def test_seeded_files_load_as_empty(tmp_path):
+    # Production research records are no longer empty seeds. Test the initial
+    # file formats without reading or changing the live tracked journals.
+    s = SimpleNamespace(
+        journal_path=tmp_path / "seasonal_agent_journal.jsonl",
+        watchlist_path=tmp_path / "seasonal_agent_watchlist.json",
+        scoreboard_path=tmp_path / "seasonal_agent_scoreboard.json",
+        negative_registry_path=tmp_path / "seasonal_agent_negative_registry.md",
+    )
+    s.journal_path.write_text("", encoding="utf-8")
+    s.watchlist_path.write_text('{"entries": []}', encoding="utf-8")
+    s.scoreboard_path.write_text("{}", encoding="utf-8")
+    s.negative_registry_path.write_text(
+        "# Negative registry\n" + "".join(f"\n## Section {i}\n" for i in range(5)),
+        encoding="utf-8",
+    )
     assert pitch_journal.load(s.journal_path, pull=False) == []
     assert pitch_lab.load_watchlist(s.watchlist_path) == {"entries": []}
     assert json.loads(s.scoreboard_path.read_text(encoding="utf-8")) == {}
