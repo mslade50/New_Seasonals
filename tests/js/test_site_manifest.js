@@ -47,11 +47,13 @@ vm.runInContext(source, context, { filename: "common.js" });
 const pages = JSON.parse(vm.runInContext("JSON.stringify(PAGES)", context));
 assert.deepStrictEqual(pages.map(p => p.href), [
   "execution.html", "index.html", "seasonal.html", "radar.html", "pitch.html",
-  "idea.html", "focus.html", "events.html", "strategies.html", "risk.html", "tradelog.html",
+  "idea.html", "focus.html", "events.html", "strategies.html", "risk.html", "pa-portfolio.html", "tradelog.html",
   "signals.html", "orders.html", "options.html", "charts.html", "pipeline.html",
   "futures.html", "entry.html", "montecarlo.html",
 ]);
 assert.strictEqual(pages.find(p => p.href === "strategies.html").label, "Strategies");
+assert.strictEqual(pages.find(p => p.href === "pa-portfolio.html").label, "PA Portfolio");
+assert.ok(pages.findIndex(p => p.href === "pa-portfolio.html") >= 3, "PA belongs in the overflow menu");
 
 (async () => {
   const anchors = [meta("A"), meta("B"), meta("B")];
