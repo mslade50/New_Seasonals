@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Idea Check — Seasonals</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/common.js"></script>
+<script src="assets/idea.js"></script>
+</head>
+<body data-page="idea">
+<header class="topbar" id="topbar"></header>
+<div class="wrap">
+  <h1>Idea Check</h1>
+  <p class="sub">Type a trade idea and a reviewer on the local machine will try to kill it. Requests
+    queue in R2 and a poller picks them up, so a verdict can take a few minutes. Nothing here places
+    or stages an order.</p>
+  <div class="card idea-form">
+    <textarea id="ideaText" maxlength="2000" rows="4" placeholder="Describe the idea: ticker, direction, why, how long you would hold."></textarea>
+    <div class="idea-actions"><button id="ideaSubmit" type="button">Submit</button>
+      <span class="cap-inline" id="ideaMsg"></span></div>
+  </div>
+  <div id="content"><div class="spin">Loading...</div></div>
+  <footer>Source: R2 <code>idea_check/queue.json</code> and <code>idea_check/results/</code>.</footer>
+</div>
+</body>
+</html>

@@ -47,7 +47,7 @@ vm.runInContext(source, context, { filename: "common.js" });
 const pages = JSON.parse(vm.runInContext("JSON.stringify(PAGES)", context));
 assert.deepStrictEqual(pages.map(p => p.href), [
   "execution.html", "index.html", "seasonal.html", "radar.html", "pitch.html",
-  "focus.html", "events.html", "strategies.html", "risk.html", "tradelog.html",
+  "idea.html", "focus.html", "events.html", "strategies.html", "risk.html", "tradelog.html",
   "signals.html", "orders.html", "options.html", "charts.html", "pipeline.html",
   "futures.html", "entry.html", "montecarlo.html",
 ]);
