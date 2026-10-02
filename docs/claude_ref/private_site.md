@@ -153,6 +153,18 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   `exec-c-*` hooks (`exec-c-sym`, `-pnl`, `-act`, `-wide`, `-full`, `-empty`);
   there is one render path, no mobile-only JS. Inputs are 16px (no iOS focus
   zoom), buttons >=38-40px tall. Order logic, confirmations and payloads are untouched.
+- **Futures price magnifier** (2026-10-02): IBKR quotes grains, oilseeds,
+  meats (and MIR) in 1/priceMagnifier units while `multiplier`/`min_tick` are in
+  dollars. Every dollar figure uses `multiplier / price_magnifier` and the quoted
+  price grid is `min_tick * price_magnifier` (XK: $10 per 1.00, grid 0.125).
+  Aligned sites, change together: `trading_ibkr` `contract_reference.py` (captures
+  the field), `futures_sizing.py`, `futures_front.py`, `exec_agent.py`
+  (`_fut_multiplier`/`_leg_multiplier`), `execute_order.py` (entry notional/risk,
+  tick snap, fail-closed magnifier-vs-IBKR check, exit_attach snap), the repo
+  fixtures under `tests/fixtures/execution_runtime/`, `assets/execution.js`
+  (`futPointValue` and friends) and `assets/futures_specs.json`. A missing field
+  reads 1, which over-states risk. Guards: `tests/test_execution_fut_magnifier.py`,
+  `tests/js/test_execution_fut_magnifier.js`, `test_futures_sizing.py` (trading_ibkr).
 - **Hedge panel (Exec tab, display-only)** (`assets/execution.js`, 2026-08-25):
   attributes each selected account's live stock positions to strategy-tagged
   working brackets, marks them, applies 63d or 252d SPY betas, nets counted

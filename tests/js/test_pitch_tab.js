@@ -314,7 +314,7 @@ const TICKET = (sym, extra) => {
     f_timestop: "2026-11-13", f_strategy: "Momentum_Radar" }));
   assert.strictEqual(runJSON(ex, "pitchTicket"), null);
   const want = { symbol: "AMG", sec_type: "STK", currency: "USD", fut_expiry: null, exchange: null,
-    fut_ib_symbol: null, fut_trading_class: null, fut_multiplier: null, fut_min_tick: null,
+    fut_ib_symbol: null, fut_trading_class: null, fut_multiplier: null, fut_min_tick: null, fut_price_magnifier: null,
     action: "BUY", quantity: 33, entry_type: "STP_LMT", entry: 383.12, stop: 355.84, target: null,
     entry_cap: 400.17, strategy: "Momentum_Radar", scaleout: null, time_stop: "2026-11-13",
     expiry: "2026-08-28" };

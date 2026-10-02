@@ -1214,6 +1214,9 @@ def _do_exit_attach(ib, p, acct):
         min_tick = float(getattr(details[0], "minTick", 0) or 0) if len(details) == 1 else 0.0
         if not min_tick > 0:
             return _out(False, "rejected", "live gate: tick size unavailable; order ABORTED")
+        magnifier = int(getattr(details[0], "priceMagnifier", 0) or 1)
+        if magnifier != 1:   # cents-quoted (grains/meats): price grid = minTick x magnifier
+            min_tick = round(min_tick * magnifier, 10)
         if stop is not None:
             stop = snap_to_tick(stop, min_tick)
         if target is not None:
@@ -1397,9 +1400,13 @@ def _do_entry_bracket(ib, p, acct):
         try:
             expected_mult = float(p.get("fut_multiplier") or (spec.multiplier if spec else 0))
             expected_tick = float(p.get("fut_min_tick") or (spec.min_tick if spec else 0))
+            # IBKR quotes grains/meats in cents (priceMagnifier 100). Missing reads 1.
+            expected_magnifier = int(p.get("fut_price_magnifier")
+                                     or (getattr(spec, "price_magnifier", 1) if spec else 1) or 1)
         except (TypeError, ValueError):
             expected_mult = expected_tick = 0.0
-        if expected_mult <= 0 or expected_tick <= 0:
+            expected_magnifier = 0
+        if expected_mult <= 0 or expected_tick <= 0 or expected_magnifier < 1:
             return _out(False, "rejected",
                         "live gate: unresolved FUT multiplier/tick is missing; resolve it from IBKR again")
         currency = str(p.get("currency") or "USD")
@@ -1442,8 +1449,10 @@ def _do_entry_bracket(ib, p, acct):
             mult = float(getattr(details[0].contract, "multiplier", 0) or
                          getattr(c, "multiplier", 0) or 0)
             min_tick = float(getattr(details[0], "minTick", 0) or 0)
+            live_magnifier = int(getattr(details[0], "priceMagnifier", 0) or 1)
         except (TypeError, ValueError):
             mult = min_tick = 0.0
+            live_magnifier = 1
         actual_class = str(getattr(c, "tradingClass", "") or "").upper()
         if mult <= 0 or min_tick <= 0:
             return _out(False, "rejected",
@@ -1457,11 +1466,18 @@ def _do_entry_bracket(ib, p, acct):
         if abs(min_tick - expected_tick) > max(1e-9, abs(min_tick) * 1e-9):
             return _out(False, "rejected",
                         f"live gate: FUT tick changed ({expected_tick:g} vs IBKR {min_tick:g}); resolve again")
-        entry = snap_to_tick(entry, min_tick)
+        if live_magnifier != expected_magnifier:
+            return _out(False, "rejected",
+                        f"live gate: FUT price magnifier changed ({expected_magnifier} vs IBKR {live_magnifier}); resolve again")
+        # multiplier and minTick are in dollars; prices are quoted in 1/magnifier
+        # units (XK 1280 cents x 1000 / 100 = $12,800; price grid 0.125).
+        price_tick = min_tick if live_magnifier == 1 else round(min_tick * live_magnifier, 10)
+        mult = mult / live_magnifier
+        entry = snap_to_tick(entry, price_tick)
         if stop is not None:
-            stop = snap_to_tick(stop, min_tick)
+            stop = snap_to_tick(stop, price_tick)
         if target is not None:
-            target = snap_to_tick(target, min_tick)
+            target = snap_to_tick(target, price_tick)
     elif sec_type == "CASH":
         details = ib.reqContractDetails(c)
         min_tick = float(getattr(details[0], "minTick", 0) or 0) if len(details) == 1 else 0.0

@@ -1254,7 +1254,8 @@ function pnlPct(p) {
 function quotedAverageCost(p) {
   if (p.avg_cost == null) return null;
   if (p.sec_type !== "FUT" && p.sec_type !== "OPT") return p.avg_cost;
-  const multiplier = Number(p.multiplier || (p.sec_type === "FUT" && (futSpec(p.symbol) || {}).multiplier));
+  const spec = p.sec_type === "FUT" ? futSpec(p.symbol) : null;
+  const multiplier = Number(p.multiplier || (spec || {}).multiplier) / futMagnifier(spec);
   return multiplier > 0 ? p.avg_cost / multiplier : null;
 }
 const readdRows = new Map();   // account + contract -> persistent row toggle across 4s book polls
@@ -1560,12 +1561,12 @@ function groupPnl(sym, legs, ab) {
     const ep = orderPx(parent);
     const kids = parent.order_id ? legs.filter((c) => (c.parent_id || 0) === parent.order_id) : [];
     if (ep == null || !kids.length) { acc.na = true; return; }   // unpriced or naked entry: no defined best/worst
-    const mult = parent.sec_type === "FUT" ? ((futSpec(root) || {}).multiplier || 1) : 1;
+    const mult = parent.sec_type === "FUT" ? (futPointValue(futSpec(root)) || 1) : 1;
     const sign = String(parent.action).toUpperCase() === "BUY" ? 1 : -1;
     add(exitPnl(kids, ep, sign, mult));
   };
   if (pos) {
-    const mult = pos.sec_type === "FUT" ? ((futSpec(root) || {}).multiplier || 1) : 1;
+    const mult = pos.sec_type === "FUT" ? (futPointValue(futSpec(root)) || 1) : 1;
     const sign = pos.position > 0 ? 1 : -1;
     let entryPrice = null;
     if (pos.market_price != null && pos.unrealized_pnl != null) {
@@ -1683,7 +1684,7 @@ function renderClosers() {
       const sym = String(o.symbol).toUpperCase();
       const buy = String(o.action).toUpperCase() === "BUY";
       const t = String(o.order_type || "").toUpperCase();
-      const mult = o.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
+      const mult = o.sec_type === "FUT" ? (futPointValue(futSpec(sym)) || 1) : 1;
       const pos = (ab.positions || []).find((p) => p.position && samePositionContract(p, o));
       // MKT/MOC legs close at the market: value off the position's last price; STP off its trigger.
       const px = t.startsWith("STP") ? (o.aux != null ? o.aux : o.lmt) : (pos && pos.market_price != null ? pos.market_price : null);
@@ -2132,6 +2133,26 @@ function syncEntryTypeFields() {
 }
 
 function futSpec(sym) { return FUT_SPECS[String(sym || "").toUpperCase().trim()] || null; }
+// IBKR quotes grains and meats in cents (priceMagnifier 100) while multiplier and
+// min_tick are in dollars: $ per 1.00 of quoted price = multiplier / priceMagnifier.
+// A missing magnifier reads as 1, which overstates risk (the safe direction).
+function futMagnifier(spec) {
+  const m = Number(spec && spec.price_magnifier);
+  return Number.isInteger(m) && m > 1 ? m : 1;
+}
+function futPointValue(spec) { return Number(spec && spec.multiplier) / futMagnifier(spec); }
+function futPriceTick(spec) {
+  const mag = futMagnifier(spec);
+  return mag === 1 ? spec.min_tick : Number((Number(spec.min_tick) * mag).toFixed(10));
+}
+function futUnitHint(spec) {
+  const mag = futMagnifier(spec);
+  return mag === 1 ? "" : mag === 100 ? "quoted in cents" : `quoted in 1/${mag} units`;
+}
+function futTicketMetrics(spec, qty, worst, stop) {
+  const mult = spec ? futPointValue(spec) : 1;
+  return { mult, risk: qty * Math.abs(worst - stop) * mult, notional: qty * worst * mult };
+}
 function selectedFutExchange() {
   const spec = futSpec(val("f_symbol"));
   return String(val("f_futexch") || (spec && spec.exchange) || "").toUpperCase();
@@ -2417,10 +2438,11 @@ function updateReadout() {
     const sym = String(val("f_symbol") || "").toUpperCase().trim();
     const currency = String(val("f_currency") || "USD").toUpperCase().trim();
     const spec = isFut ? futSpec(sym) : null;
-    const mult = spec ? spec.multiplier : 1;
+    const mult = spec ? futPointValue(spec) : 1;
+    const unit = spec ? futUnitHint(spec) : "";
     const hint = document.getElementById("f_futhint");
     if (hint) hint.innerHTML = spec
-      ? `${esc(spec.exchange)} · mult ${spec.multiplier} · tick ${spec.min_tick}`
+      ? `${esc(spec.exchange)} · ${fmt.money(mult, Number.isInteger(mult) ? 0 : 2)} per 1.00 move · mult ${spec.multiplier} · tick ${futPriceTick(spec)}${unit ? ` · ${unit}` : ""}`
       : (sym ? `<span style="color:#ffc14d">waiting for live IBKR contract details</span>` : "");
     const warns = bracketWarnings();
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
@@ -2431,7 +2453,7 @@ function updateReadout() {
     const cap = orderType === "STP_LMT" ? numOrNull("f_entry_cap") : null;
     const worst = cap != null ? cap : entry;
     const dist = Math.abs(worst - stop);
-    const fxMetrics = isFx ? fxUsdMetrics(sym, currency, qty, worst, stop) : null;
+    const metrics = (isFx && fxUsdMetrics(sym, currency, qty, worst, stop)) || futTicketMetrics(spec, qty, worst, stop);
     const parts = [];
     if (orderType === "LMT") parts.push(`Entry <b>LMT @ ${entry}</b>`);
     else if (orderType === "STP_LMT") parts.push(`Entry <b>STP LMT trigger ${entry}</b> <span class="cap" style="display:inline">(fills up to ${cap}; risk shown at that worst fill)</span>`);
@@ -2441,10 +2463,10 @@ function updateReadout() {
     if (isFut && qty) parts.push(`<b>${qty} contract${qty === 1 ? "" : "s"}</b>`);
     if (isFx && qty) parts.push(`<b>${fmt.num(qty, 0)} ${esc(sym)} units</b> in ${esc(sym)}/${esc(currency)}`);
     if (stop == null) parts.push(`<b style="color:#ffc14d">NO STOP — UNPROTECTED</b> <span class="cap" style="display:inline">(risk gate at execution: 2&times;ATR% &times; notional vs 50 bps NLV)</span>`);
-    else if (qty && dist) parts.push(`Risk <b>${fmt.money(fxMetrics ? fxMetrics.risk : qty * dist * mult)}</b>`);
+    else if (qty && dist) parts.push(`Risk <b>${fmt.money(metrics.risk)}</b>`);
     if (target == null) parts.push(`<b style="color:#ffc14d">NO TARGET</b>`);
     else if (stop != null && dist) parts.push(`R:R <b>${(Math.abs(target - worst) / dist).toFixed(2)}:1</b>`);
-    if (qty && worst) parts.push(`Notional <b>${fmt.money(fxMetrics ? fxMetrics.notional : qty * worst * mult)}</b>`);
+    if (qty && worst) parts.push(`Notional <b>${fmt.money(metrics.notional)}</b>`);
     const soF = numOrNull("f_so_frac"), soT = numOrNull("f_so_target");
     if (soF > 0 && soT > 0 && qty > 0) {
       const near = Math.round(qty * soF), far = qty - near;
@@ -2606,6 +2628,7 @@ function ticketPayload(t) {
     fut_trading_class: spec ? (spec.trading_class || val("f_symbol")) : null,
     fut_multiplier: spec ? spec.multiplier : null,
     fut_min_tick: spec ? spec.min_tick : null,
+    fut_price_magnifier: spec ? futMagnifier(spec) : null,
     action: val("f_action"), quantity: numOrNull("f_qty"), entry_type,
     entry: numOrNull("f_entry"), stop: numOrNull("f_stop"), target: numOrNull("f_target"),
     entry_cap: entry_type === "STP_LMT" ? numOrNull("f_entry_cap") : null,
@@ -2688,7 +2711,8 @@ function sendTicket() {
   if (t === "entry_bracket" && p.sec_type === "FUT" && state.account === "primary" && p.stop != null) {
     const ab = acctBook();
     const nlv = Number(ab && ab.nlv);
-    const risk = Number(p.quantity) * Math.abs(Number(p.entry) - Number(p.stop)) * Number(p.fut_multiplier || 0);
+    const risk = Number(p.quantity) * Math.abs(Number(p.entry) - Number(p.stop))
+      * Number(p.fut_multiplier || 0) / futMagnifier({ price_magnifier: p.fut_price_magnifier });
     if (!(nlv > 0)) {
       if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary futures order is uncapped and current NLV is unavailable. Defined stop risk is about ${fmt.money(risk)}. Really continue?`)) return;
       p.risk_ack = true;
@@ -2842,7 +2866,7 @@ function renderSize(data) {
       <div class="k">Risk / contract</div><div class="v">${fmt.money(data.risk_per_contract)} (${fmt.num(data.stop_ticks, 0)} ticks)</div>
       <div class="k">Total risk</div><div class="v">${fmt.money(data.total_risk)} <span class="cap" style="display:inline">/ budget ${fmt.money(data.risk_budget)}</span></div>
       <div class="k">Total notional</div><div class="v">${fmt.money(data.total_notional)}${notPct}</div>
-      <div class="k">Multiplier</div><div class="v">${fmt.num(data.multiplier, 2)} <span class="cap" style="display:inline">· tick ${data.min_tick}${rr}</span></div>
+      <div class="k">Multiplier</div><div class="v">${fmt.num(data.multiplier, 2)} <span class="cap" style="display:inline">· ${fmt.money(futPointValue(data), 2)} per 1.00 move · tick ${futPriceTick(data)}${futUnitHint(data) ? ` · ${futUnitHint(data)}` : ""}${rr}</span></div>
     </div>${note}</div>`;
 }
 

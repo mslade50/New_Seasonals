@@ -7,6 +7,7 @@
                 "multiplier":  5,
                 "min_tick":  0.25,
                 "tick_value":  1.25,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Equity Index",
                 "long_name":  "Micro E-Mini S\u0026P 500 Stock Price Index"
@@ -19,6 +20,7 @@
                "multiplier":  50,
                "min_tick":  0.25,
                "tick_value":  12.5,
+               "price_magnifier":  1,
                "tier":  "mini",
                "asset_class":  "Equity Index",
                "long_name":  "E-mini S\u0026P 500"
@@ -31,6 +33,7 @@
                 "multiplier":  2,
                 "min_tick":  0.25,
                 "tick_value":  0.5,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Equity Index",
                 "long_name":  "Micro E-Mini Nasdaq-100 Index"
@@ -43,6 +46,7 @@
                "multiplier":  20,
                "min_tick":  0.25,
                "tick_value":  5,
+               "price_magnifier":  1,
                "tier":  "mini",
                "asset_class":  "Equity Index",
                "long_name":  "E-mini NASDAQ 100 "
@@ -55,6 +59,7 @@
                 "multiplier":  5,
                 "min_tick":  0.1,
                 "tick_value":  0.5,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Equity Index",
                 "long_name":  "Micro E-Mini Russell 2000 Index"
@@ -67,6 +72,7 @@
                 "multiplier":  50,
                 "min_tick":  0.1,
                 "tick_value":  5,
+                "price_magnifier":  1,
                 "tier":  "mini",
                 "asset_class":  "Equity Index",
                 "long_name":  "E-mini Russell 2000 Index"
@@ -79,6 +85,7 @@
                 "multiplier":  0.5,
                 "min_tick":  1,
                 "tick_value":  0.5,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Equity Index",
                 "long_name":  "Micro E-Mini Dow Jones Industrial Average Index"
@@ -91,6 +98,7 @@
                "multiplier":  5,
                "min_tick":  1,
                "tick_value":  5,
+               "price_magnifier":  1,
                "tier":  "mini",
                "asset_class":  "Equity Index",
                "long_name":  "E-mini Dow Jones Industrial Average"
@@ -103,6 +111,7 @@
                 "multiplier":  10,
                 "min_tick":  0.05,
                 "tick_value":  0.5,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Equity Index",
                 "long_name":  "Micro E-mini S\u0026P MidCap 400 Futures"
@@ -115,6 +124,7 @@
                 "multiplier":  100,
                 "min_tick":  0.1,
                 "tick_value":  10,
+                "price_magnifier":  1,
                 "tier":  "mini",
                 "asset_class":  "Equity Index",
                 "long_name":  "E-mini S\u0026P Midcap 400 Futures"
@@ -127,6 +137,7 @@
                 "multiplier":  0.5,
                 "min_tick":  5,
                 "tick_value":  2.5,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Equity Index",
                 "long_name":  "Micro Dollar Denominated Nikkei 225"
@@ -139,6 +150,7 @@
                 "multiplier":  10,
                 "min_tick":  0.1,
                 "tick_value":  1,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Metals",
                 "long_name":  "E-Micro Gold "
@@ -151,6 +163,7 @@
                "multiplier":  50,
                "min_tick":  0.25,
                "tick_value":  12.5,
+               "price_magnifier":  1,
                "tier":  "mini",
                "asset_class":  "Metals",
                "long_name":  "COMEX MINY Gold"
@@ -163,6 +176,7 @@
                "multiplier":  100,
                "min_tick":  0.1,
                "tick_value":  10,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Metals",
                "long_name":  "Gold"
@@ -175,6 +189,7 @@
                "multiplier":  2500,
                "min_tick":  0.0125,
                "tick_value":  31.25,
+               "price_magnifier":  1,
                "tier":  "mini",
                "asset_class":  "Metals",
                "long_name":  "COMEX MINY Silver"
@@ -187,6 +202,7 @@
                "multiplier":  5000,
                "min_tick":  0.005,
                "tick_value":  25,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Metals",
                "long_name":  "Silver Index"
@@ -199,6 +215,7 @@
                 "multiplier":  1000,
                 "min_tick":  0.005,
                 "tick_value":  5,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Metals",
                 "long_name":  "Silver Index"
@@ -211,6 +228,7 @@
                 "multiplier":  2500,
                 "min_tick":  0.0005,
                 "tick_value":  1.25,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Metals",
                 "long_name":  "Micro Copper"
@@ -223,6 +241,7 @@
                "multiplier":  25000,
                "min_tick":  0.0005,
                "tick_value":  12.5,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Metals",
                "long_name":  "Copper Index"
@@ -235,6 +254,7 @@
                 "multiplier":  25,
                 "min_tick":  0.25,
                 "tick_value":  6.25,
+                "price_magnifier":  1,
                 "tier":  "full",
                 "asset_class":  "Metals",
                 "long_name":  "Aluminum Index"
@@ -247,6 +267,7 @@
                "multiplier":  50,
                "min_tick":  0.1,
                "tick_value":  5,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Metals",
                "long_name":  "Platinum Index"
@@ -259,6 +280,7 @@
                "multiplier":  100,
                "min_tick":  0.5,
                "tick_value":  50,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Metals",
                "long_name":  "Palladium Index"
@@ -271,6 +293,7 @@
                 "multiplier":  100,
                 "min_tick":  0.01,
                 "tick_value":  1,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Energy",
                 "long_name":  "Micro WTI Crude Oil"
@@ -283,6 +306,7 @@
                "multiplier":  500,
                "min_tick":  0.025,
                "tick_value":  12.5,
+               "price_magnifier":  1,
                "tier":  "mini",
                "asset_class":  "Energy",
                "long_name":  "NYMEX MINY Light Sweet Crude Oil"
@@ -295,6 +319,7 @@
                "multiplier":  1000,
                "min_tick":  0.01,
                "tick_value":  10,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Energy",
                "long_name":  "Light Sweet Crude Oil"
@@ -307,6 +332,7 @@
                "multiplier":  10000,
                "min_tick":  0.001,
                "tick_value":  10,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Energy",
                "long_name":  "Henry Hub Natural Gas"
@@ -319,6 +345,7 @@
                "multiplier":  2500,
                "min_tick":  0.005,
                "tick_value":  12.5,
+               "price_magnifier":  1,
                "tier":  "mini",
                "asset_class":  "Energy",
                "long_name":  "NYMEX MINY Natural Gas Index"
@@ -331,6 +358,7 @@
                "multiplier":  42000,
                "min_tick":  0.0001,
                "tick_value":  4.2,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Energy",
                "long_name":  "NYMEX RBOB Gasoline Index"
@@ -343,6 +371,7 @@
                "multiplier":  42000,
                "min_tick":  0.0001,
                "tick_value":  4.2,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Energy",
                "long_name":  "Heating Oil"
@@ -355,6 +384,7 @@
                "multiplier":  1000,
                "min_tick":  0.01,
                "tick_value":  10,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Energy",
                "long_name":  "Brent Crude Oil - Last Day"
@@ -367,6 +397,7 @@
                 "multiplier":  12500,
                 "min_tick":  0.0001,
                 "tick_value":  1.25,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "FX",
                 "long_name":  "European Monetary Union Euro"
@@ -379,6 +410,7 @@
                "multiplier":  125000,
                "min_tick":  5E-05,
                "tick_value":  6.25,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "FX",
                "long_name":  "European Monetary Union Euro"
@@ -391,6 +423,7 @@
                 "multiplier":  10000,
                 "min_tick":  0.0001,
                 "tick_value":  1,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "FX",
                 "long_name":  "Australian dollar"
@@ -403,6 +436,7 @@
                "multiplier":  100000,
                "min_tick":  5E-05,
                "tick_value":  5,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "FX",
                "long_name":  "Australian dollar"
@@ -415,6 +449,7 @@
                 "multiplier":  6250,
                 "min_tick":  0.0001,
                 "tick_value":  0.625,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "FX",
                 "long_name":  "British pound"
@@ -427,6 +462,7 @@
                "multiplier":  62500,
                "min_tick":  0.0001,
                "tick_value":  6.25,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "FX",
                "long_name":  "British pound"
@@ -439,6 +475,7 @@
                 "multiplier":  1250000,
                 "min_tick":  1E-06,
                 "tick_value":  1.25,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "FX",
                 "long_name":  "MJY.USD Forex"
@@ -451,6 +488,7 @@
                "multiplier":  12500000,
                "min_tick":  5E-07,
                "tick_value":  6.25,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "FX",
                "long_name":  "JPY.USD Forex"
@@ -463,6 +501,7 @@
                 "multiplier":  10000,
                 "min_tick":  0.0001,
                 "tick_value":  1,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "FX",
                 "long_name":  "MCD.USD Forex"
@@ -475,6 +514,7 @@
                "multiplier":  100000,
                "min_tick":  5E-05,
                "tick_value":  5,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "FX",
                "long_name":  "CAD.USD Forex"
@@ -487,6 +527,7 @@
                 "multiplier":  12500,
                 "min_tick":  0.0001,
                 "tick_value":  1.25,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "FX",
                 "long_name":  "Swiss franc"
@@ -499,6 +540,7 @@
                "multiplier":  125000,
                "min_tick":  5E-05,
                "tick_value":  6.25,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "FX",
                "long_name":  "Swiss franc"
@@ -511,6 +553,7 @@
                 "multiplier":  1000000,
                 "min_tick":  1E-06,
                 "tick_value":  1,
+                "price_magnifier":  10000,
                 "tier":  "micro",
                 "asset_class":  "FX",
                 "long_name":  "MIR.USD Forex"
@@ -523,6 +566,7 @@
                "multiplier":  62500,
                "min_tick":  0.0001,
                "tick_value":  6.25,
+               "price_magnifier":  1,
                "tier":  "mini",
                "asset_class":  "FX",
                "long_name":  "European Monetary Union Euro"
@@ -535,6 +579,7 @@
                "multiplier":  6250000,
                "min_tick":  1E-06,
                "tick_value":  6.25,
+               "price_magnifier":  1,
                "tier":  "mini",
                "asset_class":  "FX",
                "long_name":  "J7.USD Forex"
@@ -547,6 +592,7 @@
                "multiplier":  2000,
                "min_tick":  0.00390625,
                "tick_value":  7.8125,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Rates",
                "long_name":  "2 Year US Treasury Note"
@@ -559,6 +605,7 @@
                "multiplier":  1000,
                "min_tick":  0.0078125,
                "tick_value":  7.8125,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Rates",
                "long_name":  "5 Year US Treasury Note"
@@ -571,6 +618,7 @@
                "multiplier":  1000,
                "min_tick":  0.015625,
                "tick_value":  15.625,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Rates",
                "long_name":  "10 Year US Treasury Note"
@@ -583,6 +631,7 @@
                "multiplier":  1000,
                "min_tick":  0.03125,
                "tick_value":  31.25,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Rates",
                "long_name":  "US Treasury Bond"
@@ -595,6 +644,7 @@
                "multiplier":  1000,
                "min_tick":  0.03125,
                "tick_value":  31.25,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Rates",
                "long_name":  "Ultra Treasury Bond"
@@ -607,6 +657,7 @@
                 "multiplier":  100,
                 "min_tick":  0.015625,
                 "tick_value":  1.5625,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Rates",
                 "long_name":  "Micro Ultra 10-Year U.S Treasury Note"
@@ -619,6 +670,7 @@
                 "multiplier":  100,
                 "min_tick":  0.03125,
                 "tick_value":  3.125,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Rates",
                 "long_name":  "Micro Ultra US Treasury Bond"
@@ -631,6 +683,7 @@
                 "multiplier":  1000,
                 "min_tick":  0.001,
                 "tick_value":  1,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Rates",
                 "long_name":  "2 Year Micro Treasury Yield"
@@ -643,6 +696,7 @@
                 "multiplier":  1000,
                 "min_tick":  0.001,
                 "tick_value":  1,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Rates",
                 "long_name":  "5 Year Micro Treasury Yield"
@@ -655,6 +709,7 @@
                 "multiplier":  1000,
                 "min_tick":  0.001,
                 "tick_value":  1,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Rates",
                 "long_name":  "10 Year Micro Treasury Yield"
@@ -667,6 +722,7 @@
                 "multiplier":  1000,
                 "min_tick":  0.001,
                 "tick_value":  1,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Rates",
                 "long_name":  "30 Year Micro Treasury Yield"
@@ -679,6 +735,7 @@
                "multiplier":  4167,
                "min_tick":  0.0025,
                "tick_value":  10.4175,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Rates",
                "long_name":  "30 Day Fed Funds"
@@ -691,6 +748,7 @@
                "multiplier":  5000,
                "min_tick":  0.0025,
                "tick_value":  12.5,
+               "price_magnifier":  100,
                "tier":  "full",
                "asset_class":  "Agriculture",
                "long_name":  "Corn Futures"
@@ -703,6 +761,7 @@
                "multiplier":  5000,
                "min_tick":  0.0025,
                "tick_value":  12.5,
+               "price_magnifier":  100,
                "tier":  "full",
                "asset_class":  "Agriculture",
                "long_name":  "Soybean Futures"
@@ -715,6 +774,7 @@
                "multiplier":  5000,
                "min_tick":  0.0025,
                "tick_value":  12.5,
+               "price_magnifier":  100,
                "tier":  "full",
                "asset_class":  "Agriculture",
                "long_name":  "Wheat Futures"
@@ -727,6 +787,7 @@
                "multiplier":  60000,
                "min_tick":  0.0001,
                "tick_value":  6,
+               "price_magnifier":  100,
                "tier":  "full",
                "asset_class":  "Agriculture",
                "long_name":  "Soybean Oil Futures"
@@ -739,6 +800,7 @@
                "multiplier":  100,
                "min_tick":  0.1,
                "tick_value":  10,
+               "price_magnifier":  1,
                "tier":  "full",
                "asset_class":  "Agriculture",
                "long_name":  "Soybean Meal Futures"
@@ -751,6 +813,7 @@
                "multiplier":  1000,
                "min_tick":  0.00125,
                "tick_value":  1.25,
+               "price_magnifier":  100,
                "tier":  "mini",
                "asset_class":  "Agriculture",
                "long_name":  "Mini Sized Corn Futures"
@@ -763,6 +826,7 @@
                "multiplier":  1000,
                "min_tick":  0.00125,
                "tick_value":  1.25,
+               "price_magnifier":  100,
                "tier":  "mini",
                "asset_class":  "Agriculture",
                "long_name":  "Mini Sized Soybean Futures"
@@ -775,6 +839,7 @@
                "multiplier":  1000,
                "min_tick":  0.00125,
                "tick_value":  1.25,
+               "price_magnifier":  100,
                "tier":  "mini",
                "asset_class":  "Agriculture",
                "long_name":  "Mini Sized Wheat Futures"
@@ -787,6 +852,7 @@
                 "multiplier":  500,
                 "min_tick":  0.005,
                 "tick_value":  2.5,
+                "price_magnifier":  100,
                 "tier":  "micro",
                 "asset_class":  "Agriculture",
                 "long_name":  "Micro Corn Futures"
@@ -799,6 +865,7 @@
                 "multiplier":  500,
                 "min_tick":  0.005,
                 "tick_value":  2.5,
+                "price_magnifier":  100,
                 "tier":  "micro",
                 "asset_class":  "Agriculture",
                 "long_name":  "Micro Soybean Futures"
@@ -811,6 +878,7 @@
                 "multiplier":  500,
                 "min_tick":  0.005,
                 "tick_value":  2.5,
+                "price_magnifier":  100,
                 "tier":  "micro",
                 "asset_class":  "Agriculture",
                 "long_name":  "Micro Wheat Futures"
@@ -823,6 +891,7 @@
                 "multiplier":  6000,
                 "min_tick":  0.0002,
                 "tick_value":  1.2,
+                "price_magnifier":  100,
                 "tier":  "micro",
                 "asset_class":  "Agriculture",
                 "long_name":  "Micro Soybean Oil Futures"
@@ -835,6 +904,7 @@
                 "multiplier":  10,
                 "min_tick":  0.2,
                 "tick_value":  2,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Agriculture",
                 "long_name":  "Micro Soybean Meal Futures"
@@ -847,6 +917,7 @@
                "multiplier":  40000,
                "min_tick":  0.00025,
                "tick_value":  10,
+               "price_magnifier":  100,
                "tier":  "full",
                "asset_class":  "Livestock",
                "long_name":  "Live Cattle"
@@ -859,6 +930,7 @@
                "multiplier":  50000,
                "min_tick":  0.00025,
                "tick_value":  12.5,
+               "price_magnifier":  100,
                "tier":  "full",
                "asset_class":  "Livestock",
                "long_name":  "Feeder Cattle"
@@ -871,6 +943,7 @@
                "multiplier":  40000,
                "min_tick":  0.00025,
                "tick_value":  10,
+               "price_magnifier":  100,
                "tier":  "full",
                "asset_class":  "Livestock",
                "long_name":  "Lean Hogs"
@@ -883,6 +956,7 @@
                 "multiplier":  0.1,
                 "min_tick":  5,
                 "tick_value":  0.5,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Crypto",
                 "long_name":  "Micro Bitcoin"
@@ -895,6 +969,7 @@
                 "multiplier":  5,
                 "min_tick":  5,
                 "tick_value":  25,
+                "price_magnifier":  1,
                 "tier":  "full",
                 "asset_class":  "Crypto",
                 "long_name":  "CME CF Bitcoin Reference Rate"
@@ -907,6 +982,7 @@
                 "multiplier":  0.1,
                 "min_tick":  0.5,
                 "tick_value":  0.05,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Crypto",
                 "long_name":  "Micro Ether"
@@ -919,6 +995,7 @@
                 "multiplier":  50,
                 "min_tick":  0.5,
                 "tick_value":  25,
+                "price_magnifier":  1,
                 "tier":  "full",
                 "asset_class":  "Crypto",
                 "long_name":  "CME CF Ether-Dollar Reference Rate"
@@ -931,6 +1008,7 @@
                 "multiplier":  500,
                 "min_tick":  0.05,
                 "tick_value":  25,
+                "price_magnifier":  1,
                 "tier":  "full",
                 "asset_class":  "Crypto",
                 "long_name":  "CME CF Solana  Dollar Reference Rate"
@@ -943,6 +1021,7 @@
                 "multiplier":  25,
                 "min_tick":  0.05,
                 "tick_value":  1.25,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Crypto",
                 "long_name":  "Micro Solana"
@@ -955,6 +1034,7 @@
                 "multiplier":  50000,
                 "min_tick":  0.0005,
                 "tick_value":  25,
+                "price_magnifier":  1,
                 "tier":  "full",
                 "asset_class":  "Crypto",
                 "long_name":  "CME CF XRP-Dollar Reference Rate-New York Variant"
@@ -967,6 +1047,7 @@
                 "multiplier":  2500,
                 "min_tick":  0.0005,
                 "tick_value":  1.25,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Crypto",
                 "long_name":  "Micro XRP"
@@ -979,6 +1060,7 @@
                 "multiplier":  250,
                 "min_tick":  0.005,
                 "tick_value":  1.25,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Crypto",
                 "long_name":  "Micro Chainlink"
@@ -991,6 +1073,7 @@
                 "multiplier":  12500,
                 "min_tick":  0.0001,
                 "tick_value":  1.25,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Crypto",
                 "long_name":  "Micro Lumens"
@@ -1003,6 +1086,7 @@
                  "multiplier":  0.01,
                  "min_tick":  0.1,
                  "tick_value":  0.001,
+                 "price_magnifier":  1,
                  "tier":  "micro",
                  "asset_class":  "Crypto",
                  "long_name":  "Spot-Quoted Bitcoin"
@@ -1015,6 +1099,7 @@
                  "multiplier":  0.2,
                  "min_tick":  0.1,
                  "tick_value":  0.02,
+                 "price_magnifier":  1,
                  "tier":  "micro",
                  "asset_class":  "Crypto",
                  "long_name":  "Spot-Quoted Ether Future"
@@ -1027,6 +1112,7 @@
                 "multiplier":  0.02,
                 "min_tick":  5,
                 "tick_value":  0.1,
+                "price_magnifier":  1,
                 "tier":  "micro",
                 "asset_class":  "Crypto",
                 "long_name":  "CME CF Bitcoin Reference Rate New York  - BFF Futures"

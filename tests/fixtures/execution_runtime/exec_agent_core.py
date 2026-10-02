@@ -489,7 +489,9 @@ def _find_order(account: str, p: dict):
     return None
 
 def _fut_multiplier(symbol: str):
-    """(multiplier, err) for a futures root from contract_reference.json. Cached."""
+    """(dollars per 1.00 of quoted price, err) for a futures root from
+    contract_reference.json. Cached. Cents-quoted roots (grains/meats) divide
+    the IBKR multiplier by their priceMagnifier; a missing magnifier reads 1."""
     try:
         if _SPECS["map"] is None:
             from futures_sizing import load_specs
@@ -499,7 +501,14 @@ def _fut_multiplier(symbol: str):
     s = _SPECS["map"].get(str(symbol).upper())
     if s is None:
         return None, f"no futures spec for {symbol!r}"
-    return s.multiplier, None
+    return s.multiplier / _price_magnifier(getattr(s, "price_magnifier", 1)), None
+
+def _price_magnifier(value):
+    try:
+        mag = int(value or 1)
+    except (TypeError, ValueError):
+        return 1
+    return mag if mag >= 1 else 1
 
 def _acct_max_notional(acct):
     """Validation cap: the per-account live gate when configured (mirrors
@@ -621,8 +630,8 @@ def _leg_multiplier(p: dict):
             if not claimed > 0:
                 return None, "fut_multiplier must be > 0"
             # Preview/ack math only. execute_order re-queries IBKR and cross-checks
-            # the live multiplier before any order can transmit.
-            return claimed, None
+            # the live multiplier and price magnifier before any order can transmit.
+            return claimed / _price_magnifier(p.get("fut_price_magnifier")), None
         return mult, None
     return 1.0, None
 
