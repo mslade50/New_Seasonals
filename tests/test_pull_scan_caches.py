@@ -1,14 +1,7 @@
 from scripts.pull_scan_caches import SETS
 
 
-def test_site_requires_fundamental_research_inputs():
+def test_site_does_not_require_retired_fundamental_inputs():
     required, optional = SETS["site"]
-    required_keys = {key for key, _ in required}
-    optional_keys = {key for key, _ in optional}
-    fundamental_keys = {
-        "fundamental/current/daily_report_latest.json",
-        "fundamental/current/company_maps_latest.json",
-    }
-
-    assert fundamental_keys <= required_keys
-    assert fundamental_keys.isdisjoint(optional_keys)
+    keys = {key for key, _ in required} | {key for key, _ in optional}
+    assert not any(key.startswith("fundamental/") for key in keys)

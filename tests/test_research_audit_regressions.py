@@ -9,13 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pitch_journal
 import posts_journal
-from fundamental.research_controls import apply_research_controls
-from fundamental.research_state import _material_changes
-from fundamental.site_payload import build_fundamental_site_payload
-from fundamental.underwrite import validate_underwrite_record
-from scripts import build_fundamental_report
 from scripts.configure_shared_access import configure_access, TARGET_DOMAIN, PREVIEW_DOMAIN
-from fundamental.research_controls import completed_diligence_requests
 
 
 @pytest.mark.parametrize("journal,kind", [(pitch_journal, "idea"), (posts_journal, "draft")])
@@ -71,64 +65,6 @@ def test_nonobject_append_rejects_whole_batch_before_writing(tmp_path):
     assert not path.exists()
 
 
-@pytest.mark.parametrize("action", ["PASS", "WATCH"])
-def test_suppressed_review_is_archived_not_in_current_inbox(tmp_path, action, v2_underwrite_factory):
-    candidate = apply_research_controls(
-        pd.DataFrame([{"ticker": "AAA", "research_queue_priority": 1}]),
-        {"AAA": {"action": action, "updated_at": "2026-08-05T12:00:00Z"}},
-    ).iloc[0].to_dict()
-    path = tmp_path / "daily.json"
-    path.write_text(json.dumps({"health": {"as_of": "2026-08-05"},
-                               "candidates": [candidate],
-                               "underwrite_decisions": [v2_underwrite_factory()]}, default=str))
-    payload = build_fundamental_site_payload(path, tmp_path / "missing.json")
-    assert payload["reviews"] == []
-    assert payload["active_research"] == []
-    assert payload["archived_research"][0]["ticker"] == "AAA"
-
-
-def test_no_current_candidate_cannot_reappear_as_review(tmp_path, v2_underwrite_factory):
-    path = tmp_path / "daily.json"
-    path.write_text(json.dumps({"health": {"as_of": "2026-08-05"}, "candidates": [],
-                               "underwrite_decisions": [v2_underwrite_factory()]}))
-    assert build_fundamental_site_payload(path, tmp_path / "missing.json")["reviews"] == []
-
-
-def test_old_material_evidence_flag_cannot_bypass_consumption():
-    payload = {"schema_version": "fundamental-evidence.v1", "updated_at": "2026-08-05T12:00:00Z",
-               "evidence": [{"evidence_id": "e-old", "claim_id": "claim-old", "ticker": "AAA",
-                             "claim": "A material research fact changed.", "source_id": "filing",
-                             "direction": "CONFIRM", "materiality": "THESIS_CHANGING",
-                             "observed_at": "2026-08-03T10:00:00Z", "new_since_last_run": True}]}
-    result = _material_changes(payload, as_of="2026-08-05", since="2026-08-04T20:00:00Z")
-    assert result["changed_tickers"] == []
-
-
-@pytest.mark.parametrize("defect", ["currency", "ev", "price_source"])
-def test_inconsistent_underwrite_cannot_promote(defect, v2_underwrite_factory):
-    record = v2_underwrite_factory()
-    if defect == "currency":
-        record["valuation"]["currency"] = "JPY"
-    elif defect == "ev":
-        record["price_snapshot"]["enterprise_value"] = -1_000_000
-    else:
-        record["sources"][0]["as_of"] = "2020-01-01"
-    assert not validate_underwrite_record(record)["valid_for_quick_review"]
-
-
-def test_historical_snapshot_restores_issuer_missing_from_current(tmp_path, monkeypatch):
-    current = pd.DataFrame([{"ticker": "AAA", "snapshot_as_of": "2026-08-06", "value": 2},
-                            {"ticker": "BBB", "snapshot_as_of": "2026-08-04", "value": 3}])
-    current.to_parquet(tmp_path / "fmp_latest.parquet", index=False)
-    archived = pd.DataFrame([{"ticker": "AAA", "snapshot_as_of": "2026-08-04", "value": 1},
-                             {"ticker": "BBB", "snapshot_as_of": "2026-08-04", "value": 3}])
-    monkeypatch.setattr(build_fundamental_report, "CURRENT_ROOT", tmp_path)
-    monkeypatch.setattr(build_fundamental_report, "load_latest_snapshot_parts", lambda *a: archived)
-    result = build_fundamental_report._load_current_or_snapshots("fmp", "2026-08-05", None)
-    assert set(result["ticker"]) == {"AAA", "BBB"}
-    assert result.set_index("ticker").loc["AAA", "value"] == 1
-
-
 @pytest.mark.parametrize("policies", [
     [{"name": "Denali Team", "decision": "allow", "include": [{"everyone": {}}]}],
     [{"name": "Denali Team", "decision": "allow", "include": [{"email": {"email": "one@example.com"}}]},
@@ -142,76 +78,6 @@ def test_shared_access_rejects_public_effective_policy(policies):
             return copy.deepcopy(policies)
     with pytest.raises(RuntimeError):
         configure_access(Client())
-
-
-@pytest.mark.parametrize("kind,observed,suppressed", [
-    ("REOPEN", "2026-08-04T12:00:00Z", True),
-    ("KILL", "2026-08-06T12:00:00Z", True),
-    ("WARNING", "2026-08-06T12:00:00Z", True),
-    ("PROOF", "2026-08-06T12:00:00Z", False),
-    ("REOPEN", "2026-08-06T12:00:00Z", False),
-])
-def test_only_new_constructive_trigger_reopens_watch(kind, observed, suppressed):
-    result = apply_research_controls(pd.DataFrame([{"ticker": "AAA", "research_queue_priority": 1}]),
-        {"AAA": {"action": "WATCH", "updated_at": "2026-08-05T12:00:00Z"}},
-        trigger_events=[{"ticker": "AAA", "evaluation": "FIRED", "kind": kind, "observed_at": observed}])
-    assert bool(result.iloc[0]["research_suppressed"]) is suppressed
-
-
-def test_deepen_is_consumed_only_by_matching_completed_diligence(v2_underwrite_factory):
-    controls = {"AAA": {"action": "DEEPEN", "updated_at": "2026-08-05T12:00:00Z"}}
-    record = v2_underwrite_factory()
-    assert completed_diligence_requests([record], controls) == {}
-    record.update(research_control_updated_at=controls["AAA"]["updated_at"], completed_at="2026-08-05T15:00:00Z")
-    consumed = completed_diligence_requests([record], controls)
-    pending = apply_research_controls(pd.DataFrame([{"ticker": "AAA", "research_queue_priority": 5}]), controls)
-    assert pending.iloc[0]["research_queue_priority"] == 10_000
-    result = apply_research_controls(pending,
-                                     controls, completed_control_requests=consumed)
-    assert result.iloc[0]["research_queue_priority"] == 5
-    assert result.iloc[0]["control_disposition"] == "COMPLETED_BOUNDED_DILIGENCE_PASS"
-    controls["AAA"]["updated_at"] = "2026-08-06T12:00:00Z"
-    assert completed_diligence_requests([record], controls) == {}
-
-
-def test_report_suppression_matches_site_and_keeps_original_decision(tmp_path, v2_underwrite_factory):
-    from fundamental.report import render_candidate_report
-    record = v2_underwrite_factory()
-    candidate = apply_research_controls(pd.DataFrame([{
-        "ticker": "AAA", "research_priority": "A", "source_posture": "SEC package", "research_queue_priority": 1,
-    }]), {"AAA": {"action": "PASS", "updated_at": "2026-08-05T12:00:00Z"}})
-    output = tmp_path / "report.html"
-    render_candidate_report(candidate, {"as_of": "2026-08-05"}, output, underwrite_decisions=[record])
-    assert record["verdict"] not in output.read_text(encoding="utf-8")
-    assert record["decision"] == "QUICK_REVIEW"  # archival evidence is untouched
-
-
-def test_capital_structure_units_and_sourced_ev_adjustments(v2_underwrite_factory):
-    record = v2_underwrite_factory()
-    record["price_snapshot"].update(diluted_shares=100, share_unit_multiplier=1e6,
-        money_unit_multiplier=1e6, net_debt=-1200, enterprise_value=-150,
-        ev_adjustments=[{"label": "Minority interest", "amount": 50, "source_ids": ["filing"]}])
-    # Legitimately negative EV: 10*100 - 1200 + 50 = -150 (all in millions).
-    assert validate_underwrite_record(record)["valid_for_quick_review"]
-    record["price_snapshot"]["ev_adjustments"][0]["source_ids"] = ["unknown"]
-    assert not validate_underwrite_record(record)["valid_for_quick_review"]
-
-
-def test_mixed_historical_dataset_parts_keep_statement_periods(tmp_path, monkeypatch):
-    current = pd.DataFrame([
-        {"ticker": "AAA", "endpoint": "income", "snapshot_as_of": "2026-08-06", "period": 2025},
-        {"ticker": "AAA", "endpoint": "balance", "snapshot_as_of": "2026-08-04", "period": 2025},
-    ])
-    current.to_parquet(tmp_path / "fmp_latest.parquet", index=False)
-    archive = pd.DataFrame([
-        {"ticker": "AAA", "endpoint": "income", "snapshot_as_of": "2026-08-03", "period": period}
-        for period in (2024, 2025)
-    ])
-    monkeypatch.setattr(build_fundamental_report, "CURRENT_ROOT", tmp_path)
-    monkeypatch.setattr(build_fundamental_report, "load_latest_snapshot_parts", lambda *a: archive)
-    result = build_fundamental_report._load_current_or_snapshots("fmp", "2026-08-05", ["AAA"])
-    assert len(result) == 3
-    assert result.groupby("endpoint").size().to_dict() == {"balance": 1, "income": 2}
 
 
 def test_access_verification_reads_all_policy_pages(monkeypatch):

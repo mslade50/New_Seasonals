@@ -24,8 +24,6 @@ Outputs (dist/):
   - dist/data/signals.json         latest Order_Staging + Overflow rows from Sheets (if creds)
   - dist/data/risk.json            copy of data/site_risk.json (if present; see build_risk_json.py)
   - dist/data/betas.json           nightly adjusted-close SPY betas (if present; see build_betas.py)
-  - dist/data/fundamentals.json    narrow fundamental inbox: quick reviews,
-                                   active research, lenses, and audit counts
   - dist/data/stopfills.json       stop-fill quality: gap-through classification of every
                                    Stop exit + per-strategy slippage stats (best effort)
   - dist/data/drawdowns.json       top book drawdown episodes on the flat $750k curve with
@@ -101,7 +99,6 @@ from signal_chart_common import chart_relpath, trade_geometry, lookup_prices
 from scripts.seasonality_site_data import export_seasonality_snapshot
 from scripts.macro_site_data import export_macro_snapshot
 from scripts.site_r2_pipeline import CANONICAL_INPUTS, GENERATED_INPUTS, PROVENANCE_PATH
-from fundamental.site_payload import build_fundamental_site_payload
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 OVERLAY_FREE_LEDGER = os.path.join(
@@ -116,10 +113,6 @@ FRAGILITY = os.path.join(_ROOT, "data", "rd2_fragility.parquet")
 IDEAS = os.path.join(_ROOT, "data", "daily_seasonal_ideas.json")
 RISK = os.path.join(_ROOT, "data", "site_risk.json")
 BETAS = os.path.join(_ROOT, "data", "betas.json")
-FUNDAMENTAL_DAILY = os.path.join(
-    _ROOT, "data", "fundamental", "current", "daily_report_latest.json")
-FUNDAMENTAL_MAPS = os.path.join(
-    _ROOT, "data", "fundamental", "current", "company_maps_latest.json")
 SECTOR_MAP = os.path.join(_ROOT, "data", "sector_map.parquet")
 MASTER_PRICES = os.path.join(_ROOT, "data", "master_prices.parquet")
 EARNINGS = os.path.join(_ROOT, "data", "earnings_calendar.parquet")
@@ -3089,7 +3082,7 @@ def main():
              "iv_context": False, "option_surface": False, "options_market": False,
              "strategy_stats": False, "earnings_next": False,
              "seasonality": False, "macro_sznl": False, "montecarlo": False,
-             "fundamentals": False, "event_sleeve": False,
+             "event_sleeve": False,
              "strategies": False, "overlay_free": False, "intraday_daily": False,
              "tradelog_history": False}
     overlay_free_meta = None
@@ -3173,12 +3166,6 @@ def main():
         except Exception as e:
             print(f"  intraday_daily: existing strategy_daily.json unreadable ({e})")
     intraday = best_effort("intraday_daily", build_intraday_book, swing_daily=sd)
-    best_effort(
-        "fundamentals",
-        build_fundamental_site_payload,
-        FUNDAMENTAL_DAILY,
-        FUNDAMENTAL_MAPS,
-    )
     if args.no_mtm:
         # no price map in dev mode — ship the sim without the intraday section
         best_effort("montecarlo", build_monte_carlo, df)

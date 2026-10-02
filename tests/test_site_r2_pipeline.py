@@ -126,12 +126,6 @@ def test_pull_requires_data_empty_marked_github_workspace(tmp_path, monkeypatch)
         pipeline.pull_generator(root)
 
 
-def test_fundamentals_are_optional_at_the_r2_boundary():
-    by_name = {item.name: item for item in pipeline.CANONICAL_INPUTS}
-    assert by_name["fundamental_daily"].required is False
-    assert by_name["fundamental_maps"].required is False
-
-
 def test_live_fills_is_an_optional_canonical_input():
     by_name = {item.name: item for item in pipeline.CANONICAL_INPUTS}
     fills = by_name["live_fills"]

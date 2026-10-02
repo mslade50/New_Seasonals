@@ -76,7 +76,7 @@ def _norm(t: str) -> str:
 def load_candidates() -> list:
     if not os.path.exists(SYMBOL_MASTER_PATH):
         raise SystemExit(f"symbol_master.parquet missing at {SYMBOL_MASTER_PATH} "
-                         "— run build_symbol_master.py first.")
+                         "— frozen snapshot; restore it from R2 key symbol_master.parquet.")
     df = pd.read_parquet(SYMBOL_MASTER_PATH, columns=["ticker"])
     return sorted({_norm(t) for t in df["ticker"].tolist() if str(t).strip()})
 

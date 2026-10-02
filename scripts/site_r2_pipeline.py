@@ -61,18 +61,6 @@ CANONICAL_INPUTS: tuple[R2Input, ...] = (
     R2Input("cboe_putcall", "cboe_putcall.parquet", "data/cboe_putcall.parquet"),
     R2Input("sector_map", "sector_map.parquet", "data/sector_map.parquet"),
     R2Input("trade_console_stats", "trade_console_stats.json", "data/trade_console_stats.json"),
-    R2Input(
-        "fundamental_daily",
-        "fundamental/current/daily_report_latest.json",
-        "data/fundamental/current/daily_report_latest.json",
-        False,
-    ),
-    R2Input(
-        "fundamental_maps",
-        "fundamental/current/company_maps_latest.json",
-        "data/fundamental/current/company_maps_latest.json",
-        False,
-    ),
     R2Input("overflow_universe", "overflow_universe.parquet", "data/overflow_universe.parquet", False),
     R2Input(
         "overflow_earnings",

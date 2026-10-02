@@ -72,21 +72,9 @@ async function testTradeLog() {
   assert.doesNotMatch(stamp, /Stale/);
 }
 
-async function testInbox() {
-  const context = load("site/assets/fundamentals.js", { document: { addEventListener() {} } });
-  for (const action of ["PASS", "WATCH"]) {
-    const state = { actions: { AAA: { action, updated_at: "2026-08-05T12:00:00Z" } } };
-    assert.equal(context.inboxSuppressed(state, { ticker: "AAA" }), true);
-    assert.equal(context.inboxSuppressed(state, { ticker: "AAA", control_disposition: "REOPENED_BY_TRIGGER",
-      control_updated_at: "2026-08-05T12:00:00Z" }), false);
-    assert.equal(context.inboxSuppressed(state, { ticker: "AAA", control_disposition: "REOPENED_BY_TRIGGER",
-      control_updated_at: "2026-08-04T12:00:00Z" }), true);
-  }
-}
-
 (async () => {
-  const cases = { state: testState, tradelog: testTradeLog, inbox: testInbox };
+  const cases = { state: testState, tradelog: testTradeLog };
   if (process.env.AUDIT_CASE) await cases[process.env.AUDIT_CASE]();
-  else { await testState(); await testTradeLog(); await testInbox(); }
-  console.log("PASS research state corruption/CAS, Trade Log stale refresh, PASS/WATCH current inbox");
+  else { await testState(); await testTradeLog(); }
+  console.log("PASS research state corruption/CAS, Trade Log stale refresh");
 })().catch(error => { console.error(error); process.exitCode = 1; });

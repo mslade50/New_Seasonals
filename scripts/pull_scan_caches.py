@@ -51,13 +51,7 @@ OPTIONAL = [
     ("trend_sleeve_state.json", "data/trend_sleeve_state.json"),
 ]
 
-SITE_REQUIRED = REQUIRED + [
-    # The Fundamentals tab cannot render without both research inputs. Keep
-    # these fail-closed so Cloudflare never receives an HTML shell whose data
-    # request falls through to an HTML response at fundamentals.json.
-    ("fundamental/current/daily_report_latest.json", "data/fundamental/current/daily_report_latest.json"),
-    ("fundamental/current/company_maps_latest.json", "data/fundamental/current/company_maps_latest.json"),
-]
+SITE_REQUIRED = list(REQUIRED)
 
 # Other local-primary and GitHub-backup consumers of the same fail-closed semantics (2026-08-12: their
 # inline `python -c` pulls discarded return values — a failed pull built a

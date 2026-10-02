@@ -2,8 +2,8 @@
 Analyst grades loader + trailing-window helpers — shared by the backtester
 and any scanner that wants to filter on rating action flow.
 
-Source: data/analyst_grades.parquet (built by scripts/build_analyst_grades.py
-from FMP /stable/grades). One row per grading action with action in
+Source: data/analyst_grades.parquet (archived FMP /stable/grades history;
+collection retired 2026-09-23). One row per grading action with action in
 {upgrade, downgrade, maintain}. R2-mirrored at analyst_grades.parquet.
 
 Usage
