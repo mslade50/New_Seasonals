@@ -1113,7 +1113,11 @@ def _atr_estimate(ib, contract, sec_type):
     last_close = float(bars[-1].close or 0)
     return (atr, last_close) if atr > 0 and last_close > 0 else (None, None)
 
-def _execution_deadline(value, clock):
+def _execution_deadline(value, clock, sec_type=None):
+    """IBKR goodTillDate / goodAfterTime for `clock` ET on `value`. FUT gets the
+    zone-free UTC form 'YYYYMMDD-HH:MM:SS': IBKR rejects a US/Eastern suffix on
+    CME/CBOT contracts (343 'End Time' on XK and MNQ GTD parents, 2026-10-02;
+    10314 for MESZ6 in the 2026-09-24 probe). Stocks keep the accepted ET form."""
     from zoneinfo import ZoneInfo
     raw = str(value).strip()
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}|\d{8}", raw):
@@ -1122,6 +1126,8 @@ def _execution_deadline(value, clock):
     when = datetime.datetime.combine(date.date(), datetime.time.fromisoformat(clock), ZoneInfo("America/New_York"))
     if when <= datetime.datetime.now(ZoneInfo("America/New_York")):
         raise ValueError("deadline has already passed")
+    if str(sec_type or "").upper() == "FUT":
+        return when.astimezone(datetime.timezone.utc).strftime("%Y%m%d-%H:%M:%S")
     return when.strftime("%Y%m%d %H:%M:%S") + " US/Eastern"
 
 def next_session_gat():
@@ -1187,6 +1193,8 @@ def _do_exit_attach(ib, p, acct):
         return _out(False, "rejected",
                     f"live gate: exit_attach supports only STK/CASH/FUT, not "
                     f"{sec_type or 'unknown'}; one-leg option closes can dismantle a hedge")
+    if time_gat:
+        time_gat = _execution_deadline(time_stop, time_clock, sec_type)  # FUT: UTC form
     # positions() contracts carry a BLANK exchange; stocks must SMART-route
     # (same 10311/201 failure class as the flatten path), FUT/CASH keep the
     # qualified venue.
@@ -1602,7 +1610,7 @@ def _do_entry_bracket(ib, p, acct):
     time_gat = None
     if time_stop:
         try:
-            time_gat = _execution_deadline(time_stop, time_clock)
+            time_gat = _execution_deadline(time_stop, time_clock, sec_type)
         except ValueError as exc:
             return _out(False, "rejected", f"live gate: time_stop must be a future valid date ({exc})")
     expiry = p.get("expiry")
@@ -1611,7 +1619,7 @@ def _do_entry_bracket(ib, p, acct):
         if entry_type not in ("LMT", "STP_LMT"):
             return _out(False, "rejected", "live gate: entry expiry applies to LMT/STP_LMT only")
         try:
-            parent_gtd = _execution_deadline(expiry, "16:00:00")
+            parent_gtd = _execution_deadline(expiry, "16:00:00", sec_type)
         except ValueError as exc:
             return _out(False, "rejected", f"live gate: expiry must be a future valid date ({exc})")
 

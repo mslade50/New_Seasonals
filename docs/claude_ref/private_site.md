@@ -165,6 +165,13 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   (`futPointValue` and friends) and `assets/futures_specs.json`. A missing field
   reads 1, which over-states risk. Guards: `tests/test_execution_fut_magnifier.py`,
   `tests/js/test_execution_fut_magnifier.js`, `test_futures_sizing.py` (trading_ibkr).
+- **Futures order time strings** (2026-10-02): `execute_order._execution_deadline`
+  writes FUT goodTillDate / goodAfterTime (entry GTD, TIME exit, exit_attach time
+  exit) in IBKR's zone-free UTC form `YYYYMMDD-HH:MM:SS`. IBKR rejected the
+  `... US/Eastern` suffix on CBOT/CME contracts (343 "End Time" on the XK and MNQ
+  GTD parents that day). Stocks/CASH keep `YYYYMMDD HH:MM:SS US/Eastern`. The UTC
+  form is unproven live on the order side until the first FUT GTD/time-exit ticket
+  acknowledges. Guard: `tests/test_execution_order_time_strings.py`.
 - **Hedge panel (Exec tab, display-only)** (`assets/execution.js`, 2026-08-25):
   attributes each selected account's live stock positions to strategy-tagged
   working brackets, marks them, applies 63d or 252d SPY betas, nets counted

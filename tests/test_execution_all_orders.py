@@ -58,7 +58,9 @@ def test_all_entry_types_build_and_acknowledge_complete_brackets(tmp_path, accou
     assert not parent.transmit and children[-1].transmit
     assert all(o.parentId == parent.orderId and o.account == account.upper() and o.totalQuantity == 2 for o in children)
     assert [o.orderType for o in children] == ["LMT", "STP", "MKT"]
-    assert children[-1].goodAfterTime.startswith("20301220 15:59:00")
+    # FUT time strings go out in the UTC form (IBKR 343 on US/Eastern for CME/CBOT).
+    assert children[-1].goodAfterTime == ("20301220-20:59:00" if asset == "FUT"
+                                          else "20301220 15:59:00 US/Eastern")
     if kind == "STP_LMT":
         assert (parent.auxPrice, parent.lmtPrice) == (p["entry"], p["entry_cap"])
 
