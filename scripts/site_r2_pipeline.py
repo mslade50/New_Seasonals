@@ -93,6 +93,7 @@ CANONICAL_INPUTS: tuple[R2Input, ...] = (
 )
 
 GENERATED_INPUTS: tuple[R2Input, ...] = (
+    R2Input("ledger_pa_basis", "backtest_trades_pa_basis.parquet", "data/backtest_trades_pa_basis.parquet"),
     R2Input("ledger", "backtest_trades_full.parquet", "data/backtest_trades_full.parquet"),
     R2Input("ledger_daily", "backtest_daily_pnl.parquet", "data/backtest_daily_pnl.parquet"),
     R2Input(

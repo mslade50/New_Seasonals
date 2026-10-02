@@ -12,6 +12,7 @@ const PAGES = [
   { href: "events.html",   label: "Events" },
   { href: "strategies.html", label: "Strategies" },
   { href: "risk.html",     label: "Risk" },
+  { href: "pa-portfolio.html", label: "PA Portfolio" },
   { href: "tradelog.html", label: "Trade Log" },
   { href: "signals.html",  label: "Signals" },
   { href: "orders.html",   label: "Orders" },

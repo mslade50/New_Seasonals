@@ -1,0 +1,7 @@
+#paPortfolio .pa-table-wrap { overflow-x: auto; margin: 10px 0; }
+#paPortfolio table.tbl th { cursor: default; }
+#paPortfolio #paCapital {
+  width: 145px; background: var(--card2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 7px;
+  padding: 6px 9px; font-size: 12.5px; outline: none;
+}

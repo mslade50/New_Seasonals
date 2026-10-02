@@ -92,6 +92,7 @@ from options_surface import (
     percentile_rank,
 )
 from strategy_config import ACCOUNT_VALUE, STRATEGY_BOOK
+from pa_portfolio import build_pa_payload
 from pages.strat_backtester import (
     get_daily_mtm_series,
     calculate_daily_exposure,
@@ -104,6 +105,7 @@ from scripts.site_r2_pipeline import CANONICAL_INPUTS, GENERATED_INPUTS, PROVENA
 from fundamental.site_payload import build_fundamental_site_payload
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
+PA_BASIS = os.path.join(_ROOT, "data", "backtest_trades_pa_basis.parquet")
 OVERLAY_FREE_LEDGER = os.path.join(
     _ROOT, "data", "backtest_trades_overlay_free.parquet")
 NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
@@ -3065,6 +3067,9 @@ def main():
     df = load_ledger()
     print(f"  ledger: {len(df)} trades, {df['Ticker'].nunique()} tickers, "
           f"{df['Signal Date'].min().date()} -> {df['Signal Date'].max().date()}")
+    pa_df = load_ledger(PA_BASIS) if os.path.exists(PA_BASIS) else None
+    if args.production and pa_df is None:
+        raise RuntimeError('Required fresh PA basis is missing')
     overlay_free_df = None
     if os.path.exists(OVERLAY_FREE_LEDGER):
         overlay_free_df = load_ledger(OVERLAY_FREE_LEDGER)
@@ -3091,7 +3096,7 @@ def main():
              "seasonality": False, "macro_sznl": False, "montecarlo": False,
              "fundamentals": False, "event_sleeve": False,
              "strategies": False, "overlay_free": False, "intraday_daily": False,
-             "tradelog_history": False}
+             "tradelog_history": False, "pa_portfolio": False}
     overlay_free_meta = None
     sd = None
     if args.no_mtm:
@@ -3121,7 +3126,17 @@ def main():
     if not args.no_mtm:
         price_scope = (pd.concat([df, overlay_free_df], ignore_index=True)
                        if overlay_free_df is not None else df)
+        if pa_df is not None:
+            price_scope = pd.concat([price_scope, pa_df], ignore_index=True)
         md = load_master_for(price_scope)
+        if pa_df is not None:
+            with open(os.path.join(_ROOT, 'config', 'pa_portfolio_sizing.json'), encoding='utf-8') as handle:
+                pa_settings = json.load(handle)
+            # SPY supplies actual exchange sessions, including days with no trades.
+            pa_sessions = md['SPY'].index[md['SPY'].index >= pd.Timestamp('2003-01-01')]
+            pa_payload = build_pa_payload(pa_df, md, pa_sessions, ACCOUNT_VALUE, pa_settings)
+            write_json(pa_payload, os.path.join(data_dir, 'pa_portfolio.json'))
+            flags['pa_portfolio'] = True
         print("  building per-strategy daily MTM (flat basis) ...")
         sd = build_strategy_daily(df_flat, md, DAILY)
         write_json(sd, os.path.join(data_dir, "strategy_daily.json"))
@@ -3308,6 +3323,7 @@ def main():
         "strategies": strat_counts,
         "payloads": flags,
     }
+    meta["pa_portfolio_version"] = 1
     if overlay_free_meta is not None:
         meta["portfolio_books"] = {"overlay_free": overlay_free_meta}
     if intraday:

@@ -43,7 +43,8 @@ _ROOT = os.path.dirname(_HERE)
 sys.path.insert(0, _ROOT)
 
 import data_provider
-from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE
+from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE, SPOT_TO_TRADEABLE
+from pa_portfolio import execution_candidates
 from pages.strat_backtester import (
     download_historical_data,
     load_seasonal_map,
@@ -61,6 +62,7 @@ from daily_portfolio_report import (
 )
 
 OUT_PARQUET = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
+OUT_PA_BASIS = os.path.join(_ROOT, "data", "backtest_trades_pa_basis.parquet")
 OUT_OVERLAY_FREE = os.path.join(_ROOT, "data", "backtest_trades_overlay_free.parquet")
 OUT_NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
 OUT_OVSEXT = os.path.join(_ROOT, "data", "backtest_trades_ovsext.parquet")
@@ -913,6 +915,35 @@ def main(upload=False):
                             full_book, starting_equity)
     except Exception as e:
         print(f"  (pcfear shadow pass skipped: {e})")
+
+    # Required fresh PA pass: preserve live index->ETF execution aliases,
+    # whole-share Main-anchor sizing, and PA's single far-target OVS exits.
+    # Never derive this from the compounded/flat merged tranche columns.
+    pa_book = copy.deepcopy(full_book)
+    for strategy in pa_book:
+        if strategy['name'] == 'Overbot Vol Spike':
+            strategy.setdefault('execution', {})['scaleout_near_frac'] = 0.0
+    pa_candidates, pa_signal_data = execution_candidates(
+        candidates, signal_data, processed, SPOT_TO_TRADEABLE)
+    with open(os.path.join(_ROOT, 'config', 'pa_portfolio_sizing.json'), encoding='utf-8') as handle:
+        pa_settings = json.load(handle)
+    print("  Processing fresh PA Main-anchor basis (unsplit, staging-floor quantities) ...")
+    sig_pa = process_signals_fast(
+        pa_candidates, pa_signal_data, processed, pa_book, starting_equity,
+        cap_bps=pa_settings['per_strategy_daily_cap_bps'], overflow_active=True,
+        flat_sizing=True, staging_quantity_floor=True,
+        max_long_risk_bps=POOLED_LONG_CAP_BPS,
+        max_short_risk_bps=POOLED_SHORT_CAP_BPS,
+    )
+    if sig_pa.empty:
+        raise RuntimeError('Required PA replay produced no trades')
+    pa_df = shape_flat_trades(sig_pa)
+    os.makedirs(os.path.dirname(OUT_PA_BASIS), exist_ok=True)
+    pa_meta = _provenance_meta(len(pa_df))
+    pa_meta['pa_basis_version'] = '1'
+    pa_meta['primary_anchor'] = str(starting_equity)
+    _write_ledger_with_meta(pa_df, OUT_PA_BASIS, pa_meta)
+    print(f"  Wrote {len(pa_df)} PA basis trades -> {OUT_PA_BASIS}")
 
     df = combine_sizing_passes(sig_comp, sig_flat, full_book)
 

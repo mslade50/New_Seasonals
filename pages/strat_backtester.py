@@ -843,7 +843,7 @@ def _stop_fill_price(direction, stop_price, day_open,
     return fill * (1.0 + bps / 1e4), gapped         # short covers higher
 
 
-def _apply_daily_risk_scale(trades, indices, scale):
+def _apply_daily_risk_scale(trades, indices, scale, staging_quantity_floor=False):
     """Floor OLV shares and cap OVS whole positions before splitting.
 
     Risk dollars retain the staged budget convention. Realized PnL uses the
@@ -853,8 +853,17 @@ def _apply_daily_risk_scale(trades, indices, scale):
     ovs = trades.loc[indices, 'Strategy'].eq('Overbot Vol Spike')
     olv = trades.loc[indices, 'Strategy'].eq('Oversold Low Volume')
     other_indices = ovs.index[~ovs & ~olv]
-    trades.loc[other_indices, 'Shares'] = (trades.loc[other_indices, 'Shares'] * scale).round().astype(int)
-    trades.loc[other_indices, 'PnL'] = (trades.loc[other_indices, 'PnL'] * scale).round()
+    if staging_quantity_floor:
+        # PA basis: live stager floors every strategy after its daily cap.
+        for idx in other_indices:
+            qty = int(np.floor(trades.at[idx, 'Shares'] * scale))
+            trades.at[idx, 'Shares'] = qty
+            row = trades.loc[idx]
+            change = row['Exit Price'] - row['Price']
+            trades.at[idx, 'PnL'] = round(qty * change * (1 if row['Action'] == 'BUY' else -1))
+    else:
+        trades.loc[other_indices, 'Shares'] = (trades.loc[other_indices, 'Shares'] * scale).round().astype(int)
+        trades.loc[other_indices, 'PnL'] = (trades.loc[other_indices, 'PnL'] * scale).round()
     trades.loc[other_indices, 'Risk $'] *= scale
     for idx in olv.index[olv]:
         qty = int(np.floor(trades.at[idx, 'Shares'] * scale))
@@ -884,7 +893,7 @@ def _apply_daily_risk_scale(trades, indices, scale):
             trades.at[idx, 'PnL'] = round(change * qty * (1 if row['Action'] == 'BUY' else -1))
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None, stop_gap_fill=True, stop_slip_bps=STOP_SLIP_BPS, stop_gap_slip_bps=STOP_GAP_SLIP_BPS, pc_fear_enabled=True, portfolio_overlays_enabled=True, portfolio_overlay_names=None):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None, stop_gap_fill=True, stop_slip_bps=STOP_SLIP_BPS, stop_gap_slip_bps=STOP_GAP_SLIP_BPS, pc_fear_enabled=True, portfolio_overlays_enabled=True, portfolio_overlay_names=None, staging_quantity_floor=False):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
 
@@ -2231,7 +2240,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             cap_dollars = day_equity * _effective_cap * _strat_mult_cap / 10000.0
             if placed_total > cap_dollars:
                 scale = cap_dollars / placed_total
-                _apply_daily_risk_scale(sig_df, grp_idx, scale)
+                _apply_daily_risk_scale(sig_df, grp_idx, scale, staging_quantity_floor=staging_quantity_floor)
                 # Propagate the trim into the pooled denominators (2026-07-16).
                 # Live applies the caps SEQUENTIALLY — the pooled stage sees
                 # post-per-strategy-cap risk — but this pass used to leave
@@ -2272,7 +2281,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             _cap_dollars = _day_equity * _cap_bps_dir / 10000.0
             if _placed_total > _cap_dollars:
                 _scale = _cap_dollars / _placed_total
-                _apply_daily_risk_scale(sig_df, grp_idx, _scale)
+                _apply_daily_risk_scale(sig_df, grp_idx, _scale, staging_quantity_floor=staging_quantity_floor)
         sig_df = sig_df.drop(columns='_Dir')
 
     # (Cross-strategy overlap clamp moved to sizing step 3b3c, 2026-08-12:

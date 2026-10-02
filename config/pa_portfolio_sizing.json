@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "risk_multiplier": 1.3,
+  "per_strategy_daily_cap_bps": 250,
+  "source": "trading_ibkr/order_staging.py: ACCT2_RISK_MULT and build_pa_frame",
+  "capital": "Browser-local starting equity; never bundled in the shared site"
+}

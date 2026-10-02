@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import sys
 from typing import Any
@@ -37,6 +38,7 @@ OVERLAY_FREE_PORTFOLIO_PAYLOADS = (
 
 PAGE_BUILD_PAYLOADS = (
     ("trades.json", None),
+    ("pa_portfolio.json", "pa_portfolio"),
     ("strategy_daily.json", "strategy_daily"),
     ("positions.json", "positions"),
     ("exposure.json", "exposure"),
@@ -173,6 +175,20 @@ def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[
     for name in REQUIRED_PORTFOLIO_PAYLOADS:
         if flags.get(name) is not True:
             problems.append(f"Portfolio payload {name!r} is unavailable")
+
+    if meta.get('pa_portfolio_version') == 1:
+        pa = _read_json(os.path.join(data_dir, 'pa_portfolio.json'))
+        if flags.get('pa_portfolio') is not True or not pa:
+            problems.append('required PA Portfolio replay is unavailable')
+        else:
+            config = pa.get('config') or {}
+            if pa.get('version') != 1 or config.get('primary_anchor') != meta.get('account_value'):
+                problems.append('PA replay has an incorrect schema or Main sizing anchor')
+            multiplier = config.get('risk_multiplier')
+            if not isinstance(multiplier, (int, float)) or not math.isfinite(multiplier) or multiplier <= 0:
+                problems.append('PA replay has an invalid risk multiplier')
+            if not pa.get('trades') or not pa.get('dates') or str(pa.get('asof') or '') < str(prev_td or ''):
+                problems.append('PA replay is empty or stale')
 
     overlay_book = (meta.get("portfolio_books") or {}).get("overlay_free")
     if flags.get("overlay_free") is not True or not isinstance(overlay_book, dict):
