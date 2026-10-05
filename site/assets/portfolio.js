@@ -533,7 +533,7 @@ function renderBookNote() {
       : "Trade-based views and the fixed full-book sections further down cover swing trades only.",
   ];
   const swingEnd = S.sd && S.sd.dates[S.sd.dates.length - 1];
-  const lagging = intradayRoster().filter(s => S.f.strategies.has(s.name) && s.has_daily &&
+  const lagging = intradayRoster().filter(s => (!S.f.strategies || S.f.strategies.has(s.name)) && s.has_daily &&
     (s.coverage_through || (s.span && s.span[1])) < swingEnd);
   if (lagging.length && S.book !== "swing") parts.push(
     '<b>Historical coverage is incomplete:</b> ' + lagging.map(s =>

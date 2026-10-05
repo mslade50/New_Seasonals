@@ -313,6 +313,8 @@ for (const [name, ticker, values] of [["Open Breakout", "MNQ", OB], ["Legend EMA
 }
 const rich = load();
 setup(rich, detailed);
+// Real startup builds the book control before the strategy filters.
+rich.run("S.f.strategies = null; buildBookScope(); S.f.strategies = new Set(allStrategyNames())");
 const dailyOnly = load();
 setup(dailyOnly, INTRA);
 assert.strictEqual(rich.run("bookTrades().length"), 14, "combined includes both trade books");
