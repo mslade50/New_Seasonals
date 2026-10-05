@@ -141,12 +141,32 @@ def open_breakout() -> tuple[dict, dict]:
             reserved += risk[i]
     t["contracts"] = qty
     t["usd"] = t.contracts * t.usd_per_micro
+    trade_rows = []
+    for i, r in t[t.contracts > 0].iterrows():
+        # Source engine defines R on the unrounded quarter-range distance.
+        # Sizing reserves the tick-rounded stop plus costs separately above.
+        risk_points = OB_STOP_FRAC * r.prior_tr
+        trade_rows.append({
+            "trade_id": f"intraday:open_breakout:{i}", "Strategy": "Open Breakout",
+            "Tier": "Intraday", "book": "intraday", "Ticker": "MNQ" if r.market == "NQ" else "MES",
+            "Direction": "Long" if r.side == 1 else "Short",
+            "Signal_Date": r.date.strftime("%Y-%m-%d"), "Entry_Date": r.date.strftime("%Y-%m-%d"),
+            "Exit_Date": r.date.strftime("%Y-%m-%d"), "Entry_Time": str(r.entry_time),
+            "Exit_Time": str(r.exit_time), "Entry_Price": float(r.entry), "Exit_Price": float(r.exit),
+            "Quantity": int(r.contracts), "R": round(float(r.net_r), 6),
+            "PnL_flat": round(float(r.usd), 2),
+            "Risk_flat": round(risk_points * OB_MARKETS[r.market]["mult"] * r.contracts, 4),
+            "Return_Pct": round(100 * r.side * (r.exit / r.entry - 1), 6),
+            "Hold_Days": 0, "Hold_Minutes": (r.exit_time - r.entry_time).total_seconds() / 60,
+            "Exit_Type": r.reason, "Open": False,
+        })
+    t["usd"] = t.usd.round(2)
 
     idx = sessions(OB_SPAN)
     bad = sorted(set(t.date) - set(idx))
     if bad:
         raise SystemExit(f"open_breakout: trade dates not XNYS sessions: {bad[:5]}")
-    by_m = {m: t[t.market == m].groupby("date").usd.sum().reindex(idx, fill_value=0.0).round().astype(int)
+    by_m = {m: t[t.market == m].groupby("date").usd.sum().reindex(idx, fill_value=0.0).round(2)
             for m in OB_MARKETS}
     daily = sum(by_m.values())
     traded = int((t.contracts > 0).sum())
@@ -173,7 +193,8 @@ def open_breakout() -> tuple[dict, dict]:
                    "no per-market contract cap (fat-finger ceiling 60); amended prior-range "
                    "skip (ratio >= 1.25 and prior session >= +2R own R); shorts gated on legacy score >= 20"),
         "costs": "base: ledger fees and slippage",
-        "_series": (daily, by_m, len(t)),
+        "_series": (daily, by_m, traded),
+        "trades": trade_rows,
         "notes": "research replay of the frozen candidate; not a fill record",
     }
     return entry, meta
@@ -187,11 +208,25 @@ def legend_ema() -> tuple[dict, dict]:
     if x.net_return_bps_2bp.isna().any():
         raise SystemExit("legend_ema: traded row without a return")
     x["usd"] = x.etf.map(LG_WEIGHT) * BASIS * x.net_return_bps_2bp / 1e4
+    trade_rows = []
+    for i, r in x.iterrows():
+        trade_rows.append({
+            "trade_id": f"intraday:legend_ema:{i}", "Strategy": "Legend EMA", "Tier": "Intraday",
+            "book": "intraday", "Ticker": r.etf, "Direction": "Long",
+            "Signal_Date": str(r.setup_date), "Entry_Date": r.entry_date.strftime("%Y-%m-%d"),
+            "Exit_Date": r.entry_date.strftime("%Y-%m-%d"), "Entry_Time": r.entry_ts,
+            "Exit_Time": r.exit_ts, "Entry_Price": float(r.entry_price), "Exit_Price": float(r.exit_price),
+            "R": None, "Risk_flat": None, "PnL_flat": round(float(r.usd), 2),
+            "Return_Pct": round(float(r.net_return_bps_2bp) / 100, 6),
+            "Hold_Days": 0, "Hold_Minutes": float(r.holding_minutes),
+            "Exit_Type": r.exit_reason, "Open": False,
+        })
+    x["usd"] = x.usd.round(2)
     idx = sessions(LG_SPAN)
     bad = sorted(set(x.entry_date) - set(idx))
     if bad:
         raise SystemExit(f"legend_ema: trade dates not XNYS sessions: {bad[:5]}")
-    by_m = {e: x[x.etf == e].groupby("entry_date").usd.sum().reindex(idx, fill_value=0.0).round().astype(int)
+    by_m = {e: x[x.etf == e].groupby("entry_date").usd.sum().reindex(idx, fill_value=0.0).round(2)
             for e in LG_WEIGHT}
     daily = sum(by_m.values())
     meta = {"trades": len(x), "by_etf": x.etf.value_counts().to_dict(),
@@ -202,6 +237,7 @@ def legend_ema() -> tuple[dict, dict]:
         "sizing": "40 percent of $750k in SPY / 30 percent in QQQ per the live rule, longs only",
         "costs": "net of 2 bps round trip (the backtest subtracts it from gross ETF returns)",
         "_series": (daily, by_m, len(x)),
+        "trades": trade_rows,
         "notes": ("research replay: prior-session Databento futures setups executed in SPY/QQQ 1m IBKR bars, "
                   "enter 09:31 toward the ETF's RTH EMA20, exit at the target or the 10:30 open, ex-dividend "
                   "entry dates excluded; variant etf_geometry_dynamic_ema_ex_exdiv; not a fill record"),
@@ -210,7 +246,7 @@ def legend_ema() -> tuple[dict, dict]:
 
 
 def pairs(s: pd.Series) -> list[list]:
-    return [[d.strftime("%Y-%m-%d"), int(v)] for d, v in s.items()]
+    return [[d.strftime("%Y-%m-%d"), round(float(v), 2)] for d, v in s.items()]
 
 
 def stats(daily: pd.Series, n_trades: int, span: tuple[str, str]) -> dict:
@@ -228,7 +264,8 @@ def finish(entry: dict) -> dict:
     daily, by_m, n = entry.pop("_series")
     return {**{k: entry[k] for k in ["id", "name", "book", "instruments", "span", "sizing", "costs"]},
             "daily": pairs(daily), "by_market": {m: pairs(s) for m, s in by_m.items()},
-            "stats": stats(daily, n, tuple(entry["span"])), "notes": entry["notes"]}
+            "stats": stats(daily, n, tuple(entry["span"])), "notes": entry["notes"],
+            "trades": entry["trades"]}
 
 
 def validate(doc: dict) -> None:
@@ -241,8 +278,10 @@ def validate(doc: dict) -> None:
         for m, ser in s["by_market"].items():
             assert [d for d, _ in ser] == days, f"{s['id']}/{m}: calendar mismatch"
         tot = [sum(v[i][1] for v in s["by_market"].values()) for i in range(len(days))]
-        assert tot == [v for _, v in s["daily"]], f"{s['id']}: by_market does not sum to daily"
-        assert s["stats"]["sum_usd"] == sum(v for _, v in s["daily"]), f"{s['id']}: sum_usd mismatch"
+        assert np.allclose(tot, [v for _, v in s["daily"]]), f"{s['id']}: by_market does not sum to daily"
+        assert s["stats"]["sum_usd"] == int(sum(v for _, v in s["daily"])), f"{s['id']}: sum_usd mismatch"
+        trade_daily = pd.DataFrame(s["trades"]).groupby("Exit_Date").PnL_flat.sum()
+        assert all(abs(trade_daily.get(d, 0) - v) < .011 for d, v in s["daily"]), "trade/daily mismatch"
 
 
 def summary_row(s: dict) -> str:

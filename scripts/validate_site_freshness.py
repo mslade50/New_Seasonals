@@ -55,6 +55,7 @@ PAGE_BUILD_PAYLOADS = (
     ("sizer.json", "sizer"),
     ("strat_notes.json", "strat_notes"),
     ("strategies.json", "strategies"),
+    ("intraday_daily.json", "intraday_daily"),
 )
 
 

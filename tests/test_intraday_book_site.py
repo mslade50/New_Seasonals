@@ -159,6 +159,38 @@ def test_frontend_wiring():
     assert "flags.intraday_daily" in js
 
 
+def test_trade_rows_reconcile_and_preserve_no_stop_r(tmp_path):
+    replay = _fixture()
+    for s in replay["strategies"]:
+        s["trades"] = [
+            {"trade_id": f"intraday:{s['id']}:{d}", "Strategy": s["name"], "Tier": "Intraday",
+             "book": "intraday", "Exit_Date": d, "Entry_Date": d, "PnL_flat": v,
+             "R": None if s["id"] == "legend_ema" else v / 100}
+            for d, v in s["daily"] if v
+        ]
+    out = build_site.build_intraday_book(_write(tmp_path, replay))
+    assert out["has_trades"]
+    assert len(out["trades"]) == 5
+    assert sum(t["PnL_flat"] for t in out["trades"]) == sum(out["total_flat"])
+    assert all(t["R"] is None for t in out["trades"] if t["Strategy"] == "Legend EMA")
+    assert out["strategies"][0]["coverage_through"] == "2018-01-05"
+    replay["strategies"][0]["trades"][0]["PnL_flat"] += 10
+    with pytest.raises(ValueError, match="reconcile"):
+        build_site.build_intraday_book(_write(tmp_path, replay))
+
+
+def test_committed_trades_match_daily_and_coverage():
+    out = build_site.build_intraday_book(REAL_REPLAY)
+    assert out["has_trades"]
+    assert len(out["trades"]) == 3238 + 73
+    assert sum(t["PnL_flat"] for t in out["trades"]) == pytest.approx(sum(out["total_flat"]))
+    for t in out["trades"]:
+        if t["R"] is not None:
+            assert t["PnL_flat"] == pytest.approx(t["R"] * t["Risk_flat"], abs=.011)
+    assert {s["id"]: s["coverage_through"] for s in out["strategies"]} == {
+        "open_breakout": "2026-08-28", "legend_ema": "2026-08-05"}
+
+
 @pytest.mark.skipif(not REAL_REPLAY.exists(), reason="intraday replay not committed yet")
 def test_committed_replay_builds():
     out = build_site.build_intraday_book(REAL_REPLAY)

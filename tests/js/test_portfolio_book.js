@@ -298,4 +298,45 @@ setup(page, INTRA);
   assert.deepStrictEqual(eq(bad), eq(base));
 }
 
-console.log("PASS portfolio book scope: combined/swing/intraday curves, KPIs, n/a trade stats, correlation, fallback");
+// Trade-complete replays: the same tables and filters as the swing book.
+const detailed = JSON.parse(JSON.stringify(INTRA));
+detailed.has_trades = true;
+detailed.trades = [];
+for (const [name, ticker, values] of [["Open Breakout", "MNQ", OB], ["Legend EMA", "SPY", LE]]) {
+  values.forEach((v, i) => {
+    if (!v) return;
+    detailed.trades.push({ trade_id: `intra:${ticker}:${i}`, book: "intraday", Tier: "Intraday",
+      Strategy: name, Ticker: ticker, Direction: v < 0 ? "Short" : "Long",
+      Entry_Date: INTRA_DATES[i], Exit_Date: INTRA_DATES[i], PnL_flat: v,
+      R: name === "Legend EMA" ? null : v > 0 ? 1 : -.5, Hold_Days: 0, Hold_Minutes: 59 });
+  });
+}
+const rich = load();
+setup(rich, detailed);
+const dailyOnly = load();
+setup(dailyOnly, INTRA);
+assert.strictEqual(rich.run("bookTrades().length"), 14, "combined includes both trade books");
+assert.deepStrictEqual(eq(rich), eq(dailyOnly), "trade rows must not double count daily P&L");
+rich.run("setBook('intraday')");
+assert.strictEqual(rich.run("bookTrades().length"), 10);
+assert.ok(!rich.el("cumRChart")._na, "intraday R chart is enabled");
+assert.ok(html(rich.el("tradeLog")).includes("MNQ"), "intraday trades rendered");
+assert.ok(html(rich.el("stratTable")).includes("59.0m"), "hold minutes in strategy table");
+assert.ok(!rich.el("kpis").innerHTML.includes("no per-trade data"));
+rich.run("S.f.strategies = new Set(['Legend EMA']); apply()");
+assert.strictEqual(rich.run("tradeMetrics(bookTrades()).winRate"), .75);
+assert.strictEqual(rich.run("tradeMetrics(bookTrades()).pf"), 9);
+assert.strictEqual(rich.run("tradeMetrics(bookTrades()).totR"), null, "no invented R for un-stopped Legend EMA");
+rich.run("S.f.strategies = new Set(allStrategyNames()); S.f.tickerQ = 'MNQ'; S.f.dir = 'Short'; S.midScalar = .1; S.lev = 2; apply()");
+assert.strictEqual(rich.run("bookTrades().length"), 3);
+assert.strictEqual(rich.run("bookSeries(bookTrades()).pnl.reduce((a,b) => a+b, 0)"), -700,
+  "ticker/direction filters apply; intraday is exempt from swing midterm overlays");
+assert.strictEqual(rich.run("tradeMetrics(bookTrades()).totPnl"), -700);
+rich.run("S.f.tickerQ = ''; S.f.dir = 'All'; S.f.tier = 'Intraday'; apply()");
+assert.strictEqual(rich.run("bookTrades().length"), 10, "Intraday tier selector works");
+rich.run("S.f.from = '2020-01-14'; S.f.to = '2020-01-15'; apply()");
+assert.strictEqual(rich.run("bookTrades().length"), 3, "date filter applies to intraday trades");
+assert.strictEqual(rich.run("bookSeries(bookTrades()).pnl.reduce((a,b) => a+b, 0)"), 640);
+rich.run("S.f.from = null; S.f.to = null; S.sd.dates.push('2020-02-03'); renderBookNote()");
+assert.ok(rich.el("bookScopeNote").innerHTML.includes("Historical coverage is incomplete"));
+console.log("PASS portfolio books: trade rows, stats, filters, exact P&L, coverage, legacy fallback");

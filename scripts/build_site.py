@@ -2807,7 +2807,7 @@ def build_intraday_book(replay_path=INTRADAY_REPLAY, swing_daily=None):
     if abs(basis - float(ACCOUNT_VALUE)) > 0.5:
         raise ValueError(f"intraday replay basis {basis} != ACCOUNT_VALUE {ACCOUNT_VALUE}")
 
-    daily_maps, roster = {}, []
+    daily_maps, roster, trades = {}, [], []
     for s in replay["strategies"]:
         name = str(s.get("name") or s.get("id"))
         key = f"{name}||{INTRADAY_TIER}"
@@ -2817,6 +2817,21 @@ def build_intraday_book(replay_path=INTRADAY_REPLAY, swing_daily=None):
             by_day[day] = by_day.get(day, 0.0) + float(v or 0.0)
         if by_day:
             daily_maps[key] = by_day
+        source_trades = s.get("trades")
+        if source_trades is not None:
+            ids = [t.get("trade_id") for t in source_trades]
+            if not all(ids) or len(set(ids)) != len(ids):
+                raise ValueError(f"intraday {name}: missing or duplicate trade IDs")
+            trade_daily = {}
+            for t in source_trades:
+                if t.get("Strategy") != name or t.get("Tier") != INTRADAY_TIER:
+                    raise ValueError(f"intraday {name}: incorrect trade attribution")
+                day = t["Exit_Date"]
+                trade_daily[day] = trade_daily.get(day, 0.0) + float(t["PnL_flat"])
+            if set(trade_daily) - set(by_day) or any(
+                    abs(trade_daily.get(d, 0.0) - v) > .011 for d, v in by_day.items()):
+                raise ValueError(f"intraday {name}: trades do not reconcile to daily P&L")
+            trades.extend(source_trades)
         by_market = {m: round(float(sum(float(v or 0.0) for _, v in rows)), 2)
                      for m, rows in (s.get("by_market") or {}).items()}
         roster.append({
@@ -2827,6 +2842,8 @@ def build_intraday_book(replay_path=INTRADAY_REPLAY, swing_daily=None):
             "span": s.get("span"), "instruments": s.get("instruments"),
             "sizing": s.get("sizing"), "costs": s.get("costs"),
             "stats": s.get("stats"), "notes": s.get("notes"),
+            "has_trades": source_trades is not None,
+            "coverage_through": max(by_day) if by_day else None,
             "by_market_usd": by_market,
         })
 
@@ -2845,6 +2862,8 @@ def build_intraday_book(replay_path=INTRADAY_REPLAY, swing_daily=None):
         "series": series,
         "total_flat": total,
         "strategies": roster,
+        "trades": trades,
+        "has_trades": all(s["has_trades"] for s in roster if s["has_daily"]),
     }
     if swing_daily and swing_daily.get("dates"):
         swing = dict(zip(swing_daily["dates"], swing_daily.get("total_flat") or []))
