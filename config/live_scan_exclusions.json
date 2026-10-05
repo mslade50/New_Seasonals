@@ -76,10 +76,12 @@
   {
     "ticker": "LEG",
     "status": "confirmed_delisted",
-    "effective_from": "2026-09-12",
-    "verified_on": "2026-09-12",
-    "reason": "Completed Somnigroup merger August 26, 2026; NYSE suspension and withdrawal requested.",
-    "evidence_url": "https://www.sec.gov/Archives/edgar/data/58492/000119312526366694/d152590d8k.htm"
+    "effective_from": "2026-08-27",
+    "verified_on": "2026-10-05",
+    "reason": "Somnigroup merger closed August 26, 2026; NYSE suspended LEG before the August 27 open and removed its listing September 8. Historical prices retained.",
+    "evidence_url": "https://www.sec.gov/Archives/edgar/data/58492/000087666126000712/ruleprovisionnotice.htm",
+    "trading_suspended_on": "2026-08-27",
+    "listing_removed_on": "2026-09-08"
   },
   {
     "ticker": "RSX",

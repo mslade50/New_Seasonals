@@ -72,8 +72,9 @@ def cycle_label(year: int) -> str:
 
 
 def _norm_ticker(t: str) -> str:
-    """Match master_prices storage convention (upper, '.'->'-'); leave ^ and =F."""
-    return str(t).strip().upper().replace(".", "-")
+    """Match cached/provider spelling, including the DX-Y.NYB suffix."""
+    from live_scan_universe import canonical_ticker
+    return canonical_ticker(t)
 
 
 # -----------------------------------------------------------------------------

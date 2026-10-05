@@ -51,6 +51,7 @@ import pitch_journal  # noqa: E402
 from pitch_grammar import REPEAT_BLOCK_TD  # noqa: E402
 from pitch_products import PITCH, SEASONAL  # noqa: E402
 from trading_calendar import TRADING_DAY  # noqa: E402
+from live_scan_universe import canonical_ticker, exclude_retired_tickers  # noqa: E402
 
 import build_pitch_state as bps  # noqa: E402
 from build_context_state import (  # noqa: E402
@@ -239,6 +240,12 @@ def build_ranks(prices: pd.DataFrame, today: pd.Timestamp, warnings: list[str],
     cs = se.seasonal_cross_section(today, ranks)
     if cs.empty:
         raise SystemExit(f"FATAL: no seasonal ranks on or before {today.date()}")
+    active, retired = exclude_retired_tickers(cs.index, asof=today.date())
+    cs = cs[cs.index.map(canonical_ticker).isin(active)]
+    if retired:
+        warnings.append(f"ranks: confirmed delisted symbols excluded from forward research: {retired}; history retained")
+    if cs.empty:
+        raise SystemExit(f"FATAL: no active seasonal ranks on or before {today.date()}")
     rank_date = pd.Timestamp(cs["Date"].max()).normalize()
     stale = cs[cs["Date"] < rank_date]
     if len(stale):
@@ -454,11 +461,15 @@ def build_board(board_asof: pd.Timestamp, warnings: list[str]) -> dict:
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"board: daily_seasonal_ideas.build failed ({exc})")
         return {"asof": str(board_asof.date()), "rows": [], "error": str(exc)}
+    candidates = payload.get("candidates") or []
+    active, _ = exclude_retired_tickers(
+        [c.get("ticker", "") for c in candidates], asof=board_asof.date())
+    candidates = [c for c in candidates if canonical_ticker(c.get("ticker", "")) in active]
     rows = [{k: c.get(k) for k in BOARD_FIELDS}
-            for c in payload.get("candidates") or []
+            for c in candidates
             if (c.get("evidence") or {}).get("TICKET")]
     return {"asof": str(board_asof.date()), "grades": "all",
-            "n_candidates": len(payload.get("candidates") or []),
+            "n_candidates": len(candidates),
             "rows": json.loads(json.dumps(rows, default=str))}
 
 

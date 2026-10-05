@@ -21,6 +21,8 @@ from typing import Optional
 
 import pandas as pd
 
+from live_scan_universe import canonical_ticker
+
 _STALE_AFTER_SECONDS = 18 * 3600  # match data_provider / earnings refresh cadence
 
 
@@ -110,7 +112,7 @@ def min_addv_for(strategy_name: str) -> float:
 
 
 def _norm(t: str) -> str:
-    return str(t).upper().strip().replace(".", "-")
+    return canonical_ticker(t)
 
 
 def _read_universe_frame(path: str = OVERFLOW_UNIVERSE_PATH) -> Optional[pd.DataFrame]:

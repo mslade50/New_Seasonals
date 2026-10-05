@@ -36,6 +36,7 @@ import pc_fear
 # order_staging.py back-computes entry expiry with an IDENTICAL calendar;
 # see trading_calendar.py + tests/test_trading_calendar.py.
 from trading_calendar import TRADING_DAY
+from live_scan_universe import canonical_ticker
 
 # -----------------------------------------------------------------------------
 # IMPORT STRATEGY BOOK
@@ -194,11 +195,11 @@ def load_master_prices_dict(tickers):
     """
     if not os.path.exists(MASTER_PRICES_PATH):
         return {}
-    wanted = set(t.strip().upper().replace('.', '-') for t in tickers)
+    wanted = set(canonical_ticker(t) for t in tickers)
     # Predicate + column pushdown so we never materialize the full parquet in
     # memory (critical once master_prices grows to thousands of tickers × 20y —
     # a naive full read risks OOM on a 7 GB GHA runner). master_prices stores
-    # tickers uppercased with '.'→'-' already, so the filter matches directly.
+    # Equity share classes use hyphens; Yahoo's DX-Y.NYB suffix keeps its dot.
     _cols = ['ticker', 'date', 'Open', 'High', 'Low', 'Close', 'Volume']
     try:
         df = pd.read_parquet(
@@ -2297,7 +2298,7 @@ def build_live_filters(strat, last_row, df):
 
 def download_historical_data(tickers, start_date="2000-01-01"):
     if not tickers: return {}
-    clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
+    clean_tickers = list(set([canonical_ticker(t) for t in tickers]))
 
     data_dict = {}
     CHUNK_SIZE = 20
@@ -2672,7 +2673,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         if "SPY" in s.get('trend_filter', ''): all_tickers.add("SPY")
         if s.get('use_vix_filter', False): all_tickers.add("^VIX")  # VIX for strategies that need it
         if s.get('use_ref_ticker_filter', False) and s.get('ref_ticker'):
-            all_tickers.add(s['ref_ticker'].replace('.', '-'))
+            all_tickers.add(canonical_ticker(s['ref_ticker']))
     
     # 2. Download Data
     # Cache-first for ALL tickers (liquid + overflow + strategy universes):
@@ -2694,8 +2695,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         print(f"[CACHE] Loaded master_prices.parquet: {len(master_dict)} tickers from cache")
     else:
         print("[WARN] master_prices.parquet unavailable - falling back to yfinance for all tickers")
-    _have = {k.replace('.', '-').upper() for k in master_dict}
-    _yf_tickers = [t for t in all_tickers if t.replace('.', '-').upper() not in _have]
+    _have = {canonical_ticker(k) for k in master_dict}
+    _yf_tickers = [t for t in all_tickers if canonical_ticker(t) not in _have]
     if _yf_tickers:
         print(f"[NETWORK] {len(_yf_tickers)} ticker(s) not in cache - fetching live from yfinance: "
               f"{sorted(_yf_tickers)[:12]}{' ...' if len(_yf_tickers) > 12 else ''}")
@@ -3080,7 +3081,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
         _ref_memo_key = None
         ref_settings = strat['settings']
         if ref_settings.get('use_ref_ticker_filter', False) and ref_settings.get('ref_filters'):
-            ref_ticker_key = ref_settings.get('ref_ticker', 'IWM').replace('.', '-')
+            ref_ticker_key = canonical_ticker(ref_settings.get('ref_ticker', 'IWM'))
             ref_df = master_dict.get(ref_ticker_key)
             if ref_df is not None and len(ref_df) > 250:
                 ref_calc = calculate_indicators(ref_df.copy(), sznl_map, ref_ticker_key, market_series, vix_series)
@@ -3103,7 +3104,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
             _mkt_memo_key = None
         signals = []
         for ticker in strat['universe_tickers']:
-            t_clean = ticker.replace('.', '-')
+            t_clean = canonical_ticker(ticker)
             df = master_dict.get(t_clean)
             if df is None:
                 error_tickers.append((t_clean, "No data returned"))
@@ -3170,7 +3171,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False, bookend='auto'
                     # share count, notional) reflect the ETF as a 1:1 replacement.
                     if t_clean in SPOT_TO_TRADEABLE:
                         tradeable = SPOT_TO_TRADEABLE[t_clean]
-                        tradeable_clean = tradeable.replace('.', '-')
+                        tradeable_clean = canonical_ticker(tradeable)
                         sub_df = master_dict.get(tradeable_clean)
                         if sub_df is None or len(sub_df) < 250:
                             error_tickers.append((t_clean, f"Signal fired but tradeable {tradeable} unavailable"))

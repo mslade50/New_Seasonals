@@ -55,6 +55,7 @@ from strategy_config import (  # noqa: E402
     STRATEGY_BOOK,
 )
 from trading_calendar import TRADING_DAY  # noqa: E402
+from live_scan_universe import canonical_ticker, exclude_retired_tickers  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "scripts"))
 from build_pitch_research_index import build as build_research_index  # noqa: E402
@@ -195,7 +196,10 @@ def _metrics_for(df: pd.DataFrame) -> dict | None:
 
 def build_tape(prices: pd.DataFrame, today: pd.Timestamp,
                warnings: list[str]) -> dict:
-    universe = sorted(set(HEADLINE_TICKERS) | set(LIQUID_PLUS_COMMODITIES))
+    universe, retired = exclude_retired_tickers(
+        sorted(set(HEADLINE_TICKERS) | set(LIQUID_PLUS_COMMODITIES)), asof=today.date())
+    if retired:
+        warnings.append(f"tape: confirmed delisted symbols excluded from forward research: {retired}; history retained")
     frame = prices[prices["ticker"].isin(universe)]
     frame = frame[frame["date"] < today].sort_values(["ticker", "date"])
     if frame.empty:
@@ -206,7 +210,7 @@ def build_tape(prices: pd.DataFrame, today: pd.Timestamp,
         got = _metrics_for(group.tail(400))
         if got:
             metrics[ticker] = got
-    missing = [t for t in HEADLINE_TICKERS if t not in metrics]
+    missing = [t for t in HEADLINE_TICKERS if t in universe and t not in metrics]
     if missing:
         warnings.append(f"tape: no metrics for {missing}")
 
@@ -396,11 +400,14 @@ def build_seasonality(today: pd.Timestamp, warnings: list[str]) -> dict:
         ideas = json.loads((ROOT / "data" / "daily_seasonal_ideas.json")
                            .read_text(encoding="utf-8"))
         out["board_meta"] = ideas.get("meta", {})
+        candidates = ideas.get("candidates") or []
+        active, _ = exclude_retired_tickers(
+            [c.get("ticker", "") for c in candidates], asof=today.date())
         out["board_candidates"] = [
             {k: c.get(k) for k in ("channel", "ticker", "direction", "horizon",
                                    "headline", "conviction", "p_value",
                                    "evidence", "notes")}
-            for c in (ideas.get("candidates") or [])[:25]
+            for c in [c for c in candidates if canonical_ticker(c.get("ticker", "")) in active][:25]
         ]
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"seasonality: daily_seasonal_ideas.json unavailable ({exc})")
