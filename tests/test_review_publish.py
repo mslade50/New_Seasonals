@@ -127,13 +127,13 @@ def test_directed_amendment_retains_other_delivered_ideas_and_converges():
 
 def test_cloud_workflow_uses_existing_credentials_and_only_review_reconciliation():
     from pathlib import Path
-    import yaml
-    workflow=yaml.safe_load((Path(__file__).parents[1]/'.github/workflows/review_inbox_sync.yml').read_text())
-    assert workflow['permissions']=={'contents':'read'}
-    steps=workflow['jobs']['reconcile']['steps']
-    env=steps[-1]['env']
-    assert set(env)=={'R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','R2_BUCKET','REVIEW_ASOF'}
-    run=steps[-1]['run']
+    import re
+    workflow=(Path(__file__).parents[1]/'.github/workflows/review_inbox_sync.yml').read_text()
+    permissions=workflow.split('permissions:\n',1)[1].split('concurrency:',1)[0]
+    assert permissions.strip()=='contents: read'
+    env=workflow.split('        env:\n',1)[1].split('        run:',1)[0]
+    assert set(re.findall(r'^          ([A-Z0-9_]+):',env,re.M))=={'R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','R2_BUCKET','REVIEW_ASOF'}
+    run=workflow.split('        run: |\n',1)[1]
     assert 'sync_review_inbox.py' in run
     for forbidden in ['daily_pitch.py','smtp','order_staging','exec-command','Scheduler']:
         assert forbidden not in run
