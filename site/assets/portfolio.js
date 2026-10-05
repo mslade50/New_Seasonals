@@ -881,7 +881,9 @@ function buildFilterBar() {
   syncStratBtn();
 
   // tier + direction segments
-  el.appendChild(makeSeg("Tier", ["All", "Liquid", "Overflow"], v => { S.f.tier = v; apply(); }));
+  const tiers = ["All", "Liquid", "Overflow"];
+  if (S.intraday && S.intraday.has_trades) tiers.push("Intraday");
+  el.appendChild(makeSeg("Tier", tiers, v => { S.f.tier = v; apply(); }));
   el.appendChild(makeSeg("Direction", ["All", "Long", "Short"], v => { S.f.dir = v; apply(); }));
 
   // date presets
@@ -1498,6 +1500,8 @@ function renderKPIs(tm, dm, exact, ds) {
   const scaled = S.sizing === "scaled";
   // Preserve the fallback for legacy daily-only intraday snapshots.
   const tOnly = !!(S.intraday && S.book === "intraday" && !S.intraday.has_trades);
+  const minuteHold = S.intraday && S.intraday.has_trades &&
+    (S.book === "intraday" || S.f.tier === "Intraday");
   const tv = v => tOnly ? "n/a" : v;
   const ts = sub => tOnly ? "no per-trade data (intraday replay)" : sub;
   const cards = [
@@ -1522,7 +1526,8 @@ function renderKPIs(tm, dm, exact, ds) {
     kpiCard("MAR", dm.mar == null ? "-" : fmt.num(dm.mar, 2)),
     kpiCard("Tail Ratio", tv(tm.tail == null ? "-" : fmt.num(tm.tail, 2)), null, ts("|p95 / p5| of R")),
     kpiCard("Max Consec Losses", tv(tm.maxConsecL), undefined, ts()),
-    kpiCard("Avg Hold", tv(tm.avgHold == null ? "-" : fmt.num(tm.avgHold, 1)), null, ts("trading days")),
+    kpiCard("Avg Hold", tv((minuteHold ? tm.avgHoldMinutes : tm.avgHold) == null ? "-"
+      : fmt.num(minuteHold ? tm.avgHoldMinutes : tm.avgHold, 1)), null, ts(minuteHold ? "minutes" : "trading days")),
   ];
   if (S.intraday && ds) {
     // daily-P&L KPIs, defined for every book
@@ -1874,8 +1879,10 @@ function renderYearTable(tr, ds) {
 function renderTradeLog(tr) {
   const el = document.getElementById("tradeLog");
   const columns = [
-    { key: "Entry_Date", label: "Entry", align: "l" },
-    { key: "Exit_Date", label: "Exit", align: "l" },
+    { key: "Entry_Date", label: "Entry", align: "l", fmt: (v, r) => r.Entry_Time
+      ? `${v} ${r.Entry_Time.slice(11, 16)} ET` : v || "" },
+    { key: "Exit_Date", label: "Exit", align: "l", fmt: (v, r) => r.Exit_Time
+      ? `${v} ${r.Exit_Time.slice(11, 16)} ET` : v || "" },
     { key: "Strategy", label: "Strategy", align: "l" },
     { key: "Tier", label: "Tier", align: "l" },
     { key: "Ticker", label: "Ticker", align: "l",
