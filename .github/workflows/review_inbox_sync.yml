@@ -1,0 +1,42 @@
+name: Sync Human Review Inbox
+# Review data only. Uses already-delivered journals/receipts. Never runs an
+# agent, SMTP, Sheets, order staging, broker commands, or local Scheduler.
+on:
+  workflow_dispatch:
+    inputs:
+      asof:
+        description: Optional ET review date for receipt-gated reconciliation
+        required: false
+        type: string
+  schedule:
+    - cron: '*/15 * * * 1-5'
+permissions:
+  contents: read
+concurrency:
+  group: human-review-inbox-sync
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+      - name: Install existing review dependencies
+        run: pip install 'pandas>=2,<3' 'exchange-calendars>=4,<5' boto3 python-dotenv
+      - name: Reconcile confirmed deliveries into central review ledger
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          REVIEW_ASOF: ${{ inputs.asof }}
+        run: |
+          if [ -n "$REVIEW_ASOF" ]; then
+            python scripts/sync_review_inbox.py --asof "$REVIEW_ASOF"
+          else
+            python scripts/sync_review_inbox.py
+          fi

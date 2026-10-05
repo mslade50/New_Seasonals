@@ -1001,6 +1001,34 @@ def publish_site_payload(site: dict, journal_path: Path, args,
         return False
 
 
+# Human review publication is separate from Sheets Approve and all execution.
+def publish_review_payload(ideas, planned_records, asof, journal_path, args,
+                           stand_down=None) -> bool:
+    if getattr(args, "no_send", False):
+        print("Review inbox skipped: --no-send has no confirmed delivery")
+        return True
+    product = getattr(args, "product", None) or "pitch"
+    receipt_path, use_r2 = delivery_receipt_settings(args, journal_path, asof)
+    try:
+        receipt = pitch_delivery.load_receipt(receipt_path, str(asof.date()),
+                         use_r2=use_r2, require_remote=use_r2, product=product)
+        if receipt is None and not use_r2:
+            print("Review inbox skipped: dev fixture has no sent receipt")
+            return True
+        from review_publish import publish
+        path = (ROOT / "artifacts" / "review_inbox" / product / f"{asof.date()}.json"
+                if use_r2 else journal_path.with_name(f"{journal_path.stem}.review_inbox.json"))
+        publish(product=product, asof=str(asof.date()), ideas=ideas, receipt=receipt,
+                verdict_digest=pitch_delivery.verdict_digest(planned_records),
+                account_value=ACCOUNT_VALUE, path=path, use_r2=use_r2,
+                stand_down=stand_down)
+        print(f"Human review inbox published for {product} {asof.date()} (no execution approval)")
+        return True
+    except Exception as exc:
+        print(f"WARNING: human review inbox NOT published ({exc})")
+        return False
+
+
 # ---------------------------------------------------------------------------
 def run_identity(model: str | None = None,
                  effort: str | None = None) -> tuple[str, str]:
@@ -1205,6 +1233,8 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
             return 1
         email_ok = delivery
 
+    review_ok = (publish_review_payload([], planned_records, asof, journal_path,
+                                       args, stand_down=block) if email_ok else True)
     if sheet is not None:
         try:
             write_tab(sheet, [], product)
@@ -1228,7 +1258,7 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
     # legs would stay up on a no-trade morning.
     publish_site_payload(site_payload(asof, [], stand_down=block),
                          journal_path, args, asof)
-    return 0 if email_ok else 1  # failed email = failed delivery, show red
+    return 0 if email_ok and review_ok else 1  # failed email = failed delivery, show red
 
 
 def main() -> int:
@@ -1348,6 +1378,8 @@ def main() -> int:
             return 1
         email_ok = delivery
 
+    review_ok = (publish_review_payload(ideas, planned_records, asof, journal_path,
+                                       args) if email_ok else True)
     if sheet is not None:
         try:
             write_tab(sheet, rows, product)
@@ -1368,7 +1400,7 @@ def main() -> int:
     # A failed email is a failed DELIVERY even though the tab and journal
     # reflect the run — exit nonzero so Task Scheduler / the .bat log show
     # red instead of a green morning with no email in the inbox.
-    return 0 if email_ok else 1
+    return 0 if email_ok and review_ok else 1
 
 
 if __name__ == "__main__":

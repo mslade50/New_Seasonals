@@ -77,13 +77,13 @@ async function verifyJwt(token, domain, aud) {
   if (!auds.includes(aud)) return "aud mismatch";
   const nowSec = Math.floor(Date.now() / 1000);
   if (typeof payload.exp !== "number" || payload.exp <= nowSec) return "expired";
-  return null;
+  return { payload };
 }
 
 /* Gate an exec endpoint on the caller's Access identity.
  * Returns null when the request may proceed, a 503 when verification is not
  * configured, or a 401 when the caller's JWT is missing/invalid. */
-export async function requireAccess(request, env) {
+async function authenticateAccess(request, env) {
   const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
   const domain = String(env.ACCESS_TEAM_DOMAIN || "")
     .replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
@@ -101,8 +101,24 @@ export async function requireAccess(request, env) {
   let reason;
   try { reason = await verifyJwt(token, domain, aud); }
   catch (e) { reason = `verification error: ${(e && e.message) || e}`; }   // fail closed
-  if (reason) {
+  if (typeof reason === "string") {
     return new Response(JSON.stringify({ ok: false, error: `invalid Access JWT: ${reason}` }), { status: 401, headers });
   }
-  return null;
+  return reason.payload;
+}
+
+/* Preserve the existing exec gate API; review auditing additionally needs identity. */
+export async function requireAccess(request, env) {
+  const result = await authenticateAccess(request, env);
+  return result instanceof Response ? result : null;
+}
+export async function requireAccessIdentity(request, env) {
+  const result = await authenticateAccess(request, env);
+  if (result instanceof Response) return result;
+  const domain = String(env.ACCESS_TEAM_DOMAIN || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+  if (typeof result.sub !== 'string' || !result.sub.trim() || result.iss !== `https://${domain}`) {
+    return new Response(JSON.stringify({ok:false,error:'Verified Access subject/issuer required'}),
+      {status:401,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+  }
+  return {subject:result.sub};
 }

@@ -3,6 +3,7 @@
 
 const PAGES = [
   { href: "execution.html", label: "Execution" },
+  { href: "review.html", label: "Review" },
   { href: "index.html",    label: "Portfolio" },
   { href: "seasonal.html", label: "Seasonal" },
   { href: "radar.html",    label: "Radar" },
@@ -29,12 +30,14 @@ function renderNav(active) {
   if (!el) return;
   const link = p =>
     `<a href="${p.href}" class="${p.href === active ? "active" : ""}">${p.label}</a>`;
-  const links = PAGES.slice(0,3).map(link).join("");
-  const secondary = PAGES.slice(3);
+  const links = PAGES.slice(0,4).map(link).join("");
+  const secondary = PAGES.slice(4);
   const current = secondary.find(p=>p.href===active);
   const more = `<details class="nav-more"><summary>${current ? current.label : "More"}</summary><div>${secondary.map(link).join("")}</div></details>`;
   el.innerHTML = `<div class="brand">Seasonals <span>/</span> Private</div>
     <nav>${links}${more}</nav><div class="asof" id="navAsof"></div>`;
+  updateReviewNav(el);
+
 }
 
 async function fetchJSON(path) {
@@ -344,4 +347,21 @@ function rowsFromColumnar(payload) {
     out[i] = r;
   }
   return out;
+}
+
+/* Badge is read-only, no approval or external notification side effect. */
+async function updateReviewNav(el) {
+  const link = el.querySelector && el.querySelector('a[href="review.html"]');
+  if (!link) return;
+  try {
+    const r = await fetch('/review-inbox', {cache:'no-store', redirect:'error'});
+    if (!r.ok || !(r.headers.get('content-type') || '').includes('application/json')) throw Error('Review unavailable');
+    const data = await r.json();
+    const all = (data.products || []).flatMap(p => p.proposals || []);
+    const pending = all.filter(p => p.current && p.state.status === 'pending');
+    const missing = (data.products || []).some(p => ['missing','stale'].includes(p.status));
+    link.textContent = `Review (${pending.length}${missing ? ' · incomplete' : ''})`;
+    const next = pending.map(p => p.envelope.payload.review_deadline).sort()[0];
+    link.title = next ? `Next review deadline: ${new Date(next).toLocaleString('en-US',{timeZone:'America/New_York'})} ET` : missing ? 'One or more review feeds have not published' : 'No pending reviews';
+  } catch { link.textContent = 'Review (?)'; link.title = 'Sign in or open Review to check feed status'; }
 }

@@ -25,6 +25,7 @@
  */
 "use strict";
 
+let pitchReviewBlock = "";
 const PITCH_ENDPOINT = "/pitch-today";
 // PRIMARY only: the pitch sizes off the fixed ACCOUNT_VALUE basis, and
 // pitch_moo.py places on the primary account.
@@ -154,6 +155,7 @@ function stageBlockers(leg, ctx) {
   const c = ctx || {};
   const et = etNow(c.now);
   const out = [];
+  if (c.reviewBlock) out.push(c.reviewBlock);
   const kind = legKind(leg);
   const otype = pup(leg.Order_Type), tif = pup(leg.TIF);
   if (c.standDown) out.push("stand-down day: nothing was pitched");
@@ -252,7 +254,7 @@ function legCells(idea, leg, pitchDate, ctx) {
 function legRows(idea, pitchDate, opens, now) {
   return (idea.orders || []).map((leg) => {
     const key = legKey(idea, leg);
-    const ctx = { date: pitchDate, now, open: opens[key], placePass: idea.place_pass };
+    const ctx = { date: pitchDate, now, open: opens[key], placePass: idea.place_pass, reviewBlock: pitchReviewBlock };
     const { plan, html } = legCells(idea, leg, pitchDate, ctx);
     const openInput = plan.kind === "LIMIT_OPEN" ? `<label class="cap" style="display:inline">Today's open
       <input data-open-key="${pesc(key)}" value="${opens[key] == null ? "" : pesc(opens[key])}"
@@ -278,7 +280,7 @@ function ideaCard(idea, pitchDate, opens, now) {
     : after
       ? `<p class="cap">Staging opens at ${after} ET, after pitch_moo's ${pesc(idea.place_pass)} pass has run.
          ${never}</p>` : "";
-  return `<div class="card radar-card" data-idea="${pesc(idea.idea_id)}">
+  return `<div class="card radar-card" id="idea-${pesc(idea.idea_id)}" data-idea="${pesc(idea.idea_id)}">
     <div class="radar-head">
       <b>#${pesc(idea.rank)} ${pesc(idea.title)}</b>
       <span class="radar-pill">${pesc(idea.grade || "?")}</span>
@@ -312,6 +314,7 @@ function render(payload) {
   const bits = [`pitch <b>${pesc(payload.date)}</b>`, `published ${pesc(payload.generated_at)}`,
     `checked ${et.hm} ET`];
   const banners = [];
+  if (pitchReviewBlock) banners.push(`<div class="radar-warn">${pesc(pitchReviewBlock)} No ticket was staged. Return to Review and inspect the current version.</div>`);
   if (payload.date !== et.date)
     banners.push(`<div class="radar-warn">This pitch is dated ${pesc(payload.date)}; today is ${et.date}.
       Nothing on it can be staged. The next pitch publishes ~05:30 ET on a trading morning.</div>`);
@@ -342,7 +345,27 @@ async function main() {
     const payload = await fetchJSON(PITCH_ENDPOINT);
     if (payload && payload.error) throw new Error(payload.error);
     pitchPayload = payload;
+    const handoffQuery = new URLSearchParams(window.location.search);
+    if (handoffQuery.has('review_idea')) {
+      pitchReviewBlock = 'The immutable reviewed version could not be verified';
+      try {
+        const inbox = await fetchJSON(`/review-inbox?date=${encodeURIComponent(payload.date)}`);
+        const candidate = (inbox.products || []).find(p => p.product === 'pitch')?.proposals.find(r => r.envelope.id === handoffQuery.get('review_id'));
+        const idea = payload.ideas.find(i => i.idea_id === handoffQuery.get('review_idea'));
+        const stable = x => Array.isArray(x) ? '['+x.map(stable).join(',')+']' : x && typeof x === 'object' ? '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+stable(x[k])).join(',')+'}' : JSON.stringify(x);
+        if (candidate?.current && candidate.state.status === 'approved_review' &&
+            candidate.envelope.hash === handoffQuery.get('review_hash') &&
+            candidate.envelope.payload.source_idea_id === handoffQuery.get('review_idea') &&
+            idea && stable(candidate.envelope.payload.orders) === stable(idea.orders)) pitchReviewBlock = '';
+      } catch { /* fail closed; no automatic staging */ }
+    }
     render(payload);
+    const handoff = new URLSearchParams(window.location.search).get('review_idea');
+    if (handoff) {
+      const card = document.getElementById(`idea-${handoff}`);
+      if (card) card.scrollIntoView({block:'start'});
+      else el.insertAdjacentHTML('afterbegin','<div class="radar-warn">The reviewed idea is not in the current published Pitch. Return to Review and check the fresh proposal; no ticket was staged.</div>');
+    }
   } catch (e) {
     el.innerHTML = `<div class="radar-warn">Could not load today's pitch: ${pesc(e.message || e)}.
       It is published by <code>daily_pitch.py</code> after the morning email.</div>`;
