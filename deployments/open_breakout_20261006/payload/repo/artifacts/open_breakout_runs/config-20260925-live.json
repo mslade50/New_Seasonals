@@ -1,0 +1,59 @@
+{
+  "mode": "live",
+  "host": "127.0.0.1",
+  "port": 7496,
+  "client_id": 927481,
+  "account": "__LOCAL_BROKER_ACCOUNT__",
+  "allow_live": true,
+  "markets": [
+    {
+      "name": "NQ",
+      "signal": {
+        "symbol": "NQ",
+        "expiry": "20261218",
+        "con_id": 563947726
+      },
+      "execution": {
+        "symbol": "MNQ",
+        "expiry": "20261218",
+        "con_id": 815824267
+      },
+      "risk_bps": 15,
+      "max_contracts": 60
+    },
+    {
+      "name": "ES",
+      "signal": {
+        "symbol": "ES",
+        "expiry": "20261218",
+        "con_id": 515416632
+      },
+      "execution": {
+        "symbol": "MES",
+        "expiry": "20261218",
+        "con_id": 815824257
+      },
+      "risk_bps": 10,
+      "max_contracts": 60
+    }
+  ],
+  "shadow_equity": 750000,
+  "max_daily_risk_bps": 75,
+  "max_open_risk_bps": 25,
+  "max_margin_fraction": 0.2,
+  "fee_per_contract_side": 0.85,
+  "max_entry_slippage_ticks": 2,
+  "exit_slippage_reserve_ticks": 4,
+  "stale_seconds": 3,
+  "max_open_delay_seconds": 2,
+  "prior_range_filter": {
+    "enabled": true,
+    "threshold": 1.25,
+    "mode": "skip",
+    "require_prior_big_win": true,
+    "big_win_r": 2.0
+  },
+  "entry_order_type": "stop_limit",
+  "allow_price_only_pause": false,
+  "price_outage_cancel_seconds": 600
+}

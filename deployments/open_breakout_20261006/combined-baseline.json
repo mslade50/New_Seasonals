@@ -1,0 +1,289 @@
+{
+  "created_utc": "2026-10-06T16:47:21.716777+00:00",
+  "candidate_disabled": true,
+  "source_root": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals",
+  "price_candidate": "C:\\Users\\McKinley Slade\\Documents\\Codex\\2026-10-06\\task-3\\price-gap-candidate",
+  "legend_candidate": "C:\\Users\\McKinley Slade\\Documents\\Codex\\2026-10-06\\task-2\\opposite_coordination_candidate",
+  "shared_baselines_match": {
+    "open_breakout/__init__.py": true,
+    "open_breakout/config.py": true,
+    "open_breakout/strategy.py": true,
+    "open_breakout/service.py": true,
+    "open_breakout/resting.py": true,
+    "open_breakout/store.py": true
+  },
+  "production_base_hashes": {
+    "open_breakout/alerts.py": "c901c92fba7371dd0da610dfc00405b5736bf303bf937dac86f7a2bdc0e147ff",
+    "open_breakout/config.py": "94590c1cc5e7373366fc93de2caf5bdfad37077485313d1deb5f61214cfb1858",
+    "open_breakout/ibkr.py": "823d3e1b2ab0bb05803acda582571da3d91c8677a8cfd3b3cb93ada104d538e8",
+    "open_breakout/inputs.py": "55237efa5dc4a596bccb5fb813467e2d211c7ad9abfb7384ff2db0d69469b510",
+    "open_breakout/replay.py": "c954b8faa68c40ea95610739049dce54266295897d71651e360ba86376627985",
+    "open_breakout/resting.py": "1a4ac36aa5183ae1f6a0a9bb21318f491f9709da8b56cab2429827cf13f51841",
+    "open_breakout/service.py": "90c3b6c8830892aa7f68eb1f2b79b878115595d983203d8b23417b39f93b86cb",
+    "open_breakout/standby.py": "970c969107cff3ddc69663164252faf49857254e5643068c412b7e03ac238897",
+    "open_breakout/store.py": "cbc5d572c4d443827ff1c94ee9e9cdad30c564c39e45e469de2135d1a716a13b",
+    "open_breakout/strategy.py": "b6f70e41c1b8ffb7e3ec4bfb87969b399200d07d2877aef24510576cdf2c3729",
+    "open_breakout/__init__.py": "46bd7cee9504132eac5652b5e9a094b8cb36176d2d4de882043cf9b355a7f94a",
+    "open_breakout/__main__.py": "a3e4c4df81c51a041ecbc2e849a4b17537ced69e81b6fb76901fc3a62ec1d280",
+    "tests/test_open_breakout.py": "05c730f7ba6b77f10fc6ff440b4938b2cbd18ffab96f7aab9658869ad401954b",
+    "config/open_breakout.example.json": "ceb5d7c15c8bf0c9a6ac0345cf23a1cb3a0cc38d71214e181c4113d469c9fc77"
+  },
+  "legend_production_baseline": [
+    {
+      "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\__init__.py",
+      "sha256": "46BD7CEE9504132EAC5652B5E9A094B8CB36176D2D4DE882043CF9B355A7F94A"
+    },
+    {
+      "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\config.py",
+      "sha256": "94590C1CC5E7373366FC93DE2CAF5BDFAD37077485313D1DEB5F61214CFB1858"
+    },
+    {
+      "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\strategy.py",
+      "sha256": "B6F70E41C1B8FFB7E3EC4BFB87969B399200D07D2877AEF24510576CDF2C3729"
+    },
+    {
+      "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\service.py",
+      "sha256": "90C3B6C8830892AA7F68EB1F2B79B878115595D983203D8B23417B39F93B86CB"
+    },
+    {
+      "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\resting.py",
+      "sha256": "1A4AC36AA5183AE1F6A0A9BB21318F491F9709DA8B56CAB2429827CF13F51841"
+    },
+    {
+      "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\store.py",
+      "sha256": "CBC5D572C4D443827FF1C94EE9E9CDAD30C564C39E45E469DE2135D1A716A13B"
+    },
+    {
+      "source": "C:\\Users\\McKinley Slade\\OneDrive\\trading_ibkr\\legend_ema_fut.py",
+      "sha256": "24EACF74E68CAFCA3356EF70D1F4A59DCDE5406306305911A4A8705090BB4E6D"
+    }
+  ],
+  "input_candidate_hashes": {
+    "price": {
+      "BASELINE.json": "66c23b7bfadbecd04722af813ffc28bf684b5d60ff075036c0a7c04c27916ac1",
+      "bundle-manifest.json": "a8007998d32aa6ce0db8a180327249c0c3d17a2e1778758a978abf559c8981b7",
+      "daily_execution_report.py": "5853d500d184e63c8d638d88c505b1569ae82548b7edeb1a5b8c034ae46a8af8",
+      "integration.patch": "3655599adf5e5a47db49e83890a7197365ab408c27a13a04d4eb301593a93a98",
+      "offline-test-results.txt": "9fe8290ebbd05510b1c04e85a27b724af6dc6ae524d2f8b2f651ab0d26e2c946",
+      "offline-test-results.xml": "0e3aeeb68d81a7db738e71a0dd3966861cb3a7e30d7951369174f7b65e8f7066",
+      "offline-verifier-console.txt": "d9b1a252c2c7c5a06dd7904dff841d445f809b15bbdd89e6aa69d8847080be41",
+      "package_bundle.py": "816edecb333bbedf4f6b6139da01f84d6077621afe1fc920a9ec632c3787909d",
+      "README.md": "dbda7b7cee3b53adc7aa547d5cadabda1ee977b235ce9a490ab7a34e13dfea42",
+      "verification.json": "e1a70f2f5c8a881044420289b6c086fee24fca63cda897ca76d0cf8d20f9e246",
+      "verify_offline.py": "27951d5dae89e2f1641b324239ab5c6dd6f7fbf0cbea97998f8552d811e98f65",
+      "verify_patch.py": "a279c643ed9fda2e5d1090ad9e3e0772cca7a26b75254cf393a98ee6e99b775b",
+      "broker_runtime/owner_connection.py": "812236fcdfd5acfe2dd6b0fe372eecd7277803295f6153f8ade97e3cff0b4949",
+      "config/open_breakout.example.json": "ceb5d7c15c8bf0c9a6ac0345cf23a1cb3a0cc38d71214e181c4113d469c9fc77",
+      "open_breakout/alerts.py": "c901c92fba7371dd0da610dfc00405b5736bf303bf937dac86f7a2bdc0e147ff",
+      "open_breakout/config.py": "b576a504b4d6efb6525174cb5ef5f1a127eb1e753d1ffc25882b1fb11a4d245c",
+      "open_breakout/ibkr.py": "a8f6262c842d23a397252d246ce55291d6ea44372c1a292a1f378f777bc7b0da",
+      "open_breakout/inputs.py": "55237efa5dc4a596bccb5fb813467e2d211c7ad9abfb7384ff2db0d69469b510",
+      "open_breakout/price_health.py": "93edc6c733867ef361ce7bf4ecf17c9a41d2efc186046fc915ab675488185422",
+      "open_breakout/replay.py": "c105b51a678d6424db7ced7fbd7ed84e057995d906353ec69d12b997a6dc1f3d",
+      "open_breakout/resting.py": "42867b0c85f2e3a2d18540643e7117954c9befc8646810ccfa9fcb8d292307c3",
+      "open_breakout/service.py": "58d6bdd77bead40b4f88a584292cdd7fb6677c759bfa31a26c6f1695a306f464",
+      "open_breakout/standby.py": "970c969107cff3ddc69663164252faf49857254e5643068c412b7e03ac238897",
+      "open_breakout/store.py": "cbc5d572c4d443827ff1c94ee9e9cdad30c564c39e45e469de2135d1a716a13b",
+      "open_breakout/strategy.py": "b6f70e41c1b8ffb7e3ec4bfb87969b399200d07d2877aef24510576cdf2c3729",
+      "open_breakout/__init__.py": "46bd7cee9504132eac5652b5e9a094b8cb36176d2d4de882043cf9b355a7f94a",
+      "open_breakout/__main__.py": "0ff8b45287da2d9eeef2cb41f938af55614a657b8d511b1e77642c4e2c7cd30c",
+      "tests/test_open_breakout.py": "05c730f7ba6b77f10fc6ff440b4938b2cbd18ffab96f7aab9658869ad401954b",
+      "tests/test_price_only_pause.py": "1d02afd152cd3a5485be7933cd8f4a86f2612480708cc3dd40ef70d53f0fd394"
+    },
+    "legend": {
+      "baseline_hashes.json": "9a933b8125b59b39c329dbef95278e8d35fcf346940f84a4b24ffc4a67f2b500",
+      "build_candidate.py": "f686a155e5c70e2f59ffb7fb5c7ab660104ecf15eaf4c4f527bdc0383e0d5f6f",
+      "bundle-manifest.json": "6fe6b06ffe25cfe7151d258a3c2ae281f270b71846c4f5c646e53c1cfd1b91d2",
+      "daily_execution_report.py": "b5d49aff2e4e6699f4238167a8bce94f8f2921392639be178c3a4c1c0cd26000",
+      "integration.patch": "09f069a8c06112d9d012e1f545f8c77b90b6f700654211de392fb0eb577bc94f",
+      "intraday_coordination.py": "3a994212466d2da0d91a462b905f1bcf65e625979461a43ab036880ecb229809",
+      "package_bundle.py": "1538352d99fc77743e7afafc9f42bc38a50dab859b5b14b5985276b09ccd8fda",
+      "README.md": "01c337bb49e1dbef7aef2b743b426dba6793c9a5d86a3026dd002bacdd320bc1",
+      "test-results.txt": "0c148b171af19617bef6d7070ce52e1be1fd57d69b73d8f0bfe235c3cc44377e",
+      "test-results.xml": "b67a076061be9f66666c5902a0022871719e123dae1f48ccd03e96c98f28a775",
+      "verification.json": "a1844a334923c5eda5e9311e1ade6b7f30e81a52f52ccd8e57c1dd7558131de2",
+      "verify_offline.py": "ed64ad89941a47599a2f31f333e2978653f229552abab7df71c28d8695b5dbcd",
+      "config/open_breakout.example.json": "ceb5d7c15c8bf0c9a6ac0345cf23a1cb3a0cc38d71214e181c4113d469c9fc77",
+      "legend/coordination_bridge.py": "c1fafc2614b07accb90fb6b7a63456450afa5d368c76117ad0829343b8ffbc60",
+      "legend/legend_ema_fut.py": "8bf40b52fd36488ed9cea2b30356fb7d2e7e45bcb1c4803f61ec97fdffb02b93",
+      "legend/__init__.py": "33b889a1f7beac575d57ed1874f2257a3d30dd9c6878a7900253418165a04f25",
+      "open_breakout/alerts.py": "c901c92fba7371dd0da610dfc00405b5736bf303bf937dac86f7a2bdc0e147ff",
+      "open_breakout/config.py": "94590c1cc5e7373366fc93de2caf5bdfad37077485313d1deb5f61214cfb1858",
+      "open_breakout/coordination.py": "c84632da6022f45cc9425f6537b704992196f981356f46af8c04b1ecf18319ce",
+      "open_breakout/ibkr.py": "823d3e1b2ab0bb05803acda582571da3d91c8677a8cfd3b3cb93ada104d538e8",
+      "open_breakout/inputs.py": "55237efa5dc4a596bccb5fb813467e2d211c7ad9abfb7384ff2db0d69469b510",
+      "open_breakout/native_coordination.py": "1431151348394ec9830ec77187ee755c54f6182d529f913168b2665a13ea3790",
+      "open_breakout/replay.py": "c954b8faa68c40ea95610739049dce54266295897d71651e360ba86376627985",
+      "open_breakout/resting.py": "e39a270193479868ec1f569bb78dbf999985f06b6aac58bc29e0a846ab4eba9d",
+      "open_breakout/service.py": "28dfeb490d7e39729312221d585bebc6dcd746dff2121685a7f65772e122a493",
+      "open_breakout/standby.py": "970c969107cff3ddc69663164252faf49857254e5643068c412b7e03ac238897",
+      "open_breakout/store.py": "cbc5d572c4d443827ff1c94ee9e9cdad30c564c39e45e469de2135d1a716a13b",
+      "open_breakout/strategy.py": "b6f70e41c1b8ffb7e3ec4bfb87969b399200d07d2877aef24510576cdf2c3729",
+      "open_breakout/__init__.py": "46bd7cee9504132eac5652b5e9a094b8cb36176d2d4de882043cf9b355a7f94a",
+      "open_breakout/__main__.py": "10d16059b19a94c126e9209b0bb8d49b8424aed67ca62c315bf8bd8c1940178a",
+      "tests/conftest.py": "3e1a121e9aad1eb030c3dc4e94b40d48d6f209605f1a1d03098825025dce3945",
+      "tests/test_coordination.py": "c967c4d4cecb2829b852ccefa429e00d4b80fb203624e04203a34db6bec1f648",
+      "tests/test_existing_open_breakout.py": "05c730f7ba6b77f10fc6ff440b4938b2cbd18ffab96f7aab9658869ad401954b",
+      "tests/test_hooks.py": "e3daa8b0196b63d06857f5fe4f91c5c244cfacbf2f3d362ef112cf5aea44408f",
+      "tests/test_native_adapter.py": "92fcbcb129da29d7b9e45665cfc1f73093ff536d7d176f8de736ba5e2fdb1b11"
+    }
+  },
+  "input_test_results": {
+    "price": {
+      "verified_utc": "2026-10-06T16:39:59.508530+00:00",
+      "candidate_disabled": true,
+      "production_source_unchanged_before": {
+        "open_breakout/alerts.py": true,
+        "open_breakout/config.py": true,
+        "open_breakout/ibkr.py": true,
+        "open_breakout/inputs.py": true,
+        "open_breakout/replay.py": true,
+        "open_breakout/resting.py": true,
+        "open_breakout/service.py": true,
+        "open_breakout/standby.py": true,
+        "open_breakout/store.py": true,
+        "open_breakout/strategy.py": true,
+        "open_breakout/__init__.py": true,
+        "open_breakout/__main__.py": true,
+        "tests/test_open_breakout.py": true,
+        "config/open_breakout.example.json": true
+      },
+      "production_source_unchanged_after": {
+        "open_breakout/alerts.py": true,
+        "open_breakout/config.py": true,
+        "open_breakout/ibkr.py": true,
+        "open_breakout/inputs.py": true,
+        "open_breakout/replay.py": true,
+        "open_breakout/resting.py": true,
+        "open_breakout/service.py": true,
+        "open_breakout/standby.py": true,
+        "open_breakout/store.py": true,
+        "open_breakout/strategy.py": true,
+        "open_breakout/__init__.py": true,
+        "open_breakout/__main__.py": true,
+        "tests/test_open_breakout.py": true,
+        "config/open_breakout.example.json": true
+      },
+      "pytest_exit_code": 0,
+      "tests": {
+        "passed": 264,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 1
+      },
+      "native_broker_path_attempts": [],
+      "price_outage_cancel_seconds": 600,
+      "live_configuration_changed": false,
+      "deployed": false,
+      "production_order_commands": 0,
+      "broker_connections": 0,
+      "combined_legend_candidate_validated": false,
+      "patch_applies_to_normalized_baseline_fixture": {
+        "open_breakout/config.py": true,
+        "open_breakout/ibkr.py": true,
+        "open_breakout/replay.py": true,
+        "open_breakout/resting.py": true,
+        "open_breakout/service.py": true,
+        "open_breakout/price_health.py": true,
+        "tests/test_price_only_pause.py": true
+      }
+    },
+    "legend": {
+      "started_utc": "2026-10-06T14:22:37.591603+00:00",
+      "completed_utc": "2026-10-06T14:23:38.109576+00:00",
+      "python": "3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]",
+      "pytest_exit_code": 0,
+      "test_counts": {
+        "tests": 352,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1,
+        "passed": 351
+      },
+      "compiled_python_files": [
+        "build_candidate.py",
+        "daily_execution_report.py",
+        "intraday_coordination.py",
+        "legend/__init__.py",
+        "legend/coordination_bridge.py",
+        "legend/legend_ema_fut.py",
+        "open_breakout/__init__.py",
+        "open_breakout/__main__.py",
+        "open_breakout/alerts.py",
+        "open_breakout/config.py",
+        "open_breakout/coordination.py",
+        "open_breakout/ibkr.py",
+        "open_breakout/inputs.py",
+        "open_breakout/native_coordination.py",
+        "open_breakout/replay.py",
+        "open_breakout/resting.py",
+        "open_breakout/service.py",
+        "open_breakout/standby.py",
+        "open_breakout/store.py",
+        "open_breakout/strategy.py",
+        "package_bundle.py",
+        "tests/conftest.py",
+        "tests/test_coordination.py",
+        "tests/test_existing_open_breakout.py",
+        "tests/test_hooks.py",
+        "tests/test_native_adapter.py",
+        "verify_offline.py"
+      ],
+      "production_sources": [
+        {
+          "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\__init__.py",
+          "sha256": "46BD7CEE9504132EAC5652B5E9A094B8CB36176D2D4DE882043CF9B355A7F94A",
+          "observed_sha256": "46BD7CEE9504132EAC5652B5E9A094B8CB36176D2D4DE882043CF9B355A7F94A",
+          "unchanged": true
+        },
+        {
+          "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\config.py",
+          "sha256": "94590C1CC5E7373366FC93DE2CAF5BDFAD37077485313D1DEB5F61214CFB1858",
+          "observed_sha256": "94590C1CC5E7373366FC93DE2CAF5BDFAD37077485313D1DEB5F61214CFB1858",
+          "unchanged": true
+        },
+        {
+          "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\strategy.py",
+          "sha256": "B6F70E41C1B8FFB7E3EC4BFB87969B399200D07D2877AEF24510576CDF2C3729",
+          "observed_sha256": "B6F70E41C1B8FFB7E3EC4BFB87969B399200D07D2877AEF24510576CDF2C3729",
+          "unchanged": true
+        },
+        {
+          "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\service.py",
+          "sha256": "90C3B6C8830892AA7F68EB1F2B79B878115595D983203D8B23417B39F93B86CB",
+          "observed_sha256": "90C3B6C8830892AA7F68EB1F2B79B878115595D983203D8B23417B39F93B86CB",
+          "unchanged": true
+        },
+        {
+          "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\resting.py",
+          "sha256": "1A4AC36AA5183AE1F6A0A9BB21318F491F9709DA8B56CAB2429827CF13F51841",
+          "observed_sha256": "1A4AC36AA5183AE1F6A0A9BB21318F491F9709DA8B56CAB2429827CF13F51841",
+          "unchanged": true
+        },
+        {
+          "source": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\store.py",
+          "sha256": "CBC5D572C4D443827FF1C94EE9E9CDAD30C564C39E45E469DE2135D1A716A13B",
+          "observed_sha256": "CBC5D572C4D443827FF1C94EE9E9CDAD30C564C39E45E469DE2135D1A716A13B",
+          "unchanged": true
+        },
+        {
+          "source": "C:\\Users\\McKinley Slade\\OneDrive\\trading_ibkr\\legend_ema_fut.py",
+          "sha256": "24EACF74E68CAFCA3356EF70D1F4A59DCDE5406306305911A4A8705090BB4E6D",
+          "observed_sha256": "24EACF74E68CAFCA3356EF70D1F4A59DCDE5406306305911A4A8705090BB4E6D",
+          "unchanged": true
+        }
+      ],
+      "broker_adapter": "concrete async owner adapter tested on inert IB-shaped mocks; native filled close retains protection; same-ID close prototype gated to offline fixtures only",
+      "owner_handoff": "inert test-only stub; no socket or runtime registration",
+      "live_worker_execution": false,
+      "deployment": false
+    }
+  },
+  "merge_choices": {
+    "config_ibkr_replay": "price versions; Legend identical to production",
+    "service": "price implementation plus all Legend hooks; price/hard gates first",
+    "resting": "Legend atomic sends/direction filters plus all price gates",
+    "native_coordination": "Legend default remains unqualified/manual",
+    "fixtures": "one original base suite; owner handoff stub; original helper dependency"
+  }
+}

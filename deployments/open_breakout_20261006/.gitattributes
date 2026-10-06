@@ -1,0 +1,4 @@
+# Preserve reviewed bytes and SHA256 inventories through Windows/Linux checkouts.
+* -text whitespace=cr-at-eol
+# Unified-diff context includes meaningful single-space lines; retain provenance.
+*.patch -whitespace

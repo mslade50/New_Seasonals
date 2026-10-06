@@ -1,0 +1,4 @@
+Unexpected workspace changes since the baseline:
+  scratch/idea_checks/_state/queue.json
+Allowed scope: deployments/open_breakout_20261006
+Move generated output under artifacts/ or explicitly allow intended source paths.
