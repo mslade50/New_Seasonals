@@ -84,10 +84,11 @@ def validate_request(command, accounts, now):
         raise ValueError('explicit preview/execute/reconcile operation required')
     account = command.get('account')
     product = p.get('product')
-    if product not in {'pitch', 'seasonal'} or accounts.get(product) not in {'primary', 'pa'}:
-        raise ValueError('product execution account is unassigned')
-    if account != accounts[product]:
-        raise ValueError('account does not match configured product binding')
+    bindings = accounts.get(product)
+    if product not in {'pitch', 'seasonal'} or not isinstance(bindings, (list, tuple)) or not bindings:
+        raise ValueError('product execution accounts are unassigned')
+    if account not in {'primary', 'pa'} or account not in bindings:
+        raise ValueError('account does not match configured product bindings')
     if not isinstance(p.get('actor'), str) or not p['actor'].strip():
         raise ValueError('verified execution actor required')
     if op == 'reconcile':
@@ -100,8 +101,11 @@ def validate_request(command, accounts, now):
     expected = f"{product}:{proposal.get('source_idea_id')}:{p['proposal']['hash'][:16]}"
     if p['proposal'].get('id') != expected or proposal.get('product') != product:
         raise ValueError('proposal identity/product changed')
-    if proposal.get('account') in {'primary', 'pa'} and proposal['account'] != account:
-        raise ValueError('published account conflicts with execution account')
+    binding = (proposal.get('account_proposals') or {}).get(account)
+    if not isinstance(binding, dict) or binding.get('account') != account:
+        raise ValueError('explicit account proposal binding unavailable')
+    if binding.get('status') != 'requires_fresh_account_preview':
+        raise ValueError(binding.get('reason') or 'account proposal sizing blocked')
     review = p.get('review') or {}
     if (review.get('decision') != 'approve_review' or review.get('scope') != 'human_review_only'
             or review.get('execution') != 'not_submitted' or not review.get('actor')
@@ -210,8 +214,10 @@ def native_payload(row, product, source_id, today, session_open=None):
             'ref_date': today, 'risk_ack': False}
 
 
-def run_key(product, source_id, account):
-    return hashlib.sha256(canonical([product, source_id, account]).encode()).hexdigest()
+def run_key(product, source_id, account, proposal_hash=None):
+    # The old three-field key remains usable only to reconcile older receipts.
+    values = [product, source_id, proposal_hash, account] if proposal_hash else [product, source_id, account]
+    return hashlib.sha256(canonical(values).encode()).hexdigest()
 
 
 class Journal:
@@ -284,6 +290,19 @@ class Journal:
             row = db.execute('SELECT payload FROM runs WHERE key=?', (key,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def allocated_risk(self, product, account, source_date):
+        with self.connect() as db:
+            records = [json.loads(row[0]) for row in db.execute('SELECT payload FROM runs')]
+        total = 0
+        for record in records:
+            p = verify(record['plan'])
+            if (p['product'], p['account'], p.get('source_date', p['source_idea_id'][:10])) == (product, account, source_date):
+                # Count every submitted/uncertain/closed idea against staged-day
+                # risk. Only a proved zero-fill whole-chain cancellation releases it.
+                if record['state'] != 'cancelled':
+                    total += max(p['risk_usd'], p.get('sizing', {}).get('sizing_risk_usd', 0))
+        return total
+
     def claim(self, key, command_id, plan):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -293,6 +312,15 @@ class Journal:
                 if old['key'] != key or old['plan']['hash'] != plan['hash'] or old['command_id'] != command_id:
                     raise ValueError('permanent idea/account execution claim exists; reconcile, never re-enter')
                 return old, False
+            proposed = verify(plan)
+            if key != run_key(proposed['product'], proposed['source_idea_id'], proposed['account'], proposed['proposal_hash']):
+                raise ValueError('version/account execution key mismatch')
+            # Keep the permanent source/account guard as well as version-scoped
+            # records. Prior schema-1 receipts are preserved and cannot re-enter.
+            for stored, in db.execute('SELECT payload FROM runs'):
+                existing = verify(json.loads(stored)['plan'])
+                if (existing['product'], existing['source_idea_id'], existing['account']) == (proposed['product'], proposed['source_idea_id'], proposed['account']):
+                    raise ValueError('permanent source/account execution claim exists; reconcile, never re-enter')
             value = {'key': key, 'command_id': command_id, 'plan': plan, 'state': 'claimed',
                      'legs': [{'state': 'not_sent'} for _ in plan['payload']['legs']]}
             db.execute('INSERT INTO runs VALUES (?,?,?)', (key, command_id, canonical(value)))

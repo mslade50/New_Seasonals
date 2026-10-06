@@ -17,15 +17,18 @@ import time
 
 try:
     from . import review_execution as contract
+    from . import review_sizing as sizing
 except ImportError:
     import review_execution as contract
+    import review_sizing as sizing
 
 
 def configuration():
     return {'preview_enabled': os.environ.get('REVIEW_EXECUTION_PREVIEW_ENABLED', '0') == '1',
             'live_enabled': os.environ.get('REVIEW_EXECUTION_LIVE_ENABLED', '0') == '1',
-            'accounts': {'pitch': os.environ.get('REVIEW_EXECUTION_PITCH_ACCOUNT', 'primary'),
-                         'seasonal': os.environ.get('REVIEW_EXECUTION_SEASONAL_ACCOUNT')},
+            'accounts': {'pitch': ['primary', 'pa'], 'seasonal': ['primary', 'pa']},
+            'risk_multipliers': {'primary': 1.0, 'pa': None if not os.environ.get('REVIEW_EXECUTION_PA_RISK_MULTIPLIER') else
+                                 contract.number(os.environ['REVIEW_EXECUTION_PA_RISK_MULTIPLIER'], 'PA agent risk policy')},
             'db': os.environ.get('REVIEW_EXECUTION_DB'),
             'max_risk_bps': min(100.0, contract.number(os.environ.get('REVIEW_EXECUTION_MAX_RISK_BPS', '100'), 'idea risk cap'))}
 
@@ -34,6 +37,8 @@ def gate(g, command, cfg):
     if not cfg['preview_enabled']:
         raise ValueError('review execution preview adapter disabled')
     op = (command.get('payload') or {}).get('operation')
+    if op != 'reconcile':
+        sizing.policy(cfg, command['payload']['product'], command['account'])
     if op != 'reconcile' and (command.get('payload') or {}).get('product') == 'pitch':
         directory = g.get('_THIS_DIR') or g.get('_DIR')
         if not directory or (Path(directory)/'pitch_moo_enabled.flag').exists():
@@ -125,46 +130,153 @@ def _invoke_entry(g, ib, payload, account):
     return result
 
 
+
+def _clock(g):
+    return g['_review_clock']() if callable(g.get('_review_clock')) else dt.datetime.now(dt.timezone.utc)
+
+
+def _account_snapshot(g, ib, logical, account):
+    if callable(g.get('_review_account_snapshot')):
+        snapshot = g['_review_account_snapshot'](ib, logical, account)
+    else:
+        # ib_insync.reqAccountSummary() returns None, not result rows. Capture
+        # only this new request ID and await its end; never read cached values.
+        request_id = ib.client.getReqId()
+        future = ib.wrapper.startReq(request_id)
+        previous = ib.wrapper.accountSummary
+        rows = []
+        def receive(req_id, acct, tag, value, currency):
+            previous(req_id, acct, tag, value, currency)
+            if req_id == request_id:
+                rows.append(type('FreshAccountValue', (), {
+                    'account': acct, 'tag': tag, 'value': value, 'currency': currency})())
+        ib.wrapper.accountSummary = receive
+        try:
+            ib.client.reqAccountSummary(request_id, 'All',
+                'NetLiquidation,AvailableFunds,BuyingPower,ExcessLiquidity')
+            ib._run(future)
+        finally:
+            ib.wrapper.accountSummary = previous
+            ib.client.cancelAccountSummary(request_id)  # release query subscription
+        values = {}
+        for tag in ['NetLiquidation', 'AvailableFunds', 'BuyingPower', 'ExcessLiquidity']:
+            exact = [r for r in rows if str(r.account) == account and str(r.tag) == tag and str(r.currency) == 'USD']
+            if len(exact) != 1:
+                raise ValueError(f'{logical}: missing/ambiguous fresh exact-account USD {tag}')
+            values[tag] = contract.number(exact[0].value, tag, positive=False)
+        snapshot = {'account': logical, 'broker_account': account, 'currency': 'USD',
+                    'source': 'fresh_broker_account_summary', 'request_completed': True,
+                    'observed_at': _clock(g).isoformat(), 'nlv': values['NetLiquidation'],
+                    'available_funds': values['AvailableFunds'], 'buying_power': values['BuyingPower'],
+                    'excess_liquidity': values['ExcessLiquidity']}
+    snapshot = sizing.equity(snapshot, logical, account, _clock(g))
+    if contract.number(snapshot.get('excess_liquidity'), 'ExcessLiquidity', positive=False) < 0:
+        raise ValueError(f'{logical}: account excess liquidity is negative')
+    return snapshot
+
+
+def _contract_and_capacity(g, ib, native, account):
+    c = g['Stock'](native['symbol'], 'SMART', 'USD')
+    exact = ib.qualifyContracts(c)
+    if (len(exact) != 1 or not int(exact[0].conId or 0) or exact[0].secType != 'STK'
+            or exact[0].currency != 'USD' or str(getattr(exact[0], 'multiplier', '') or '1') not in {'1', '1.0'}):
+        raise ValueError('account exact share contract/multiplier qualification failed')
+    c = exact[0]
+    # Broker what-if is a margin/permission inquiry; no guarded_place_order is
+    # called. Tests supply an object with no connection or mutation methods.
+    if callable(g.get('_review_capacity')):
+        value = g['_review_capacity'](ib, c, native, account)
+    else:
+        order = (g['LimitOrder'](native['action'], native['quantity'], native['entry'])
+                 if native['entry_type'] == 'LMT' else g['MarketOrder'](native['action'], native['quantity']))
+        order.account = account
+        order.whatIf = True
+        state = ib.whatIfOrder(c, order)
+        if state is None or str(getattr(state, 'warningText', '') or '').strip():
+            raise ValueError('account instrument/permission/margin preview unavailable or rejected')
+        value = {'broker_account': account, 'con_id': int(c.conId), 'quantity': native['quantity'],
+                 'initial_margin_change': float(state.initMarginChange),
+                 'maintenance_margin_change': float(state.maintMarginChange),
+                 'observed_at': _clock(g).isoformat(), 'permission_verified': True}
+    if (value.get('broker_account') != account or value.get('con_id') != int(c.conId)
+            or value.get('quantity') != native['quantity'] or value.get('permission_verified') is not True):
+        raise ValueError('account capacity inquiry identity/quantity/permission mismatch')
+    changes = [contract.number(value.get(k), k, positive=False)
+               for k in ['initial_margin_change', 'maintenance_margin_change']]
+    if any(abs(v) >= 1e100 for v in changes):
+        raise ValueError('broker margin evidence unavailable/sentinel')
+    age = (_clock(g) - contract.instant(value.get('observed_at'))).total_seconds()
+    if not 0 <= age <= sizing.MAX_EQUITY_AGE_SECONDS:
+        raise ValueError('account instrument/capacity evidence stale or future dated')
+    return int(c.conId), {**value, 'initial_margin_change': max(0, changes[0]),
+                        'maintenance_margin_change': max(0, changes[1]), 'lot': 1, 'multiplier': 1}
+
+
 def preflight(g, ib, command, cfg, now):
     p = contract.validate_request(command, cfg['accounts'], now)
     proposal = contract.verify(p['proposal'])
     account = g['_resolve_broker_account'](ib, command['account'])
-    ib.reqAccountSummary(); ib.sleep(1.5)
+    account_policy = sizing.policy(cfg, p['product'], command['account'])
+    snapshot = _account_snapshot(g, ib, command['account'], account)
+    sized, sizing_summary = sizing.size(proposal, snapshot, account_policy)
     legs = []
     con_ids = set()
-    for row in proposal['orders']:
+    for original, sized_leg in zip(proposal['orders'], sized):
+        row = sized_leg['row']
         native = contract.native_payload(row, p['product'], proposal['source_idea_id'],
                                          proposal['source_date'], _open_price(g, ib, row, now))
+        exact_con_id, capacity = _contract_and_capacity(g, ib, native, account)
         check = dict(native, _broker_account=account, _command_id=command['id'], _review_preflight_only=True)
         result = _invoke_entry(g, ib, check, command['account'])
         context = (result.get('fill') or {}).get('review_preflight')
         if result.get('ok') is not True or not isinstance(context, dict):
             raise ValueError(result.get('detail') or 'existing executor rejected preflight')
-        if context['broker_account'] != account or context['con_id'] in con_ids:
+        if context['broker_account'] != account or context['con_id'] != exact_con_id or context['con_id'] in con_ids:
             raise ValueError('ambiguous account or repeated exact contract in multi-leg idea')
         con_ids.add(context['con_id'])
+        if not abs(context['nlv'] - snapshot['nlv']) < 1e-6:
+            raise ValueError('native risk guard NLV disagrees with fresh exact-account evidence')
         evidence = _capture(g, ib, account, context['con_id'])
+        if evidence['account'] != account or evidence['con_id'] != context['con_id']:
+            raise ValueError('account inventory evidence identity mismatch')
         ref = _reference(native)
         aliases = {ref, ref.replace('|SELL_SHORT|', '|SELL|')}
         if any(r.get('ref') in aliases for r in evidence['orders'] + evidence['completed'] + evidence['executions']):
             raise ValueError('same source idea already exists in broker orders/executions; reconcile other execution path')
-        legs.append({'leg': row['Leg'], 'original': copy.deepcopy(row), 'ref': ref, **context})
+        if evidence['position'] != 0 or any(r.get('status') not in {'Filled', 'Cancelled', 'ApiCancelled'} for r in evidence['orders']):
+            raise ValueError(f"{command['account']}: existing position/working order for this contract; no automatic add, netting or reversal")
+        legs.append({'leg': row['Leg'], 'original': copy.deepcopy(original), 'ref': ref,
+                     'sizing': sized_leg['sizing'], 'capacity': capacity, **context})
     nlv = min(contract.number(leg['nlv'], 'live NLV') for leg in legs)
     total_risk = sum(contract.number(leg['risk_usd'], 'leg risk') for leg in legs)
     total_notional = sum(leg['payload']['quantity'] * leg['payload']['entry'] for leg in legs)
-    if total_risk / nlv * 1e4 > cfg['max_risk_bps']:
+    if total_risk / nlv * 1e4 > account_policy['max_idea_bps']:
         raise ValueError('whole-idea risk exceeds account/publisher cap')
     if total_notional > g['_max_notional'](command['account']):
         raise ValueError('whole-idea notional exceeds existing account cap')
+    if total_notional > snapshot['buying_power']:
+        raise ValueError(f"{command['account']}: whole-idea notional exceeds fresh account buying power")
+    initial = sum(leg['capacity']['initial_margin_change'] for leg in legs)
+    maintenance = sum(leg['capacity']['maintenance_margin_change'] for leg in legs)
+    if initial > snapshot['available_funds'] or maintenance > snapshot['excess_liquidity']:
+        raise ValueError(f"{command['account']}: whole-idea margin exceeds available account capacity")
+    journal = contract.Journal(cfg['db'])
+    staged = journal.allocated_risk(p['product'], command['account'], proposal['source_date'])
+    risk = max(total_risk, sizing_summary['sizing_risk_usd'])
+    if (staged + risk)/nlv*1e4 > account_policy['max_daily_bps']:
+        raise ValueError(f"{command['account']}: account/product staged-day ATR risk cap exceeded")
     expires = min(contract.instant(proposal['review_deadline']), now + dt.timedelta(minutes=5))
     return contract.frozen({'schema': 'review-execution-plan.v1', 'product': p['product'],
-        'source_idea_id': proposal['source_idea_id'], 'proposal_id': p['proposal']['id'],
+        'source_idea_id': proposal['source_idea_id'], 'source_date': proposal['source_date'], 'proposal_id': p['proposal']['id'],
         'proposal_hash': p['proposal']['hash'], 'review_event_id': p['review']['id'],
         'actor': p['actor'], 'account': command['account'], 'broker_account': account,
         'delivery_id': p['delivery_id'], 'created_at': now.isoformat(), 'expires_at': expires.isoformat(),
-        'policy': {'accounts': cfg['accounts'], 'max_risk_bps': cfg['max_risk_bps'],
+        'policy': {'accounts': cfg['accounts'], **account_policy,
                    'max_notional': g['_max_notional'](command['account']), 'max_qty': g['LIVE_MAX_QTY']},
         'risk_usd': total_risk, 'notional_usd': total_notional, 'nlv': nlv,
+        'account_equity': snapshot, 'sizing': sizing_summary,
+        'capacity': {'initial_margin_change': initial, 'maintenance_margin_change': maintenance,
+                     'previous_staged_risk_usd': staged},
         'risk_ack_required': any(leg['risk_ack_required'] for leg in legs),
         'non_atomic': len(legs) > 1,
         'exit_convention': 'Existing executor: market time child at session open or 15:59 close clock; day-2 protective stop. Not a native future auction exit.',
@@ -176,8 +288,10 @@ def _same_preflight(plan, fresh):
     for value in (old, new):
         for name in ('created_at', 'expires_at', 'nlv'):
             value.pop(name, None)
+        value['account_equity'].pop('observed_at', None)
         for leg in value['legs']:
             leg.pop('nlv', None)
+            leg['capacity'].pop('observed_at', None)
     # New account/contract/open/price/stop/timing/caps cannot be auto-accepted.
     return old == new
 
@@ -299,7 +413,7 @@ def execute_batch(g, ib, command, cfg, journal, now):
             or payload['product'] != p['product'] or payload['proposal_hash'] != p['proposal']['hash']
             or payload['review_event_id'] != p['review']['id'] or payload['delivery_id'] != p['delivery_id']):
         raise ValueError('confirmed preview identity/account/review changed')
-    key = contract.run_key(payload['product'], payload['source_idea_id'], payload['account'])
+    key = contract.run_key(payload['product'], payload['source_idea_id'], payload['account'], payload['proposal_hash'])
     old = journal.get(key)
     if old:
         if old['command_id'] != command['id'] or old['plan']['hash'] != plan['hash']:
@@ -313,6 +427,7 @@ def execute_batch(g, ib, command, cfg, journal, now):
     if not _same_preflight(plan, fresh):
         raise ValueError('broker plan changed; preview and confirm again')
     record, claimed = journal.claim(key, command['id'], plan)
+    record['account_recheck'] = contract.verify(fresh)['account_equity']
     if not claimed:
         return record
     for index, leg in enumerate(payload['legs']):
@@ -322,6 +437,7 @@ def execute_batch(g, ib, command, cfg, journal, now):
             if contract.instant(payload['expires_at']) <= now:
                 raise ValueError('preview expired before remaining leg')
             gate(g, command, cfg)
+            sizing.equity(record['account_recheck'], payload['account'], payload['broker_account'], _clock(g))
             native = dict(leg['payload'], risk_ack=p.get('risk_ack') is True,
                           _broker_account=payload['broker_account'], _command_id=command['id'] + ':' + str(index),
                           _review_expected_con_id=leg['con_id'])
@@ -353,7 +469,7 @@ def reconcile_batch(g, ib, command, journal):
     if not record:
         raise ValueError('durable execution claim missing; no inventory inferred')
     plan = contract.verify(record['plan'])
-    if plan['account'] != command['account'] or plan['product'] != p['product'] or plan['actor'] != p['actor']:
+    if plan['account'] != command['account'] or plan['product'] != p['product'] or plan['actor'] != p['actor'] or p.get('proposal_hash', plan['proposal_hash']) != plan['proposal_hash']:
         raise ValueError('reconciliation account/product/actor mismatch')
     if g['_resolve_broker_account'](ib, command['account']) != plan['broker_account']:
         raise ValueError('broker account changed; reconciliation stopped')

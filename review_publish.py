@@ -9,6 +9,7 @@ import copy
 import datetime as dt
 import hashlib
 import json
+from broker_runtime import review_sizing
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -76,13 +77,28 @@ def build_record(*, product: str, asof: str, ideas: list[dict], receipt: dict,
     current = []
     for idea in ideas:
         orders = [{k: v for k, v in row.items() if k != "Approve"} for row in idea["orders"]]
+        # Reconstruct only from the receipt-bound delivered idea, never rounded
+        # reference quantities or a browser-provided budget. Old/incomplete
+        # evidence stays reviewable with an explicit account execution block.
+        try:
+            source_sizing = review_sizing.instruction(idea, orders, product)
+            sizing_hash = hashlib.sha256(canonical(source_sizing).encode()).hexdigest()
+            bindings = {account: {"account": account, "status": "requires_fresh_account_preview",
+                                 "sizing_hash": sizing_hash} for account in review_sizing.ACCOUNTS}
+        except (ValueError, TypeError, KeyError) as exc:
+            source_sizing = None
+            bindings = {account: {"account": account, "status": "blocked", "reason": str(exc)}
+                        for account in review_sizing.ACCOUNTS}
         payload = {"schema": 1, "product": product, "source_date": asof,
                    "source_idea_id": idea["idea_id"], "published_at": sent_at,
                    "title": idea["title"], "thesis": idea["thesis"], "grade": idea.get("grade"),
                    "evidence": idea.get("evidence") or {}, "what_kills_it": idea.get("what_kills_it", ""),
-                   "account": "primary" if product == "pitch" else "Unassigned — manual account selection required",
-                   "account_basis": "existing Pitch manual stage mapping" if product == "pitch" else "no Seasonal execution account configured by this publisher",
+                   "account": "Primary + PA (independent account previews)",
+                   "account_basis": "Explicit receipt-bound proposal for each account; live equity, sizing and capacity must be separately verified",
                    "sizing_basis": "Fixed publisher ACCOUNT_VALUE basis; original prepared quantities, not live NLV",
+                   "publisher_reference_equity": account_value,
+                   "source_sizing": source_sizing, "source_sizing_canonical": canonical(source_sizing) if source_sizing else None, "account_proposals": bindings,
+                   "execution_accounts": list(review_sizing.ACCOUNTS),
                    "orders": orders, **deadlines(asof, orders, product)}
         # Cloud reconciliation and the direct publisher must converge on the
         # same version. A later delivery of an unchanged current proposal does

@@ -118,7 +118,7 @@ def prepare(source, output):
     candidates['broker_reconciliation.py'] = change_function(
         originals['broker_reconciliation.py'].decode('utf-8-sig').replace('\r\n', '\n'),
         'order_row', lambda _: replacement.rstrip('\n')).encode()
-    for name in ['review_execution.py', 'review_execution_runtime.py']:
+    for name in ['review_execution.py', 'review_execution_runtime.py', 'review_sizing.py']:
         candidates[name] = (HERE/name).read_bytes()
     for name, raw in candidates.items():
         compile(raw, name, 'exec')
@@ -129,7 +129,8 @@ def prepare(source, output):
                 'runtime_source_hashes':hashes,
                 'candidate_hashes':{k:hashlib.sha256(v).hexdigest() for k,v in candidates.items()},
                 'new_flags_default':'REVIEW_EXECUTION_PREVIEW_ENABLED=0; REVIEW_EXECUTION_LIVE_ENABLED=0',
-                'account_bindings':{'pitch':'primary','seasonal':None}}
+                'account_bindings':{'pitch':['primary','pa'],'seasonal':['primary','pa']},
+                'pa_agent_risk_multiplier':'unconfigured; explicit owner sizing policy required'}
     (output/'manifest.json').write_text(json.dumps(manifest,indent=2))
     return manifest
 

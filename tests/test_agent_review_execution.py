@@ -18,6 +18,7 @@ sys.path.insert(0,str(ROOT))
 from broker_runtime import review_execution as C
 from broker_runtime import review_execution_runtime as R
 from broker_runtime import prepare_review_execution as P
+from broker_runtime import review_sizing as S
 
 NOW=dt.datetime(2026,10,6,14,tzinfo=dt.timezone.utc)
 DAY='2026-10-06'
@@ -27,21 +28,27 @@ ROW={'Idea_Id':DAY+'-1','Leg':1,'Ticker':'XLE','Sec_Type':'STK','Contract':'','P
      'Stop_ATR':1,'Target_ATR':2,'ATR':2,'Execute_On':DAY,'Time_Exit_Date':'2026-10-13','Time_Exit_Order':'MOO'}
 
 
-def command(product='pitch', rows=None):
+def command(product='pitch', rows=None, account='primary'):
     payload={'schema':1,'product':product,'source_idea_id':DAY+'-1','source_date':DAY,
              'account':'primary' if product=='pitch' else 'Unassigned - manual account selection required',
              'published_at':DAY+'T09:00:00Z','review_deadline':DAY+'T20:00:00Z','orders':copy.deepcopy(rows or [ROW])}
+    payload['orders'] = [{**r, 'ATR': r.get('ATR', 2), 'Ref_Close': r.get('Ref_Close', 100), 'Ref_Date': '2026-10-05', 'Multiplier': r.get('Multiplier', 1)} for r in payload['orders']]
+    source={'horizon_td':7,'sizing':{'mode':'risk_bps','risk_bps':30,'stop_atr_for_sizing':15},'exit':{'stop_atr':1},
+            'legs':[{'ticker':r['Ticker'],'side':'LONG' if r['Action']=='BUY' else 'SHORT','multiplier':r.get('Multiplier',1)} for r in payload['orders']]}
+    payload['source_sizing']=S.instruction(source,payload['orders'],product)
+    payload['source_sizing_canonical']=C.canonical(payload['source_sizing'])
+    payload['account_proposals']={a:{'account':a,'status':'requires_fresh_account_preview','sizing_hash':C.frozen(payload['source_sizing'])['hash']} for a in S.ACCOUNTS}
     e=C.frozen(payload);e['id']=f"{product}:{payload['source_idea_id']}:{e['hash'][:16]}"
     review={'id':str(uuid.uuid4()),'proposal_id':e['id'],'proposal_hash':e['hash'],
             'decision':'approve_review','scope':'human_review_only','execution':'not_submitted','actor':'qa-human','at':DAY+'T13:00:00Z'}
-    return {'id':str(uuid.uuid4()),'type':'review_execution','account':'primary','dry_run':True,
+    return {'id':str(uuid.uuid4()),'type':'review_execution','account':account,'dry_run':True,
             'created_at':NOW.timestamp()*1000,'expires_at':(NOW.timestamp()+60)*1000,
             'payload':{'operation':'preview','product':product,'actor':'qa-human','proposal':e,'review':review,
                        'delivery_id':'qa-delivery','current_at_authorization':True}}
 
 
 def config(path):
-    return {'accounts':{'pitch':'primary','seasonal':'primary'},'preview_enabled':True,'live_enabled':True,
+    return {'accounts':{'pitch':['primary','pa'],'seasonal':['primary','pa']},'risk_multipliers':{'primary':1,'pa':1},'preview_enabled':True,'live_enabled':True,
             'max_risk_bps':100,'db':str(path)}
 
 
@@ -49,10 +56,10 @@ class FakeIB:
     """No socket or IB library. All order/fill state lives in this object."""
     def __init__(self):
         self.rows={};self.calls=[];self.fail=None;self.crash=False;self.reject_preflight=None
-        self.errorEvent=SimpleNamespace();self.connections=[];self.positions=[]
+        self.errorEvent=SimpleNamespace();self.connections=[];self.positions=[];self.nlvs={'primary':100000,'pa':10000}
     def reqAccountSummary(self):return []
     def sleep(self,value):pass
-    def qualifyContracts(self,c):c.conId={'XLE':11,'TLT':22}.get(c.symbol,33);return [c]
+    def qualifyContracts(self,c):c.conId={'XLE':11,'TLT':22}.get(c.symbol,33);c.secType='STK';c.currency='USD';c.multiplier='';return [c]
     def reqHistoricalData(self,*args,**kwargs):return [SimpleNamespace(date=NOW.replace(hour=13,minute=30),open=102)]
     def capture(self,account,con_id):
         return {'account':account,'con_id':con_id,'at':NOW.timestamp(),'position':0,
@@ -79,27 +86,33 @@ def broker_rows(leg,*,filled=0):
 def fake_runtime(tmp_path):
     ib=FakeIB();account='DU_NONEXECUTING_QA'
     def entry(ib,p,logical):
+        account='DU_NONEXECUTING_QA' if logical=='primary' else 'DU_NONEXECUTING_PA_QA'
         if p.get('_review_preflight_only'):
             if ib.reject_preflight==p['symbol']:return {'ok':False,'state':'rejected','detail':'fixture preflight rejected'}
             c=R.preflight_context(payload=p,broker_account=account,contract_id=11 if p['symbol']=='XLE' else 22,
                                  quantity=p['quantity'],entry=p['entry'],stop=p['stop'],target=p['target'],
-                                 risk=abs(p['entry']-(p['stop'] or p['entry']-6))*p['quantity'],nlv=100000,
+                                 risk=abs(p['entry']-(p['stop'] or p['entry']-6))*p['quantity'],nlv=ib.nlvs[logical],
                                  stop_gat='20261007 09:30:00 America/New_York' if p['stop'] else None,
                                  time_gat='20261013 09:30:00 America/New_York',parent_gtd=None)
             return {'ok':True,'state':'executed','detail':'fake preflight','fill':{'review_preflight':c}}
         ib.calls.append(p['symbol'])
         if ib.fail==p['symbol']:return {'ok':False,'state':'rejected','detail':'fixture broker rejected','fill':None}
         context=R.preflight_context(payload=p,broker_account=account,contract_id=p['_review_expected_con_id'],
-                                   quantity=p['quantity'],entry=p['entry'],stop=p['stop'],target=p['target'],risk=20,nlv=100000,
+                                   quantity=p['quantity'],entry=p['entry'],stop=p['stop'],target=p['target'],risk=20,nlv=ib.nlvs[logical],
                                    stop_gat='20261007 09:30:00 America/New_York' if p['stop'] else None,
                                    time_gat='20261013 09:30:00 America/New_York',parent_gtd=None)
         leg={**context,'ref':R._reference(p)};rows=broker_rows(leg);ib.rows[leg['con_id']]=rows
         if ib.crash:raise RuntimeError('fixture loss AFTER broker received the chain')
         return {'ok':True,'state':'executed','detail':'broker acknowledged, not filled', 'fill':{'order_ids':[r['identity'][3] for r in rows]}}
-    g={'_THIS_DIR':str(tmp_path),'LIVE_ENABLED':True,'LIVE_ACCOUNTS':{'primary'},'LIVE_TYPES':{'entry_bracket','review_execution'},
-       'LIVE_MAX_QTY':1000,'_max_notional':lambda acct:100000,'_resolve_broker_account':lambda ib,acct:account,
+    g={'_THIS_DIR':str(tmp_path),'LIVE_ENABLED':True,'LIVE_ACCOUNTS':{'primary','pa'},'LIVE_TYPES':{'entry_bracket','review_execution'},
+       'LIVE_MAX_QTY':1000,'_max_notional':lambda acct:100000,'_resolve_broker_account':lambda ib,acct:account if acct=='primary' else 'DU_NONEXECUTING_PA_QA',
        '_do_entry_bracket':entry,'_review_capture':lambda ib,acct,cid:ib.capture(acct,cid),
        '_review_clock':lambda:NOW,'Stock':lambda sym,*args:SimpleNamespace(symbol=sym,conId=0)}
+    g['_review_account_snapshot']=lambda ib,logical,broker:{'account':logical,'broker_account':broker,'currency':'USD',
+        'source':'fresh_broker_account_summary','request_completed':True,'observed_at':NOW.isoformat(),
+        'nlv':ib.nlvs[logical],'available_funds':50000,'buying_power':200000,'excess_liquidity':50000}
+    g['_review_capacity']=lambda ib,c,p,broker:{'broker_account':broker,'con_id':c.conId,'quantity':p['quantity'],
+        'permission_verified':True,'initial_margin_change':100,'maintenance_margin_change':100,'observed_at':NOW.isoformat()}
     return g,ib
 
 
@@ -141,7 +154,7 @@ def test_execution_needs_explicit_frozen_confirmation(tmp_path,field,value):
 
 def test_unassigned_seasonal_account_never_defaults_to_primary():
     cmd=command('seasonal')
-    with pytest.raises(ValueError,match='unassigned'):C.validate_request(cmd,{'pitch':'primary','seasonal':None},NOW)
+    with pytest.raises(ValueError,match='unassigned'):C.validate_request(cmd,{'pitch':['primary','pa'],'seasonal':[]},NOW)
 
 
 def test_actor_account_hash_review_and_expiry_fail_closed(tmp_path):
@@ -186,7 +199,7 @@ def test_partial_idea_rejection_and_retry_do_not_place_remaining_legs(tmp_path):
 def test_crash_after_broker_delivery_is_reconciled_without_resuming(tmp_path):
     g,ib,cfg,journal,plan,cmd=prepared(tmp_path,rows=[ROW,{**ROW,'Leg':2,'Ticker':'TLT'}]);ib.crash=True
     with pytest.raises(RuntimeError):R.execute_batch(g,ib,cmd,cfg,journal,NOW)
-    key=C.run_key('pitch',DAY+'-1','primary');saved=C.Journal(journal.path).get(key)
+    key=C.run_key('pitch',DAY+'-1','primary',plan['payload']['proposal_hash']);saved=C.Journal(journal.path).get(key)
     assert saved['legs'][0]['state']=='submitting' and saved['legs'][1]['state']=='not_sent'
     ib.crash=False;assert R.execute_batch(g,ib,cmd,cfg,journal,NOW)['state']=='needs_reconciliation'
     result=R.reconcile_batch(g,ib,{'account':'primary','payload':{'product':'pitch','actor':'qa-human','run_key':key}},journal)
@@ -209,7 +222,7 @@ def test_changed_contract_account_prices_or_risk_cannot_use_old_preview(tmp_path
 
 def test_whole_idea_aggregate_risk_cap(tmp_path):
     g,ib=fake_runtime(tmp_path);cfg=config(tmp_path/'fake');cfg['max_risk_bps']=3
-    with pytest.raises(ValueError,match='whole-idea risk'):R.preflight(g,ib,command(rows=[ROW,{**ROW,'Leg':2,'Ticker':'TLT'}]),cfg,NOW)
+    with pytest.raises(ValueError,match='whole-idea.*risk'):R.preflight(g,ib,command(rows=[ROW,{**ROW,'Leg':2,'Ticker':'TLT'}]),cfg,NOW)
     assert not ib.calls
 
 
@@ -266,7 +279,7 @@ def test_preparer_is_hash_pinned_and_never_installs(tmp_path):
     if not source.exists():pytest.skip('reviewed external source not present; portable contract/lifecycle tests still run')
     output=tmp_path/'candidate';result=P.prepare(source,output)
     assert not result['installed'] and not result['armed']
-    assert set(result['candidate_hashes'])=={'exec_agent.py','execute_order.py','broker_reconciliation.py','review_execution.py','review_execution_runtime.py'}
+    assert set(result['candidate_hashes'])=={'exec_agent.py','execute_order.py','broker_reconciliation.py','review_execution.py','review_execution_runtime.py','review_sizing.py'}
     for name in result['candidate_hashes']:compile((output/name).read_bytes(),name,'exec')
     with pytest.raises(ValueError):P.prepare(source,source/'should-never-write')
 
@@ -359,11 +372,12 @@ def test_actual_patched_executor_and_native_bracket_with_fake_broker(tmp_path,mo
 
 
 def test_configuration_defaults_are_disabled_and_seasonal_unassigned(monkeypatch):
-    for key in ('REVIEW_EXECUTION_PREVIEW_ENABLED','REVIEW_EXECUTION_LIVE_ENABLED','REVIEW_EXECUTION_SEASONAL_ACCOUNT','REVIEW_EXECUTION_PITCH_ACCOUNT','REVIEW_EXECUTION_DB'):
+    for key in ('REVIEW_EXECUTION_PREVIEW_ENABLED','REVIEW_EXECUTION_LIVE_ENABLED','REVIEW_EXECUTION_SEASONAL_ACCOUNT','REVIEW_EXECUTION_PITCH_ACCOUNT','REVIEW_EXECUTION_DB','REVIEW_EXECUTION_PA_RISK_MULTIPLIER'):
         monkeypatch.delenv(key,raising=False)
     cfg=R.configuration()
     assert not cfg['preview_enabled'] and not cfg['live_enabled']
-    assert cfg['accounts']=={'pitch':'primary','seasonal':None} and cfg['db'] is None
+    assert cfg['accounts']=={'pitch':['primary','pa'],'seasonal':['primary','pa']} and cfg['db'] is None
+    assert cfg['risk_multipliers']=={'primary':1,'pa':None}
 
 
 def test_executor_connects_readonly_for_preview_and_reconciliation(tmp_path,monkeypatch):
@@ -385,7 +399,7 @@ def test_executor_connects_readonly_for_preview_and_reconciliation(tmp_path,monk
     assert result['ok'] and ib.connections[-1]['readonly'] is False and ib.calls==['XLE']
     reconcile={'id':str(uuid.uuid4()),'type':'review_execution','account':'primary','dry_run':True,
                'expires_at':(NOW.timestamp()+60)*1000,
-               'payload':{'operation':'reconcile','product':'pitch','actor':'qa-human','run_key':C.run_key('pitch',DAY+'-1','primary')}}
+               'payload':{'operation':'reconcile','product':'pitch','actor':'qa-human','run_key':C.run_key('pitch',DAY+'-1','primary',plan['payload']['proposal_hash'])}}
     assert R.run_executor(g,reconcile)['ok'] and ib.connections[-1]['readonly'] is True
     assert ib.calls==['XLE']
     cfg['live_enabled']=False
