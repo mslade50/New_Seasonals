@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "bundle_id": "open-breakout-combined-20261006-v1",
-  "created_utc": "2026-10-06T18:41:46.578295+00:00",
+  "created_utc": "2026-10-06T18:50:36.340061+00:00",
   "files": [
     {
       "path": ".gitattributes",
@@ -41,22 +41,22 @@
     {
       "path": "deployment-manifest.json",
       "bytes": 11007,
-      "sha256": "e6506797478801e17cd7b43001810884f0df1ed191fbdf6a807d170620812dc6"
+      "sha256": "45405e5b5345543383c6ee85adf150d0234c5f287425ae4e1a60558874ae5a36"
     },
     {
       "path": "evidence/aggregate.json",
       "bytes": 5556,
-      "sha256": "ba96a837b29302a57274f57675a3983c84bc012ebc42df9667f14f921ffd7291"
+      "sha256": "8f60f81613adb31c934fa281804bb7d8fb5720659fca3f51daa714dcfe25126b"
     },
     {
       "path": "evidence/aggregate.txt",
       "bytes": 529,
-      "sha256": "d3ce4cef6128651455b7dfe36b6b6547502f48ee2da7dda2b45eb5feaa9b65fa"
+      "sha256": "4a05892d9603ba20add58ca63704bd2706e3a88f0caf9482766ef424d6347595"
     },
     {
       "path": "evidence/aggregate.xml",
       "bytes": 83078,
-      "sha256": "5300811accf3a531cb5e06c2167f7a94c1766dc7bbe7bd5a9ea1d4beccee976f"
+      "sha256": "cd82f5256ca906977d5877d251da5119b40f228d2bb70078ceac9f66c3e379af"
     },
     {
       "path": "evidence/candidate-audit.json",
@@ -66,17 +66,17 @@
     {
       "path": "evidence/tests-report.txt",
       "bytes": 113,
-      "sha256": "e9fc7918ff41c4800ec71554aae567caaf0f4f4b8f28f24513f169c6c6a61a2d"
+      "sha256": "f48c56f2c8a5a2708cd77952d50545d61d6f1e0a24b5450dcd76126af3634647"
     },
     {
       "path": "evidence/tests-report.xml",
       "bytes": 7004,
-      "sha256": "cf79b70ed9b87638732c924f745795bfbeacd13ad594a94ce52b997006126cbc"
+      "sha256": "27c1c4f867b8fcc64399044c2a808dbd5b5502cbe8af73b2c5e77742a39ab5b2"
     },
     {
       "path": "evidence/validation.json",
       "bytes": 5226,
-      "sha256": "ba25568a9f40c1a278f7069853ad597848e0591627a1fc182028d4d745ec238e"
+      "sha256": "7b5641e5285bc538aca03e2150255e82c64c00661dc3c87fa41950e9831733fc"
     },
     {
       "path": "evidence/workspace-hygiene.txt",
@@ -160,8 +160,8 @@
     },
     {
       "path": "payload/repo/intraday_coordination.py",
-      "bytes": 32458,
-      "sha256": "3a994212466d2da0d91a462b905f1bcf65e625979461a43ab036880ecb229809"
+      "bytes": 32482,
+      "sha256": "8385977e77f9ab62edec02108b443db07414bbdb2ae4b6934c2a1a2adc7808e3"
     },
     {
       "path": "payload/repo/legend/__init__.py",
@@ -225,8 +225,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 13565,
-      "sha256": "b21e422ce83718cfca740f6fe6e5a13c306ce5c66b7f5d612f256b05b0735c05"
+      "bytes": 13801,
+      "sha256": "571cd8bb6f485040282ac87b7abd5adc04caa58337bb10eb1baf2ecbcd29a522"
     },
     {
       "path": "test_deployment.py",

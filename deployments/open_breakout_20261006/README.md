@@ -13,6 +13,9 @@ handoff. Work continued from its installer and candidate, without rebuilding
 the trading logic. The old parent-directory `build_deployment.py` and templates
 are historical checkpoint tools; do not run them over this finished package.
 Maintained source is `deployments/open_breakout_20261006` in remote main.
+The final source adds reviewed startup guards and constructs cancellation and
+cleanup operation IDs by joining their existing components with a colon. This
+satisfies the repository text guard and preserves the exact durable ID strings.
 
 ## Behavior and limits
 

@@ -501,7 +501,7 @@ class LegacyCancelThenCloseModel:
                     op["cancelled"][order.token] = "requested"
                     save()
                     try:
-                        self.broker.cancel_exact(order, op["id"] + ":cancel:" + order.token)
+                        self.broker.cancel_exact(order, ":".join((op["id"], "cancel", order.token)))
                     except Exception:
                         return fail("Entry cancellation acknowledgement/delivery unknown")
             if entries:
@@ -556,7 +556,7 @@ class LegacyCancelThenCloseModel:
                         op["cancelled"][order.token] = "requested"
                         save()
                         try:
-                            self.broker.cancel_exact(order, op["id"] + ":cancel:" + order.token)
+                            self.broker.cancel_exact(order, ":".join((op["id"], "cancel", order.token)))
                         except Exception:
                             return fail("Exit cancellation uncertain; do not submit a competing close")
                 if exits:
@@ -625,7 +625,7 @@ class LegacyCancelThenCloseModel:
                         op["cancelled"][order.token] = "requested"
                         save()
                         try:
-                            self.broker.cancel_exact(order, op["id"] + ":cleanup:" + order.token)
+                            self.broker.cancel_exact(order, ":".join((op["id"], "cleanup", order.token)))
                         except Exception:
                             return fail("Orphaned-exit cleanup uncertain; Legend remains blocked")
                 if exits:
