@@ -1,5 +1,9 @@
 # Brief: finish two trading_ibkr patches and the second runtime release (2026-10-03)
 
+October 6 continuation: [verified preparation and remaining cutover](continuation_2026-10-06.md).
+The four review findings are addressed in the prepared candidates. Installation
+and the runtime release remain pending the permitted cutover window.
+
 Owner: McKinley. Both jobs are approved. Do them this weekend, before the Monday
 2026-10-05 04:10 ET premarket run. Read AGENTS.md and CLAUDE.md first. Background:
 `docs/incidents/2026-10-01_earnings_fmp_scan_skip.md`,

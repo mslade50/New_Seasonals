@@ -1,0 +1,334 @@
+--- /dev/null
++++ b/test_staging_prior_day_rows.py
+@@ -0,0 +1,331 @@
++"""Offline test: order_staging must not re-place a prior day's pre-market rows.
++
++2026-10-01 near-miss: scan_pm on 9/30 was skipped and scan_am on 10/01 died
++before its Sheets writes, so the Overflow tab still held 9/30's AM-bookend row
++(FORM Overbot Vol Spike short, Scan_Date 9/30, Signal_Date 9/29) that had
++already been placed on 9/30 (Primary 498 / PA 145). The Scan_Date cutoff
++(>= today - 1 NYSE day) kept it, Staged_Date was restamped to 10/01 and both
++entry scripts would have placed it again at stale levels.
++
++The scanner writes Signal_Date = the last settled bar: an AM-bookend scan on D
++stamps D-1, a PM-bookend scan on D stamps D. filter_prior_day_premarket_rows
++drops a row only when Scan_Date < today AND Signal_Date < the previous NYSE
++session. Cases:
++  1. the 10/01 scenario -> nothing staged, loud [CRITICAL] line that the
++     morning summary email flags
++  2. normal AM day (today's scan) -> unchanged, same object, silent
++  3. AM failed but yesterday's PM scan ran -> kept (designed fallback)
++  4. preserve_unavailable retention of a PM row kept, of an AM row dropped
++  5. every persistent multi-day entry (GTC/GTD fill window): day-1 rows from
++     either bookend are kept; the day-2..T+N window is the broker-resting GTD
++     parent, never a re-read of the tab
++  6. weekend / holiday / Thanksgiving boundaries on the NYSE calendar
++  7. blank Signal_Date and an operator row stamped today are left alone
++  8. pull_and_stage_orders end to end: the 10/01 tab stages nothing and
++     writes no execution tab; a normal day stages the row
++"""
++import pandas as pd
++import pytest
++
++import morning_order_summary as mos
++import order_staging as staging
++from trading_calendar_live import TRADING_DAY
++
++
++def _freeze(monkeypatch, when):
++    fixed = pd.Timestamp(when)
++    monkeypatch.setattr(pd.Timestamp, 'now', classmethod(lambda cls, tz=None: fixed))
++
++
++def _row(symbol, scan, signal, strategy='Overbot Vol Spike', action='SELL', **kw):
++    row = {'Scan_Date': scan, 'Signal_Date': signal, 'Symbol': symbol,
++           'Action': action, 'Quantity': 100, 'Strategy_Ref': strategy}
++    row.update(kw)
++    return row
++
++
++def _load(df, label='overflow'):
++    """The exact sequence pull_and_stage_orders applies to each staging tab."""
++    df = staging.filter_stale_overflow(df, label=label)
++    return staging.filter_prior_day_premarket_rows(df, label=label)
++
++
++# --- 1. the 2026-10-01 scenario -------------------------------------------
++def test_oct1_scenario_drops_prior_day_am_row(monkeypatch, capsys):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    tab = pd.DataFrame([_row('FORM', '2026-09-30', '2026-09-29', Quantity=498)])
++    out = _load(tab)
++    assert out.empty
++    msg = capsys.readouterr().out
++    assert '[CRITICAL]' in msg and 'FORM SELL Overbot Vol Spike' in msg
++    assert 'signal 2026-09-29, scan 2026-09-30' in msg
++    line = next(ln for ln in msg.splitlines() if '[CRITICAL]' in ln)
++    assert mos._FAIL_RE.match(line), "the morning summary must flag this line"
++
++
++def test_oct1_line_turns_summary_email_red(tmp_path, monkeypatch, capsys):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    _load(pd.DataFrame([_row('FORM', '2026-09-30', '2026-09-29')]))
++    line = next(ln for ln in capsys.readouterr().out.splitlines() if '[CRITICAL]' in ln)
++    log = (f"===== RUN START Thu 10/01/2026  9:31:01.45 ===== \n"
++           "===== STEP 1: order_staging.py ===== \n"
++           f"{line}\n[WARN] No orders to process.\n"
++           "[order_staging.py exit code: 0] \n \n"
++           "===== RUN END Thu 10/01/2026  9:31:30.22 ===== \n")
++    p = tmp_path / 'order_staging_last_run.log'
++    p.write_text(log, encoding='utf-8')
++    monkeypatch.setattr(mos, 'STAGING_LOG', p)
++    r = mos.staging_failure('10/01/2026')
++    assert r and 'exited 0 but logged' in r and 'prior day' in r
++
++
++# --- 2/3. normal days ------------------------------------------------------
++def test_normal_am_day_unchanged_and_silent(monkeypatch, capsys):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    tab = pd.DataFrame([_row('FORM', '2026-10-01', '2026-09-30', Quantity=456),
++                        _row('XME', '2026-10-01', '2026-09-30', 'Oversold Low Volume', 'BUY')])
++    after_cutoff = staging.filter_stale_overflow(tab)
++    out = staging.filter_prior_day_premarket_rows(after_cutoff)
++    assert out is after_cutoff
++    assert '[CRITICAL]' not in capsys.readouterr().out
++
++
++def test_am_failed_pm_ran_keeps_pm_rows(monkeypatch, capsys):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    tab = pd.DataFrame([_row('FORM', '2026-09-30', '2026-09-30')])
++    out = _load(tab)
++    assert list(out['Symbol']) == ['FORM']
++    assert '[CRITICAL]' not in capsys.readouterr().out
++
++
++def test_manual_rerun_same_day_keeps_rows(monkeypatch):
++    _freeze(monkeypatch, '2026-10-01 13:05')
++    tab = pd.DataFrame([_row('FORM', '2026-10-01', '2026-09-30'),
++                        _row('ABC', '2026-09-30', '2026-09-30')])
++    assert list(_load(tab)['Symbol']) == ['FORM', 'ABC']
++
++
++# --- 4. preserve_unavailable retention (daily_scan.save_staging_orders) -----
++def test_retained_rows_pm_kept_am_dropped(monkeypatch):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    tab = pd.DataFrame([
++        _row('NEW', '2026-10-01', '2026-09-30'),        # today's scan
++        _row('KEEPPM', '2026-09-30', '2026-09-30'),     # retained 9/30 PM obligation
++        _row('OLDAM', '2026-09-30', '2026-09-29'),      # retained 9/30 AM row: 9/30's entry
++    ])
++    assert list(_load(tab)['Symbol']) == ['NEW', 'KEEPPM']
++
++
++# --- 5. persistent multi-day entries ---------------------------------------
++# (strategy, hold_days, fill_window_days) as in strategy_config; every one is
++# entry_type "... (Persistent)" -> Order_Type REL_CLOSE, TIF GTC.
++PERSISTENT = [
++    ('Oversold Low Volume', 10, 3),
++    ('Monthly Weak Close', 5, 2),
++    ('52wh Breakout', 63, 10),
++    ('Sector BO', 63, 10),
++    ('LT Trend ST OS', 1, 1),
++    ('St OS Sznl', 5, 5),
++    ('Indices Oversold Bounce', 2, 2),
++]
++
++
++def _persistent_row(strategy, hold, fw, scan, signal):
++    sig = pd.Timestamp(signal)
++    exit_date = (sig + TRADING_DAY + hold * TRADING_DAY).date()
++    return _row('TKR', scan, signal, strategy, 'BUY', Order_Type='REL_CLOSE', TIF='GTC',
++                Hold_Days=hold, Fill_Window_Days=fw, Time_Exit_Date=str(exit_date))
++
++
++@pytest.mark.parametrize('strategy,hold,fw', PERSISTENT)
++def test_persistent_day1_rows_kept_from_either_bookend(monkeypatch, strategy, hold, fw):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    am = _persistent_row(strategy, hold, fw, '2026-10-01', '2026-09-30')
++    pm = _persistent_row(strategy, hold, fw, '2026-09-30', '2026-09-30')
++    assert len(_load(pd.DataFrame([am]))) == 1
++    assert len(_load(pd.DataFrame([pm]))) == 1
++
++
++@pytest.mark.parametrize('strategy,hold,fw', PERSISTENT)
++def test_persistent_window_rests_at_broker_not_on_the_tab(monkeypatch, strategy, hold, fw):
++    # Day 1 (10/01) stages the row once; order_staging back-computes the GTD
++    # parent expiry as Time_Exit_Date - (1 + hold - fw) trading days, which is
++    # signal + fw sessions: the whole T+1..T+fw window is covered by that one
++    # broker order. On day 2 the same tab row (left by a dead scan) is 10/01's
++    # entry, so re-staging it would be a second order, not the window.
++    row = _persistent_row(strategy, hold, fw, '2026-10-01', '2026-09-30')
++    exit_dt = pd.to_datetime(row['Time_Exit_Date'])
++    expiry = (exit_dt - (1 + hold - fw) * TRADING_DAY).date()
++    assert expiry == (pd.Timestamp('2026-09-30') + fw * TRADING_DAY).date()
++
++    _freeze(monkeypatch, '2026-10-02 09:31')
++    assert _load(pd.DataFrame([row])).empty
++
++
++def test_moc_and_trend_tabs_are_not_read_by_this_loader():
++    import inspect
++    reader = inspect.getsource(staging._read_staging_tabs_with_retry)
++    assert 'worksheet(TAB_NAME)' in reader and 'worksheet(OVERFLOW_TAB_NAME)' in reader
++    assert 'moc' not in reader.lower() and 'TREND' not in reader
++    body = inspect.getsource(staging.pull_and_stage_orders)
++    assert "filter_prior_day_premarket_rows(df_main, label='liquid')" in body
++    assert 'filter_prior_day_premarket_rows(df_overflow)' in body
++    # Trend rows join after the filters and carry no Scan_Date/Signal_Date.
++    assert body.index('filter_prior_day_premarket_rows(df_overflow)') < body.index('load_trend_rows(sh)')
++
++
++# --- 6. calendar boundaries ------------------------------------------------
++def test_monday_keeps_friday_pm_and_drops_friday_am(monkeypatch):
++    _freeze(monkeypatch, '2026-10-05 09:31')    # Monday
++    tab = pd.DataFrame([_row('FRIPM', '2026-10-02', '2026-10-02'),
++                        _row('FRIAM', '2026-10-02', '2026-10-01')])
++    assert list(_load(tab)['Symbol']) == ['FRIPM']
++
++
++def test_monday_am_scan_restamps_friday_signal(monkeypatch):
++    _freeze(monkeypatch, '2026-10-05 09:31')
++    tab = pd.DataFrame([_row('SPY', '2026-10-05', '2026-10-02', 'SPY QQQ MonFri Reversion', 'BUY')])
++    assert len(_load(tab)) == 1
++
++
++def test_weekend_manual_scan_rows_kept_monday(monkeypatch):
++    _freeze(monkeypatch, '2026-10-05 09:31')
++    tab = pd.DataFrame([_row('SAT', '2026-10-03', '2026-10-02')])
++    assert len(_load(tab)) == 1
++
++
++def test_tuesday_after_labor_day(monkeypatch):
++    _freeze(monkeypatch, '2026-09-08 09:31')    # Mon 9/7 NYSE closed
++    tab = pd.DataFrame([_row('FRIPM', '2026-09-04', '2026-09-04'),
++                        _row('TUEAM', '2026-09-08', '2026-09-04'),
++                        _row('FRIAM', '2026-09-04', '2026-09-03')])
++    assert list(_load(tab)['Symbol']) == ['FRIPM', 'TUEAM']
++
++
++def test_friday_after_thanksgiving(monkeypatch):
++    _freeze(monkeypatch, '2026-11-27 09:31')    # Thu 11/26 NYSE closed
++    tab = pd.DataFrame([_row('WEDPM', '2026-11-25', '2026-11-25'),
++                        _row('WEDAM', '2026-11-25', '2026-11-24')])
++    assert list(_load(tab)['Symbol']) == ['WEDPM']
++
++
++# --- 7. rows the filter must leave to other rules --------------------------
++def test_blank_signal_date_left_to_scan_date_cutoff(monkeypatch):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    tab = pd.DataFrame([_row('LEGACY', '2026-09-30', ''), _row('NA', '2026-09-30', 'nan')])
++    assert len(_load(tab)) == 2
++
++
++def test_operator_row_stamped_today_with_old_signal_kept(monkeypatch):
++    # sheets.md: makeup rows carry their true original schedule.
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    tab = pd.DataFrame([_row('MAKEUP', '2026-10-01', '2026-09-28', 'Oversold Low Volume', 'BUY')])
++    assert len(_load(tab)) == 1
++
++
++def test_missing_columns_noop():
++    df = pd.DataFrame([{'Symbol': 'X', 'Scan_Date': '2026-10-01'}])
++    assert staging.filter_prior_day_premarket_rows(df) is df
++    empty = pd.DataFrame()
++    assert staging.filter_prior_day_premarket_rows(empty) is empty
++
++
++@pytest.mark.parametrize('signal', ['2026-09-29T00:00:00+00:00',
++                                  '2026-09-29T00:00:00-04:00'])
++def test_timezone_signal_fails_open_with_one_critical(monkeypatch, capsys, signal):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    tab = pd.DataFrame([_row('FORM', '2026-09-30', signal)])
++    assert staging.filter_prior_day_premarket_rows(tab) is tab
++    lines = capsys.readouterr().out.splitlines()
++    assert len(lines) == 1 and lines[0].startswith('[CRITICAL]')
++    assert 'rows unchanged, staging continues' in lines[0]
++    assert mos._FAIL_RE.match(lines[0])
++
++
++def test_filter_unexpected_exception_leaves_all_rows(monkeypatch, capsys):
++    tab = pd.DataFrame([_row('FORM', '2026-09-30', '2026-09-29')])
++    def broken_now(*_args, **_kwargs):
++        raise RuntimeError('bad clock')
++    monkeypatch.setattr(pd.Timestamp, 'now', broken_now)
++    assert staging.filter_prior_day_premarket_rows(tab) is tab
++    assert capsys.readouterr().out.count('[CRITICAL]') == 1
++
++
++def test_filter_logging_exception_also_leaves_rows(monkeypatch, capsys):
++    import builtins
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    tab = pd.DataFrame([_row('FORM', '2026-09-30', '2026-09-29')])
++    original_print = builtins.print
++    def failed_detail(*args, **kwargs):
++        if args and 'NOT re-placing' in str(args[0]):
++            raise UnicodeEncodeError('ascii', '\u2603', 0, 1, 'offline log failure')
++        return original_print(*args, **kwargs)
++    monkeypatch.setattr(builtins, 'print', failed_detail)
++    assert staging.filter_prior_day_premarket_rows(tab) is tab
++    output = capsys.readouterr().out
++    assert output.count('[CRITICAL]') == 1 and 'UnicodeEncodeError' in output
++
++
++# --- 8. pull_and_stage_orders end to end (no broker, no Sheets) -------------
++def _full_row(scan, signal, **kw):
++    row = {
++        'Scan_Date': scan, 'Signal_Date': signal, 'Symbol': 'TKR', 'SecType': 'STK',
++        'Exchange': 'SMART', 'Action': 'BUY', 'Quantity': 100, 'Order_Type': 'REL_CLOSE',
++        'Limit_Price': 0.0, 'Manual_Limit': '', 'Offset_ATR_Mult': 0.25, 'Entry_Offset_ATR': '',
++        'TIF': 'GTC', 'Frozen_ATR': 2.0, 'Signal_Close': 100.0, 'Signal_High': 101.0,
++        'Time_Exit_Date': '2026-10-15', 'Strategy_Ref': 'St OS Sznl',
++        'Tgt_ATR_Mult': 2.0, 'Stop_ATR_Mult': 1.0, 'Use_Target': True, 'Use_Stop': True,
++        'Hold_Days': 10, 'Fill_Window_Days': 10, 'Trade_Direction': 'Long',
++        'Rank_252D': '', 'Risk_Amt': 1000.0, 'Risk_Bps': 20,
++        'Path1_Bps': '', 'Path2_Bps': '', 'Path2_Daily_Cap_Pct': '', 'T1_Open_Filters': '',
++        'MonGapKill_ATR': '', 'MonGapKill_Weekdays': '', 'MonGapKill_Dir': '',
++        'Account_Value': staging.ACCOUNT_VALUE,
++    }
++    row.update(kw)
++    return row
++
++
++def _run_chain(monkeypatch, tmp_path, liquid_rows, overflow_rows):
++    written = {}
++    monkeypatch.setattr(staging, 'connect_to_ibkr', lambda: (None, False))
++    monkeypatch.setattr(staging, '_read_staging_tabs_with_retry', lambda p: (
++        object(), pd.DataFrame(liquid_rows), pd.DataFrame(overflow_rows)))
++    monkeypatch.setattr(staging, 'update_execution_tab',
++                        lambda sh, df: written.__setitem__('execution', df.copy()) or True)
++    monkeypatch.setattr(staging, 'update_execution_tab_2',
++                        lambda sh, df: written.__setitem__('execution_2', df.copy()) or True)
++    monkeypatch.setattr(staging, 'fetch_pa_account_value', lambda: 200_000.0)
++    monkeypatch.setattr(staging, 'load_trend_rows', lambda sh: pd.DataFrame())
++    monkeypatch.setattr(staging, 'OUTPUT_FOLDER', str(tmp_path))
++    rc = staging.pull_and_stage_orders()
++    return rc, written
++
++
++def test_chain_oct1_scenario_stages_nothing(monkeypatch, tmp_path, capsys):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    rc, written = _run_chain(monkeypatch, tmp_path, [],
++                             [_full_row('2026-09-30', '2026-09-29', Symbol='FORM')])
++    out = capsys.readouterr().out
++    assert rc is not False
++    assert written == {}
++    assert not (tmp_path / 'staged_orders.csv').exists()
++    assert '[CRITICAL] Dropped 1 overflow rows' in out and 'No orders to process' in out
++
++
++def test_chain_normal_day_stages_row(monkeypatch, tmp_path, capsys):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    rc, written = _run_chain(monkeypatch, tmp_path,
++                             [_full_row('2026-10-01', '2026-09-30')], [])
++    assert rc is not False
++    assert list(written['execution']['Symbol']) == ['TKR']
++    assert written['execution']['Staged_Date'].iloc[0] == '2026-10-01'
++    assert 'Dropped' not in capsys.readouterr().out
++
++
++def test_chain_timezone_signal_does_not_abort_staging(monkeypatch, tmp_path, capsys):
++    _freeze(monkeypatch, '2026-10-01 09:31')
++    rc, written = _run_chain(monkeypatch, tmp_path,
++        [_full_row('2026-09-30', '2026-09-29T00:00:00+00:00')], [])
++    assert rc is not False
++    assert list(written['execution']['Symbol']) == ['TKR']
++    assert '[CRITICAL] liquid prior-day pre-market filter failed' in capsys.readouterr().out

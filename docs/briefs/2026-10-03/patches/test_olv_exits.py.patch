@@ -1,0 +1,420 @@
+--- a/test_olv_exits.py
++++ b/test_olv_exits.py
+@@ -37,7 +37,7 @@
+      status is UNKNOWN (exit 1, nothing re-armed); a same-day re-run
+      retries an unconfirmed leg ONCE and never re-places an ACKNOWLEDGED
+      one; the guard passes the standalone sell inactive AND active; PA
+-     sells the full matched leg; past 9:25 the sell is MKT DAY.
++     sells the full matched leg; at or past 9:25 the auction exit stays pending.
+   7. (2026-09-04 round 2, from the independent verify agent's attack
+      sequences) the four ways the first build did not fail safe: a reject
+      landing inside the verify pause re-arms instead of going UNKNOWN (S1);
+@@ -145,33 +145,59 @@
+         runner.connect_account('PRIMARY', '127.0.0.1', 7496, 99)
+ 
+ 
+-def test_load_exit_rows_today_only():
+-    today = pd.Timestamp.now().normalize().strftime('%Y-%m-%d')
++def _primary_record(symbol, qty, execute_on, time_exit='2026-09-10', *,
++                    ref_date='2026-08-20', con_id=42, tranche='T1'):
++    """An OLV_Exits_Primary row exactly as daily_scan.stage_olv_vol_confirm_exits
++    writes it (all cells strings): Primary's tranche, Primary's quantity."""
++    rec = _exit_record(symbol, qty, execute_on, time_exit)
++    rec.update({'account_key': 'primary', 'broker_account': 'U_PRI', 'con_id': str(con_id),
++                'tranche_id': tranche, 'ref_date': ref_date,
++                'entry_order_ref': f'{symbol}|BUY|Oversold Low Volume|{ref_date}',
++                'Entry_Date': '2026-08-21'})
++    return rec
++
++
++def test_load_exit_rows_reads_primary_contract_due_rows():
++    # 2026-10-01: the scanner writes only OLV_Exits_Primary (since 2026-09-07);
++    # due = Execute_On <= today, exactly as olv_exit_primary reads it.
++    assert runner.OLV_EXITS_TAB_NAME == 'OLV_Exits_Primary'
++    today = pd.Timestamp('2026-09-04')
+     sh = _FakeSheet({runner.OLV_EXITS_TAB_NAME: _FakeWS([
+-        _exit_record('aaa ', 100, today),               # normalized to AAA
+-        _exit_record('BBB', 50, '2020-01-02'),          # stale — ignored
+-        _exit_record('CCC', 0, today),                  # zero qty — ignored
+-        _exit_record('DDD', 25, today, time_exit='2026-08-03'),
++        _primary_record('AAA', 100, '2026-09-04'),
++        _primary_record('BBB', 50, '2026-09-03', tranche='T2'),   # carried forward — due
++        _primary_record('CCC', 30, '2026-09-08', tranche='T3'),   # not yet due
++        _primary_record('DDD', 25, '2026-09-04', time_exit='2026-08-03', tranche='T4'),
+     ])})
+-    out = runner.load_exit_rows(sh)
+-    assert sorted(out['Symbol']) == ['AAA', 'DDD']
++    out = runner.load_exit_rows(sh, today)
++    assert sorted(out['Symbol']) == ['AAA', 'BBB', 'DDD']
+     row_a = out[out['Symbol'] == 'AAA'].iloc[0]
+     assert row_a['Quantity'] == 100
+-    assert row_a['Time_Exit_Date'] == '2026-07-28'
+-    row_d = out[out['Symbol'] == 'DDD'].iloc[0]
+-    assert row_d['Quantity'] == 25
+-    assert row_d['Time_Exit_Date'] == '2026-08-03'
+-
+-
+-def test_load_exit_rows_missing_or_broken_tab_degrades():
+-    assert runner.load_exit_rows(_FakeSheet({})).empty
++    assert row_a['Time_Exit_Date'] == '2026-09-10'
++    assert row_a['entry_order_ref'] == 'AAA|BUY|Oversold Low Volume|2026-08-20'
++    assert out[out['Symbol'] == 'DDD'].iloc[0]['Time_Exit_Date'] == '2026-08-03'
++
++
++def test_load_exit_rows_fails_closed_on_primary_contract_breach():
++    today = pd.Timestamp('2026-09-04')
++    bad = _primary_record('AAA', 0, '2026-09-04')                 # zero qty
++    legacy = _exit_record('BBB', 50, '2026-09-04')                 # old OLV_Exits schema
++    for records in ([bad], [legacy], [_primary_record('A', 10, '2026-09-04'), bad]):
++        sh = _FakeSheet({runner.OLV_EXITS_TAB_NAME: _FakeWS(records)})
++        with pytest.raises(runner.ExitRowsError, match='fail the Primary tranche contract'):
++            runner.load_exit_rows(sh, today)
++
++
++def test_load_exit_rows_missing_or_broken_tab_fails_loud():
++    with pytest.raises(runner.ExitRowsError, match='tab unreadable'):
++        runner.load_exit_rows(_FakeSheet({}))
+     sh = _FakeSheet({runner.OLV_EXITS_TAB_NAME: _FakeWS([])})
+     assert runner.load_exit_rows(sh).empty
+     today = pd.Timestamp.now().normalize().strftime('%Y-%m-%d')
+     rec = _exit_record('AAA', 100, today)
+     del rec['Quantity']
+     sh = _FakeSheet({runner.OLV_EXITS_TAB_NAME: _FakeWS([rec])})
+-    assert runner.load_exit_rows(sh).empty   # must not raise
++    with pytest.raises(runner.ExitRowsError):
++        runner.load_exit_rows(sh)
+ 
+ 
+ def test_signal_ref_parity_and_stacked_leg_identity():
+@@ -493,6 +519,21 @@
+     assert callable(dispatcher.main)
+ 
+ 
++@pytest.mark.parametrize('pa_failure', [1, 'exception'])
++def test_pa_failure_cannot_block_primary_runner(monkeypatch, pa_failure):
++    import olv_exit_primary as primary
++    calls = []
++    monkeypatch.setattr(primary, 'main', lambda: calls.append('PRIMARY') or 0)
++    def pa_main():
++        calls.append('PA')
++        if pa_failure == 'exception':
++            raise RuntimeError('offline PA failure')
++        return pa_failure
++    monkeypatch.setattr(runner, 'main', pa_main)
++    assert dispatcher.main() == 1
++    assert calls == ['PRIMARY', 'PA']
++
++
+ def _base_sig(symbol='A', texit='2026-09-10'):
+     return runner.signal_ref(symbol, 'SELL', 'Oversold Low Volume', TODAY, texit)
+ 
+@@ -969,14 +1010,16 @@
+     assert int(placed.clientId) == 98
+ 
+ 
+-def test_past_opg_cutoff_falls_back_to_mkt_day(monkeypatch, tmp_path):
+-    _guard_inactive(monkeypatch, tmp_path)
+-    monkeypatch.setattr(runner, '_now_time', lambda: _dt.time(9, 30))
++@pytest.mark.parametrize('clock', [_dt.time(9, 25), _dt.time(9, 30)])
++def test_past_opg_cutoff_leaves_bracket_pending(monkeypatch, tmp_path, clock):
++    _guard_inactive(monkeypatch, tmp_path)
++    monkeypatch.setattr(runner, '_now_time', lambda: clock)
+     _use_temp_journal(monkeypatch, tmp_path)
+     broker, *_ = _bracket_broker()
+     result = _run(broker)
+-    assert result[0]['Status'] == 'SENT_DAY'
+-    _assert_standalone_sell(broker.place_calls[0][1], tif='DAY')
++    assert result[0]['Status'] == 'CRITICAL_MISSED_AUCTION_PENDING'
++    assert runner.exit_code_for(result) == 1
++    assert broker.place_calls == [] and broker.cancel_calls == []
+ 
+ 
+ def test_foreign_client_bracket_is_skipped(monkeypatch, tmp_path):
+@@ -1126,11 +1169,11 @@
+ 
+ 
+ def test_s2_leg_filled_between_snapshot_and_place_never_opens_a_short(monkeypatch, tmp_path):
+-    """Post-9:25 (MKT DAY, fills instantly): the held count that sized the
+-    exit is stale by the time the sell goes out. Selling it would open a
++    """The held count that sized the exit is stale after cancellation.
++    Selling it would open a
+     naked short."""
+     _guard_inactive(monkeypatch, tmp_path)
+-    monkeypatch.setattr(runner, '_now_time', lambda: _dt.time(9, 31))
++    _pre_open(monkeypatch)
+     path, states = _use_temp_journal(monkeypatch, tmp_path)
+     broker, contract, target, time_leg = _bracket_broker()
+     filling = _TargetFillsOnCancel()
+@@ -1381,7 +1424,7 @@
+     assert runner.alert_rows([ok, flat, quiet, loud]) == [flat, loud]
+     # ...and the S2 sequence produces exactly that row.
+     _guard_inactive(monkeypatch, tmp_path)
+-    monkeypatch.setattr(runner, '_now_time', lambda: _dt.time(9, 31))
++    _pre_open(monkeypatch)
+     _use_temp_journal(monkeypatch, tmp_path)
+     broker, contract, target, time_leg = _bracket_broker()
+     filling = _TargetFillsOnCancel()
+@@ -1414,9 +1457,261 @@
+     assert '[WARN] two exits working on A' in capsys.readouterr().out
+ 
+ 
++# ---------------------------------------------------------------------------
++# 2026-10-01: PA reads OLV_Exits_Primary. The scanner has written only that tab
++# since 2026-09-07, so the PA runner (still reading OLV_Exits) had no
++# vol-confirm exit coverage. A Primary row names PRIMARY's tranche and
++# quantity; PA must exit ITS OWN full live leg of the same signal (same
++# SYM|BUY|strategy|date ref, conId and time-exit date) and nothing else.
++# ---------------------------------------------------------------------------
++def _pa_rows(qty=494, execute_on=TODAY, **kw):
++    sh = _FakeSheet({runner.OLV_EXITS_TAB_NAME: _FakeWS([
++        _primary_record('A', qty, execute_on, **kw)])})
++    return runner.load_exit_rows(sh, pd.Timestamp(TODAY))
++
++
++def _run_pa(broker, rows):
++    return _run(broker, rows, label='PA', client_id=98, account='U_PA')
++
++
++def test_pa_exits_its_own_leg_when_primary_size_differs(monkeypatch, tmp_path):
++    _guard_inactive(monkeypatch, tmp_path)
++    _pre_open(monkeypatch)
++    _use_temp_journal(monkeypatch, tmp_path)
++    broker, contract, target, time_leg = _bracket_broker(account='U_PA', client_id=98)
++    for leg in (target, time_leg):
++        leg.order.totalQuantity = 144
++        leg.orderStatus.remaining = 144
++    broker.positions_value[0].position = 144
++
++    result = _run_pa(broker, _pa_rows(qty=494))        # Primary's 494, PA's 144
++
++    assert result[0]['Status'] == 'SENT_OPG'
++    assert broker.cancel_calls == [(98, 11), (98, 12)]
++    placed = broker.place_calls[0][1]
++    _assert_standalone_sell(placed, qty=144, account='U_PA')
++    assert placed.orderRef.startswith(f"{_base_sig()}|oca:OCA_A|leg:98:12")
++
++
++def test_pa_holds_nothing_places_nothing(monkeypatch, tmp_path, capsys):
++    _guard_inactive(monkeypatch, tmp_path)
++    _pre_open(monkeypatch)
++    _use_temp_journal(monkeypatch, tmp_path)
++    broker = FakeBroker(account='U_PA', client_id=98, port=4001)
++
++    result = _run_pa(broker, _pa_rows())
++
++    assert [r['Status'] for r in result] == ['SKIPPED_NO_LEG']
++    assert runner.exit_code_for(result) == 0
++    assert broker.place_calls == [] and broker.cancel_calls == []
++    out = capsys.readouterr().out
++    assert 'PA has no working OLV bracket for tranche A|BUY|Oversold Low Volume|2026-08-20' in out
++
++
++def test_pa_bracket_missing_but_shares_held_places_nothing_and_alerts(monkeypatch, tmp_path):
++    _guard_inactive(monkeypatch, tmp_path)
++    _pre_open(monkeypatch)
++    _use_temp_journal(monkeypatch, tmp_path)
++    broker, *_ = _bracket_broker(account='U_PA', client_id=98)
++    broker.trades = []                                  # position, no bracket
++
++    result = _run_pa(broker, _pa_rows())
++
++    assert result[0]['Status'] == 'CRITICAL_EXIT_RECONCILE_MANUAL'
++    assert runner.exit_code_for(result) == 1
++    assert broker.place_calls == [] and broker.cancel_calls == []
++
++
++@pytest.mark.parametrize('field,value', [
++    ('ref', 'A|BUY|Oversold Low Volume|2026-08-27'),   # a different entry signal
++    ('gat', '20260917 15:59:00'),                       # a different time exit
++    ('con', 43),                                        # a different contract
++])
++def test_pa_never_adopts_a_different_leg(monkeypatch, tmp_path, field, value):
++    """The legacy single-candidate fallback would have sold this lone bracket;
++    for a Primary-tranche row it is a different leg and must be left alone."""
++    _guard_inactive(monkeypatch, tmp_path)
++    _pre_open(monkeypatch)
++    _use_temp_journal(monkeypatch, tmp_path)
++    broker, contract, target, time_leg = _bracket_broker(account='U_PA', client_id=98)
++    for leg in (target, time_leg):
++        if field == 'ref':
++            leg.order.orderRef = value
++        elif field == 'con':
++            leg.contract = _contract('A', value)
++    if field == 'gat':
++        time_leg.order.goodAfterTime = value
++    if field == 'con':
++        broker.positions_value[0].contract = _contract('A', value)
++
++    result = _run_pa(broker, _pa_rows())
++
++    assert broker.place_calls == [] and broker.cancel_calls == []
++    assert result[0]['Status'] == 'CRITICAL_EXIT_RECONCILE_MANUAL'   # shares held, not this leg
++
++
++def test_pa_acts_on_row_carried_forward_from_a_prior_day(monkeypatch, tmp_path):
++    _guard_inactive(monkeypatch, tmp_path)
++    _pre_open(monkeypatch)
++    _use_temp_journal(monkeypatch, tmp_path)
++    broker, *_ = _bracket_broker(account='U_PA', client_id=98)
++
++    rows = _pa_rows(execute_on='2026-09-02')            # missed auction, still owed
++    assert len(rows) == 1
++    result = _run_pa(broker, rows)
++
++    assert result[0]['Status'] == 'SENT_OPG'
++    _assert_standalone_sell(broker.place_calls[0][1], qty=10, account='U_PA')
++    assert _pa_rows(execute_on='2026-09-08').empty      # not yet due
++
++
++def test_pa_carried_row_after_pa_already_exited_is_a_clean_skip(monkeypatch, tmp_path):
++    _guard_inactive(monkeypatch, tmp_path)
++    _pre_open(monkeypatch)
++    _use_temp_journal(monkeypatch, tmp_path)
++    broker = FakeBroker(account='U_PA', client_id=98, port=4001)   # PA flat, bracket gone
++
++    result = _run_pa(broker, _pa_rows(execute_on='2026-09-03'))
++
++    assert [r['Status'] for r in result] == ['SKIPPED_NO_LEG']
++    assert broker.place_calls == []
++
++
++def test_pa_empty_tab_never_connects(monkeypatch):
++    sheet = _FakeSheet({runner.OLV_EXITS_TAB_NAME: _FakeWS([])})
++    gc = SimpleNamespace(set_timeout=lambda _s: None, open=lambda _name: sheet)
++    monkeypatch.setattr(runner.gspread, 'service_account', lambda filename: gc)
++
++    def no_connect(*_a, **_k):
++        raise AssertionError('must not connect on an empty tab')
++
++    monkeypatch.setattr(runner, 'connect_account', no_connect)
++    assert runner.main() == 0
++    assert runner.load_exit_rows(sheet).empty
++
++
++@pytest.mark.parametrize('failure', ['missing', 'unreadable', 'contract', 'no_execute_on'])
++def test_pa_main_sheet_failure_is_nonzero_before_broker(monkeypatch, capsys, failure):
++    class BrokenWS:
++        def get_all_records(self):
++            raise TimeoutError('offline read error')
++    record = _primary_record('A', 0, TODAY)
++    if failure == 'no_execute_on':
++        del record['Execute_On']
++    tabs = {} if failure == 'missing' else {
++        runner.OLV_EXITS_TAB_NAME: BrokenWS() if failure == 'unreadable' else _FakeWS([record])}
++    sheet = _FakeSheet(tabs)
++    gc = SimpleNamespace(set_timeout=lambda _s: None, open=lambda _name: sheet)
++    monkeypatch.setattr(runner.gspread, 'service_account', lambda filename: gc)
++    def no_connect(*_a, **_k):
++        raise AssertionError('must not connect after a failed read')
++    monkeypatch.setattr(runner, 'connect_account', no_connect)
++    assert runner.main() == 1
++    output = capsys.readouterr().out
++    assert '[CRITICAL] OLV_Exits_Primary' in output
++    assert 'no OLV vol-confirm exits due' not in output
++
++
++def test_pa_main_missed_cutoff_never_connects(monkeypatch):
++    sheet = _FakeSheet({runner.OLV_EXITS_TAB_NAME: _FakeWS([_primary_record('A', 10, TODAY)])})
++    gc = SimpleNamespace(set_timeout=lambda _s: None, open=lambda _name: sheet)
++    monkeypatch.setattr(runner.gspread, 'service_account', lambda filename: gc)
++    monkeypatch.setattr(runner, '_now_time', lambda: _dt.time(9, 25))
++    alerts = []
++    monkeypatch.setattr(runner, 'send_alert_email', lambda date, summary: alerts.extend(summary))
++    def no_connect(*_a, **_k):
++        raise AssertionError('must not connect after cutoff')
++    monkeypatch.setattr(runner, 'connect_account', no_connect)
++    assert runner.main() == 1
++    assert alerts[0]['Status'] == 'CRITICAL_MISSED_AUCTION_PENDING'
++
++
++def test_cutoff_crossed_during_cancel_rearms_original_time_exit(monkeypatch, tmp_path):
++    _guard_inactive(monkeypatch, tmp_path)
++    path, states = _use_temp_journal(monkeypatch, tmp_path)
++    broker, contract, target, time_leg = _bracket_broker(account='U_PA', client_id=98)
++    original_ref = time_leg.order.orderRef
++    original_gat = time_leg.order.goodAfterTime
++    monkeypatch.setattr(runner, '_now_time',
++                        lambda: _dt.time(9, 25) if broker.cancel_calls else _dt.time(9, 12))
++    result = _run_pa(broker, _pa_rows())
++    assert result[0]['Status'] == 'CRITICAL_MISSED_AUCTION_PENDING'
++    assert runner.exit_code_for(result) == 1
++    assert broker.cancel_calls == [(98, 11), (98, 12)]
++    assert len(broker.place_calls) == 1
++    rearm = broker.place_calls[0][1]
++    assert rearm.tif == 'GTC' and rearm.goodAfterTime == original_gat
++    assert rearm.orderRef == original_ref
++    assert states == ['CANCELLING', 'FAILED_REARMED']
++
++
++def test_pa_ambiguous_duplicate_bracket_places_nothing(monkeypatch, tmp_path):
++    _guard_inactive(monkeypatch, tmp_path)
++    _pre_open(monkeypatch)
++    _use_temp_journal(monkeypatch, tmp_path)
++    broker, contract, target, time_leg = _bracket_broker(account='U_PA', client_id=98)
++    broker.trades.append(_bracket_leg(contract, 'MKT', order_id=14, client_id=98,
++                                      account='U_PA', oca='OCA_B'))
++
++    result = _run_pa(broker, _pa_rows())
++
++    assert result[0]['Status'] == 'CRITICAL_AMBIGUOUS_LEG'
++    assert broker.place_calls == [] and broker.cancel_calls == []
++
++
++class _ExecBroker(FakeBroker):
++    def reqExecutions(self):
++        return []
++
++
++def test_both_accounts_exit_the_same_confirmed_tranche(monkeypatch, tmp_path):
++    """Primary (olv_exit_primary) and PA (this runner) read the same row on the
++    same morning; each sells only its own full leg, journals separately."""
++    import olv_exit_primary as primary
++    _guard_inactive(monkeypatch, tmp_path)
++    _pre_open(monkeypatch)
++    monkeypatch.setattr(primary, '_now_time', lambda: _dt.time(9, 12))
++    _use_temp_journal(monkeypatch, tmp_path)
++    p_path = str(tmp_path / 'olv_exit_primary_placed.json')
++    real_pl, real_pj = primary.load_placed, primary.journal_placed
++    monkeypatch.setattr(primary, 'load_placed', lambda today, path=p_path: real_pl(today, path=path))
++    monkeypatch.setattr(primary, 'journal_placed',
++                        lambda *a, **k: real_pj(*a, **{**k, 'path': p_path}))
++
++    rows = _pa_rows(qty=494)
++
++    p_broker = _ExecBroker(account='U_PRI', client_id=99, port=7496)
++    contract = _contract('A', 42)
++    p_target = _bracket_leg(contract, 'LMT', order_id=11, account='U_PRI', qty=494, lmt=105.0)
++    p_time = _bracket_leg(contract, 'MKT', order_id=12, account='U_PRI', qty=494)
++    for leg in (p_target, p_time):
++        leg.orderStatus.filled = 0
++    p_broker.trades = [p_target, p_time]
++    p_broker.positions_value = [SimpleNamespace(account='U_PRI', contract=contract, position=494)]
++    p_broker.contract_ids['A'] = 42
++
++    pa_broker, *_ = _bracket_broker(account='U_PA', client_id=98)
++    for t in pa_broker.trades:
++        t.order.totalQuantity = 144
++        t.orderStatus.remaining = 144
++    pa_broker.positions_value[0].position = 144
++
++    p_result = primary.process_account('PRIMARY', '127.0.0.1', 7496, 99, rows, TODAY,
++                                       connected={'ib': p_broker, 'account': 'U_PRI'})
++    pa_result = _run_pa(pa_broker, rows)
++
++    assert p_result[0]['Status'] == 'SENT_OPG'
++    assert pa_result[0]['Status'] == 'SENT_OPG'
++    assert int(p_broker.place_calls[0][1].totalQuantity) == 494
++    assert p_broker.place_calls[0][1].account == 'U_PRI'
++    assert int(pa_broker.place_calls[0][1].totalQuantity) == 144
++    assert pa_broker.place_calls[0][1].account == 'U_PA'
++    assert os.path.exists(p_path)
++
++
+ if __name__ == '__main__':
+-    test_load_exit_rows_today_only()
+-    test_load_exit_rows_missing_or_broken_tab_degrades()
++    test_load_exit_rows_reads_primary_contract_due_rows()
++    test_load_exit_rows_missing_or_broken_tab_fails_loud()
+     test_signal_ref_parity_and_stacked_leg_identity()
+     test_pick_time_leg_matching()
+     test_placed_journal_roundtrip_and_prune()

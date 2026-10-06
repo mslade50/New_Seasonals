@@ -1,5 +1,15 @@
 # Google Sheets integration
 
+October 6 prepared staging repair, not installed: after the existing
+Scan_Date cutoff, reject a row only when `Scan_Date < today` and
+`Signal_Date < previous NYSE session`. This prevents replaying yesterday's AM
+entries while retaining yesterday's PM fallback. Operator makeup rows must
+carry today's Scan_Date and may retain their original signal and exit schedule.
+A filter exception prints one CRITICAL line and retains the input rows.
+The PA exit candidate reads `OLV_Exits_Primary` with `Execute_On <= today`;
+the old `OLV_Exits` tab is no longer written. Installation status and evidence:
+[October 6 continuation](../briefs/2026-10-03/continuation_2026-10-06.md).
+
 Moved close to verbatim from CLAUDE.md on 2026-09-23. CLAUDE.md keeps the live rules;
 this file keeps the history, evidence and detail. Path fixes applied on the move.
 
