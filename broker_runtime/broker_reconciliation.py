@@ -35,10 +35,10 @@ def order_row(trade, *, completed=False):
     if completed:
         reported = float(getattr(o, "filledQuantity", float("nan")))
         filled = reported if math.isfinite(reported) and 0 <= reported <= qty else None
-    if str(s.status) == "Filled":
-        if completed and filled is not None and filled != qty:
-            raise ValueError("completed Filled status contradicts broker filled quantity")
-        filled = qty
+    # Status is lifecycle evidence, never a substitute for cumulative quantity.
+    # Completed orders may have no filledQuantity even when status says Filled.
+    if str(s.status) == "Filled" and filled is not None and filled != qty:
+        raise ValueError("Filled status contradicts broker filled quantity")
     return dict(identity=[str(o.account), int(trade.contract.conId), int(o.clientId),
                           int(o.orderId), int(o.permId or 0)],
                 status=str(s.status), filled=filled, qty=qty,

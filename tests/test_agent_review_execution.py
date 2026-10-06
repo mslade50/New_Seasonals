@@ -266,6 +266,7 @@ def test_preparer_is_hash_pinned_and_never_installs(tmp_path):
     if not source.exists():pytest.skip('reviewed external source not present; portable contract/lifecycle tests still run')
     output=tmp_path/'candidate';result=P.prepare(source,output)
     assert not result['installed'] and not result['armed']
+    assert set(result['candidate_hashes'])=={'exec_agent.py','execute_order.py','broker_reconciliation.py','review_execution.py','review_execution_runtime.py'}
     for name in result['candidate_hashes']:compile((output/name).read_bytes(),name,'exec')
     with pytest.raises(ValueError):P.prepare(source,source/'should-never-write')
 
@@ -278,8 +279,8 @@ def test_actual_patched_executor_and_native_bracket_with_fake_broker(tmp_path,mo
     original=source.read_text(encoding='utf-8-sig')
     patched=P.patch_executor(original)
     tree=ast.parse(patched)
-    nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in {'build_bracket','_do_entry_bracket'}]
-    assert len(nodes)==2
+    nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in {'build_bracket','_do_entry_bracket','main'}]
+    assert len(nodes)==3
     def order(kind,action,qty,price=None):
         return SimpleNamespace(orderType=kind,action=action,totalQuantity=qty,lmtPrice=price if kind=='LMT' else 0,
                                auxPrice=price if kind=='STP' else 0,tif='',parentId=0,goodAfterTime='',goodTillDate='',
@@ -291,7 +292,7 @@ def test_actual_patched_executor_and_native_bracket_with_fake_broker(tmp_path,mo
     def place(ib,contract,order,**kwargs):
         placements.append((order,kwargs));order.permId=10000+order.orderId
         return SimpleNamespace(order=order,orderStatus=SimpleNamespace(status='Submitted'))
-    g.update(math=math,_COMMAND_TYPE='review_execution',
+    g.update(math=math,json=json,sys=SimpleNamespace(argv=[]),
        _out=lambda ok,state,detail,fill=None:{'ok':ok,'state':state,'detail':detail,'fill':fill},
        build_order_ref=lambda sym,action,strategy,date:(f'{sym}|{action}|{strategy}|{date}',None),
        LimitOrder=lambda a,q,p:order('LMT',a,q,p),StopOrder=lambda a,q,p:order('STP',a,q,p),
@@ -307,14 +308,45 @@ def test_actual_patched_executor_and_native_bracket_with_fake_broker(tmp_path,mo
     exec(compile(ast.Module(body=nodes,type_ignores=[]),'isolated_executor_ast','exec'),g)
     native=C.native_payload(ROW,product,DAY+'-1',DAY)
     payload=dict(native,_broker_account='DU_NONEXECUTING_QA',_command_id='qa',_review_preflight_only=True)
-    context=g['_do_entry_bracket'](ib,payload,'primary')
+    # First exercise real main -> adapter -> all-leg preflight -> native entry
+    # with fake broker dependencies. No adapter stub or context injection.
+    class Event:
+        def __iadd__(self,handler):return self
+    ib.errorEvent=Event()
+    ib.connect=lambda *args,**kwargs:ib.connections.append(kwargs)
+    ib.disconnect=lambda:None
+    db=tmp_path/'real-main-qa.sqlite';C.Journal.initialize(db)
+    monkeypatch.setattr(R,'configuration',lambda:config(db))
+    g.update(IB=lambda:ib,PORTS={'primary':('mock-local-only',0,1)},_on_err=lambda *args:None)
+    real_command=command(product)
+    g['sys'].argv=['offline-executor',json.dumps(real_command)]
+    assert '_COMMAND_TYPE' not in g
+    preview=g['main']()
+    assert preview['ok'] and preview['fill']['review_execution']['state']=='preview'
+    assert ib.connections==[{'clientId':1,'timeout':8,'readonly':True}]
+    assert not placements
+    assert preview['fill']['review_execution']['plan']['payload']['legs'][0]['ref']==R._reference(native)
+    g.pop('_COMMAND_TYPE')
+    # Then check native bracket placement on fake orders through the same main.
+    invoked=[]
+    def adapter(env,cmd):
+        invoked.append(env.get('_COMMAND_TYPE'))
+        return env['_do_entry_bracket'](ib,cmd['payload'],'primary')
+    monkeypatch.setattr(R,'run_executor',adapter)
+    def through_main(payload):
+        g['sys'].argv=['offline-executor',json.dumps({'type':'review_execution','payload':payload})]
+        return g['main']()
+    assert '_COMMAND_TYPE' not in g
+    context=through_main(payload)
+    assert invoked==['review_execution']
     assert context['ok'] and context['fill']['review_preflight']['risk_usd']==20
     assert not placements
     payload.pop('_review_preflight_only');payload['_review_expected_con_id']=11
-    result=g['_do_entry_bracket'](ib,payload,'primary')
+    result=through_main(payload)
     assert result['ok'] and len(placements)==4
     parent=placements[0][0];children=[x[0] for x in placements[1:]]
     assert parent.tif=='DAY' and parent.lmtPrice==100 and not parent.transmit
+    assert parent.orderRef==R._reference(native) and all(o.orderRef==parent.orderRef for o in children)
     assert [o.orderType for o in children]==['LMT','STP','MKT']
     assert [o.transmit for o in children]==[False,False,True]
     assert all(o.parentId==parent.orderId and o.totalQuantity==10 and o.account=='DU_NONEXECUTING_QA' for o in children)
@@ -323,7 +355,7 @@ def test_actual_patched_executor_and_native_bracket_with_fake_broker(tmp_path,mo
     assert all(o.ocaGroup==children[0].ocaGroup for o in children)
     assert placements[0][1]['mutation_kind']=='entry' and all(v['mutation_kind']=='protective' for _,v in placements[1:])
     placements.clear();payload['_review_expected_con_id']=999
-    assert not g['_do_entry_bracket'](ib,payload,'primary')['ok'] and not placements
+    assert not through_main(payload)['ok'] and not placements
 
 
 def test_configuration_defaults_are_disabled_and_seasonal_unassigned(monkeypatch):

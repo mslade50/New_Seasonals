@@ -35,6 +35,10 @@ Delivery, working bracket, partial entry fill, full entry fill and closed positi
 are distinct states. Broker evidence must prove exact account, qualified conId,
 quantities, parent/children, types/TIF, prices, arming/expiry, OCA and identities.
 `Filled` status alone is insufficient without actual cumulative fill quantity.
+Completed-order defaults are treated as missing quantities. Closed requires matched
+explicit entry/exit quantities and terminal evidence for the parent and every owned
+exit; working parent remainders or OCA siblings require reconciliation. This path
+does not cancel or repair those orders automatically.
 Fresh reconciliation is read-only and never sends a remainder, cancels a bracket,
 rolls back a leg or recreates missing protection. Missing/corrupt local history,
 unknown transport outcomes and incomplete evidence require reconciliation.
@@ -93,9 +97,10 @@ performed by this release:
    before selecting the persistent journal path. Initialize that new SQLite
    journal explicitly with `review_execution.Journal.initialize(path)` once.
    Existing or corrupt journals are never replaced/reset automatically.
-4. A separate authorized user runtime promotion must install the four prepared
-   files compatibly with the existing `broker_reconciliation.py` and reservation
-   guard. No pinned runtime or Task Scheduler promotion is included here.
+4. A separate authorized user runtime promotion must install all five prepared
+   files, including the corrected `broker_reconciliation.py`, compatibly with the
+   existing reservation guard. No pinned runtime or Task Scheduler promotion is
+   included here.
 5. For preview-only verification, leave **all live flags off** and deliberately
    enable `REVIEW_EXECUTION_PREVIEW_ENABLED=1` on site and local runtime with the
    explicit persistent `REVIEW_EXECUTION_DB` path. Verify an authenticated whole-

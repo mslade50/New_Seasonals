@@ -256,13 +256,29 @@ def evidence_leg(g, ib, plan, leg, submitted):
         state = 'working'
     exit_filled = 0
     for child in children:
-        fills = [contract.number(child.get('filled') or 0, 'exit fill', positive=False)] + [contract.number(e['cumulative'], 'exit cumulative fill', positive=False) for e in evidence['executions'] if e.get('ref')==leg['ref'] and e['identity'][4]==child['identity'][4]]
-        if any(v < 0 for v in fills):
-            return {'state':'unknown','detail':'negative exit fill evidence'}
-        exit_filled += max(fills)
+        actual = [e for e in evidence['executions'] if e.get('ref') == leg['ref'] and e['identity'][4] == child['identity'][4]]
+        if len({e['exec_id'] for e in actual}) != len(actual):
+            return {'state':'unknown','detail':'duplicate/conflicting exit execution evidence'}
+        reported = child.get('filled')
+        if reported is None and not actual:
+            return {'state':'unknown','detail':'historical exit fill quantity unavailable'}
+        fills = [contract.number(reported or 0, 'exit fill', positive=False)] + [contract.number(e['cumulative'], 'exit cumulative fill', positive=False) for e in actual]
+        if any(v < 0 or v > child['qty'] for v in fills):
+            return {'state':'unknown','detail':'invalid exit fill quantity'}
+        quantity = max(fills)
+        if child['status'] == 'Filled' and quantity != child['qty']:
+            return {'state':'unknown','detail':'Filled exit status disagrees with actual quantity'}
+        exit_filled += quantity
     if exit_filled > filled:
         return {'state':'unprotected','detail':'exit overfill/reversed exposure'}
-    if filled>0 and exit_filled==filled:
+    if filled > 0 and exit_filled == filled:
+        # Matched fills explain exposure, not the remaining executable orders.
+        # A live parent can re-enter; a lingering OCA sibling can reverse it.
+        terminal = {'Filled', 'Cancelled', 'ApiCancelled'}
+        if parent['status'] not in terminal:
+            return {'state':'unprotected','detail':'matched fills but entry parent remains working'}
+        if any(child['status'] not in terminal for child in children):
+            return {'state':'unprotected','detail':'matched fills but owned exit siblings remain working'}
         state='closed'
     elif exit_filled>0:
         state='partially_closed'

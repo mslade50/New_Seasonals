@@ -80,6 +80,9 @@ def patch_executor(text):
     def main(source):
         anchor = '    if not LIVE_ENABLED:\n'
         addition = '''    if t == "review_execution":
+        # The pinned main already sets this; make the adapter boundary explicit
+        # for faithful offline fixtures and future compatible source preparation.
+        globals()["_COMMAND_TYPE"] = "review_execution"
         import review_execution_runtime
         return review_execution_runtime.run_executor(globals(), cmd)
 
@@ -106,6 +109,15 @@ def prepare(source, output):
     candidates = {}
     for name, transform in [('exec_agent.py', patch_agent), ('execute_order.py', patch_executor)]:
         candidates[name] = transform(originals[name].decode('utf-8-sig').replace('\r\n', '\n')).encode()
+    # Carry the corrected quantity normalizer in the same disabled candidate.
+    # Change only the audited function in the exact hash-pinned dependency.
+    repaired = ast.parse((HERE/'broker_reconciliation.py').read_text())
+    node = next(n for n in repaired.body if isinstance(n, ast.FunctionDef) and n.name == 'order_row')
+    lines = (HERE/'broker_reconciliation.py').read_text().splitlines(keepends=True)
+    replacement = ''.join(lines[node.lineno-1:node.end_lineno])
+    candidates['broker_reconciliation.py'] = change_function(
+        originals['broker_reconciliation.py'].decode('utf-8-sig').replace('\r\n', '\n'),
+        'order_row', lambda _: replacement.rstrip('\n')).encode()
     for name in ['review_execution.py', 'review_execution_runtime.py']:
         candidates[name] = (HERE/name).read_bytes()
     for name, raw in candidates.items():

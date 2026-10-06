@@ -229,6 +229,7 @@ def test_missing_addition_identity_and_restore_uncertainty_stay_unknown():
 def test_completed_add_with_attached_exits_reconciles_without_another_entry():
     parent, child = exit_order(9, 40), exit_order(10, 40)
     parent.order.action, parent.orderStatus.status = "BUY", "Filled"
+    parent.order.filledQuantity = 40
     child.order.parentId = 9
     record = stopped()
     record.update(mutation="stage addition and attached exits", addition_requested=40,
@@ -383,6 +384,7 @@ def test_partial_cancelled_close_reports_fill_but_does_not_hide_unprotected_rema
 def test_filled_add_reports_actual_fill_and_cancelled_protection_separately():
     parent, child = exit_order(9, 40), exit_order(10, 40)
     parent.order.action, parent.orderStatus.status = "BUY", "Filled"
+    parent.order.filledQuantity = 40
     child.order.parentId, child.orderStatus.status = 9, "Cancelled"
     r = stopped()
     r.update(mutation="stage addition and attached exits", addition_requested=40,
