@@ -53,4 +53,5 @@ run the local broker collector or refresh the replay themselves.
 October 6 refresh: coverage advanced through October 5; 44 Open Breakout trades
 were added. Four later Legend candidates were evaluated, with no qualifying
 long trades (three short outcomes and one opportunity already passed at 09:30).
-Its last trade date therefore remains August 5 even though coverage is current.
+Its last qualifying long trade remains July 1; the old coverage cutoff was
+August 5. Evaluated coverage is now October 5.
