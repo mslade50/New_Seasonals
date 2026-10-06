@@ -130,7 +130,8 @@ def prepare(source, output):
                 'candidate_hashes':{k:hashlib.sha256(v).hexdigest() for k,v in candidates.items()},
                 'new_flags_default':'REVIEW_EXECUTION_PREVIEW_ENABLED=0; REVIEW_EXECUTION_LIVE_ENABLED=0',
                 'account_bindings':{'pitch':['primary','pa'],'seasonal':['primary','pa']},
-                'pa_agent_risk_multiplier':'unconfigured; explicit owner sizing policy required'}
+                'pa_agent_risk_multiplier':1.0,
+                'agent_risk_policy':'owner-approved equal percentage of separate Primary/PA equity'}
     (output/'manifest.json').write_text(json.dumps(manifest,indent=2))
     return manifest
 

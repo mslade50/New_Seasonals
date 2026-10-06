@@ -371,13 +371,13 @@ def test_actual_patched_executor_and_native_bracket_with_fake_broker(tmp_path,mo
     assert not through_main(payload)['ok'] and not placements
 
 
-def test_configuration_defaults_are_disabled_and_seasonal_unassigned(monkeypatch):
+def test_configuration_defaults_are_disabled_with_both_accounts_and_agent_parity(monkeypatch):
     for key in ('REVIEW_EXECUTION_PREVIEW_ENABLED','REVIEW_EXECUTION_LIVE_ENABLED','REVIEW_EXECUTION_SEASONAL_ACCOUNT','REVIEW_EXECUTION_PITCH_ACCOUNT','REVIEW_EXECUTION_DB','REVIEW_EXECUTION_PA_RISK_MULTIPLIER'):
         monkeypatch.delenv(key,raising=False)
     cfg=R.configuration()
     assert not cfg['preview_enabled'] and not cfg['live_enabled']
     assert cfg['accounts']=={'pitch':['primary','pa'],'seasonal':['primary','pa']} and cfg['db'] is None
-    assert cfg['risk_multipliers']=={'primary':1,'pa':None}
+    assert cfg['risk_multipliers']=={'primary':1,'pa':1}
 
 
 def test_executor_connects_readonly_for_preview_and_reconciliation(tmp_path,monkeypatch):

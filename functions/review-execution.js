@@ -11,10 +11,11 @@ const headers={'Content-Type':'application/json','Cache-Control':'no-store','X-C
 const reply=(status,value)=>new Response(JSON.stringify(value),{status,headers});
 export function settings(env){
  const value=env.REVIEW_EXECUTION_PA_RISK_MULTIPLIER;
- const pa=value!==undefined&&value!==''&&[1,1.3].includes(Number(value))?Number(value):null;
+ // Owner-approved agent parity; a conflicting legacy override blocks only PA.
+ const pa=value===undefined||value===null||value===''||(['string','number'].includes(typeof value)&&Number(value)===1)?1:null;
  return {preview_enabled:env.REVIEW_EXECUTION_PREVIEW_ENABLED==='1',live_enabled:env.REVIEW_EXECUTION_LIVE_ENABLED==='1',
   accounts:{pitch:['primary','pa'],seasonal:['primary','pa']},risk_multipliers:{primary:1,pa},
-  account_blocks:{primary:null,pa:pa===null?'PA agent risk policy unconfigured. Choose 1.0 or 1.3 explicitly; no sizing inferred.':null}};
+  account_blocks:{primary:null,pa:pa===null?'PA agent risk configuration conflicts with the approved 1.0 policy.':null}};
 }
 async function hash(text){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))].map(x=>x.toString(16).padStart(2,'0')).join('');}
 export async function verifyPlan(plan){if(!plan||typeof plan.canonical!=='string'||canonical(JSON.parse(plan.canonical))!==canonical(plan.payload)||await hash(plan.canonical)!==plan.hash||plan.payload?.schema!=='review-execution-plan.v1')throw Error('Execution preview cannot be verified');return plan.payload;}
@@ -96,7 +97,7 @@ export async function handleExecution(request,env,identity,now=()=>new Date().to
      const prior=record.execution_requests?.[body.preview_id];
      if(!prior||prior.command.account!==account||prior.actor!==identity.subject||prior.command.payload.operation!=='preview'||prior.command.payload.proposal.hash!==envelope.hash||prior.result?.state!=='preview'||!prior.result.preview)return reply(409,{error:'Fresh verified preview for this account required'});
      const plan=await verifyPlan(prior.result.preview);
-     if(prior.result.preview.hash!==body.plan_hash||plan.account!==account||plan.proposal_hash!==envelope.hash||plan.actor!==identity.subject||Date.parse(plan.expires_at)<=Date.parse(now())||plan.review_event_id!==state.event.id||plan.delivery_id!==record.delivery.delivery_id)return reply(409,{error:'Preview changed/expired/account mismatch; preview and confirm again'});
+     if(prior.result.preview.hash!==body.plan_hash||plan.account!==account||plan.sizing?.account_multiplier!==cfg.risk_multipliers[account]||plan.proposal_hash!==envelope.hash||plan.actor!==identity.subject||Date.parse(plan.expires_at)<=Date.parse(now())||plan.review_event_id!==state.event.id||plan.delivery_id!==record.delivery.delivery_id)return reply(409,{error:'Preview changed/expired/account mismatch; preview and confirm again'});
      if(body.confirmed!==true||plan.non_atomic&&body.non_atomic_ack!==true||plan.risk_ack_required&&body.risk_ack!==true)return reply(409,{error:'Explicit whole-idea, non-atomic and risk confirmations required'});
      payload={...payload,confirmed:true,plan_hash:body.plan_hash,non_atomic_ack:body.non_atomic_ack===true,risk_ack:body.risk_ack===true};
      claim=canonical([product,envelope.payload.source_idea_id,envelope.hash,account]);

@@ -22,7 +22,7 @@ async function fixture(product='pitch',settings={},account='primary'){
  const bucket={receipt:'mock-delivery',fail:false,hook:null,get:async k=>{if(bucket.fail)throw Error('store unavailable');if(k.endsWith('_delivery_receipts/2026-10-06.json'))return {json:async()=>({status:'sent',date:'2026-10-06',delivery_id:bucket.receipt})};if(k!==key)return null;return {size:1000,etag:String(etag),json:async()=>structuredClone(record)};},put:async(k,text,options)=>{assert.equal(k,key);if(bucket.hook){const f=bucket.hook;bucket.hook=null;f();}if(options.onlyIf.etagMatches!==String(etag))return null;record=JSON.parse(text);etag++;return {etag:String(etag)};}};
  const commands=[],results=[];let timeout=false;
  const transport=async(env,route,command)=>{if(route==='/commands')return {commands:results};commands.push(command);assert.ok(record.execution_requests[command.id],'reserve must precede delivery');if(timeout)throw Error('mock delivery uncertain');return {id:command.id,state:'pushed'};};
- const env={CHARTS:bucket,REVIEW_EXECUTION_PREVIEW_ENABLED:'1',REVIEW_EXECUTION_LIVE_ENABLED:'1',REVIEW_EXECUTION_PA_RISK_MULTIPLIER:'1',...settings};
+ const env={CHARTS:bucket,REVIEW_EXECUTION_PREVIEW_ENABLED:'1',REVIEW_EXECUTION_LIVE_ENABLED:'1',...settings};
  const body={id:uuid(),operation:'preview',product,date:payload.source_date,proposal_id:envelope.id,proposal_hash:envelope.hash,account};
  const request=(b=body,headers={})=>new Request('https://mock.invalid/review-execution',{method:'POST',headers:{Origin:'https://mock.invalid','Content-Type':'application/json',...headers},body:JSON.stringify(b)});
  const post=(b=body,who=actor,now=clock,headers={})=>api.handleExecution(request(b,headers),env,who,now,transport);
@@ -33,10 +33,10 @@ async function fixture(product='pitch',settings={},account='primary'){
  return {env,bucket,body,commands,results,post,get,planPayload,preview,record:()=>record,mutate:fn=>{fn(record);etag++;},timeout:()=>{timeout=true;}};
 }
 let count=0;const test=async(name,fn)=>{await fn();count++;console.log('PASS '+name);};
-await test('missing auth and default flags fail closed',async()=>{assert.equal((await api.onRequest({request:new Request('https://mock.invalid/review-execution'),env:{}})).status,503);assert.deepEqual(api.settings({}).accounts,{pitch:['primary','pa'],seasonal:['primary','pa']});assert.equal(api.settings({}).risk_multipliers.pa,null);const f=await fixture('pitch',{REVIEW_EXECUTION_PREVIEW_ENABLED:'0'});assert.equal((await f.post()).status,503);assert.equal(f.commands.length,0);});
+await test('missing auth and default flags fail closed',async()=>{assert.equal((await api.onRequest({request:new Request('https://mock.invalid/review-execution'),env:{}})).status,503);assert.deepEqual(api.settings({}).accounts,{pitch:['primary','pa'],seasonal:['primary','pa']});assert.equal(api.settings({}).risk_multipliers.pa,1);assert.equal(api.settings({}).account_blocks.pa,null);const f=await fixture('pitch',{REVIEW_EXECUTION_PREVIEW_ENABLED:'0'});assert.equal((await f.post()).status,503);assert.equal(f.commands.length,0);});
 for(const product of ['pitch','seasonal'])await test(product+' exact review -> preview -> explicit execution -> readonly reconcile',async()=>{const f=await fixture(product),execute=await f.preview();assert.equal(f.commands[0].dry_run,true);assert.equal(f.commands[0].payload.proposal.hash,f.body.proposal_hash);assert.equal((await f.post(execute)).status,202);assert.equal(f.commands[1].dry_run,false);assert.equal((await f.post({id:uuid(),operation:'reconcile',product,date:f.body.date,account:'primary',plan_hash:execute.plan_hash})).status,202);const cmd=f.commands.at(-1);assert.equal(cmd.dry_run,true);assert.equal(cmd.payload.run_key,sha(C.canonical([product,row.Idea_Id,f.body.proposal_hash,'primary'])));assert.equal(f.record().events.length,1);});
 await test('preview-only cannot forward execution',async()=>{const f=await fixture('pitch',{REVIEW_EXECUTION_LIVE_ENABLED:'0'}),e=await f.preview();assert.equal((await f.post(e)).status,503);assert.equal(f.commands.length,1);});
-await test('account assignment and same-origin JSON required',async()=>{const f=await fixture('seasonal',{REVIEW_EXECUTION_PA_RISK_MULTIPLIER:''},'pa');assert.equal((await f.post()).status,409);for(const headers of [{Origin:'https://evil.invalid'},{'Content-Type':'text/plain'}])assert.equal((await f.post(f.body,actor,clock,headers)).status,403);assert.equal(f.commands.length,0);});
+await test('account assignment and same-origin JSON required',async()=>{const f=await fixture('seasonal',{REVIEW_EXECUTION_PA_RISK_MULTIPLIER:'1.3'},'pa');assert.equal((await f.post()).status,409);for(const headers of [{Origin:'https://evil.invalid'},{'Content-Type':'text/plain'}])assert.equal((await f.post(f.body,actor,clock,headers)).status,403);assert.equal(f.commands.length,0);});
 await test('pending/rejected/version/current delivery/expiry all block before wire',async()=>{for(const mutate of [r=>r.events=[],r=>r.events[0].decision='reject',r=>r.current_ids=[]]){const f=await fixture();f.mutate(mutate);assert.equal((await f.post()).status,409);assert.equal(f.commands.length,0);}const f=await fixture();assert.equal((await f.post({...f.body,proposal_hash:'changed'})).status,409);f.bucket.receipt='new';assert.equal((await f.post()).status,409);f.bucket.receipt='mock-delivery';assert.equal((await f.post(f.body,actor,()=> '2026-10-06T20:00:00Z')).status,409);});
 await test('whole/non-atomic/risk confirmations independently required',async()=>{for(const field of ['confirmed','non_atomic_ack','risk_ack']){const f=await fixture();f.planPayload.non_atomic=field==='non_atomic_ack';f.planPayload.risk_ack_required=field==='risk_ack';const e=await f.preview();assert.equal((await f.post({...e,[field]:false})).status,409);assert.equal(f.commands.length,1);}});
 await test('plan hash/actor/account/expiry cannot be altered',async()=>{const f=await fixture(),e=await f.preview();assert.equal((await f.post({...e,plan_hash:'bad'})).status,409);assert.equal((await f.post(e,{subject:'other'})).status,409);assert.equal((await f.post({...e,account:'pa'})).status,409);assert.equal((await f.post(e,actor,()=> '2026-10-06T14:06:00Z')).status,409);assert.equal(f.commands.length,1);});
@@ -85,9 +85,9 @@ await test('Python float canonical source sizing is hashed verbatim',async()=>{
  assert.ok(f.commands[0].payload.proposal.payload.source_sizing_canonical.includes('30.0'));
  assert.notEqual(C.canonical(f.commands[0].payload.proposal.payload.source_sizing),f.commands[0].payload.proposal.payload.source_sizing_canonical);
 });
-await test('unknown PA policy blocks both products while Primary remains available',async()=>{
+await test('conflicting PA agent override blocks both products while Primary remains available',async()=>{
  for(const product of ['pitch','seasonal']){
-  const f=await fixture(product,{REVIEW_EXECUTION_PA_RISK_MULTIPLIER:''},'pa');
+  const f=await fixture(product,{REVIEW_EXECUTION_PA_RISK_MULTIPLIER:'1.3'},'pa');
   assert.equal((await f.post()).status,409);assert.equal(f.commands.length,0);
   assert.equal((await f.post({...f.body,account:'primary'})).status,202);
  }
@@ -108,5 +108,30 @@ await test('account audit quota and unavailable source sizing fail explicitly',a
  const old=await fixture();let newBody;
  old.mutate(r=>{const e=structuredClone(r.proposals[old.body.proposal_id]);delete e.payload.source_sizing;e.canonical=C.canonical(e.payload);e.hash=sha(e.canonical);e.id=`pitch:${row.Idea_Id}:${e.hash.slice(0,16)}`;r.proposals[e.id]=e;r.current_ids=[e.id];r.events[0]={...r.events[0],proposal_id:e.id,proposal_hash:e.hash};newBody={...old.body,proposal_id:e.id,proposal_hash:e.hash};});
  assert.equal((await old.post(newBody)).status,409);assert.equal(old.commands.length,0);
+});
+await test('owner-approved default parity and optional matching overrides need no PA setup choice',async()=>{
+ for(const value of [undefined,null,'','1','1.0']){
+  const env=value===undefined?{}:{REVIEW_EXECUTION_PA_RISK_MULTIPLIER:value};
+  const cfg=api.settings(env);assert.deepEqual(cfg.risk_multipliers,{primary:1,pa:1});
+  assert.deepEqual(cfg.account_blocks,{primary:null,pa:null});assert.equal(cfg.preview_enabled,false);assert.equal(cfg.live_enabled,false);
+ }
+ for(const product of ['pitch','seasonal']){
+  const f=await fixture(product,{},'pa');assert.equal((await f.post()).status,202);
+  assert.equal(f.commands[0].account,'pa');
+ }
+});
+await test('unapproved multiplier cannot enlarge PA agent risk or block Primary',async()=>{
+ for(const value of ['1.3','1.5','0.7','invalid','nan','0',true]){
+  const cfg=api.settings({REVIEW_EXECUTION_PA_RISK_MULTIPLIER:value});
+  assert.equal(cfg.risk_multipliers.pa,null);assert.equal(cfg.risk_multipliers.primary,1);
+  assert.ok(cfg.account_blocks.pa.includes('approved 1.0'));assert.equal(cfg.account_blocks.primary,null);
+ }
+});
+await test('a previously stored 1.3 PA preview cannot execute under the approved 1.0 policy',async()=>{
+ const f=await fixture('pitch',{},'pa'),execute=await f.preview();let changed;
+ f.mutate(r=>{const saved=r.execution_requests[execute.preview_id];const payload=structuredClone(saved.result.preview.payload);
+  payload.sizing.account_multiplier=1.3;const text=C.canonical(payload);changed={payload,canonical:text,hash:sha(text)};saved.result.preview=changed;});
+ assert.equal((await f.post({...execute,plan_hash:changed.hash})).status,409);
+ assert.equal(f.commands.filter(c=>!c.dry_run).length,0);
 });
 console.log(`${count} offline review-execution endpoint checks passed`);

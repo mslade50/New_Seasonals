@@ -27,8 +27,8 @@ def configuration():
     return {'preview_enabled': os.environ.get('REVIEW_EXECUTION_PREVIEW_ENABLED', '0') == '1',
             'live_enabled': os.environ.get('REVIEW_EXECUTION_LIVE_ENABLED', '0') == '1',
             'accounts': {'pitch': ['primary', 'pa'], 'seasonal': ['primary', 'pa']},
-            'risk_multipliers': {'primary': 1.0, 'pa': None if not os.environ.get('REVIEW_EXECUTION_PA_RISK_MULTIPLIER') else
-                                 contract.number(os.environ['REVIEW_EXECUTION_PA_RISK_MULTIPLIER'], 'PA agent risk policy')},
+            'risk_multipliers': {'primary': 1.0, 'pa': sizing.agent_risk_multiplier(
+                                 os.environ.get('REVIEW_EXECUTION_PA_RISK_MULTIPLIER'))},
             'db': os.environ.get('REVIEW_EXECUTION_DB'),
             'max_risk_bps': min(100.0, contract.number(os.environ.get('REVIEW_EXECUTION_MAX_RISK_BPS', '100'), 'idea risk cap'))}
 

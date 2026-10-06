@@ -78,10 +78,14 @@ Seasonal uses its 15–50 bps band and explicit catastrophe-sizing distance. The
 agents do not apply the systematic book's GRM, tilt, or older Seasonal-ticket
 13-bps midterm rule.
 
-Primary uses the agent's 1.0 risk multiplier. PA's agent multiplier is a required
-explicit policy (`REVIEW_EXECUTION_PA_RISK_MULTIPLIER=1` or `1.3`); when absent,
-the page and endpoint show PA blocked. The systematic staging book's 1.3 does not
-establish this agent policy by itself. No environment setting is changed here.
+On October 6, the owner approved the same percentage-of-equity agent risk for
+Primary and PA specifically. Both Daily Pitch and Daily Seasonal use multiplier
+1.0 by default: a 30-bps idea budgets 30 bps of EACH account's own freshly verified
+equity. Different account balances still produce different whole-share quantities.
+The optional `REVIEW_EXECUTION_PA_RISK_MULTIPLIER` may be absent, blank or set to
+1; a conflicting value (including 1.3) explicitly blocks PA while Primary remains
+available. No deployed environment setting is changed here. The systematic PA
+stager's separate 1.3 multiplier and systematic GRM/tilts remain unchanged.
 
 Completed broker account-summary request results supply exact-account USD NLV,
 buying power, available funds and excess liquidity, with an observed timestamp
@@ -117,8 +121,9 @@ outside this adapter. Existing schedules/settings are not changed by this source
 The following are **configuration requirements for a later handoff**, not actions
 performed by this release:
 
-1. Confirm both agent products' Primary/PA endpoint identities and resolve the
-   PA agent risk-multiplier policy. Keep site and local policy values consistent.
+1. Confirm both agent products' Primary/PA endpoint identities and verify the
+   owner-approved 1.0 agent policy on site and local runtime. Remove any conflicting
+   agent override during the separately authorized configuration handoff.
    Existing authentication is reused; no credential or grant change is introduced.
 2. Verify the current four runtime code hashes against
    `broker_runtime/review_execution_source_hashes.json`. Prepare an isolated

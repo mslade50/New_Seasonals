@@ -65,15 +65,29 @@ def instruction(idea, orders, product):
             'systematic_grm_applied': False, 'legs': derived}
 
 
+def agent_risk_multiplier(value=None):
+    """Owner approved equal agent risk on Oct 6; conflicting overrides block PA.
+
+    This policy is specific to Daily Pitch/Seasonal. It does not read or change
+    the systematic stager's independently configured 1.3 multiplier.
+    """
+    if value in (None, ''):
+        return 1.0
+    try:
+        return 1.0 if C.number(value, 'PA agent risk multiplier') == 1 else None
+    except ValueError:
+        return None
+
+
 def policy(cfg, product, account):
     value = (cfg.get('risk_multipliers') or {}).get(account)
     if value is None:
         raise ValueError(f'{account}: agent account risk multiplier is unconfigured; no sizing inferred')
     mult = C.number(value, 'account agent risk multiplier')
-    # The only source-supported pending alternatives are parity or the existing
-    # systematic PA footprint. A different policy needs a reviewed source change.
-    if account == 'primary' and mult != 1 or account == 'pa' and mult not in {1, 1.3}:
-        raise ValueError('account multiplier has no reviewed sizing contract')
+    # Both agent products use the same percentage of each account's OWN equity.
+    # A systematic-book multiplier cannot override this owner-approved policy.
+    if mult != 1:
+        raise ValueError('agent account risk must match the approved 1.0 multiplier')
     return {'account': account, 'product': product, 'multiplier': mult,
             'max_idea_bps': min(MAX_IDEA_BPS*mult, cfg['max_risk_bps']),
             'max_daily_bps': MAX_DAILY_BPS*mult, 'systematic_grm_applied': False}

@@ -19,7 +19,7 @@ def snapshot(account='primary', nlv=100000):
 
 
 @pytest.mark.parametrize('product,mode,stop', [('pitch','risk_bps',1),('pitch','risk_bps',None),('pitch','nav_pct',1),('seasonal','risk_bps',3)])
-@pytest.mark.parametrize('account,nlv,mult',[('primary',750000,1),('primary',237000,1),('pa',169143.92,1),('pa',169143.92,1.3)])
+@pytest.mark.parametrize('account,nlv,mult',[('primary',750000,1),('primary',237000,1),('pa',169143.92,1),('pa',20000,1)])
 def test_actual_grammar_parity_with_normalized_weights_and_account_equity(tmp_path,product,mode,stop,account,nlv,mult):
     idea={'grade':'A','horizon_td':7,'entry':{'type':'LIMIT','anchor':'CLOSE','atr_mult':-.5},
           'exit':{'stop_atr':stop,'target_atr':2,'time_td':7,'time_order':'MOO'},
@@ -167,3 +167,44 @@ def test_publisher_seals_both_accounts_without_changing_original_quantities():
     assert payload['orders']==orders and set(payload['account_proposals'])=={'primary','pa'}
     assert all(v['status']=='requires_fresh_account_preview' for v in payload['account_proposals'].values())
     assert payload['source_sizing_canonical']==C.canonical(payload['source_sizing'])
+
+
+@pytest.mark.parametrize('product',['pitch','seasonal'])
+def test_owner_approved_default_parity_sizes_each_fresh_account_not_reference(tmp_path,monkeypatch,product):
+    monkeypatch.delenv('REVIEW_EXECUTION_PA_RISK_MULTIPLIER',raising=False)
+    cfg=R.configuration();journal=C.Journal.initialize(tmp_path/'review.sqlite');cfg['db']=str(journal.path)
+    plans={}
+    for account in S.ACCOUNTS:
+        g,ib=fake_runtime(tmp_path)
+        plan=R.preflight(g,ib,command(product,[{**ROW,'Quantity':385}],account),cfg,NOW)['payload']
+        plans[account]=plan
+        assert not ib.calls
+        assert plan['sizing']['account_multiplier']==1 and not plan['sizing']['systematic_grm_applied']
+        assert plan['sizing']['budget_usd']/plan['account_equity']['nlv']==pytest.approx(.003)
+        assert plan['policy']['max_idea_bps']==60 and plan['policy']['max_daily_bps']==150
+        assert plan['legs'][0]['original']['Quantity']==385
+    assert plans['primary']['legs'][0]['payload']['quantity']==10
+    assert plans['pa']['legs'][0]['payload']['quantity']==1
+    assert plans['primary']['account_equity']['nlv']==100000 and plans['pa']['account_equity']['nlv']==10000
+
+
+@pytest.mark.parametrize('override',['1.3','1.5','0.7','invalid','nan','0'])
+@pytest.mark.parametrize('product',['pitch','seasonal'])
+def test_conflicting_agent_override_blocks_only_pa_before_any_wire(tmp_path,monkeypatch,override,product):
+    monkeypatch.setenv('REVIEW_EXECUTION_PA_RISK_MULTIPLIER',override)
+    cfg=R.configuration();journal=C.Journal.initialize(tmp_path/'review.sqlite');cfg['db']=str(journal.path)
+    g,ib=fake_runtime(tmp_path)
+    assert cfg['risk_multipliers']=={'primary':1,'pa':None}
+    with pytest.raises(ValueError,match='unconfigured'):R.preflight(g,ib,command(product,account='pa'),cfg,NOW)
+    assert R.preflight(g,ib,command(product),cfg,NOW)['payload']['account']=='primary'
+    assert not ib.calls
+
+
+@pytest.mark.parametrize('override',['','1','1.0'])
+def test_optional_matching_override_keeps_disabled_source_and_equal_risk(monkeypatch,override):
+    monkeypatch.setenv('REVIEW_EXECUTION_PA_RISK_MULTIPLIER',override)
+    monkeypatch.delenv('REVIEW_EXECUTION_PREVIEW_ENABLED',raising=False)
+    monkeypatch.delenv('REVIEW_EXECUTION_LIVE_ENABLED',raising=False)
+    cfg=R.configuration()
+    assert cfg['risk_multipliers']=={'primary':1,'pa':1}
+    assert not cfg['preview_enabled'] and not cfg['live_enabled']

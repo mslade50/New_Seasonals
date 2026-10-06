@@ -28,7 +28,7 @@ async function fixture(product='pitch',{live=false,enabled=true,account='primary
   if(fail&&body)throw Error('mock timeout after uncertain delivery');
   let value;
   if(body){posted.set(body.id,body);value={id:body.id,state:'pushed'};}
-  else if(url==='/review-execution')value={preview_enabled:enabled,live_enabled:live,accounts:{pitch:account?['primary','pa']:[],seasonal:account?['primary','pa']:[]},risk_multipliers:{primary:1,pa:paBlocked?null:1},account_blocks:{primary:null,pa:paBlocked?'PA policy unconfigured':null}};
+  else if(url==='/review-execution')value={preview_enabled:enabled,live_enabled:live,accounts:{pitch:account?['primary','pa']:[],seasonal:account?['primary','pa']:[]},risk_multipliers:{primary:1,pa:paBlocked?null:1},account_blocks:{primary:null,pa:paBlocked?'PA policy conflicts with approved 1.0':null}};
   else if(url.startsWith('/review-inbox'))value={read_only:false,products:[{product,proposals:[{envelope,current:true,state:{status:'approved_review',review_window_closed:false}}]}]};
   else {
    const id=new URL('https://mock.invalid'+url).searchParams.get('id'),saved=posted.get(id);
@@ -69,10 +69,10 @@ for(const product of ['pitch','seasonal'])await test(product+' account switch se
  assert.equal(f.requests.filter(r=>r.body?.operation==='execute').length,2);
  assert.equal(JSON.parse(f.storage.get(f.storageKey)).execution.id,primarySaved.execution.id);
 });
-await test('PA policy block preserves independent Primary preview without quantity reuse',async()=>{
+await test('conflicting PA policy preserves independent Primary preview without quantity reuse',async()=>{
  const f=await fixture('pitch',{paBlocked:true});assert.equal(f.node('preview').disabled,false);
  f.node('account').value='pa';await f.click('account','change');assert.equal(f.node('preview').disabled,true);
- assert.ok(f.node('account-plans').innerHTML.includes('PA policy unconfigured'));
+ assert.ok(f.node('account-plans').innerHTML.includes('PA policy conflicts with approved 1.0'));
  assert.equal(f.requests.filter(r=>r.body).length,0);
 });
 await test('cross-account preview cannot open a confirmation dialog',async()=>{
