@@ -37,7 +37,8 @@ quantities, parent/children, types/TIF, prices, arming/expiry, OCA and identitie
 `Filled` status alone is insufficient without actual cumulative fill quantity.
 Completed-order defaults are treated as missing quantities. Closed requires matched
 explicit entry/exit quantities and terminal evidence for the parent and every owned
-exit; working parent remainders or OCA siblings require reconciliation. This path
+exit. A zero-fill cancellation also requires every owned child to be terminal;
+working parent remainders or OCA siblings require reconciliation. This path
 does not cancel or repair those orders automatically.
 Fresh reconciliation is read-only and never sends a remainder, cancels a bracket,
 rolls back a leg or recreates missing protection. Missing/corrupt local history,

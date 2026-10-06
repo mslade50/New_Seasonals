@@ -271,10 +271,12 @@ def evidence_leg(g, ib, plan, leg, submitted):
         exit_filled += quantity
     if exit_filled > filled:
         return {'state':'unprotected','detail':'exit overfill/reversed exposure'}
+    terminal = {'Filled', 'Cancelled', 'ApiCancelled'}
+    if state == 'cancelled' and any(child['status'] not in terminal for child in children):
+        return {'state':'unprotected','detail':'zero-fill parent cancelled but owned children remain working'}
     if filled > 0 and exit_filled == filled:
         # Matched fills explain exposure, not the remaining executable orders.
         # A live parent can re-enter; a lingering OCA sibling can reverse it.
-        terminal = {'Filled', 'Cancelled', 'ApiCancelled'}
         if parent['status'] not in terminal:
             return {'state':'unprotected','detail':'matched fills but entry parent remains working'}
         if any(child['status'] not in terminal for child in children):

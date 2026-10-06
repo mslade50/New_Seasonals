@@ -134,3 +134,39 @@ def test_patched_normalizer_candidate_matches_corrected_source():
     replacement=''.join(lines[node.lineno-1:node.end_lineno]).rstrip('\n')
     candidate=P.change_function(source.read_text(encoding='utf-8-sig'),'order_row',lambda _:replacement)
     assert ast.dump(ast.parse(candidate))==ast.dump(ast.parse(text))
+
+
+@pytest.mark.parametrize('parent_status',['Cancelled','ApiCancelled'])
+@pytest.mark.parametrize('child_status',['Submitted','PreSubmitted'])
+def test_zero_fill_cancelled_parent_with_working_child_is_not_terminal(tmp_path,monkeypatch,parent_status,child_status):
+    def mutate(rows):
+        for row in rows:row.update(status='Cancelled',filled=0)
+        rows[0]['status']=parent_status
+        rows[2]['status']=child_status
+    proof,_=raw_proof(tmp_path,monkeypatch,mutate)
+    assert proof['state']=='unprotected' and 'children remain working' in proof['detail']
+    from broker_runtime import review_execution as C
+    assert C.summarize({'legs':[proof]})=='needs_reconciliation'
+
+
+@pytest.mark.parametrize('status',['Cancelled','ApiCancelled'])
+def test_zero_fill_cancellation_requires_entire_owned_chain_terminal(tmp_path,monkeypatch,status):
+    def mutate(rows):
+        for row in rows:row.update(status=status,filled=0)
+    proof,_=raw_proof(tmp_path,monkeypatch,mutate)
+    assert proof['state']=='cancelled' and proof['entry_filled']==proof['exit_filled']==0
+
+
+def test_zero_fill_cancelled_chain_with_missing_child_quantity_stays_unknown(tmp_path,monkeypatch):
+    def mutate(rows):
+        for row in rows:row.update(status='Cancelled',filled=0)
+    proof,_=raw_proof(tmp_path,monkeypatch,mutate,missing=(2,))
+    assert proof['state']=='unknown' and 'exit fill quantity unavailable' in proof['detail']
+
+
+def test_zero_fill_cancelled_parent_with_unknown_child_state_cannot_resolve(tmp_path,monkeypatch):
+    def mutate(rows):
+        for row in rows:row.update(status='Cancelled',filled=0)
+        rows[2]['status']='Unknown'
+    with pytest.raises(ValueError,match='order transition'):
+        raw_proof(tmp_path,monkeypatch,mutate)
