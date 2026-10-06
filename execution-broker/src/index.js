@@ -62,6 +62,15 @@ function boundedFillRows(rows, now) {
   return effectiveFillRows(rows, now).slice(0, FILLS_DAY_CAP);
 }
 
+function connectionDiagnostic(value, env) {
+  let text=String(value || "").replace(/[\r\n]/g," ");
+  for(const secret of [env.AGENT_TOKEN,env.STATUS_TOKEN]) {
+    if(typeof secret === "string" && secret)text=text.split(secret).join("[redacted]");
+  }
+  return text.replace(/(bearer\s+|authorization[\s:=]+)\S+/gi,"$1[redacted]")
+    .replace(/(?:wss?|https?):\/\/\S+/gi,"[endpoint]").slice(0,240);
+}
+
 function publicCommand(record) {
   const { envelope, intent_identity, ...visible } = record;
   return visible;
@@ -127,6 +136,8 @@ export class ExecBroker extends DurableObject {
       return Response.json({
         online, sockets, last_seen: lastSeen || null, connected_at: connectedAt,
         heartbeat_age_ms: age, stale_after_ms: HEARTBEAT_STALE_MS, server_now: now,
+        last_connection_close: (await this.ctx.storage.get("last_connection_close")) || null,
+        last_connection_error: (await this.ctx.storage.get("last_connection_error")) || null,
       });
     }
 
@@ -404,7 +415,10 @@ export class ExecBroker extends DurableObject {
       // stamp the socket so _newestSocket can prefer the live one over a zombie
       try { ws.serializeAttachment({ ...(ws.deserializeAttachment() || {}), lastSeenAt: Date.now() }); }
       catch (_) { /* best effort — connectedAt still breaks the tie */ }
-      ws.send(JSON.stringify({ type: "ack", of: msg.type, server_now: Date.now() }));
+      const correlation = Number.isSafeInteger(msg.seq) && msg.seq > 0 &&
+        typeof msg.session === "string" && /^[a-f0-9]{32}$/.test(msg.session)
+        ? {seq:msg.seq,session:msg.session} : {};
+      ws.send(JSON.stringify({ type: "ack", of: msg.type, server_now: Date.now(), ...correlation }));
       return;
     }
 
@@ -712,11 +726,23 @@ export class ExecBroker extends DurableObject {
 
   async webSocketClose(ws, code, reason, wasClean) {
     await this.ctx.storage.put("disconnected_at", Date.now());
+    let attachment={};
+    try { attachment=ws.deserializeAttachment() || {}; } catch (_) { /* closed socket */ }
+    const diagnostic={at:Date.now(),code,reason:connectionDiagnostic(reason,this.env),was_clean:!!wasClean,
+      socket_connected_at:attachment.connectedAt || null};
+    await this.ctx.storage.put("last_connection_close", diagnostic);
+    console.info("execution_connection_close", diagnostic);
     try { ws.close(code, reason); } catch (_) { /* already closing */ }
   }
 
   async webSocketError(ws, err) {
-    await this.ctx.storage.put("last_error", String((err && err.message) || err));
+    const error=connectionDiagnostic((err && err.message) || err,this.env);
+    await this.ctx.storage.put("last_error", error);
+    let attachment={};
+    try { attachment=ws.deserializeAttachment() || {}; } catch (_) { /* errored socket */ }
+    const diagnostic={at:Date.now(),error,socket_connected_at:attachment.connectedAt || null};
+    await this.ctx.storage.put("last_connection_error", diagnostic);
+    console.info("execution_connection_error", diagnostic);
   }
 }
 
