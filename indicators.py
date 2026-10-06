@@ -450,6 +450,22 @@ def consolidation_features(df: pd.DataFrame) -> pd.DataFrame:
     }, index=df.index)
 
 
+def consolidation_audit_features(df: pd.DataFrame, session_hours: pd.Series) -> pd.DataFrame:
+    """Research-only consolidation context, with known session-length adjustment.
+
+    Daily volume per market-open hour is compared with its trailing 63-session
+    mean. Half-session volume is therefore not automatically called quiet.
+    A missing session duration or nonpositive volume is unavailable evidence.
+    """
+    features = consolidation_features(df)
+    hours = session_hours.reindex(df.index)
+    rate = (df['Volume'] / hours).where((df['Volume'] > 0) & (hours > 0))
+    features['quiet_volume_rate_ratio'] = rate / rate.rolling(63).mean()
+    low5, high5 = df['Low'].rolling(5).min(), df['High'].rolling(5).max()
+    features['close_position5'] = ((df['Close'] - low5) / (high5 - low5)).where(high5 > low5)
+    return features
+
+
 def get_sznl_val_series(ticker: str, dates: pd.DatetimeIndex, sznl_map: dict) -> pd.Series:
     """
     Look up seasonal rank for a ticker across a date range.
