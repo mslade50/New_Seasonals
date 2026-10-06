@@ -168,6 +168,14 @@ def test_exception_close_and_underlying_os_fields_redact_credentials():
     assert fields['rcvd']['code'] == 1006 and fields['cause']['errno'] == 104
 
 
+@pytest.mark.parametrize('value', ['short', b'bytes-fixture-key'])
+def test_secret_collection_includes_short_tokens_and_encoded_keys(value):
+    secrets = connection.secrets_from({'command_secret': value, 'TOKEN': value, 'ordinary_label': 'keep'})
+    text = value.decode() if isinstance(value, bytes) else value
+    output = json.dumps(connection.exception_fields(OSError('connection ' + text), secrets))
+    assert text not in output and 'keep' not in secrets
+
+
 def test_patcher_changes_transport_only_and_preserves_command_handlers():
     source = FIXTURE.read_text()
     updated = patch(source)

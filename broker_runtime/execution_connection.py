@@ -16,8 +16,19 @@ DIAGNOSTIC_SECONDS = 60
 
 
 def secrets_from(ns):
-    return tuple(value for key, value in ns.items()
-                 if re.search(r'TOKEN|SECRET|KEY', key) and isinstance(value, str) and len(value) >= 8)
+    values = []
+    for key, value in ns.items():
+        if not re.search(r'TOKEN|SECRET|KEY', key, re.IGNORECASE):
+            continue
+        if isinstance(value, str) and value:
+            values.append(value)
+        elif isinstance(value, bytes) and value:
+            values.append(repr(value))
+            try:
+                values.append(value.decode('utf-8'))
+            except UnicodeDecodeError:
+                pass
+    return tuple(values)
 
 
 def safe_text(value, secrets=()):
