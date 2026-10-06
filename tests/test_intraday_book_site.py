@@ -182,13 +182,13 @@ def test_trade_rows_reconcile_and_preserve_no_stop_r(tmp_path):
 def test_committed_trades_match_daily_and_coverage():
     out = build_site.build_intraday_book(REAL_REPLAY)
     assert out["has_trades"]
-    assert len(out["trades"]) == 3238 + 73
+    assert len(out["trades"]) == 3282 + 73
     assert sum(t["PnL_flat"] for t in out["trades"]) == pytest.approx(sum(out["total_flat"]))
     for t in out["trades"]:
         if t["R"] is not None:
             assert t["PnL_flat"] == pytest.approx(t["R"] * t["Risk_flat"], abs=.011)
     assert {s["id"]: s["coverage_through"] for s in out["strategies"]} == {
-        "open_breakout": "2026-08-28", "legend_ema": "2026-08-05"}
+        "open_breakout": "2026-10-05", "legend_ema": "2026-10-05"}
 
 
 @pytest.mark.skipif(not REAL_REPLAY.exists(), reason="intraday replay not committed yet")

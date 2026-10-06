@@ -2,6 +2,8 @@
 
 Research only, run by hand. The JSON is committed; the cloud site build never runs this script because the
 source ledgers live in local, untracked artifacts/. It fails loudly when those artifacts are missing.
+For forward IBKR extensions use scripts/refresh_intraday_replay.py. This frozen
+baseline producer refuses to replace a snapshot whose coverage has advanced.
 
 Open Breakout: frozen candidate ledgers (micro contracts, base costs), the amended prior-range skip
 (filter_vs_skip row (v): ratio >= 1.25 AND the prior session's own summed net R >= +2), then LIVE sizing per
@@ -293,6 +295,12 @@ def summary_row(s: dict) -> str:
 
 
 def main() -> None:
+    if OUT.exists():
+        current = json.loads(OUT.read_text(encoding="utf-8"))
+        frozen_ends = {"open_breakout": OB_SPAN[1], "legend_ema": LG_SPAN[1]}
+        if any(s["span"][1] > frozen_ends[s["id"]] for s in current["strategies"] if s["id"] in frozen_ends):
+            raise SystemExit("Refusing to replace extended replay with the frozen August baseline; "
+                             "use scripts/refresh_intraday_replay.py")
     ob, ob_meta = open_breakout()
     lg, lg_meta = legend_ema()
     doc = {"schema": 1, "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
