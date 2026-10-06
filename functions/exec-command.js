@@ -47,6 +47,14 @@ export async function onRequestPost({ request, env }) {
     return new Response(JSON.stringify({ ok: false, error: "explicit dry_run boolean required" }), { status: 400, headers });
   }
 
+  // Whole-idea commands may be signed only after the dedicated route verifies
+  // the current immutable proposal, delivery receipt and separate confirmation.
+  if (body.type === "review_execution" ||
+      (env.REVIEW_EXECUTION_LIVE_ENABLED === "1" &&
+       /^(Pitch-|Seasonal_Agent-)/.test(String(body.payload?.strategy || "")))) {
+    return new Response(JSON.stringify({ ok: false, error: "use the verified whole-idea review-execution route" }), { status: 409, headers });
+  }
+
   const now = Date.now();
   const command = {
     // client-minted idempotency id (one per user intent, reused on retry) when

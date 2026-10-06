@@ -1,0 +1,6 @@
+#proposal, #plan, #status, #execution-error { overflow-wrap: anywhere; min-width: 0; }
+#result { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; font-size: 12px; }
+#execution-form > label { display: flex; align-items: flex-start; gap: 10px; margin: 18px 0; }
+#execution-form > label[hidden] { display: none; }
+#execution-form input[type=checkbox] { flex-shrink: 0; width: 20px; height: 20px; }
+#plan .proposal { padding: 15px; }
