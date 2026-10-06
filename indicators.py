@@ -418,6 +418,38 @@ def calculate_indicators(
 # shared utils.py, import it instead. The implementation below is the canonical
 # version extracted from the existing codebase.
 
+def consolidation_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Causal research features for inside-day consolidation (2026-10-06).
+
+    Accept the shared calculator's OHLCV/ATR/MA columns. Kept separate so the
+    extra rolling work does not affect scheduled scanners or backtest engines.
+    Zero/missing volume is unavailable, never evidence of quiet accumulation.
+    """
+    c, h, l, atr = df['Close'], df['High'], df['Low'], df['ATR']
+    day_range = h - l
+    tr = pd.concat([day_range, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
+    vol_avg = df['Volume'].rolling(63).mean()
+    vol_ratio = (df['Volume'] / vol_avg).where((df['Volume'] > 0) & (vol_avg > 0))
+    inside = (h < h.shift()) & (l > l.shift())
+    high252 = h.rolling(252).max()
+    previous_close_high252 = c.shift().rolling(252).max()
+    return pd.DataFrame({
+        'quiet_volume_ratio': vol_ratio,
+        'day_range_atr': day_range / atr,
+        'nr7': day_range <= day_range.rolling(7).min(),
+        'nr10': day_range <= day_range.rolling(10).min(),
+        'range5_atr': (h.rolling(5).max() - l.rolling(5).min()) / atr,
+        'range10_atr': (h.rolling(10).max() - l.rolling(10).min()) / atr,
+        'atr5_to_atr21': tr.rolling(5).mean() / tr.rolling(21).mean(),
+        'distance_high252_pct': 100 * (high252 - c) / high252,
+        'not_new_closing_high252': c < previous_close_high252,
+        'double_inside': inside & inside.shift(fill_value=False),
+        'trend_rising50': (c > df['SMA50']) & (df['SMA50'] > df['SMA50'].shift(21)),
+        'trend_stack': ((c > df['SMA50']) & (df['SMA50'] > df['SMA200'])
+                        & (df['SMA50'] > df['SMA50'].shift(21))),
+    }, index=df.index)
+
+
 def get_sznl_val_series(ticker: str, dates: pd.DatetimeIndex, sznl_map: dict) -> pd.Series:
     """
     Look up seasonal rank for a ticker across a date range.
