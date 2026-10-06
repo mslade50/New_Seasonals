@@ -147,10 +147,12 @@ def month_bootstrap(meta, result):
     return np.quantile(sampled[:, 0] / sampled[:, 1], [.025, .975]).tolist()
 
 
-def prepare(prices, start, end, out):
+def prepare(prices, start, end, out, exclusions=()):
     wanted = set(CSV_UNIVERSE) | set(LIQUID_PLUS_COMMODITIES)
     # Avoid double-counting spot indices and their actual tradeable ETFs.
     wanted -= set(SPOT_TO_TRADEABLE)
+    requested = wanted.copy()
+    wanted -= set(exclusions)
     snapshot_stat = prices.stat()
     snapshot_hash = hashlib.sha256(prices.read_bytes()).hexdigest()
     raw = pd.read_parquet(prices)
@@ -230,7 +232,8 @@ def prepare(prices, start, end, out):
     missing = sorted(wanted - set(coverage.ticker))
     manifest = {'prices': str(prices.resolve()), 'bytes': snapshot_stat.st_size,
                 'price_sha256': snapshot_hash,
-                'start': str(start.date()), 'end': str(end.date()), 'universe_requested': len(wanted),
+                'start': str(start.date()), 'end': str(end.date()), 'universe_requested': len(requested),
+                'excluded_tickers': sorted(set(exclusions)),
                 'covered': len(coverage), 'missing': missing, 'events': len(meta),
                 'shared_indicators_sha256': hashlib.sha256((ROOT / 'indicators.py').read_bytes()).hexdigest()}
     (out / 'manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
@@ -325,6 +328,7 @@ def report(summary, out):
     sections.append('<h2>No stop / no target</h2>' + time_only[columns + ['control_avg_pct', 'control_edge_pct']].to_html(index=False, float_format=lambda x: f'{x:.3f}'))
     sections.append('<h2>All primary configurations</h2>' + primary[columns].to_html(index=False, float_format=lambda x: f'{x:.3f}'))
     manifest = json.loads((out / 'manifest.json').read_text())
+    event_dates = pd.read_parquet(out / 'events.parquet', columns=['signal_date']).signal_date
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), sharey=True)
     for ax, variant in zip(axes, ('With126', 'Without126')):
         for stop, target, label in [('None', 'None', 'Time only'), ('None', '1.0', 'No stop; 1 ATR target'),
@@ -348,7 +352,9 @@ def report(summary, out):
     5 bps entry and 5 bps exit slippage. No commissions or impact model. One position per ticker, excluding signals on/before its last exit, matches the existing single-strategy framework. All-signal sensitivity also exported. No account sizing, pooled caps or portfolio CAGR modeled: these are trade-level outcomes. Every event has 21 subsequent sessions, avoiding partial terminal trades and holding-horizon sample drift. Dates after the last completed US session are excluded. Delisted names retain their available historical bars.
     240 filter/exit combinations are exploratory. Discovery <=2017 and later >=2018 are retrospective slices, not untouched out-of-sample tests. Reported selected confidence intervals bootstrap calendar-month blocks with fixed seed, 2,000 draws; they do not correct for searching the exit grid. Comparator for time-only trades: next-open entries with identical momentum/MA gates but no inside-day condition, weighted to each strategy trade's ticker and signal year; useful context, not a randomized matched experiment. Entry-day arming sensitivity is a pessimistic daily-bar assumption; intraday ordering cannot be established from OHLC.'''
     page = '<!doctype html><html><meta charset="utf-8"><title>Inside-day breakout research</title><style>body{font:15px system-ui;margin:32px;color:#1b263b}table{border-collapse:collapse;font-size:13px}th,td{padding:6px 10px;border-bottom:1px solid #ddd;text-align:right}th{background:#eef2f8}p{max-width:1150px;line-height:1.6}h2{margin-top:32px}</style><h1>Inside-day buy-stop breakout</h1>'
-    page += f'<p>Research through {html.escape(manifest["end"])}; {manifest["covered"]} tickers; {manifest["events"]:,} mature filled events before the 126-day gate and overlap rejection.</p>'
+    page += f'<p>Research through {html.escape(manifest["end"])}; {manifest["covered"]} tickers; {manifest["events"]:,} mature filled events before the 126-day gate and overlap rejection. Common signal sample: {event_dates.min().date()}–{event_dates.max().date()}.</p>'
+    if manifest.get('excluded_tickers'):
+        page += f'<p>Price-history audit exclusions: {html.escape(", ".join(manifest["excluded_tickers"]))}. See price_quality_audit.md for the evidence and limitations.</p>'
     page += '<img src="exit_comparison.png" alt="Exit comparison" style="width:100%;max-width:1100px">'
     page += '<h2>Assumptions and limitations</h2>' + ''.join(f'<p>{html.escape(x.strip())}</p>' for x in methodology.split('\n'))
     page += ''.join(sections) + '</html>'
@@ -363,6 +369,8 @@ def main():
     parser.add_argument('--end', default=str((pd.Timestamp.now(tz='America/New_York').date()
                                             - pd.Timedelta(days=1))))
     parser.add_argument('--reuse-events', action='store_true')
+    parser.add_argument('--exclude-tickers', nargs='*', default=[],
+                        help='Explicit research-only exclusions for unusable source histories')
     args = parser.parse_args()
     today = pd.Timestamp.now(tz='America/New_York').normalize().tz_localize(None)
     if pd.Timestamp(args.end) >= today:
@@ -377,6 +385,8 @@ def main():
         manifest = json.loads((out / 'manifest.json').read_text())
         if manifest['start'] != args.start or manifest['end'] != args.end:
             parser.error('Cached event dates do not match requested dates')
+        if manifest.get('excluded_tickers', []) != sorted(set(args.exclude_tickers)):
+            parser.error('Cached event universe exclusions differ; regenerate events')
         if manifest['shared_indicators_sha256'] != hashlib.sha256((ROOT / 'indicators.py').read_bytes()).hexdigest():
             parser.error('Shared indicators changed; regenerate events')
         if (manifest['prices'] != str(args.prices.resolve()) or
@@ -386,7 +396,8 @@ def main():
         with np.load(out / 'paths.npz') as cached:
             paths = {c: cached[c] for c in cached.files}
     else:
-        meta, paths = prepare(args.prices, pd.Timestamp(args.start), pd.Timestamp(args.end), out)
+        meta, paths = prepare(args.prices, pd.Timestamp(args.start), pd.Timestamp(args.end), out,
+                              args.exclude_tickers)
     summary = sweep(meta, paths, out)
     selected_details(meta, paths, summary, out)
     report(summary, out)
