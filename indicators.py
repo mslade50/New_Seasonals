@@ -466,6 +466,41 @@ def consolidation_audit_features(df: pd.DataFrame, session_hours: pd.Series) -> 
     return features
 
 
+def smooth_momentum_features(df: pd.DataFrame, benchmark_close: pd.Series,
+                             session_hours: pd.Series) -> pd.DataFrame:
+    """Causal higher-beta/smooth-momentum research features (2026-10-06).
+
+    Requires the usual shared indicators on df. Beta uses 126 paired daily
+    returns; smoothness is 63-session log-price path efficiency. No values are
+    filled across missing prices, and future rows cannot alter prior features.
+    This helper does not change the production calculate_indicators path.
+    """
+    f = consolidation_audit_features(df, session_hours)
+    close = df['Close'].where(df['Close'] > 0)
+    market = benchmark_close.where(benchmark_close > 0)
+    ret = close.pct_change(fill_method=None)
+    mret = market.pct_change(fill_method=None).reindex(df.index)
+    variance = mret.rolling(126).var()
+    f['beta126'] = (ret.rolling(126).cov(mret) / variance).where(variance > 0)
+    log_close = np.log(close)
+    log_step = log_close.diff().abs()
+    distance = log_step.rolling(63).sum()
+    f['efficiency63'] = (log_close.diff(63).abs() / distance).where(distance > 0)
+    f['largest_step_share63'] = (log_step.rolling(63).max() / distance).where(distance > 0)
+    f['dollar_volume63'] = (close * df['Volume'].where(df['Volume'] > 0)).rolling(63).mean()
+    f['momentum126_skip21'] = close.shift(21) / close.shift(126) - 1
+    f['relative_return126'] = df['ret_126d'] - market.pct_change(126, fill_method=None).reindex(df.index)
+    f['box_high5'] = df['High'].rolling(5).max()
+    f['box_high10'] = df['High'].rolling(10).max()
+    f['previous_high21'] = df['High'].rolling(21).max().shift()
+    f['ema8_reclaim'] = (close > df['EMA8']) & (close.shift() <= df['EMA8'].shift())
+    f['touched_ema21_recent3'] = ((df['Low'] <= df['EMA21']).rolling(3).max() == 1)
+    span = df['High'] - df['Low']
+    f['close_location'] = ((close - df['Low']) / span).where(span > 0)
+    f['market_above200'] = (market > market.rolling(200).mean()).reindex(df.index).fillna(False)
+    return f
+
+
 def get_sznl_val_series(ticker: str, dates: pd.DatetimeIndex, sznl_map: dict) -> pd.Series:
     """
     Look up seasonal rank for a ticker across a date range.
