@@ -501,6 +501,30 @@ def smooth_momentum_features(df: pd.DataFrame, benchmark_close: pd.Series,
     return f
 
 
+def impulse_momentum_features(df: pd.DataFrame, benchmark_close: pd.Series,
+                              session_hours: pd.Series) -> pd.DataFrame:
+    """Completed-bar impulse/pullback features for momentum research."""
+    f = smooth_momentum_features(df, benchmark_close, session_hours)
+    close, atr = df['Close'], df['ATR'].where(df['ATR'] > 0)
+    for lookback in (5, 10):
+        # The advance ends three sessions BEFORE the signal. Its normalization
+        # uses the ATR known at that advance's end, not an eventual fill ATR.
+        f[f'impulse{lookback}_before3_atr'] = (
+            close.shift(3) - close.shift(lookback + 3)) / atr.shift(3)
+    for lookback in (2, 3):
+        f[f'pullback{lookback}_atr'] = (close - close.shift(lookback)) / atr
+        f[f'box_high{lookback}'] = df['High'].rolling(lookback).max()
+    f['range3_atr'] = (df['High'].rolling(3).max() - df['Low'].rolling(3).min()) / atr
+    f['drawdown8_atr'] = (df['High'].rolling(8).max() - close) / atr
+    hours = session_hours.reindex(df.index).where(lambda x: x > 0)
+    volume_hour = df['Volume'].where(df['Volume'] > 0) / hours
+    f['quiet_rate3'] = volume_hour.rolling(3).mean() / volume_hour.rolling(63).mean()
+    f['move21_atr'] = df['ret_atr_21d']
+    f['above_ema21'] = close > df['EMA21']
+    f['today_move_atr'] = df['today_return_atr']
+    return f
+
+
 def get_sznl_val_series(ticker: str, dates: pd.DatetimeIndex, sznl_map: dict) -> pd.Series:
     """
     Look up seasonal rank for a ticker across a date range.
