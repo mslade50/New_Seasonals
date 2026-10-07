@@ -3,6 +3,7 @@
 Research only. Uses the prior audited price snapshot/universe; no live changes.
 All combinations within the five added gates and seven original gates are evaluated.
 Fixed alternative signal ideas are disclosed separately, without retuning.
+The selected consolidation breakout uses 40% volume per market-open hour.
 """
 from __future__ import annotations
 
@@ -28,6 +29,8 @@ from trading_calendar import TRADING_DAY
 
 BASE_FLAGS = ('rank252', 'rank5', 'rank10', 'rank21', 'inside', 'sma10', 'ema21')
 EXTRA_FLAGS = ('trend', 'near_high', 'range5', 'nr7', 'not_closing_high')
+SELECTED_RULE_NAME = 'session_adjusted_volume'
+SELECTED_HOLD_DAYS = 10
 START, END, MAX_HOLD = pd.Timestamp('2002-01-01'), pd.Timestamp('2026-10-05'), 21
 
 
@@ -61,7 +64,7 @@ def definitions():
         removed = [name for name, included in zip(EXTRA_FLAGS, keep) if not included]
         rows.append({'name': 'baseline' if not removed else 'drop_' + '_'.join(removed),
                      'group': 'added_gate_factorial', 'required': ['quiet', *BASE_FLAGS, *flags],
-                     'description': 'Drop ' + ', '.join(removed) if removed else 'Full selected rule'})
+                     'description': 'Drop ' + ', '.join(removed) if removed else 'Full raw-volume reference'})
     for keep in itertools.product((False, True), repeat=len(BASE_FLAGS)):
         removed = [name for name, included in zip(BASE_FLAGS, keep) if not included]
         if not removed:
@@ -96,6 +99,58 @@ def selected_mask(flags, required):
     return flags[list(required)].all(axis=1).to_numpy()
 
 
+def selected_definition():
+    """Approved research signal; retain all other price gates and the 10d exit."""
+    return next(rule for rule in definitions() if rule['name'] == SELECTED_RULE_NAME)
+
+
+def market_open_hours():
+    schedule = calendar().schedule
+    hours = (schedule['close'] - schedule['open']).dt.total_seconds() / 3600
+    hours.index = hours.index.tz_localize(None).normalize()
+    return hours
+
+
+def consolidation_breakout_mask(df, hours=None):
+    """Selected price/volume gates on shared indicators, using known NYSE hours.
+
+    Universe and acquisition exclusions remain separate in prepare(). Unknown
+    session lengths cannot qualify for the per-hour quiet-volume requirement.
+    """
+    flags = flag_frame(df, market_open_hours() if hours is None else hours)
+    return pd.Series(selected_mask(flags, selected_definition()['required']), index=df.index)
+
+
+def write_selected_outputs(rows, signals, trades, out):
+    """Save an explicit selected research snapshot alongside the comparisons."""
+    selected_row = rows[(rows.rule == SELECTED_RULE_NAME) & (rows.hold == SELECTED_HOLD_DAYS)]
+    if len(selected_row) != 1:
+        raise ValueError('Selected research result must have exactly one matching exit')
+    selected_signals = signals[signals.rule == SELECTED_RULE_NAME].copy()
+    selected_trades = trades[(trades.rule == SELECTED_RULE_NAME) & (trades.hold == SELECTED_HOLD_DAYS)].copy()
+    row = selected_row.iloc[0].to_dict()
+    assert len(selected_signals) == row['signals'] and len(selected_trades) == row['trades']
+    selected_signals.to_csv(out / 'selected_signals.csv', index=False)
+    selected_trades.to_parquet(out / 'selected_trades.parquet', index=False)
+    metadata = {
+        'name': 'Consolidation Breakout', 'status': 'selected_research',
+        'rule': selected_definition(), 'volume_ceiling': .4, 'volume_lookback_sessions': 63,
+        'volume_basis': 'per_market_open_hour',
+        'volume_formula': '(Volume / session_hours) / trailing_63_session_mean(Volume / session_hours)',
+        'entry': 'Tomorrow-only buy stop at signal high; gap fill at max(open, signal high)',
+        'hold_days': SELECTED_HOLD_DAYS, 'time_exit': 'Entry session index + hold_days',
+        'stop': None, 'target': None, 'cost_bps_per_side': 5,
+        'annual_signal_ceiling': 100, 'metrics': row,
+        'corporate_action_review': 'Partial; RAMP excluded from 2026-05-18 in the audited pool',
+    }
+    manifest_path = out / 'manifest.json'
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        metadata['price_sha256'] = manifest['price_sha256']
+        metadata['data_end'] = manifest['end']
+    (out / 'selected_strategy.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+
+
 def cache_covers_rules(cached, proposed, available_columns):
     """A new conjunction is covered if an old conjunction is less restrictive.
 
@@ -120,9 +175,7 @@ def prepare(prices, base, out):
     raw = raw[raw.ticker.isin(wanted) & (raw.date <= END)]
     if raw.duplicated(['ticker', 'date']).any():
         raise ValueError('Duplicate ticker dates')
-    schedule = calendar().schedule
-    hours = (schedule['close'] - schedule['open']).dt.total_seconds() / 3600
-    hours.index = hours.index.tz_localize(None).normalize()
+    hours = market_open_hours()
     yearend = set()
     for _, g in hours[hours.index.month == 12].groupby(hours[hours.index.month == 12].index.year):
         yearend.update(g.index[-5:])
@@ -224,8 +277,9 @@ def evaluate(features, events, paths, out):
             r = simulate(m, pp, ExitSpec(hold, None, None))
             keep = one_position_mask(m, r)
             mm, rr = m[keep].reset_index(drop=True), r[keep].reset_index(drop=True)
-            trade_rows.append(pd.concat([mm, rr], axis=1).assign(rule=rule['name'], hold=hold))
             accepted_paths = {k: v[keep] for k, v in pp.items()}
+            exit_dates = accepted_paths['date'][np.arange(len(rr)), rr.exit_day]
+            trade_rows.append(pd.concat([mm, rr], axis=1).assign(rule=rule['name'], hold=hold, exit_date=exit_dates))
             pnl, active = daily_mtm(mm, rr, accepted_paths, hold, sessions)
             recent = (mm.signal_date >= '2018-01-01').to_numpy()
             later_pnl, later_active = daily_mtm(mm[recent].reset_index(drop=True), rr[recent].reset_index(drop=True),
@@ -251,13 +305,17 @@ def evaluate(features, events, paths, out):
                 np.testing.assert_allclose(pnl, prior.daily_pnl_per_unit_atr_risk.reindex(sessions), atol=1e-8)
                 baseline = {'row': row, 'pnl': pnl.tolist()}
         print(f'{rule["name"]}: {counts.sum()} raw signals; max {counts.max() if len(counts) else 0}/year', flush=True)
-    pd.DataFrame(rows).to_csv(out / 'results.csv', index=False)
+    results = pd.DataFrame(rows)
+    results.to_csv(out / 'results.csv', index=False)
     pd.DataFrame(annual).to_csv(out / 'annual.csv', index=False)
-    pd.concat(selected_rows, ignore_index=True).to_parquet(out / 'selected_signals.parquet', index=False)
-    pd.concat(trade_rows, ignore_index=True).to_parquet(out / 'trades.parquet', index=False)
+    signals = pd.concat(selected_rows, ignore_index=True)
+    trades = pd.concat(trade_rows, ignore_index=True)
+    signals.to_parquet(out / 'selected_signals.parquet', index=False)
+    trades.to_parquet(out / 'trades.parquet', index=False)
+    write_selected_outputs(results, signals, trades, out)
     (out / 'evaluated_rules.json').write_text(json.dumps(definitions(), indent=2))
     (out / 'baseline_verification.json').write_text(json.dumps(baseline, indent=2))
-    return pd.DataFrame(rows)
+    return results
 
 
 def main():
