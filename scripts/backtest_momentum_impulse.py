@@ -1,4 +1,4 @@
-"""Predeclared impulse/flag momentum research on the frozen stock universe.
+"""Impulse/flag momentum research on the frozen stock universe.
 
 Reuses shared indicators, NYSE sessions and the existing daily execution walk.
 Entry rules are selected on completed signal bars. This runner does not modify
@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import inspect
 import itertools
 import json
 import sys
@@ -35,6 +36,30 @@ def definitions():
         for entry in (('open', 'limit') if family == 'break21' else ('open', 'stop')):
             out.append({'name': f'F{len(out)+1:03d}', 'family': family, 'market': market,
                         'top': 1 if ranked else None, 'entry': entry})
+    # Exploratory neighborhood defined after the first 256-variant screen.
+    # Change individual incidence gates first, then two modest combinations.
+    neighborhoods = [
+        {}, {'quiet': .85}, {'quiet': 1.}, {'range': 2.5}, {'drawdown': 2.},
+        {'impulse5': 2.5, 'impulse10': 3.},
+        {'quiet': .85, 'range': 2.5, 'drawdown': 2.},
+        {'quiet': 1., 'range': 3., 'drawdown': 2.},
+    ]
+    for neighborhood in neighborhoods:
+        for entry in ('open', 'stop_today'):
+            out.append({'name': f'N{len(out)-31:03d}', 'family': 'flag_any', 'market': True,
+                        'top': None, 'entry': entry, **neighborhood})
+    # The original rare edge required clearing the full flag high. Keep that
+    # confirmation while changing the same incidence gates, rather than assuming
+    # the weaker signal-day high is equivalent.
+    for i, neighborhood in enumerate(neighborhoods, start=1):
+        out.append({'name': f'B{i:03d}', 'family': 'flag_any', 'market': True,
+                    'top': None, 'entry': 'stop', **neighborhood,
+                    'targets': [None, 1., 2.] if i == 6 else [None]})
+    for i, neighborhood in enumerate(({'quiet': .85}, {'quiet': 1.}, {'range': 2.5},
+                                      {'drawdown': 2.}, {'quiet': .85, 'range': 2.5}), start=1):
+        out.append({'name': f'L{i:03d}', 'family': 'flag_any', 'market': True,
+                    'top': None, 'entry': 'stop', 'impulse5': 2.5, 'impulse10': 3.,
+                    'targets': [None, 1., 2.], **neighborhood})
     return out
 
 
@@ -50,9 +75,11 @@ def signal_selection(f, p):
     if p['market']:
         selected &= f.market_above200
     if p['family'].startswith('flag'):
-        move = f.impulse5_before3_atr >= 3 if p['family'] == 'flag5' else f.impulse10_before3_atr >= 4
-        selected &= (move & f.pullback3_atr.between(-1.5, -.25) & (f.range3_atr <= 2.)
-                     & f.drawdown8_atr.between(.25, 1.5) & (f.quiet_rate3 <= .7))
+        fast = f.impulse5_before3_atr >= p.get('impulse5', 3.)
+        slow = f.impulse10_before3_atr >= p.get('impulse10', 4.)
+        move = fast if p['family'] == 'flag5' else slow if p['family'] == 'flag10' else fast | slow
+        selected &= (move & f.pullback3_atr.between(-1.5, -.25) & (f.range3_atr <= p.get('range', 2.))
+                     & f.drawdown8_atr.between(.25, p.get('drawdown', 1.5)) & (f.quiet_rate3 <= p.get('quiet', .7)))
     elif p['family'] == 'dip2':
         selected &= ((f.move21_atr >= 3) & f.pullback2_atr.between(-1.5, -.5)
                      & (f.day_range_atr <= 1.5) & (f.quiet_volume_rate_ratio <= .7))
@@ -75,6 +102,8 @@ def entry_prices(m, paths, p):
     if p['entry'] == 'limit':
         limit = m.signal_close.to_numpy() - .25 * m.atr.to_numpy()
         return np.where(paths['Low'][:, 0] <= limit, np.minimum(paths['Open'][:, 0], limit), np.nan)
+    if p['entry'] == 'stop_today':
+        return buy_stop_fill(m.signal_high.to_numpy(), paths['Open'][:, 0], paths['High'][:, 0])
     lookback = 2 if p['family'] == 'dip2' else 3
     return buy_stop_fill(m[f'box_high{lookback}'].to_numpy(), paths['Open'][:, 0], paths['High'][:, 0])
 
@@ -98,10 +127,9 @@ def prepare(source, out):
         f = impulse_momentum_features(df, spy, hours)
         f['ticker'], f['signal_date'], f['signal_idx'] = ticker, df.index, np.arange(len(df))
         f['signal_close'], f['signal_high'], f['signal_low'], f['atr'] = df.Close, df.High, df.Low, df.ATR
-        union = np.zeros(len(f), bool)
-        for p in definitions():
-            # Pool every available trigger before ranking across all stocks.
-            union |= signal_selection(f, {**p, 'top': None})
+        # Retain the entire causal context pool. Later trigger comparisons can
+        # reuse it without silently excluding newly eligible signal dates.
+        union = context_mask(f).to_numpy()
         union &= df.index >= START
         if ticker == 'RAMP':
             union &= df.index < pd.Timestamp('2026-05-18')
@@ -131,6 +159,9 @@ def prepare(source, out):
     manifest = {**old, 'source_snapshot': str(source), 'rules': definitions(),
                 'indicator_source_sha256': hashlib.sha256((ROOT / 'indicators.py').read_bytes()).hexdigest(),
                 'research_source_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                'cache_schema': 'impulse-context-pool-v1', 'cache_hold': MAX_HOLD,
+                'context_source_sha256': hashlib.sha256(inspect.getsource(context_mask).encode()).hexdigest(),
+                'prepare_source_sha256': hashlib.sha256(inspect.getsource(prepare).encode()).hexdigest(),
                 'notes': ['Fixed current stock universe, not point-in-time membership',
                           'Predeclared impulse/flag, shallow dip and confirmed 21-session breakout hypotheses',
                           'Causal signal-date beta/smoothness/liquidity; tomorrow-only orders',
@@ -141,6 +172,12 @@ def prepare(source, out):
 
 
 def evaluate(f, paths, manifest, out):
+    # Preserve the cache's generation manifest; evaluation provenance is separate
+    # when only the trigger/entry hypotheses change against the same pool.
+    evaluation = {**manifest, 'rules': definitions(),
+                  'research_source_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                  'discovery_note': 'F001-F032 initial hypotheses; N/B/L and B006 target variants are retrospective neighborhoods'}
+    (out / 'evaluation_manifest.json').write_text(json.dumps(evaluation, indent=2))
     sessions = pd.date_range(START, manifest['end'], freq=TRADING_DAY)
     locations = sessions.get_indexer(pd.to_datetime(paths['date'].ravel())).reshape(paths['date'].shape)
     assert (locations >= 0).all() and (np.diff(locations, axis=1) == 1).all()
@@ -155,8 +192,8 @@ def evaluate(f, paths, manifest, out):
         m['entry'], m['entry_idx'] = fill[usable], m.signal_idx + 1
         pp = {k: v[usable] for k, v in pp.items()}
         m['entry_date'] = pp['date'][:, 0]
-        for hold, stop in itertools.product((3, 5, 10, 21), (None, 2.)):
-            spec = ExitSpec(hold, stop, None)
+        for hold, stop, target in itertools.product((3, 5, 10, 21), (None, 2.), p.get('targets', [None])):
+            spec = ExitSpec(hold, stop, target)
             r = simulate(m, pp, spec)
             accepted = one_position_mask(m, r)
             mm, rr = m.loc[accepted].reset_index(drop=True), r.loc[accepted].reset_index(drop=True)
@@ -216,9 +253,10 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     if args.reuse:
         manifest = json.loads((out / 'manifest.json').read_text())
-        assert manifest['rules'] == definitions()
+        assert manifest['cache_schema'] == 'impulse-context-pool-v1' and manifest['cache_hold'] == MAX_HOLD
         assert manifest['indicator_source_sha256'] == hashlib.sha256((ROOT / 'indicators.py').read_bytes()).hexdigest()
-        assert manifest['research_source_sha256'] == hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        assert manifest['context_source_sha256'] == hashlib.sha256(inspect.getsource(context_mask).encode()).hexdigest()
+        assert manifest['prepare_source_sha256'] == hashlib.sha256(inspect.getsource(prepare).encode()).hexdigest()
         f = pd.read_parquet(out / 'features.parquet')
         with np.load(out / 'paths.npz') as z:
             paths = {k: z[k] for k in z.files}

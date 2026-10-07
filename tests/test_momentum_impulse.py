@@ -17,7 +17,7 @@ def test_impulse_ends_before_pullback_and_uses_then_known_atr():
 
 
 def test_entry_expiry_gap_and_untouched_orders():
-    m = pd.DataFrame({'signal_close': [100.]*3, 'atr': [2.]*3, 'box_high3': [102.]*3})
+    m = pd.DataFrame({'signal_close': [100.]*3, 'signal_high': [101.]*3, 'atr': [2.]*3, 'box_high3': [102.]*3})
     # Later bars touch both levels but may not rescue an expired order.
     paths = {'Open': np.array([[101., 100.], [105., 100.], [98., 100.]]),
              'High': np.array([[101.5, 110.], [106., 110.], [103., 110.]]),
@@ -26,6 +26,8 @@ def test_entry_expiry_gap_and_untouched_orders():
     np.testing.assert_allclose(fill, [np.nan, 105., 102.], equal_nan=True)
     fill = entry_prices(m, paths, {'entry': 'limit', 'family': 'break21'})
     np.testing.assert_allclose(fill, [np.nan, np.nan, 98.], equal_nan=True)
+    fill = entry_prices(m, paths, {'entry': 'stop_today', 'family': 'flag_any'})
+    np.testing.assert_allclose(fill, [101., 105., 101.])
 
 
 def test_daily_ranking_cannot_use_tomorrow_availability_or_future_dates():
