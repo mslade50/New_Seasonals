@@ -49,6 +49,9 @@ STATIC_FILES = {
     ASSET_SOURCE / "macro_seasonal.js": Path("assets/macro_seasonal.js"),
     ASSET_SOURCE / "heatmaps.js": Path("assets/heatmaps.js"),
     ASSET_SOURCE / "risk.js": Path("assets/risk.js"),
+    ASSET_SOURCE / "risk_lab.js": Path("assets/risk_lab.js"),
+    ASSET_SOURCE / "risk_lab_core.js": Path("assets/risk_lab_core.js"),
+    ASSET_SOURCE / "risk_lab.css": Path("assets/risk_lab.css"),
     ASSET_SOURCE / "style.css": Path("assets/style.css"),
 }
 # Owned by the shared-site frontend and optional by design: the nav dropdown
@@ -62,7 +65,7 @@ ALLOWED_ROOT_FILES = {
 }
 ALLOWED_ASSETS = {
     "common.js", "seasonality.js", "macro_seasonal.js", "heatmaps.js",
-    "risk.js", "shared_nav.js", "style.css",
+    "risk.js", "risk_lab.js", "risk_lab_core.js", "risk_lab.css", "shared_nav.js", "style.css",
 }
 SCANNED_PAGES = ("index.html", "risk.html")
 

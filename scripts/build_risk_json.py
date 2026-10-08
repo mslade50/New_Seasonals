@@ -1308,6 +1308,7 @@ def main():
         from daily_risk_report import (
             compute_all_signals,
             build_main_dial_forward_returns,
+            load_main_dial_series,
             _status_badge,
         )
         from pages.risk_dashboard_v2 import _signal_periods
@@ -1374,6 +1375,10 @@ def main():
             }
         payload["signal_detail"] = _build_signal_detail(
             computed["signals_ordered"], shared_dates, _signal_periods)
+
+        from scripts.risk_return_samples import build_return_samples
+        payload["return_samples"] = build_return_samples(
+            load_main_dial_series(), computed["spy_close"], (fwd_raw or {}).get("63d"))
 
         # sizing_state + vol KPI are best-effort inside the best-effort
         # script: a failure here must not cost the rest of the risk payload

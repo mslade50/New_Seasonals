@@ -62,6 +62,8 @@ def test_builder_emits_only_share_allow_list(tmp_path: Path):
     assert (output / "assets/macro_seasonal.js").is_file()
     assert (output / "assets/heatmaps.js").is_file()
     assert (output / "assets/risk.js").is_file()
+    for name in ("risk_lab.js", "risk_lab_core.js", "risk_lab.css"):
+        assert (output / "assets" / name).is_file()
     assert (output / "heatmaps.html").is_file()
     assert (output / "correlations.html").is_file()
     assert (output / "risk.html").is_file()
@@ -86,7 +88,7 @@ def test_allow_list_admits_only_the_shared_surface():
     }
     assert ALLOWED_ASSETS == {
         "common.js", "seasonality.js", "macro_seasonal.js", "heatmaps.js",
-        "risk.js", "shared_nav.js", "style.css",
+        "risk.js", "risk_lab.js", "risk_lab_core.js", "risk_lab.css", "shared_nav.js", "style.css",
     }
 
 
