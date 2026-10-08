@@ -1376,7 +1376,7 @@ def main():
         payload["signal_detail"] = _build_signal_detail(
             computed["signals_ordered"], shared_dates, _signal_periods)
 
-        from scripts.risk_return_samples import build_return_samples
+        from scripts.risk_return_samples import build_return_samples, build_downside_samples
         payload["return_samples"] = build_return_samples(
             load_main_dial_series(), computed["spy_close"], (fwd_raw or {}).get("63d"))
 
@@ -1399,12 +1399,14 @@ def main():
         except Exception:
             print("risk: vol_kpi FAILED (continuing without it)")
             traceback.print_exc()
+        vix_close = (closes["^VIX"].dropna()
+                     if "^VIX" in closes.columns else None)
+        vix_high = None
         try:
-            vix_close = (closes["^VIX"].dropna()
-                         if "^VIX" in closes.columns else None)
+            vix_high = load_vix_high()
             similar_63d = (fwd_raw or {}).get("63d")
             dd_iv = build_similar_reading_drawdown_iv(
-                spy_df, vix_close, similar_63d, load_vix_high()
+                spy_df, vix_close, similar_63d, vix_high
             ) if vix_close is not None and similar_63d is not None else None
             if dd_iv:
                 payload["drawdown_iv"] = dd_iv
@@ -1413,6 +1415,8 @@ def main():
         except Exception:
             print("risk: drawdown_iv FAILED (continuing without it)")
             traceback.print_exc()
+        payload["downside_samples"] = build_downside_samples(
+            payload["return_samples"], spy_df, vix_close, vix_high)
         try:
             tc = build_trade_console(computed)
             if tc:

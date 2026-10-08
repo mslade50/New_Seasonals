@@ -65,7 +65,6 @@ function summary() {
   }
 }
 function provenance() {
-  $('snapshotNote').textContent=`Market observations as of ${data.asof} · Saved dial as of ${data.sizing_state?.asof || 'unavailable'}. Historical outcomes describe the selected sample; they are not forecasts.`;
   $('provenanceSummary').textContent=`Snapshot: ${data.asof} · Saved dial: ${data.sizing_state?.asof || 'unavailable'} · Observation dates & model history`;
   const ad=data.atr_downside || {};
   $('provenanceBody').innerHTML=facts([
@@ -83,7 +82,7 @@ function provenance() {
 }
 function renderEvidence() {
   const w=state.window, study=studyOf(data), st=returnStats(data,w,state.sample);
-  const sample=drawdownSample(data,w,state.threshold);
+  const sample=drawdownSample(data,w,state.threshold,state.sample);
   const outcomes=returnSample(data,w,state.sample), completed=outcomes.completed.length;
   const total=outcomes.all.length, unavailable=total-completed-outcomes.pending;
   $('analogCount').innerHTML=`${total} <small>${state.sample==='all'?'matching dates':'episodes'}</small>`;
@@ -92,7 +91,7 @@ function renderEvidence() {
   $('sampleSummary').innerHTML=`<div class="sample-heading"><strong>${esc(sampleLabel())}</strong><span>Dial ${num(study.band_low)}–${num(study.band_high)} · ±5 points · selected before outcomes</span></div><div class="sample-counts"><div><b>${total}</b><span>selected ${state.sample==='all'?'dates':'episodes'}</span></div><div class="completed"><b>${completed}</b><span>completed ${w}d returns</span></div><div><b>${outcomes.pending}</b><span>incomplete</span></div><div><b>${unavailable}</b><span>unavailable</span></div></div><p class="micro"><b>Return statistics use n = ${completed}, not ${total}.</b> ${state.sample==='all'?'All qualifying dates are included, even consecutive days. Nearby dates share future market moves, so this larger count is not a count of independent events.':'Retains the first qualifying date, then requires more than 10 trading sessions before the next retained date. This reduces overlap; it does not remove all overlap in 21-session outcomes.'} Available dial / price history: ${esc(data.dates?.[0] || '?')}–${esc(data.asof)}. Matching dates span ${esc(activeAnchors()[0] || '—')}–${esc(activeAnchors().at(-1) || '—')}.</p>`;
   buttons('windowButtons',WINDOWS,w,value=>{state.window=Number(value);refresh();});
   $('threshold').value=String(state.threshold);
-  $('cohortDescription').innerHTML=validFullSample(data)?`<b>${anchorsOf(data,'all').length} matching dates → ${anchorsOf(data).length} overlap-reduced episodes.</b> The sample selector changes return cards, statistics, red match lines, date inspection and paths together. Matches share the main dial level, not an identical combination of signals.`:`<b>Full sample unavailable in this snapshot.</b> Showing ${anchorsOf(data).length} original overlap-reduced episodes. A matching cloud-generated sample is required to enable all dates.`;
+  $('cohortDescription').innerHTML=validFullSample(data)?`<b>${anchorsOf(data,'all').length} matching dates → ${anchorsOf(data).length} overlap-reduced episodes.</b> The sample selector changes return cards, statistics, red match lines, downside frequencies, date inspection and paths together. Matches share the main dial level, not an identical combination of signals.`:`<b>Full sample unavailable in this snapshot.</b> Showing ${anchorsOf(data).length} original overlap-reduced episodes. A matching cloud-generated sample is required to enable all dates.`;
   const cards=[
     {id:'returns',label:`${w}-session mean return`,value:pct(st?.mean,2,true),class:color(st?.mean),sub:`n = ${completed} completed · baseline ${pct(st?.uncond_mean,2,true)}`},
     {id:'distribution',label:`${w}-session median return`,value:pct(st?.median,2,true),class:color(st?.median),sub:`n = ${completed} · middle 50%: ${pct(st?.q25)} to ${pct(st?.q75)}`},
@@ -101,21 +100,22 @@ function renderEvidence() {
   ];
   $('evidenceCards').innerHTML=cards.map(c=>`<button class="evidence-card" data-inspect="${c.id}"><div class="label">${esc(c.label)} ⓘ</div><div class="number ${c.class||''}"${c.id==='distribution'?' style="font-size:21px"':''}>${esc(c.value)}</div><div class="micro">${esc(c.sub)}</div></button>`).join('');
   $('returnsTable').innerHTML=`<table><thead><tr><th>Window</th><th>Mean</th><th>Baseline</th><th>Difference</th><th>Completed n / selected</th><th>Incomplete</th></tr></thead><tbody>${WINDOWS.map(window=>{const r=returnStats(data,window,state.sample),o=returnSample(data,window,state.sample);return `<tr class="${window===w?'selected':''}"><td><button class="text-button" data-window="${window}">${window} sessions ↗</button></td><td class="${color(r?.mean)}">${pct(r?.mean,2,true)}</td><td>${pct(r?.uncond_mean,2,true)}</td><td>${r?`${signed(100*(r.mean-r.uncond_mean))} pp`:'—'}</td><td><b>n = ${o.completed.length}</b> / ${o.all.length}</td><td>${o.pending}</td></tr>`;}).join('')}</tbody></table><p class="micro">${esc(sampleLabel())}. Each row uses its own completed n. Below ${study.min_samples || 5} completed observations: summaries withheld. Overlapping dates and windows are not independent events.</p>`;
-  const ad=data.atr_downside || {}, dial=ad.dial || {}, cells=downsideCells(data);
+  const ad=data.atr_downside || {}, cells=downsideCells(data,state.sample);
   const available=cells.filter(c=>finite(c.delta)), elevated=cells.filter(c=>c.elevated);
   $('downsideSuite').classList.toggle('elevated',elevated.length>0);
-  $('downsideHeadline').innerHTML=available.length?`<div class="risk-alert"><strong>${elevated.length?'Elevated downside across the suite':'Downside compared with the long-run baseline'}</strong><span>${elevated.length} of ${available.length} available window / ATR combinations are at least 8 percentage points above baseline.</span></div>`:'<p class="quiet">Downside comparisons unavailable in this snapshot.</p>';
-  $('downsideCounts').innerHTML=WINDOWS.map(window=>`<div><b>n = ${dial.n_by_h?.[`${window}d`]??'—'}</b><span>completed ${window}d downside windows</span><span>Baseline n = ${ad.baseline_n?.[`${window}d`]??'—'}</span></div>`).join('');
-  $('atrTable').innerHTML=`<table class="risk-matrix"><thead><tr><th>Window / completed days</th>${(ad.mults || [1,2,3,5]).map(k=>`<th>≥${k} ATR</th>`).join('')}</tr></thead><tbody>${WINDOWS.map(window=>`<tr class="${window===w?'selected':''}"><td>${window} sessions <span class="baseline">${dial.n_by_h?.[`${window}d`]??'—'} matching days</span></td>${(ad.mults || [1,2,3,5]).map(k=>{const c=cells.find(c=>c.window===window&&c.threshold===k);return `<td class="${c.elevated?'risk-elevated':''}"><button class="cell-button ${window===w&&k===state.threshold?'active':''}" data-atr-window="${window}" data-atr-threshold="${k}" aria-label="Inspect ${window}-session downside of at least ${k} ATR, ${finite(c.delta)?`${signed(c.delta)} percentage points versus baseline`:'baseline unavailable'}">${finite(c.value)?`${num(c.value,0)}%`:'—'}</button><span class="baseline">${finite(c.baseline)?`${num(c.baseline,0)}% baseline`:'—'}</span><span class="risk-delta">${finite(c.delta)?`${signed(c.delta)} pp`:''}</span></td>`;}).join('')}</tr>`).join('')}</tbody></table>`;
-  const v=dial.table?.[`${w}d`]?.[state.threshold], baseline=ad.baseline?.[`${w}d`]?.[state.threshold];
-  $('atrSelection').innerHTML=`<b>${w} sessions / ≥${state.threshold} ATR:</b> ${finite(v)?`${num(v)}%`:'unavailable'} of ${dial.n_by_h?.[`${w}d`]??'—'} matching-day outcomes. Long-run baseline ${finite(baseline)?`${num(baseline)}%`:'unavailable'}${finite(v)&&finite(baseline)?`; ${signed(v-baseline)} percentage points difference`:''}. <b>Separate ±3 sample; independent of the return-sample selector.</b>`;
+  $('downsideHeadline').innerHTML=available.length?`<div class="risk-alert"><strong>${elevated.length?'Elevated downside across the suite':'Downside compared with the long-run baseline'}</strong><span>${elevated.length} of ${available.length} available window / ATR combinations are at least 8 percentage points above baseline.</span></div>`:'<p class="quiet">Downside outcomes unavailable for this snapshot. A matching downside sample is required.</p>';
+  $('downsideDescription').innerHTML=`<b>${esc(sampleLabel())}: the same ${total} selected dates as the returns and timeline.</b> Each rate counts threshold breaches divided by all completed, eligible matches, including those that never breached. A positive ending return can still include an intraday drawdown. Incomplete windows and missing low/ATR inputs are excluded from that window’s denominator.`;
+  $('downsideCounts').innerHTML=WINDOWS.map(window=>{const dd=drawdownSample(data,window,state.threshold,state.sample);return `<div><b>n = ${dd.n} / ${dd.selected}</b><span>eligible ${window}d / selected</span><span>${dd.pending} incomplete · ${dd.unavailable} unavailable</span><span>Baseline n = ${ad.baseline_n?.[`${window}d`]??'—'}</span></div>`;}).join('');
+  $('atrTable').innerHTML=`<table class="risk-matrix"><thead><tr><th>Window / eligible matches</th>${[1,2,3,5].map(k=>`<th>≥${k} ATR</th>`).join('')}</tr></thead><tbody>${WINDOWS.map(window=>{const dd=drawdownSample(data,window,state.threshold,state.sample);return `<tr class="${window===w?'selected':''}"><td>${window} sessions <span class="baseline">n = ${dd.n} of ${dd.selected} selected</span></td>${[1,2,3,5].map(k=>{const c=cells.find(c=>c.window===window&&c.threshold===k);return `<td class="${c.elevated?'risk-elevated':''}"><button class="cell-button ${window===w&&k===state.threshold?'active':''}" data-atr-window="${window}" data-atr-threshold="${k}" aria-label="Inspect ${window}-session downside of at least ${k} ATR, ${c.hits} of ${c.n} eligible matches breached">${finite(c.value)?`${num(c.value,0)}%`:'—'}</button><span class="baseline">${c.hits} / ${c.n} hit</span><span class="baseline">${finite(c.baseline)?`${num(c.baseline,0)}% baseline`:'—'}</span><span class="risk-delta">${finite(c.delta)?`${signed(c.delta)} pp`:''}</span></td>`;}).join('')}</tr>`;}).join('')}</tbody></table>`;
+  const selected=cells.find(c=>c.window===w&&c.threshold===state.threshold);
+  $('atrSelection').innerHTML=`<b>${w} sessions / ≥${state.threshold} ATR:</b> ${finite(selected.value)?`${num(selected.value)}%`:'unavailable'} · <b>${selected.hits} hits / ${selected.n} eligible matches</b> from ${total} selected dates. ${sample.n-sample.hits} eligible matches did not hit this threshold. Long-run baseline ${finite(selected.baseline)?`${num(selected.baseline)}%`:'unavailable'}${finite(selected.delta)?`; ${signed(selected.delta)} percentage points difference`:''}. Same ±5 sample as the rest of the page.`;
   $('outcomeFilter').value=state.outcomeFilter;
   const visible=filterOutcomes(outcomes.all,state.outcomeFilter).slice().reverse();
   $('episodeListCap').textContent=`${sampleLabel()} · showing ${visible.length} of ${total} selected dates · ${completed} completed returns, ${outcomes.positive} positive, ${outcomes.negative} negative, ${outcomes.flat} flat, ${outcomes.pending} incomplete, ${unavailable} unavailable. No downside threshold is applied to this list.`;
-  $('episodesTable').innerHTML=`<table><thead><tr><th>Matched close</th><th>History basis</th><th>${w}d SPY return</th><th>Outcome</th><th>Max low-touch downside</th><th>Availability</th></tr></thead><tbody>${visible.map(r=>{const date=r.date,dd=sample.all.find(r=>r.anchor_date===date);return `<tr class="${date===state.selected?'selected':''}"><td><button class="text-button" data-episode="${esc(date)}">${esc(date)} ↗</button></td><td class="micro">${esc(era(date))}</td><td class="${color(r.value)}">${pct(r.value,2,true)}</td><td class="${color(r.value)}">${r.status!=='complete'?'Pending / unavailable':r.value>0?'Positive':r.value<0?'Negative':'Flat'}</td><td>${finite(dd?.max_drawdown_atr)?`${num(dd.max_drawdown_atr,2)} ATR`:'—'}</td><td>${r.status==='complete'?'Complete':r.status==='incomplete'?`${r.available} / ${w} sessions available`:'Price coverage unavailable'}</td></tr>`;}).join('') || '<tr><td colspan="6" class="quiet">No matched episodes fit this outcome filter.</td></tr>'}</tbody></table><p class="micro">The sample is chosen before outcomes. Positive close-to-close returns can coexist with intraday drawdowns. Returns measure adjusted close to adjusted close. Intraday downside details are supplied only for the original retained episodes.</p>`;
+  $('episodesTable').innerHTML=`<table><thead><tr><th>Matched close</th><th>History basis</th><th>${w}d SPY return</th><th>Outcome</th><th>Max low-touch downside</th><th>Availability</th></tr></thead><tbody>${visible.map(r=>{const date=r.date,dd=sample.all.find(r=>r.anchor_date===date);return `<tr class="${date===state.selected?'selected':''}"><td><button class="text-button" data-episode="${esc(date)}">${esc(date)} ↗</button></td><td class="micro">${esc(era(date))}</td><td class="${color(r.value)}">${pct(r.value,2,true)}</td><td class="${color(r.value)}">${r.status!=='complete'?'Pending / unavailable':r.value>0?'Positive':r.value<0?'Negative':'Flat'}</td><td>${finite(dd?.max_drawdown_atr)?`${num(dd.max_drawdown_atr,2)} ATR`:'—'}</td><td>${r.status==='complete'?'Complete':r.status==='incomplete'?`${r.available} / ${w} sessions available`:'Price coverage unavailable'}</td></tr>`;}).join('') || '<tr><td colspan="6" class="quiet">No matched episodes fit this outcome filter.</td></tr>'}</tbody></table><p class="micro">The sample is chosen before outcomes. Positive close-to-close returns can coexist with intraday drawdowns. Returns measure adjusted close to adjusted close. Downside details use the same selected dates and require a completed low-price window and a valid starting ATR.</p>`;
 }
 function inspect(kind) {
-  const w=state.window,s=studyOf(data),r=returnStats(data,w,state.sample),dd=drawdownSample(data,w,state.threshold);
+  const w=state.window,s=studyOf(data),r=returnStats(data,w,state.sample),dd=drawdownSample(data,w,state.threshold,state.sample);
   const outcomes=returnSample(data,w,state.sample);
   const coverage=`${data.dates?.[0] || '?'} through ${data.asof}`;
   if(kind==='returns'||kind==='distribution') {
@@ -133,32 +133,37 @@ function inspect(kind) {
         ['Worst / best',`${pct(r?.worst,2)} / ${pct(r?.best,2)}`]])+
       '<p class="rule-note">These are descriptive historical outcomes, not a forecast interval or calibrated confidence measure. Long windows can overlap, and a small sample can be driven by one episode. Individual matched dates are listed on the page.</p>');
   } else if(kind==='drawdown'||kind==='iv') {
-    showInspector(kind==='iv'?'VIX behavior conditional on downside':`≥${state.threshold} ATR downside within ${w} sessions`,
-      `<div class="inspector-stat">${kind==='iv'?(finite(dd.ivMean)?`${signed(dd.ivMean)} VIX points`:'Unavailable'):pct(dd.rate,1)}</div>`+facts([
-        ['Selected sample',`Original ${anchorsOf(data).length} overlap-reduced ±5 episodes only. This saved diagnostic does not switch to all matching dates.`],
-        ['Eligible episodes',String(dd.n)],['Breached threshold',`${dd.hits} / ${dd.n} (${pct(dd.rate,1)})`],
-        ['VIX observations among breaches',String(dd.ivN)],['Conditional VIX mean / median',`${signed(dd.ivMean)} / ${signed(dd.ivMedian)} points`],
-        ['Downside definition',`Matched SPY close minus lowest subsequent intraday low in ${w} sessions, divided by Wilder ATR(14) fixed at the matched close`],
-        ['VIX timing',`${esc(data.drawdown_iv?.iv_basis || 'VIX')} from the following session through the date of the worst SPY low`]])+
-      `<p class="rule-note">The VIX average describes only the ${dd.hits} episodes that breached the threshold. It is not an unconditional VIX forecast or an option price. Missing VIX values are excluded from VIX summaries only.</p><h3>Episodes that breached</h3><p>${dd.breached.length?dd.breached.map(row=>`<button class="text-button" data-dialog-episode="${esc(row.anchor_date)}">${esc(row.anchor_date)} ↗</button>`).join(' · '):'None in this eligible sample.'}</p>`);
+    const listed=kind==='iv'?dd.breached:dd.rows;
+    showInspector(kind==='iv'?'VIX behavior after a threshold breach':`All selected outcomes · ≥${state.threshold} ATR within ${w} sessions`,
+      `<p class="quiet">${esc(sampleLabel())} · same dial ±5 dates as returns and the timeline.</p><div class="inspector-stat">${kind==='iv'?(finite(dd.ivMean)?`${signed(dd.ivMean)} VIX points`:'Unavailable'):pct(dd.rate,1)}</div>`+facts([
+        ['Selected / eligible',`${dd.selected} selected dates / ${dd.n} completed, eligible windows`],
+        ['Incomplete / unavailable',`${dd.pending} / ${dd.unavailable}`],
+        ['Hit / did not hit',`${dd.hits} / ${dd.n-dd.hits}`],
+        ['Frequency',`${dd.hits} hits ÷ ${dd.n} eligible matches = ${pct(dd.rate,1)}`],
+        ['VIX observations among breaches',String(dd.ivN)],
+        ['Conditional VIX mean / median',`${signed(dd.ivMean)} / ${signed(dd.ivMedian)} points`],
+        ['Downside definition',`Matched SPY close minus lowest subsequent intraday low in ${w} sessions, floored at zero, divided by Wilder ATR(14) fixed at the matched close`],
+        ['VIX timing',`${esc(data.downside_samples?.iv_basis || 'VIX')} from the following session through the date of the worst SPY low`]])+
+      `<p class="rule-note">Downside frequencies include every eligible match, whether or not it hit the threshold. Only the VIX average is conditional on breaches; missing VIX does not change the downside denominator.</p><h3>${kind==='iv'?'Matches that hit the threshold':'Every selected match'}</h3><div class="table-scroll"><table><thead><tr><th>Matched date</th><th>Downside</th><th>Threshold outcome</th></tr></thead><tbody>${listed.map(row=>`<tr><td><button class="text-button" data-dialog-episode="${esc(row.anchor_date)}">${esc(row.anchor_date)} ↗</button></td><td>${finite(row.max_drawdown_atr)?`${num(row.max_drawdown_atr,2)} ATR`:'—'}</td><td>${row.status==='complete'?(row.breaches?.[state.threshold]?'Hit':'Did not hit'):row.status==='incomplete'?'Incomplete':'Unavailable'}</td></tr>`).join('') || '<tr><td colspan="3">No eligible observations supplied.</td></tr>'}</tbody></table></div>`);
     for(const b of $('inspectorBody').querySelectorAll('[data-dialog-episode]'))b.addEventListener('click',()=>{$('inspector').close();selectEpisode(b.dataset.dialogEpisode,true);});
   } else {
-    const ad=data.atr_downside || {}, dial=ad.dial || {};
-    showInspector('Why the two downside samples differ',facts([
-      ['Dial downside table',`Every qualifying day with the main dial within ±${dial.band || 3} of ${num(dial.value)}. Adjacent days are included.`],
-      ['Matching-day coverage',`${esc(dial.band_from || '?')} through ${esc(dial.band_through || '?')}`],
-      ['Completed downside n',`${dial.n_by_h?.[`${w}d`]??'—'} matching days for ${w} sessions`],
-      ['Baseline n',`${ad.baseline_n?.[`${w}d`]??'—'} completed ${w}-session windows`],
-      ['Return study',`Dial ±5; choose all ${anchorsOf(data,'all').length} matching dates or ${anchorsOf(data).length} overlap-reduced episodes. Both use the same band and history.`],
-      ['Baseline coverage',`${esc(ad.data_from || '?')} through ${esc(ad.data_through || '?')}. This full-history baseline can cover a longer period than the dial sample.`],
-      ['Interpretation','A difference from the long-run baseline is descriptive. It is not an independent confirmation of the episode study.']])+
-      '<p class="rule-note">The matching-day table carries aggregate frequencies and completed counts, not an observation-level date ledger. Exact contributing dates and breach counts are not supplied for this separate study.</p>');
+    const ad=data.atr_downside || {};
+    showInspector('Downside sample & method',facts([
+      ['Selected sample',`${esc(sampleLabel())} · ${dd.selected} dates selected before outcomes, main dial ${num(s.band_low)}–${num(s.band_high)}`],
+      ['Shared dates','The return cards, downside frequencies, timeline and episode list follow the same sample selector.'],
+      ['Frequency',`${dd.hits} breaches / all ${dd.n} eligible ${w}-session windows; non-breaches stay in the denominator.`],
+      ['Incomplete / unavailable',`${dd.pending} / ${dd.unavailable}. Missing lows or starting ATR make downside unavailable, even if a closing return exists.`],
+      ['Baseline n',`${ad.baseline_n?.[`${w}d`]??'—'} completed ${w}-session market windows`],
+      ['Baseline coverage',`${esc(ad.data_from || '?')} through ${esc(ad.data_through || '?')}. This long-run baseline can cover a longer period than the dial sample.`],
+      ['Overlap',state.sample==='all'?'Adjacent qualifying dates are included; their future windows can overlap.':'More than 10 sessions between retained dates reduces overlap; 21-session windows may still overlap.']])+
+      '<p class="rule-note">The sample is selected by the dial before looking at outcomes. VIX after a threshold breach is a separate, conditional summary.</p>');
   }
 }
+
 function selectionOptions() {
   $('episodeSelect').innerHTML='<option value="">Latest market context</option>'+activeAnchors().slice().reverse().map(date=>`<option value="${esc(date)}">${esc(date)} · ${esc(era(date))}</option>`).join('');
   $('assetSelect').innerHTML=(data.price_explorer?.assets || ['SPY']).map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join('');
-  $('sampleMode').innerHTML=`<option value="reduced">Overlap-reduced episodes (${anchorsOf(data).length})</option><option value="all" ${validFullSample(data)?'':'disabled'}>All matching dates (${validFullSample(data)?anchorsOf(data,'all').length:'unavailable'})</option>`;
+  $('sampleMode').innerHTML=`<option value="all" ${validFullSample(data)?'':'disabled'}>All matching dates (${validFullSample(data)?anchorsOf(data,'all').length:'unavailable'})</option><option value="reduced">Overlap-reduced episodes (${anchorsOf(data).length})</option>`;
 }
 function selectEpisode(date,scroll=false) {
   if(date!==null && !activeAnchors().includes(date))return;
@@ -178,14 +183,14 @@ function renderReview() {
   $('selectionBanner').innerHTML=state.selected?`<b>Historical inspection: ${esc(date)}.</b> ${esc(era(date))}. Latest reading remains ${num(sz.score)} as of ${esc(sz.asof)}. Signal history is reconstructed; this is not historical page replay.`:`<b>Latest context: ${esc(date)}.</b> Select a historical match from the table, marker, or episode menu. The evidence above remains based on the latest dial.`;
   const spark=sz.spark || {},index=spark.dates?.indexOf(date),score=index>=0?spark.ma[index]:null;
   const out=state.selected?episodeOutcome(data,date,w,'SPY',state.sample):null;
-  const row=(data.drawdown_iv?.rows_by_horizon?.[`${w}d`] || []).find(r=>r.anchor_date===date);
+  const row=drawdownSample(data,w,state.threshold,state.sample).rows.find(r=>r.anchor_date===date);
   const active=(data.signals || []).filter(s=>signalAt(data.signal_detail?.[s.name],date));
   $('episodeDetail').innerHTML=`<h3>${state.selected?'Matched episode':'Latest saved reading'}</h3><div class="micro">${esc(date)} · ${esc(era(date))}</div><div class="detail-number">${num(score)} <span class="quiet">main dial</span></div>
     <div class="detail-row"><span>${w}-session SPY return</span><b class="${color(out?.value)}">${pct(out?.value,2,true)}</b></div>
     <div class="detail-row"><span>Worst low-touch downside</span><b>${finite(row?.max_drawdown_atr)?`${num(row.max_drawdown_atr,2)} ATR`:'—'}</b></div>
     <div class="detail-row"><span>Sessions to worst low</span><b>${finite(row?.sessions_to_low)?num(row.sessions_to_low,0):'—'}</b></div>
     <div class="detail-row"><span>VIX close → peak*</span><b>${finite(row?.iv_start_close)?num(row.iv_start_close):'—'} → ${finite(row?.iv_peak)?num(row.iv_peak):'—'}</b></div>
-    <p class="micro">${out?.status==='incomplete'?`Only ${out.available} of ${w} future sessions are available. Incomplete outcomes are not included in the completed summary.`:state.selected?'* Peak VIX through the window’s worst SPY low, not the full-window VIX maximum.':'Future outcomes are unavailable for the latest observation.'}${state.selected&&!anchorsOf(data).includes(date)?` Downside/VIX details are supplied only for the original ${anchorsOf(data).length} retained episodes; they are unavailable for this additional date.`:''}</p>
+    <p class="micro">${out?.status==='incomplete'?`Only ${out.available} of ${w} future sessions are available. Incomplete outcomes are not included in the completed summary.`:state.selected?'* Peak VIX through the window’s worst SPY low, not the full-window VIX maximum.':'Future outcomes are unavailable for the latest observation.'}${state.selected&&row?.status==='unavailable'?' Downside inputs are unavailable for this window.':''}</p>
     <div class="detail-heading">SIGNALS ON · RECONSTRUCTED</div><div class="detail-signals">${active.length?active.map(s=>`<button class="text-button" data-open-signal="${esc(s.name)}">${esc(s.name)} ↗</button>`).join(''):'<span class="quiet">No active periods in the supplied history.</span>'}</div>`;
 }
 async function renderMatches() {

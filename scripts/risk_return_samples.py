@@ -93,3 +93,92 @@ def build_return_samples(main, spy_close, reduced):
             "coverage_from": dates[0] if dates else None,
             "coverage_through": dates[-1] if dates else None,
             "all": full, "reduced": spaced}
+
+
+def build_downside_samples(samples, spy_df, vix_close=None, vix_high=None):
+    """Low-touch downside for exactly the return cohorts, including non-breaches.
+
+    Missing lows never shorten a forward window. Missing VIX never removes a
+    SPY observation from the downside denominator. Threshold tests use raw ATR.
+    """
+    from scripts.build_atr_downside_stats import ATR_N, MULTS, wilder_atr
+
+    if not samples or spy_df is None or spy_df.empty:
+        return None
+    if not {"High", "Low", "Close"}.issubset(spy_df.columns):
+        return None
+    spy = spy_df[["High", "Low", "Close"]].copy().sort_index()
+    spy.index = pd.to_datetime(spy.index)
+    if spy.index.tz is not None:
+        spy.index = spy.index.tz_localize(None)
+    if spy.index.has_duplicates:
+        raise ValueError("Downside inputs contain duplicate dates")
+    if spy.index[-1].strftime("%Y-%m-%d") != samples["asof"]:
+        raise ValueError("Downside and return samples have different market dates")
+    high, low, close = (spy[c].to_numpy(float) for c in ("High", "Low", "Close"))
+    atr = wilder_atr(high, low, close)
+
+    def align(values):
+        series = pd.Series(dtype=float) if values is None else pd.Series(values, dtype=float).dropna().sort_index()
+        series.index = pd.to_datetime(series.index)
+        if series.index.tz is not None:
+            series.index = series.index.tz_localize(None)
+        if series.index.has_duplicates:
+            raise ValueError("Downside VIX input contains duplicate dates")
+        return series.reindex(spy.index)
+
+    iv_close = align(vix_close).ffill(limit=1)
+    using_high = vix_high is not None and len(vix_high) > 0
+    iv_high = align(vix_high).combine_first(iv_close) if using_high else iv_close
+    output = {k: samples[k] for k in ("version", "asof", "score_asof", "current_score", "band_low", "band_high")}
+    output.update({"atr_period": ATR_N, "thresholds": MULTS,
+                   "measure": "max(anchor close - future intraday low, 0) / anchor-date Wilder ATR(14)",
+                   "iv_basis": "VIX intraday high" if using_high else "VIX daily close (high unavailable)"})
+    for name in ("all", "reduced"):
+        cohort = samples[name]
+        result = {"episode_dates": list(cohort["episode_dates"]), "windows": {}}
+        for window in WINDOWS:
+            outcomes = []
+            for recorded in cohort["outcomes"][str(window)]:
+                date = recorded["date"]
+                row = {"date": date, "anchor_date": date, "status": recorded["status"]}
+                if recorded["status"] != "complete":
+                    row["available"] = recorded.get("available")
+                    outcomes.append(row)
+                    continue
+                pos = spy.index.get_indexer([pd.Timestamp(date)])[0]
+                end = pos + window
+                usable = (pos >= 0 and end < len(spy) and np.isfinite(atr[pos]) and atr[pos] > 0
+                          and np.isfinite(close[pos]) and close[pos] > 0
+                          and spy.index[end].strftime("%Y-%m-%d") == recorded["endDate"]
+                          and np.isfinite(low[pos + 1:end + 1]).all()
+                          and (low[pos + 1:end + 1] > 0).all())
+                if not usable:
+                    row["status"] = "unavailable"
+                    outcomes.append(row)
+                    continue
+                low_pos = pos + 1 + int(np.argmin(low[pos + 1:end + 1]))
+                amount = float(max(close[pos] - low[low_pos], 0) / atr[pos])
+                iv_start = iv_close.iloc[pos]
+                iv_window = iv_high.iloc[pos + 1:low_pos + 1].dropna()
+                peak = float(iv_window.max()) if len(iv_window) else None
+                delta = float(peak - iv_start) if peak is not None and np.isfinite(iv_start) else None
+                row.update({"max_drawdown_atr": amount,
+                            "max_drawdown_pct": float(min(low[low_pos] / close[pos] - 1, 0)),
+                            "anchor_spy_close": float(close[pos]), "anchor_atr": float(atr[pos]),
+                            "worst_low_date": spy.index[low_pos].strftime("%Y-%m-%d"),
+                            "worst_spy_low": float(low[low_pos]), "sessions_to_low": int(low_pos - pos),
+                            "breaches": {str(k): bool(amount >= k) for k in MULTS},
+                            "iv_start_close": float(iv_start) if np.isfinite(iv_start) else None,
+                            "iv_peak": peak, "iv_change_points": delta})
+                outcomes.append(row)
+            completed = [r for r in outcomes if r["status"] == "complete"]
+            hits = {str(k): sum(r["breaches"][str(k)] for r in completed) for k in MULTS}
+            result["windows"][str(window)] = {
+                "n_selected": len(outcomes), "n_complete": len(completed),
+                "n_incomplete": sum(r["status"] == "incomplete" for r in outcomes),
+                "n_unavailable": sum(r["status"] == "unavailable" for r in outcomes),
+                "hits": hits, "rates": {k: 100 * v / len(completed) if completed else None for k, v in hits.items()},
+                "outcomes": outcomes}
+        output[name] = result
+    return output

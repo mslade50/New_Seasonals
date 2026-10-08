@@ -80,3 +80,77 @@ def test_research_sample_survives_shared_redaction_without_book_data():
     shared = redact_for_shared({"return_samples": sample, "sizing_state": {"score": 50., "threshold": 50., "throttle_on": True}})
     assert shared["return_samples"] == sample
     assert_shared_payload_clean(shared)
+
+
+def downside_inputs():
+    from scripts.risk_return_samples import build_downside_samples
+    dates = pd.bdate_range("2026-01-02", periods=60)
+    main = pd.Series(100., index=dates)
+    main.iloc[[14, 15, 25, 59]] = 50.
+    spy = pd.DataFrame({"High": 101., "Low": 99., "Close": 100.}, index=dates)
+    spy.iloc[16, spy.columns.get_loc("Low")] = 94.
+    reduced = {"current_score": 50., "band_low": 45., "band_high": 55.,
+               "episode_dates": list(dates[[14, 25, 59]])}
+    samples = build_return_samples(main, spy.Close, reduced)
+    return dates, spy, samples, build_downside_samples
+
+
+def test_downside_denominator_includes_non_breaches_and_tracks_exact_cohorts():
+    dates, spy, samples, build = downside_inputs()
+    result = build(samples, spy)
+    full = result["all"]["windows"]["5"]
+    reduced = result["reduced"]["windows"]["5"]
+    assert result["all"]["episode_dates"] == samples["all"]["episode_dates"]
+    assert result["reduced"]["episode_dates"] == samples["reduced"]["episode_dates"]
+    assert (full["n_selected"], full["n_complete"], full["n_incomplete"]) == (4, 3, 1)
+    assert full["hits"]["3"] == 2
+    assert full["rates"]["3"] == pytest.approx(200/3)
+    assert (reduced["n_complete"], reduced["hits"]["3"]) == (2, 1)
+    assert reduced["rates"]["3"] == 50
+    assert any(r.get("max_drawdown_atr", 99) < 1 for r in full["outcomes"])
+    assert all(r["iv_change_points"] is None for r in full["outcomes"] if r["status"] == "complete")
+
+
+def test_downside_thresholds_use_unrounded_values_and_zero_drawdown_is_eligible():
+    _, spy, samples, build = downside_inputs()
+    spy.iloc[16, spy.columns.get_loc("Low")] = 98.0008
+    full = build(samples, spy)["all"]["windows"]["5"]
+    first = full["outcomes"][0]
+    assert first["max_drawdown_atr"] == pytest.approx(.9996)
+    assert first["breaches"]["1"] is False
+    assert full["hits"]["1"] == 0
+    spy.loc[spy.index[15:20], "Low"] = 100.5
+    assert build(samples, spy)["all"]["windows"]["5"]["outcomes"][0]["max_drawdown_atr"] == 0
+
+
+def test_missing_future_low_is_unavailable_without_shifting_the_window():
+    _, spy, samples, build = downside_inputs()
+    spy.iloc[16, spy.columns.get_loc("Low")] = np.nan
+    full = build(samples, spy)["all"]["windows"]["5"]
+    assert full["outcomes"][0]["status"] == "unavailable"
+    assert full["outcomes"][1]["status"] == "unavailable"
+    assert full["n_complete"] + full["n_incomplete"] + full["n_unavailable"] == 4
+    assert samples["all"]["sample_counts"]["5"] == 3
+
+
+def test_missing_vix_does_not_change_downside_denominators():
+    dates, spy, samples, build = downside_inputs()
+    vix = pd.Series(15., index=dates)
+    with_vix = build(samples, spy, vix)
+    without_vix = build(samples, spy)
+    for name in ("all", "reduced"):
+        for window in ("5", "10", "21"):
+            a, b = with_vix[name]["windows"][window], without_vix[name]["windows"][window]
+            assert (a["n_complete"], a["hits"], a["rates"]) == (b["n_complete"], b["hits"], b["rates"])
+    assert with_vix["all"]["windows"]["5"]["outcomes"][0]["iv_change_points"] == 0
+
+
+def test_downside_vintage_and_redaction_are_enforced():
+    _, spy, samples, build = downside_inputs()
+    result = build(samples, spy)
+    shared = redact_for_shared({"downside_samples": result})
+    assert shared["downside_samples"] == result
+    assert_shared_payload_clean(shared)
+    with pytest.raises(ValueError, match="market dates"):
+        build({**samples, "asof": "1999-01-01"}, spy)
+    assert build(samples, None) is None

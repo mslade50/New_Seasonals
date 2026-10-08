@@ -28,3 +28,22 @@ for(const key of ['threshold','throttle_on','exposure','sleeve','basis'])
   assert.throws(()=>c.assertSharedRisk({shared_redacted:true,sizing_state:{[key]:null}}));
 assert.throws(()=>c.assertSharedRisk({sizing_state:{score:50}}));
 console.log('Risk Lab core checks passed: exact ledgers, cohort switching, stale data, missing prices and shared privacy.');
+
+assert.equal(c.resolveState(d).sample,'all');
+assert.equal(c.resolveState(d,new URLSearchParams('sample=reduced')).sample,'reduced');
+const row=(date,status,hit)=>({date,anchor_date:date,status,
+  max_drawdown_atr:hit?2.1:0,breaches:{1:hit,2:hit,3:false,5:false},iv_change_points:null});
+const downs={...d,atr_downside:{baseline:{'5d':{1:10,2:10,3:10,5:10}},dial:{table:{'5d':{2:99}}}},
+  downside_samples:{version:1,asof:d.asof,score_asof:d.asof,current_score:50,band_low:45,band_high:55,
+    all:{episode_dates:all,windows:{5:{outcomes:all.map((date,i)=>row(date,i<3?'complete':'incomplete',i===0))}}},
+    reduced:{episode_dates:reduced,windows:{5:{outcomes:[row(reduced[0],'complete',true),row(reduced[1],'incomplete',false)]}}}}};
+const fullDD=c.drawdownSample(downs,5,2,'all');
+assert.equal(fullDD.n,3);assert.equal(fullDD.hits,1);assert.equal(fullDD.selected,20);
+assert.equal(fullDD.pending,17);assert.equal(fullDD.rate,1/3);assert.equal(fullDD.ivN,0);
+assert.equal(c.drawdownSample(downs,5,2,'reduced').rate,1);
+assert.ok(Math.abs(c.downsideCells(downs,'all').find(r=>r.window===5&&r.threshold===2).value-100/3)<1e-10);
+const stale={...downs,downside_samples:{...downs.downside_samples,current_score:49}};
+assert.equal(c.drawdownSample(stale,5,2,'all').n,0);
+assert.equal(c.downsideCells(stale,'all')[0].value,null);
+assert.equal(c.drawdownSample(d,5,2,'all').unavailable,20);
+console.log('Unified downside checks passed: full default, non-breaches, reduced selection and stale-data rejection.');

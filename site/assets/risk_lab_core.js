@@ -72,14 +72,26 @@ export function pathEnvelope(paths, window) {
       q25: quantile(values,.25), q75: quantile(values,.75)};
   });
 }
-export function drawdownSample(d, window, threshold) {
-  const all = d.drawdown_iv?.rows_by_horizon?.[`${window}d`] || [];
-  const breached = all.filter(r => finite(r.max_drawdown_atr) && r.max_drawdown_atr >= threshold);
-  const iv = breached.map(r => r.iv_change_points).filter(finite);
-  return {all, breached, n: all.length, hits: breached.length,
-    rate: all.length ? breached.length / all.length : null,
-    ivN: iv.length, ivMean: iv.length ? iv.reduce((a,b)=>a+b,0)/iv.length : null,
-    ivMedian: quantile(iv,.5)};
+export function downsideStudy(d, sample = 'all') {
+  const s=d.downside_samples, returns=d.return_samples;
+  if(!validFullSample(d) || !s || s.version!==1 || s.asof!==returns.asof
+    || s.score_asof!==returns.score_asof || s.current_score!==returns.current_score
+    || s.band_low!==returns.band_low || s.band_high!==returns.band_high
+    || JSON.stringify(s[sample]?.episode_dates)!==JSON.stringify(anchorsOf(d,sample)))return null;
+  return s[sample];
+}
+export function drawdownSample(d, window, threshold, sample = 'all') {
+  const saved=downsideStudy(d,sample)?.windows?.[window];
+  const rows=saved?.outcomes || [];
+  const all=rows.filter(r=>r.status==='complete');
+  const breached=all.filter(r=>r.breaches?.[threshold]===true);
+  const iv=breached.map(r=>r.iv_change_points).filter(finite);
+  return {rows,all,breached,n:all.length,hits:breached.length,
+    selected:anchorsOf(d,sample).length,
+    pending:rows.filter(r=>r.status==='incomplete').length,
+    unavailable:saved?rows.filter(r=>r.status==='unavailable').length:anchorsOf(d,sample).length,
+    rate:all.length?breached.length/all.length:null,
+    ivN:iv.length,ivMean:iv.length?iv.reduce((a,b)=>a+b,0)/iv.length:null,ivMedian:quantile(iv,.5)};
 }
 export function returnSample(d, window, sample = 'reduced') {
   const all = anchorsOf(d, sample).map(date => episodeOutcome(d, date, window, 'SPY', sample));
@@ -99,14 +111,15 @@ export function filterOutcomes(rows, filter) {
   if (filter === 'pending') return rows.filter(r => r.status !== 'complete');
   return rows;
 }
-export function downsideCells(d) {
-  const ad = d.atr_downside || {};
-  return WINDOWS.flatMap(window => (ad.mults || [1,2,3,5]).map(threshold => {
-    const value = ad.dial?.table?.[`${window}d`]?.[threshold];
-    const baseline = ad.baseline?.[`${window}d`]?.[threshold];
-    const delta = finite(value) && finite(baseline) ? value - baseline : null;
-    return {window, threshold, value, baseline, delta,
-      elevated: finite(delta) && delta >= 8};
+export function downsideCells(d, sample = 'all') {
+  const ad=d.atr_downside || {};
+  return WINDOWS.flatMap(window=>[1,2,3,5].map(threshold=>{
+    const dd=drawdownSample(d,window,threshold,sample);
+    const value=finite(dd.rate)?100*dd.rate:null;
+    const baseline=ad.baseline?.[`${window}d`]?.[threshold];
+    const delta=finite(value)&&finite(baseline)?value-baseline:null;
+    return {window,threshold,value,baseline,delta,hits:dd.hits,n:dd.n,
+      elevated:finite(delta)&&delta>=8};
   }));
 }
 export function signalAt(detail, date) {
@@ -193,7 +206,7 @@ export function resolveState(d, params = new URLSearchParams()) {
   const threshold = Number(params.get('atr'));
   const asset = assets.includes(params.get('asset')) ? params.get('asset') : 'SPY';
   const requested = params.get('episode');
-  const sample = params.get('sample') === 'all' && validFullSample(d)
+  const sample = params.get('sample') !== 'reduced' && validFullSample(d)
     && anchorsOf(d,'all').length ? 'all' : 'reduced';
   const selected = anchorsOf(d,sample).includes(requested) ? requested : null;
   return {window: WINDOWS.includes(horizon) ? horizon : 21,
