@@ -129,24 +129,30 @@ class OrderGate:
 WORKING_DONE={'Filled','Cancelled','ApiCancelled','Inactive'}
 
 
-async def book_view(transport):
+async def book_view(transport,snapshot=None):
     """Read-only view of the execution contracts, split by orderRef. OpenBreakout's own position comes from
     its own executions; the account position and other strategies' working orders are other_book."""
     config=transport.config
     execution={m.execution.con_id:m.execution.symbol for m in config.markets}
-    lock=getattr(transport,'snapshot_lock',None) or asyncio.Lock()
-    async with lock:
-        positions=await asyncio.wait_for(transport.ib.reqPositionsAsync(),10)
-        trades=await asyncio.wait_for(transport.ib.reqAllOpenOrdersAsync(),10)
-    own=None;own_error=None
-    for attempt in range(3):
-        try:
-            own={symbol:await asyncio.wait_for(transport.own_position(cid),15) for cid,symbol in execution.items()}
-            own_error=None;break
-        except Exception as exc:
-            # Executions unreadable: our own position is UNKNOWN, never assumed flat.
-            own=None;own_error=f'{type(exc).__name__}: {exc}'
-            if attempt<2:await asyncio.sleep(1)
+    if snapshot is None:
+        lock=getattr(transport,'snapshot_lock',None) or asyncio.Lock()
+        async with lock:
+            positions=await asyncio.wait_for(transport.ib.reqPositionsAsync(),10)
+            trades=await asyncio.wait_for(transport.ib.reqAllOpenOrdersAsync(),10)
+        own=None;own_error=None
+        for attempt in range(3):
+            try:
+                own={symbol:await asyncio.wait_for(transport.own_position(cid),15) for cid,symbol in execution.items()}
+                own_error=None;break
+            except Exception as exc:
+                # Executions unreadable: flat is UNKNOWN, never an empty book.
+                own=None;own_error=f'{type(exc).__name__}: {exc}'
+                if attempt<2:await asyncio.sleep(1)
+    else:
+        # The recovery barrier already read this exact connection epoch.  Reuse
+        # that evidence rather than issuing a second, raceable set of requests.
+        positions=snapshot['positions'];trades=snapshot['trades'];own_error=None
+        own={symbol:snapshot['own'].get(cid,0) for cid,symbol in execution.items()}
     held={symbol:sum(p.position for p in positions if p.account==config.account and p.contract.conId==cid)
           for cid,symbol in execution.items()}
     working=[dict(symbol=execution[t.contract.conId],client_id=t.order.clientId,order_id=t.order.orderId,
@@ -169,6 +175,18 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
     report=dict(checked_at=datetime.now(timezone.utc).isoformat(),mode=config.mode,account_suffix=config.account[-4:],
                 port=config.port,client_id=config.client_id,live_ack_verified=transport.ack is not None,
                 contracts=transport.contract_report,failures=failures,warnings=warnings)
+    recovery_snapshot=None
+    reconcile=getattr(transport,'reconcile_recovery',None)
+    if reconcile is not None:
+        proof=await reconcile(wait_seconds=wait_seconds,max_age=max_age)
+        recovery_snapshot=proof.pop('snapshot',None)
+        report['broker_recovery']=proof
+        report['recovery_retryable']=bool(proof.get('retryable'))
+        if not proof.get('complete'):
+            failures.append('RECOVERY_INCOMPLETE:'+('|'.join(proof.get('failures',[])) or 'UNKNOWN'))
+            report['ok']=False
+            return report
+        report['_recovery_token']=proof.get('token')
     needed={f'{m.name}:{k}' for m in config.markets for k in ('trade','quote')}
     deadline=asyncio.get_running_loop().time()+wait_seconds
     while not needed<=set(transport.last_seen) and asyncio.get_running_loop().time()<deadline:
@@ -182,7 +200,7 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
     report['market_data_types']={str(k):v for k,v in transport.data_types.items()}
     if any(v!=1 for v in transport.data_types.values()):failures.append('NON_LIVE_MARKET_DATA')
     if not transport.healthy:failures.append('TRANSPORT_UNHEALTHY')
-    view=await book_view(transport)
+    view=await book_view(transport,recovery_snapshot)
     report.update(view)
     # Ownership is the orderRef: only OpenBreakout's own position and working orders fail preflight.
     if view['own_positions'] is None:
@@ -192,7 +210,12 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
         failures.extend(f'OWN_POSITION:{s}:{q}' for s,q in view['own_positions'].items() if q)
     failures.extend(f'WORKING_ORDER:{w["symbol"]}:client{w["client_id"]}:{w["type"]}' for w in view['working_orders'])
     try:
-        values=await asyncio.wait_for(transport.account_values(),15)
+        # The recovery barrier already proved this account response in the
+        # exact connection epoch.  A second account-summary request can race a
+        # disconnect (and can itself emit callbacks), so reuse the proof.
+        values=(report.get('broker_recovery') or {}).get('account_values')
+        if values is None:
+            values=await asyncio.wait_for(transport.account_values(),15)
         report['net_liquidation']=values['NetLiquidation'];report['excess_liquidity']=values['ExcessLiquidity']
         limit=min(values['ExcessLiquidity'],values['NetLiquidation'])*config.max_margin_fraction
         report['margin_limit']=limit
@@ -273,6 +296,10 @@ async def preflight(transport,*,manifest=None,wait_seconds=30.,max_age=15.):
             await apply_margin_day_cap(report,worst,one_worst,limit,sized_check,failures)
         else:
             warnings.append(f'MARGIN_TOTAL_AT_REFERENCE:{total:.2f}>{limit:.2f}')
+    valid=getattr(transport,'recovery_token_valid',None)
+    if valid is not None and not valid(report.get('_recovery_token')):
+        failures.append('RECOVERY_EVIDENCE_CHANGED')
+        report['recovery_retryable']=True
     report['ok']=not failures
     return report
 
@@ -441,14 +468,19 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
                     service.halt('CONNECTION_LOST_AFTER_ARMING');final='HALTED';break
                 if transport:transport.close()
                 if now>=opening:raise RuntimeError('Opening missed before connection recovered')
-                transport=IBKR(config)
+                transport=IBKR(config,session=day)
+                transport.halt_callback=feed_error
                 # Hard boundary below the adapter as well: this process cannot transmit.
                 def deny_orders(*args,**kwargs):raise PermissionError('Shadow process prohibits broker orders')
                 transport.ib.client.placeOrder=deny_orders
                 try:
                     await asyncio.wait_for(transport.connect(),30)
-                    transport.halt_callback=feed_error
                     transport.subscribe(on_tick,on_capture)
+                    reconcile=getattr(transport,'reconcile_recovery',None)
+                    if reconcile is not None:
+                        proof=await reconcile()
+                        if not proof.get('complete'):
+                            raise RuntimeError(f'Shadow broker recovery incomplete: {proof.get("failures")}')
                     await record_other_book(runtime,transport,'connect')
                     runtime.set('phase','WAITING_FOR_PREOPEN')
                     print('Live feed connected; recording while waiting for 09:00 ET preparation',flush=True)
@@ -518,6 +550,43 @@ async def run_shadow(config_path,day,risk_path,state_dir,roll_verified=False):
 
 
 ARM_AT=time(9,25)
+PREARM_RECOVERY_MAX_ATTEMPTS=3
+PREARM_RECOVERY_DELAYS=(2,5,10)
+
+
+def retryable_preflight(report):
+    """Only transport-proof failures may retry; every business/safety gate stays authoritative."""
+    failures=report.get('failures',[])
+    allowed=('RECOVERY_INCOMPLETE:','RECOVERY_EVIDENCE_CHANGED','STREAM_MISSING:',
+             'STREAM_STALE:','TRANSPORT_UNHEALTHY')
+    return bool(report.get('recovery_retryable') and failures
+                and all(any(f.startswith(p) for p in allowed) for f in failures))
+
+
+def retryable_connect_exception(exc):
+    """Only transport-class connect failures may enter the bounded retry path."""
+    return (not isinstance(exc,(PermissionError,ValueError))
+            and isinstance(exc,(asyncio.TimeoutError,ConnectionError,OSError)))
+
+
+def next_recovery_retry(counters,stage):
+    """Consume one of three retries for the named pre-arm stage."""
+    attempt=counters[stage]+1
+    if attempt>PREARM_RECOVERY_MAX_ATTEMPTS:return None
+    counters[stage]=attempt
+    return attempt,PREARM_RECOVERY_DELAYS[attempt-1]
+
+
+def prearm_boundary(root,clock,opening):
+    """Return the authoritative post-await stop reason, if any.
+
+    The opening instant is exclusive: a proof begun at 09:29:59 that
+    completes at 09:30:00 may not arm.  STOP takes precedence so an operator
+    request is never reported as a transport or timing failure.
+    """
+    if (root/'STOP').exists():return 'STOPPED_BY_REQUEST'
+    if clock()>=opening:return 'OPENING_REACHED'
+    return None
 
 
 def prior_live_orders(root,day):
@@ -581,7 +650,7 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
         capture.write(event,clock())
     def on_tick(name,stamp,price):
         if service:service.tick(name,stamp,price)
-    final='STOPPED';reported=False
+    final='STOPPED';reported=False;recovery_attempts={'connect':0,'arm':0}
     try:
         while clock()<closing:
             now=clock()
@@ -598,22 +667,50 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                 if now>=opening:raise RuntimeError('Opening missed before connection recovered')
                 transport=IBKR(config,session=day)
                 gate=OrderGate(transport.ib.client)
+                transport.halt_callback=feed_error
+                transport.diagnostic_callback=lambda detail:runtime.event('BROKER_DIAGNOSTIC',detail)
                 try:
                     await asyncio.wait_for(transport.connect(),30)
-                    transport.halt_callback=feed_error
                     transport.subscribe(on_tick,on_capture)
                 except Exception as exc:
-                    runtime.set('phase','RETRYING_CONNECTION');runtime.set('last_error',str(exc))
                     transport.close();transport=None
+                    stage='arm' if manifest is not None else 'connect'
+                    retry=next_recovery_retry(recovery_attempts,stage) if retryable_connect_exception(exc) else None
+                    if retry is None:
+                        runtime.set('last_error',f'CONNECT_FAILED:{type(exc).__name__}:{exc}')
+                        alert(f'CONNECT FAILED ({stage}, not retrying); not arming: {type(exc).__name__}: {exc}')
+                        final='HALTED_PREFLIGHT';break
+                    attempt,delay=retry
+                    runtime.set('phase','RETRYING_CONNECTION');runtime.set('last_error',str(exc))
+                    runtime.event('CONNECTION_RETRY',{'stage':stage,'attempt':attempt,
+                                                       'delay_seconds':delay,'error':f'{type(exc).__name__}: {exc}'})
                     runtime.set('heartbeat',{'at':clock().isoformat(),'events':capture.count})
-                    await asyncio.sleep(10);continue
+                    await asyncio.sleep(delay);continue
                 # manifest is None at the first connect; a reconnect after 09:00 checks the planned sizes.
                 report=await preflight(transport,manifest=manifest)
                 save_report('connect',report)
+                boundary=prearm_boundary(root,clock,opening)
+                if boundary=='STOPPED_BY_REQUEST':
+                    final='STOPPED_BY_REQUEST';break
+                if boundary=='OPENING_REACHED':
+                    runtime.set('last_error','PREFLIGHT_CROSSED_OPENING')
+                    alert('PREFLIGHT completed at/after the cash open; not arming')
+                    final='HALTED_PREFLIGHT';break
                 if not report['ok']:
+                    stage='arm' if manifest is not None else 'connect'
+                    retry=next_recovery_retry(recovery_attempts,stage) if retryable_preflight(report) else None
+                    if retry is not None:
+                        attempt,delay=retry
+                        runtime.set('phase','RETRYING_PREFLIGHT')
+                        runtime.event('PREFLIGHT_RETRY',{'stage':stage,'attempt':attempt,'delay_seconds':delay,
+                                                         'failures':report['failures']})
+                        transport.close();transport=None
+                        await asyncio.sleep(delay)
+                        continue
                     runtime.set('last_error',f'PREFLIGHT_FAILED:{report["failures"]}')
                     alert(f'PREFLIGHT FAILED at connect; not arming: {report["failures"]}')
                     final='HALTED_PREFLIGHT';break
+                if manifest is None:recovery_attempts['connect']=0
                 runtime.set('phase','WAITING_FOR_PREOPEN')
                 print('Live feed connected and preflight passed; orders blocked until 09:25 ET arming'
                       +(f'; warnings {report["warnings"]}' if report['warnings'] else ''),flush=True)
@@ -642,7 +739,23 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                 if now>=opening:raise RuntimeError('Opening missed before arming')
                 report=await preflight(transport,manifest=manifest)
                 save_report('arm',report)
+                boundary=prearm_boundary(root,clock,opening)
+                if boundary=='STOPPED_BY_REQUEST':
+                    final='STOPPED_BY_REQUEST';break
+                if boundary=='OPENING_REACHED':
+                    runtime.set('last_error','ARM_PREFLIGHT_CROSSED_OPENING')
+                    alert('09:25 preflight completed at/after the cash open; not arming')
+                    final='HALTED_PREFLIGHT';break
                 if not report['ok']:
+                    retry=next_recovery_retry(recovery_attempts,'arm') if retryable_preflight(report) else None
+                    if retry is not None:
+                        attempt,delay=retry
+                        runtime.set('phase','RETRYING_PREFLIGHT')
+                        runtime.event('PREFLIGHT_RETRY',{'attempt':attempt,'delay_seconds':delay,
+                                                         'failures':report['failures'],'stage':'arm'})
+                        transport.close();transport=None
+                        await asyncio.sleep(delay)
+                        continue
                     runtime.set('last_error',f'PREFLIGHT_FAILED:{report["failures"]}')
                     alert(f'PREFLIGHT FAILED at 09:25; not arming: {report["failures"]}')
                     final='HALTED_PREFLIGHT';break
@@ -658,6 +771,18 @@ async def run_live(config_path,day,risk_path,state_dir,roll_verified=False):
                 service.notify=alert
                 await service.watchdog()
                 if service.halted:
+                    runtime.set('last_error',ledger.get('halt_reason'));final='HALTED';break
+                # watchdog() awaits broker reads.  Revalidate the exact proof and
+                # wall clock immediately before opening the transmission gate.
+                boundary=prearm_boundary(root,clock,opening)
+                if boundary=='STOPPED_BY_REQUEST':
+                    final='STOPPED_BY_REQUEST';break
+                if boundary=='OPENING_REACHED':
+                    service.halt('OPENING_REACHED_BEFORE_ARM')
+                    runtime.set('last_error',ledger.get('halt_reason'));final='HALTED';break
+                valid=getattr(transport,'recovery_token_valid',lambda token:True)
+                if not valid(report.get('_recovery_token')):
+                    service.halt('RECOVERY_EVIDENCE_CHANGED_BEFORE_ARM')
                     runtime.set('last_error',ledger.get('halt_reason'));final='HALTED';break
                 gate.open=True
                 from broker_runtime.owner_connection import OwnerServer

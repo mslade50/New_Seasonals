@@ -278,6 +278,7 @@ def test_ibkr_already_filled_cancel_error_does_not_halt(config,filled,status,kno
     from open_breakout.ibkr import IBKR
     async def run():
         adapter=IBKR(config)
+        adapter.healthy=True
         if known:
             adapter.trades[21]=NS(order=NS(totalQuantity=1),orderStatus=NS(status=status),
                                   fills=[NS(execution=NS(shares=filled,cumQty=filled))] if filled else [])
@@ -994,7 +995,7 @@ def test_shadow_standby_full_session_simulates_only(config,tmp_path,monkeypatch)
     monkeypatch.setattr(standby,'datetime',ClockDateTime)
     class Feed:
         instance=None
-        def __init__(self,c):
+        def __init__(self,c,session=None):
             Feed.instance=self;self.config=c;self.healthy=True;self.connected=False;self.quotes={}
             self.ib=SimpleNamespace(client=SimpleNamespace(),isConnected=lambda:self.connected)
         async def connect(self):
@@ -1474,6 +1475,68 @@ def test_preflight_scopes_to_openbreakout_refs_and_reports_other_book(live):
         assert not closed['ok'] and closed['own_positions'] is None
         assert [f for f in closed['failures'] if f.startswith('OWN_POSITION')]==['OWN_POSITION_UNKNOWN:executions request failed (TimeoutError: reqExecutions)']
         assert closed['other_book']['MES']['other_position'] is None
+    asyncio.run(run())
+
+def test_preflight_reuses_recovery_snapshot_and_only_retries_transport_failures(live,tmp_path):
+    from open_breakout.standby import (preflight,retryable_preflight,prearm_boundary,
+        retryable_connect_exception,next_recovery_retry)
+    class Recovered(FakePreflight):
+        async def reconcile_recovery(self,**kwargs):
+            return dict(epoch=7,complete=True,retryable=False,failures=[],token=[7,11],
+                        account_values={'NetLiquidation':600000.,'ExcessLiquidity':500000.},
+                        snapshot=dict(positions=[],trades=[],own={},other={},own_exec_ids=[]))
+        async def account_values(self):
+            raise AssertionError('recovery-proved account values must be reused')
+        def recovery_token_valid(self,token):return token==[7,11]
+    async def run():
+        report=await preflight(Recovered(live,[],[],3000.),wait_seconds=0)
+        assert report['ok'] and report['broker_recovery']['complete']
+        assert report['net_liquidation']==600000. and report['own_positions']=={'MNQ':0,'MES':0}
+    asyncio.run(run())
+    assert retryable_preflight({'recovery_retryable':True,'failures':['RECOVERY_INCOMPLETE:REQUEST_TIMEOUT']})
+    assert not retryable_preflight({'recovery_retryable':True,'failures':['OWN_POSITION:MNQ:1']})
+    assert not retryable_preflight({'recovery_retryable':True,'failures':['WORKING_ORDER:MNQ:client0:STP']})
+    assert not retryable_preflight({'recovery_retryable':True,'failures':['ACCOUNT_VALUES:timeout']})
+    assert retryable_connect_exception(TimeoutError('socket'))
+    assert retryable_connect_exception(ConnectionError('reset'))
+    assert not retryable_connect_exception(PermissionError('ack mismatch'))
+    assert not retryable_connect_exception(ValueError('account or contract mismatch'))
+    counters={'connect':0,'arm':0}
+    assert [next_recovery_retry(counters,'arm') for _ in range(3)]==[(1,2),(2,5),(3,10)]
+    # Successful reconnect proofs do not reset the independent arm budget.
+    counters['connect']=0
+    assert next_recovery_retry(counters,'arm') is None and counters['arm']==3
+    opening=at('09:30:00')
+    assert prearm_boundary(tmp_path,lambda:at('09:29:59'),opening) is None
+    assert prearm_boundary(tmp_path,lambda:at('09:30:00'),opening)=='OPENING_REACHED'
+    (tmp_path/'STOP').write_text('stop')
+    assert prearm_boundary(tmp_path,lambda:at('09:30:00'),opening)=='STOPPED_BY_REQUEST'
+
+def test_legacy_paper_run_requires_recovery_before_routing():
+    from open_breakout.__main__ import prove_paper_start,validate_paper_start
+    class Paper:
+        def __init__(self,proof):self.proof=proof;self.subscribed=False;self.healthy=False
+        def subscribe(self,on_tick,capture):self.subscribed=True
+        async def reconcile_recovery(self):
+            assert self.subscribed
+            if self.proof.get('complete'):self.healthy=True
+            return self.proof
+        def recovery_token_valid(self,token):return self.healthy and token==[4,9]
+    async def run():
+        good=Paper({'complete':True,'token':[4,9],'failures':[]})
+        proof=await prove_paper_start(good,lambda:at('09:29:59'))
+        assert proof['complete'] and good.healthy
+        # Models an epoch/book change during the awaited startup watchdog.
+        good.healthy=False
+        with pytest.raises(RuntimeError,match='changed during startup'):
+            validate_paper_start(good,proof,lambda:at('09:29:59'))
+        good.healthy=True
+        with pytest.raises(ValueError,match='at/after 09:30'):
+            validate_paper_start(good,proof,lambda:at('09:30:00'))
+        with pytest.raises(RuntimeError,match='recovery incomplete'):
+            await prove_paper_start(Paper({'complete':False,'failures':['REQUEST_TIMEOUT']}),lambda:at('09:29:59'))
+        with pytest.raises(ValueError,match='at/after 09:30'):
+            await prove_paper_start(Paper({'complete':True,'token':[4,9],'failures':[]}),lambda:at('09:30:00'))
     asyncio.run(run())
 
 def tuesday_manifest(cfg,nq_tr=565.,es_tr=79.75,**es_fields):
@@ -2117,7 +2180,7 @@ def test_farm_blips_do_not_halt_and_snapshot_is_serialized(config):
         pytest.importorskip('ib_insync')
         from open_breakout.ibkr import IBKR
         from types import SimpleNamespace as NS
-        adapter=IBKR(config);halts=[]
+        adapter=IBKR(config);adapter.healthy=True;halts=[]
         adapter.halt_callback=halts.append
         for code in [2103,2105,2104]:adapter._error(-1,code,'farm',None)
         assert adapter.healthy and not halts
@@ -2129,6 +2192,206 @@ def test_farm_blips_do_not_halt_and_snapshot_is_serialized(config):
                       reqExecutionsAsync=lambda f:slow([]))
         await asyncio.gather(adapter.snapshot(),adapter.snapshot(),adapter.own_position(1),adapter.snapshot())
         assert peak[0]==1
+    asyncio.run(run())
+
+def test_reconnect_restoration_requires_complete_epoch_stable_broker_proof(config):
+    """Regression for the 2026-10-08 1100 -> disconnect -> 1102 sequence."""
+    async def run():
+        pytest.importorskip('ib_insync')
+        from types import SimpleNamespace as NS
+        from open_breakout.ibkr import IBKR
+        adapter=IBKR(config,session=DAY)
+        account_rows=[NS(account=config.account,currency='USD',tag='NetLiquidation',value='600000'),
+                      NS(account=config.account,currency='USD',tag='ExcessLiquidity',value='500000')]
+        async def empty():return []
+        async def executions(_):return []
+        async def completed(apiOnly=True):return []
+        account_cache={'stale-net-liq':account_rows[0],'stale-excess':account_rows[1]}
+        async def fresh_account():
+            account_cache.update({row.tag:row for row in account_rows})
+        fake=NS(client=NS(clientId=config.client_id),isConnected=lambda:True,
+                managedAccounts=lambda:[config.account],reqPositionsAsync=empty,
+                reqAllOpenOrdersAsync=empty,reqCompletedOrdersAsync=completed,
+                reqExecutionsAsync=executions,accountSummaryAsync=lambda:asyncio.sleep(0,result=account_rows),
+                accountValues=lambda account:[],wrapper=NS(acctSummary=account_cache),
+                reqAccountSummaryAsync=fresh_account)
+        adapter.ib=fake
+        halts=[];adapter.halt_callback=halts.append
+        adapter._error(-1,1100,'Connectivity between IB and TWS has been lost',None)
+        adapter._disconnected()
+        adapter._error(-1,1102,'Connectivity restored - data maintained',None)
+        restored_epoch=adapter.connection_epoch
+        adapter._error(-1,1102,'Connectivity restored - data maintained',None)
+        assert adapter.connection_epoch==restored_epoch and not adapter.healthy
+        stamp=datetime.now(tz=NY)
+        adapter.last_seen={f'{m.name}:{k}':stamp for m in config.markets for k in ('trade','quote')}
+        adapter.data_types={s.con_id:1 for m in config.markets for s in (m.signal,m.execution)}
+
+        async def never(apiOnly=True):
+            await asyncio.sleep(1)
+        fake.reqCompletedOrdersAsync=never
+        incomplete=await adapter.reconcile_recovery(wait_seconds=0,request_timeout=.001,stable_seconds=0)
+        assert not incomplete['complete'] and incomplete['retryable'] and not adapter.healthy
+        assert any(x.startswith('REQUEST_TIMEOUT:') for x in incomplete['failures'])
+
+        fake.reqCompletedOrdersAsync=completed
+        # A valid pre-outage cache is not proof.  The forced current-epoch
+        # account request must itself complete.
+        async def never_account():await asyncio.sleep(1)
+        account_cache.update({row.tag:row for row in account_rows})
+        fake.reqAccountSummaryAsync=never_account
+        stamp=datetime.now(tz=NY)
+        adapter.last_seen={f'{m.name}:{k}':stamp for m in config.markets for k in ('trade','quote')}
+        stale_cache=await adapter.reconcile_recovery(wait_seconds=0,request_timeout=.001,stable_seconds=0)
+        assert not stale_cache['complete'] and stale_cache['retryable'] and not adapter.healthy
+        assert any(x.startswith('REQUEST_TIMEOUT:') for x in stale_cache['failures'])
+        assert account_cache=={}
+
+        fake.reqAccountSummaryAsync=fresh_account
+        stamp=datetime.now(tz=NY)
+        adapter.last_seen={f'{m.name}:{k}':stamp for m in config.markets for k in ('trade','quote')}
+        complete=await adapter.reconcile_recovery(wait_seconds=0,request_timeout=.1,stable_seconds=0)
+        assert complete['complete'] and adapter.recovery_token_valid(complete['token'])
+        assert complete['restoration_code']==1102 and complete['completed_orders']==0
+
+        # A later same-code restoration after proof is a new boundary, not a
+        # duplicate.  It must invalidate the proof and notify post-arm logic.
+        proved_epoch=adapter.connection_epoch
+        adapter._error(-1,1102,'later standalone restoration',None)
+        assert adapter.connection_epoch==proved_epoch+1 and not adapter.healthy
+        assert not adapter.recovery_token_valid(complete['token'])
+        assert halts[-1].startswith('IB_ERROR:1102:')
+
+        adapter._error(-1,1100,'lost again',None)
+        assert not adapter.recovery_token_valid(complete['token']) and not adapter.healthy
+        adapter._error(-1,1102,'restored again',None)
+        assert not adapter.healthy
+        resubscribed=[];adapter._request_subscriptions=lambda:resubscribed.append(adapter.connection_epoch)
+        adapter._error(-1,1101,'restored, data lost',None)
+        adapter._error(-1,1101,'duplicate wording is irrelevant',None)
+        assert len(resubscribed)==1 and not adapter.healthy
+        assert any('IB_ERROR:1100' in reason for reason in halts)
+    asyncio.run(run())
+
+def test_recovery_proof_rejects_identity_epoch_callback_and_fatal_changes(config):
+    async def run():
+        pytest.importorskip('ib_insync')
+        from types import SimpleNamespace as NS
+        from open_breakout.ibkr import IBKR
+        adapter=IBKR(config,session=DAY)
+        async def empty():return []
+        async def executions(_):return []
+        rows=[NS(account=config.account,currency='USD',tag='NetLiquidation',value='600000'),
+              NS(account=config.account,currency='USD',tag='ExcessLiquidity',value='500000')]
+        account_cache={}
+        async def fresh_account():account_cache.update({row.tag:row for row in rows})
+        fake=NS(client=NS(clientId=config.client_id),isConnected=lambda:True,
+                managedAccounts=lambda:[config.account],reqPositionsAsync=empty,
+                reqAllOpenOrdersAsync=empty,reqCompletedOrdersAsync=lambda apiOnly=True:empty(),
+                reqExecutionsAsync=executions,accountSummaryAsync=lambda:asyncio.sleep(0,result=rows),
+                accountValues=lambda account:[],wrapper=NS(acctSummary=account_cache),
+                reqAccountSummaryAsync=fresh_account)
+        adapter.ib=fake
+        def streams():
+            stamp=datetime.now(tz=NY)
+            adapter.last_seen={f'{m.name}:{k}':stamp for m in config.markets for k in ('trade','quote')}
+            adapter.data_types={s.con_id:1 for m in config.markets for s in (m.signal,m.execution)}
+        streams()
+        fake.client.clientId=config.client_id+1
+        bad=await adapter.reconcile_recovery(wait_seconds=0,stable_seconds=0)
+        assert bad['failures']==['IDENTITY_MISMATCH'] and not bad['retryable']
+        fake.client.clientId=config.client_id;streams()
+        async def changes_epoch():
+            adapter._invalidate_recovery('TEST_EPOCH_CHANGE',notify=False)
+            return []
+        fake.reqPositionsAsync=changes_epoch
+        changed=await adapter.reconcile_recovery(wait_seconds=0,stable_seconds=0)
+        assert changed['failures']==['EPOCH_CHANGED_DURING_POSITIONS'] and not adapter.healthy
+        fake.reqPositionsAsync=empty;streams()
+        async def account_with_late_callback():
+            asyncio.get_running_loop().call_later(.05,adapter._book_changed,'TEST_CALLBACK')
+            account_cache.update({row.tag:row for row in rows})
+        fake.reqAccountSummaryAsync=account_with_late_callback
+        callbacks=await adapter.reconcile_recovery(wait_seconds=0,stable_seconds=.2)
+        assert callbacks['failures']==['CALLBACKS_CHANGED_DURING_STABILITY'] and not adapter.healthy
+        adapter._error(-1,201,'order rejected',None)
+        adapter._error(-1,1102,'restored',None)
+        streams()
+        fatal=await adapter.reconcile_recovery(wait_seconds=0,stable_seconds=0)
+        assert fatal['failures'][0].startswith('FATAL:IB_ERROR:201:') and not fatal['retryable']
+    asyncio.run(run())
+
+def test_recovery_validation_failures_are_not_retried(config):
+    async def run():
+        pytest.importorskip('ib_insync')
+        from types import SimpleNamespace as NS
+        from open_breakout.ibkr import IBKR
+        adapter=IBKR(config,session=DAY)
+        async def empty():return []
+        async def executions(_):return []
+        # Complete response, but semantically invalid account state.
+        rows=[NS(account=config.account,currency='USD',tag='NetLiquidation',value='0'),
+              NS(account=config.account,currency='USD',tag='ExcessLiquidity',value='500000')]
+        account_cache={}
+        async def fresh_account():account_cache.update({row.tag:row for row in rows})
+        connected=[False]
+        adapter.ib=NS(client=NS(clientId=config.client_id),isConnected=lambda:connected[0],
+                      managedAccounts=lambda:[config.account],reqPositionsAsync=empty,
+                      reqAllOpenOrdersAsync=empty,reqCompletedOrdersAsync=lambda apiOnly=True:empty(),
+                      reqExecutionsAsync=executions,accountSummaryAsync=lambda:asyncio.sleep(0,result=rows),
+                      accountValues=lambda account:[],wrapper=NS(acctSummary=account_cache),
+                      reqAccountSummaryAsync=fresh_account)
+        disconnected=await adapter.reconcile_recovery(wait_seconds=0,stable_seconds=0)
+        assert disconnected['failures']==['DISCONNECTED_BEFORE_RECOVERY'] and disconnected['retryable']
+        connected[0]=True
+        stamp=datetime.now(tz=NY)
+        adapter.last_seen={f'{m.name}:{k}':stamp for m in config.markets for k in ('trade','quote')}
+        adapter.data_types={s.con_id:1 for m in config.markets for s in (m.signal,m.execution)}
+        proof=await adapter.reconcile_recovery(wait_seconds=0,stable_seconds=0)
+        assert proof['failures'][0].startswith('REQUEST_FAILED:ValueError:')
+        assert not proof['retryable'] and not adapter.healthy
+    asyncio.run(run())
+
+def test_replayed_position_callbacks_do_not_invalidate_proof_but_real_changes_do(config):
+    async def run():
+        pytest.importorskip('ib_insync')
+        from types import SimpleNamespace as NS
+        from open_breakout.ibkr import IBKR
+        adapter=IBKR(config,session=DAY)
+        adapter.ib=NS(isConnected=lambda:True)
+        stamp=datetime.now(tz=NY)
+        adapter.last_seen={f'{m.name}:{k}':stamp for m in config.markets for k in ('trade','quote')}
+        adapter.data_types={s.con_id:1 for m in config.markets for s in (m.signal,m.execution)}
+        con_id=config.markets[0].execution.con_id
+        flat=NS(account=config.account,contract=NS(conId=con_id),position=0)
+        trade=NS(contract=NS(conId=con_id),
+                 order=NS(account=config.account,clientId=config.client_id,orderId=7,permId=70,
+                          totalQuantity=1,orderType='STP',action='SELL',auxPrice=100.,lmtPrice=0.,orderRef='OB'),
+                 orderStatus=NS(status='Submitted',filled=0))
+        account=NS(account=config.account,tag='NetLiquidation',currency='USD',value='600000')
+        adapter._seed_recovery_signatures([flat],[trade],{'NetLiquidation':600000.,'ExcessLiquidity':500000.})
+        adapter.healthy=True;token=[adapter.connection_epoch,adapter._book_revision]
+        adapter._position_changed(flat)  # identical reqPositions replay in startup watchdog
+        adapter._open_order_changed(trade)  # identical later open-order callback
+        adapter._account_value_changed(account)  # numerically identical account stream update
+        assert adapter.recovery_token_valid(token)
+        adapter._position_changed(NS(account=config.account,contract=NS(conId=999999),position=12))
+        assert adapter.recovery_token_valid(token)  # unrelated stock/contract book
+        adapter._position_changed(NS(account=config.account,contract=NS(conId=con_id),position=1))
+        assert not adapter.recovery_token_valid(token)
+
+        # Old nonzero content cannot survive an epoch.  If the reconnect is
+        # flat, reqPositions emits no row; a later return to the old quantity
+        # must still be recognized as a new post-proof change.
+        adapter._invalidate_recovery('TEST_OUTAGE',notify=False)
+        assert adapter._position_signatures=={}
+        stamp=datetime.now(tz=NY)
+        adapter.last_seen={f'{m.name}:{k}':stamp for m in config.markets for k in ('trade','quote')}
+        adapter.data_types={s.con_id:1 for m in config.markets for s in (m.signal,m.execution)}
+        adapter.healthy=True;flat_epoch_token=[adapter.connection_epoch,adapter._book_revision]
+        assert adapter.recovery_token_valid(flat_epoch_token)
+        adapter._position_changed(NS(account=config.account,contract=NS(conId=con_id),position=1))
+        assert not adapter.recovery_token_valid(flat_epoch_token)
     asyncio.run(run())
 
 def test_watchdog_stale_seconds_config(tmp_path,config):

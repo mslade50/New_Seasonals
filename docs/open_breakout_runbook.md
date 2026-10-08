@@ -1106,9 +1106,60 @@ remains parked pending the owner's go and the ownership port.
 
 ## Daily launch by Task Scheduler (2026-09-28)
 
+**Reconnect and launch-status amendment (source candidate, 2026-10-08; not installed).**
+IBKR messages 1101/1102 are restoration notifications, not state-reconciliation
+receipts.  A new connection epoch starts on 1100, disconnect, 1300, 1101 or 1102;
+the adapter remains unhealthy until fresh live streams and complete positions,
+all-open-orders, completed-orders, executions and a forced current-epoch account
+summary (never the pre-outage ib_insync cache) are read for the
+configured client/account/session without an intervening connection epoch or
+owner-book callback.  Timeout or missing completion is UNKNOWN and fails closed.
+Only this transient pre-arm recovery proof is retried (three bounded retries at
+2/5/10 seconds).  Position, working-order, identity, account, margin, STOP and
+other safety failures never become retryable.  A proof that finishes at or after
+09:30:00 ET cannot arm, even if it began at 09:29:59; the exact proof token and
+wall clock are checked again after the final watchdog and immediately before the
+order gate opens.  Connect timeouts/socket failures share the same bounded stage
+budget; acknowledgement, session, account, config and contract-identity errors
+are authoritative and never retried.  The legacy paper `run` path also requires
+the same proof before it can route.  Post-arm behavior and re-entry rules are unchanged.
+
+The Task Scheduler wrapper must also wait through the critical window instead of
+declaring success after the initial 60-second health check.  After the existing
+step 8 passes, invoke the tracked read-only monitor and propagate its exit code:
+
+```powershell
+& "$Repo\scripts\monitor_open_breakout_launch.ps1" -Session $Session -Repo $Repo
+if ($LASTEXITCODE -ne 0) { Stop-Launch 8 "critical-window launch verification failed (exit $LASTEXITCODE)" }
+```
+
+`open_breakout_launch_monitor.py` never imports the broker adapter or connects to
+IBKR.  It opens `runtime.sqlite` with SQLite `mode=ro`, `query_only=ON`, and a
+short busy timeout so it sees the active writer's current committed WAL state,
+and succeeds only after the
+cash open when the live heartbeat is fresh, connected, healthy, and the order
+gate is open.  Terminal, stale, disconnected, unhealthy or unarmed state returns
+nonzero, so the scheduled-task result follows the child session instead of the
+detached launcher.  The task was read-only verified on 2026-10-08 with
+`ExecutionTimeLimit=PT30M` and `MultipleInstancesPolicy=IgnoreNew`.  Preserve
+`IgnoreNew`, but raise the execution limit past 09:31 ET (two hours is sufficient)
+before installing this wrapper change; otherwise Task Scheduler would terminate
+a healthy monitor around 08:42 and report a false failure.  The normal daily
+interval cannot overlap a monitor that ends after the open, and both the scheduler
+policy and launcher's existing process/journal guard continue to reject another
+same-session launch.
+
+This amendment is source-only until explicitly approved.  Installation changes
+exactly `open_breakout/ibkr.py`, `open_breakout/standby.py`,
+`open_breakout/__main__.py`, the two monitor
+scripts, and the untracked production `daily_launch.ps1` insertion above.  It
+does not change configs, task triggers, client IDs, accounts, risk, order logic,
+or running processes.  Rollback restores the prior two Python modules and
+removes the post-step-8 monitor invocation; retain all runtime journals and logs.
+
 The daily launch no longer needs an interactive session. Task **`OpenBreakout_DailyLaunch`**
 (registered by the owner; weekdays **08:12 ET**, interactive logon, limited run level,
-start-when-available, 20-minute limit) runs
+start-when-available, current `PT30M` / 30-minute limit) runs
 `artifacts/open_breakout_runs/daily_launch.ps1` from the repo root. It:
 
 1. takes today's New York date as the session; a non-XNYS day logs

@@ -8,6 +8,12 @@ from .strategy import NY
 EXEC_CACHE_SECONDS = 1.
 # Inside the watchdog's 5 s snapshot budget; a slow executions call makes own position UNKNOWN, not a halt.
 EXEC_TIMEOUT_SECONDS = 3.
+RECOVERY_REQUEST_TIMEOUT_SECONDS = 10.
+RECOVERY_STABLE_SECONDS = .25
+
+TRANSPORT_LOSS_CODES = {1100, 1300}
+TRANSPORT_RESTORE_CODES = {1101, 1102}
+FATAL_ERROR_CODES = {201,10147,10148,354,10167,10168,10089,10090,10189}
 
 
 def session_start(now=None):
@@ -63,7 +69,11 @@ class IBKR:
         self.status_callback=lambda *a:None
         self.halt_callback=lambda *a:None
         self.order_error_callback=lambda *a:None
-        self.healthy=True;self.ack=None;self.contract_report={}
+        self.diagnostic_callback=lambda *a:None
+        # A socket connection or a 1101/1102 message is not health proof.  Every
+        # adapter starts in a new, unproved connection epoch and only a complete,
+        # stable reconciliation may set healthy=True.
+        self.healthy=False;self.ack=None;self.contract_report={}
         self.last_seen={};self.data_types={}
         self.net_liq=self.excess=float('nan')
         # ib_insync keys openOrders/positions requests by a single name; overlapping calls orphan one.
@@ -73,10 +83,127 @@ class IBKR:
         self._exec_generation=0
         # execIds already handed to fill_callback (live or re-delivered from reqExecutions).
         self._delivered=set()
+        self._connection_epoch=1
+        self._epoch_started_at=datetime.now(timezone.utc)
+        self._book_revision=0
+        self._position_signatures={}
+        self._order_signatures={}
+        self._account_signatures={}
+        self._fatal_reason=None
+        self._restore_signal=None
+        self._needs_resubscribe=True
+        self._events_installed=False
+        self._ticker_handler_installed=False
+        self._subscription_epoch=None
+        self._on_tick=lambda *a:None
+        self._capture=lambda *a:None
+        self._retired=False
+
+    @property
+    def connection_epoch(self):return self._connection_epoch
+
+    def _install_events(self):
+        """Install each SDK handler once, before connectAsync can emit anything."""
+        if self._events_installed:return
+        self.ib.execDetailsEvent+=self._fill
+        self.ib.orderStatusEvent+=self._status
+        # These callbacks make an in-flight recovery snapshot unstable.  They
+        # deliberately exclude market ticks, which have their own freshness gate.
+        if hasattr(self.ib,'openOrderEvent'):self.ib.openOrderEvent+=self._open_order_changed
+        if hasattr(self.ib,'positionEvent'):self.ib.positionEvent+=self._position_changed
+        if hasattr(self.ib,'accountValueEvent'):self.ib.accountValueEvent+=self._account_value_changed
+        self.ib.disconnectedEvent+=self._disconnected
+        self.ib.errorEvent+=self._error
+        self._events_installed=True
+
+    def _book_changed(self,kind):
+        if self._retired:return
+        self._book_revision+=1
+
+    def _relevant_contract(self,con_id):
+        return con_id in {m.execution.con_id for m in self.config.markets}
+
+    def _position_signature(self,position):
+        if (position.account!=self.config.account
+                or not self._relevant_contract(position.contract.conId)):return None
+        return (position.account,position.contract.conId),float(position.position)
+
+    def _position_changed(self,position):
+        if self._retired:return
+        item=self._position_signature(position)
+        if item is None:return
+        key,value=item
+        if self._position_signatures.get(key)==value:return
+        self._position_signatures[key]=value;self._book_changed('POSITION')
+
+    def _order_signature(self,trade):
+        order=trade.order;contract=trade.contract;status=trade.orderStatus
+        if (order.account!=self.config.account
+                or not self._relevant_contract(contract.conId)):return None
+        key=(order.clientId,order.orderId,getattr(order,'permId',0))
+        value=(status.status,float(status.filled),float(order.totalQuantity),order.orderType,
+               order.action,float(getattr(order,'auxPrice',0.) or 0.),
+               float(getattr(order,'lmtPrice',0.) or 0.),order.orderRef)
+        return key,value
+
+    def _open_order_changed(self,trade):
+        if self._retired:return
+        item=self._order_signature(trade)
+        if item is None:return
+        key,value=item
+        if self._order_signatures.get(key)==value:return
+        self._order_signatures[key]=value;self._book_changed('OPEN_ORDER')
+
+    def _account_signature(self,value):
+        if (value.account!=self.config.account or value.currency!='USD'
+                or value.tag not in {'NetLiquidation','ExcessLiquidity'}):return None
+        return (value.account,value.tag,value.currency),float(value.value)
+
+    def _account_value_changed(self,value):
+        if self._retired:return
+        item=self._account_signature(value)
+        if item is None:return
+        key,signature=item
+        if self._account_signatures.get(key)==signature:return
+        self._account_signatures[key]=signature;self._book_changed('ACCOUNT_VALUE')
+
+    def _seed_recovery_signatures(self,positions,trades,values):
+        """Baseline callback comparisons from the exact proved snapshot."""
+        self._position_signatures={k:v for p in positions
+                                   for item in [self._position_signature(p)] if item is not None
+                                   for k,v in [item]}
+        self._order_signatures={k:v for t in trades
+                                for item in [self._order_signature(t)] if item is not None
+                                for k,v in [item]}
+        self._account_signatures={(self.config.account,tag,'USD'):float(value)
+                                  for tag,value in values.items()}
+
+    def _invalidate_recovery(self,reason,*,restore_code=None,notify=True):
+        """Start a new evidence epoch.  No prior callback can prove this epoch healthy."""
+        if self._retired:return
+        self._connection_epoch+=1
+        self._epoch_started_at=datetime.now(timezone.utc)
+        self._book_revision+=1
+        self.healthy=False
+        self._position_signatures.clear();self._order_signatures.clear();self._account_signatures.clear()
+        self._exec_books=None;self._exec_at=0.
+        self.last_seen.clear();self.data_types.clear()
+        self._restore_signal=restore_code
+        if restore_code==1101:self._needs_resubscribe=True
+        self.diagnostic_callback(dict(kind='transport_epoch',epoch=self._connection_epoch,
+                                      reason=str(reason),restore_code=restore_code,
+                                      at=self._epoch_started_at.isoformat()))
+        if notify:self.halt_callback(reason)
+
+    def _disconnected(self):
+        self._restore_signal=None
+        self._needs_resubscribe=True
+        self._invalidate_recovery('IB_DISCONNECTED')
 
     async def connect(self):
         # Live: structural pilot limits plus the exact session/account acknowledgement.
         self.ack=self.config.authorize(self.session)
+        self._install_events()
         await self.ib.connectAsync(self.config.host,self.config.port,clientId=self.config.client_id,
                                    readonly=self.config.mode=='shadow',account=self.config.account,timeout=10)
         if self.config.account not in self.ib.managedAccounts():
@@ -94,35 +221,51 @@ class IBKR:
                 self.contracts[spec.con_id]=c
                 self.contract_report[spec.symbol]=dict(con_id=c.conId,symbol=c.symbol,local_symbol=c.localSymbol,
                     expiry=c.lastTradeDateOrContractMonth,multiplier=float(c.multiplier),min_tick=d.minTick,exchange=c.exchange,ok=True)
-        self.ib.execDetailsEvent+=self._fill
-        self.ib.orderStatusEvent+=self._status
-        self.ib.disconnectedEvent+=lambda:self._halt('IB_DISCONNECTED')
-        self.ib.errorEvent+=self._error
 
     def _halt(self,reason):
-        self.healthy=False;self.halt_callback(reason)
+        self._fatal_reason=str(reason)
+        self._invalidate_recovery(reason,notify=True)
 
     def _error(self,req_id,code,message,contract):
+        if self._retired:return
+        self.diagnostic_callback(dict(kind='ib_error',req_id=req_id,code=code,message=message,
+                                      epoch=self._connection_epoch))
         if req_id in self.trades:
             self.order_error_callback(req_id,code,message)
             # A cancel can lose the race with the final fill. Keep the error in
             # the journal, but a verified complete fill is not a transport failure.
             if code == 10148 and fully_executed(self.trades[req_id]):
                 return
+        reason=f'IB_ERROR:{code}:{message}'
+        if code in TRANSPORT_LOSS_CODES:
+            self._restore_signal=None;self._needs_resubscribe=True
+            self._invalidate_recovery(reason)
+            return
+        if code in TRANSPORT_RESTORE_CODES:
+            # Coalesce duplicate restore messages for the same epoch.  A restore
+            # message begins a fresh proof epoch; it never clears health itself.
+            # Once that epoch has been proved healthy, even the same code is a
+            # new restoration boundary (the preceding loss callback may have
+            # been missed).  Post-arm it must halt new entries immediately.
+            if self._restore_signal==code and not self.healthy:return
+            was_healthy=self.healthy
+            self._invalidate_recovery(reason,restore_code=code,notify=was_healthy)
+            if code==1101:self._request_subscriptions()
+            return
         # 2103/2105 farm blips are warnings: stream staleness catches a real data outage.
-        if code in {1100,1101,1102,1300,201,10147,10148,354,10167,10168,10089,10090,10189}:
-            self._halt(f'IB_ERROR:{code}:{message}')
+        if code in FATAL_ERROR_CODES:self._halt(reason)
 
     def _fill(self,trade,fill):
         e=fill.execution
         if e.acctNumber==self.config.account and e.clientId==self.config.client_id:
             # A new own execution: the next own-position read must not use the cached books.
-            self._exec_books=None;self._exec_generation+=1
+            self._exec_books=None;self._exec_generation+=1;self._book_revision+=1
             self._delivered.add(e.execId)
             self.fill_callback(e.orderId,e.execId,e.shares,e.price)
 
     def _status(self,trade):
         if trade.order.account==self.config.account and trade.order.clientId==self.config.client_id:
+            self._book_revision+=1
             self.status_callback(trade.order.orderId,trade.orderStatus.status)
 
     def next_id(self):return self.ib.client.getReqId()
@@ -198,14 +341,30 @@ class IBKR:
         if not self.healthy:raise ValueError('Broker data feed is unhealthy')
         return self.quotes[name]
 
-    async def account_values(self):
-        rows=await self.ib.accountSummaryAsync()
+    async def account_values(self,force=False):
+        if force:
+            # ib_insync.accountSummaryAsync() returns its persistent cache when
+            # populated, which cannot prove recovery after an outage.  Clear
+            # that cache and require a new reqAccountSummary completion.  The
+            # recovery path never fills missing tags from the older account-
+            # values stream: both required USD tags must be in this response.
+            wrapper=getattr(self.ib,'wrapper',None)
+            cache=getattr(wrapper,'acctSummary',None)
+            request=getattr(self.ib,'reqAccountSummaryAsync',None)
+            if cache is None or request is None:
+                raise RuntimeError('Fresh account summary is unsupported')
+            cache.clear()
+            await request()
+            rows=list(cache.values())
+        else:
+            rows=await self.ib.accountSummaryAsync()
         values={x.tag:float(x.value) for x in rows if x.account==self.config.account and x.currency=='USD' and x.tag in {'NetLiquidation','ExcessLiquidity'}}
         # connectAsync(account=...) already streams account updates; re-requesting them never
         # completes (verified 2026-09-24 on port 7496), so only fill gaps from that stream.
-        for x in self.ib.accountValues(self.config.account):
-            if x.currency=='USD' and x.tag in {'NetLiquidation','ExcessLiquidity'} and x.tag not in values:
-                values[x.tag]=float(x.value)
+        if not force:
+            for x in self.ib.accountValues(self.config.account):
+                if x.currency=='USD' and x.tag in {'NetLiquidation','ExcessLiquidity'} and x.tag not in values:
+                    values[x.tag]=float(x.value)
         if any(not math.isfinite(values.get(k,float('nan'))) or values[k]<=0 for k in ['NetLiquidation','ExcessLiquidity']):
             raise ValueError('Positive USD equity and excess liquidity required')
         self.excess=values['ExcessLiquidity'];self.net_liq=values['NetLiquidation']
@@ -234,11 +393,11 @@ class IBKR:
         if not math.isfinite(change) or change<0 or change>self.margin_limit(equity) or result.warningText:
             raise ValueError('Margin preview unavailable, warned, or exceeds limit')
 
-    async def _execution_books(self):
+    async def _execution_books(self,force=False):
         """Today's account executions split by orderRef; at most one request per second. Hold snapshot_lock.
         No clientId filter: executions from an earlier process, or seen from a read-only client, still count."""
         now=asyncio.get_running_loop().time()
-        if self._exec_books is None or now-self._exec_at>=EXEC_CACHE_SECONDS:
+        if force or self._exec_books is None or now-self._exec_at>=EXEC_CACHE_SECONDS:
             from ib_insync import ExecutionFilter
             generation=self._exec_generation
             fills=await asyncio.wait_for(self.ib.reqExecutionsAsync(ExecutionFilter(acctCode=self.config.account)),
@@ -286,6 +445,135 @@ class IBKR:
                         limit=t.order.lmtPrice,tif=t.order.tif,good_till=t.order.goodTillDate,
                         oca=t.order.ocaGroup,oca_type=t.order.ocaType)
                             for t in trades if t.order.account==self.config.account])
+
+    def recovery_token_valid(self,token):
+        """A proof token remains valid only while its exact connection/book epoch is unchanged."""
+        needed={f'{m.name}:{k}' for m in self.config.markets for k in ('trade','quote')}
+        expected_contracts={s.con_id for m in self.config.markets for s in (m.signal,m.execution)}
+        now=datetime.now(timezone.utc)
+        streams=(needed<=set(self.last_seen)
+                 and all(self.last_seen[k]>=self._epoch_started_at
+                         and (now-self.last_seen[k]).total_seconds()<=15. for k in needed)
+                 and all(self.data_types.get(cid)==1 for cid in expected_contracts))
+        return bool(token and tuple(token)==(self._connection_epoch,self._book_revision)
+                    and streams and self.healthy and not self._fatal_reason and self.ib.isConnected())
+
+    async def reconcile_recovery(self,*,wait_seconds=30.,max_age=15.,
+                                 request_timeout=RECOVERY_REQUEST_TIMEOUT_SECONDS,
+                                 stable_seconds=RECOVERY_STABLE_SECONDS):
+        """Prove a connection epoch from fresh, complete, callback-stable broker reads.
+
+        1101/1102 and fresh prices are inputs to this barrier, never recovery by
+        themselves.  Any epoch or owner-book callback change while requests are in
+        flight invalidates the whole proof.  Missing/timeout responses remain
+        unknown; they are never converted to empty positions or orders.
+        """
+        epoch=self._connection_epoch
+        started=self._epoch_started_at
+        proof=dict(epoch=epoch,started_at=started.isoformat(),complete=False,retryable=True,
+                   restoration_code=self._restore_signal,
+                   failures=[],token=None)
+        failures=proof['failures']
+        if self._fatal_reason:
+            failures.append(f'FATAL:{self._fatal_reason}');proof['retryable']=False;return proof
+        expected_client=self.config.client_id
+        if not self.ib.isConnected():
+            failures.append('DISCONNECTED_BEFORE_RECOVERY');return proof
+        actual_client=getattr(getattr(self.ib,'client',None),'clientId',None)
+        managed=list(self.ib.managedAccounts())
+        if actual_client!=expected_client or self.config.account not in managed or not self.session:
+            failures.append('IDENTITY_MISMATCH')
+            proof.update(retryable=False,expected_client_id=expected_client,actual_client_id=actual_client,
+                         account_available=self.config.account in managed,session=self.session)
+            return proof
+        needed={f'{m.name}:{k}' for m in self.config.markets for k in ('trade','quote')}
+        deadline=asyncio.get_running_loop().time()+wait_seconds
+        while asyncio.get_running_loop().time()<deadline:
+            if epoch!=self._connection_epoch:
+                failures.append('EPOCH_CHANGED_DURING_STREAM_WAIT');return proof
+            now=datetime.now(timezone.utc)
+            if (needed<=set(self.last_seen)
+                    and all(self.last_seen[k]>=started and (now-self.last_seen[k]).total_seconds()<=max_age for k in needed)):
+                break
+            await asyncio.sleep(.05)
+        now=datetime.now(timezone.utc)
+        missing=sorted(k for k in needed if k not in self.last_seen or self.last_seen[k]<started)
+        stale=sorted(k for k in needed if k in self.last_seen and (now-self.last_seen[k]).total_seconds()>max_age)
+        if missing:failures.append('STREAMS_MISSING:'+','.join(missing))
+        if stale:failures.append('STREAMS_STALE:'+','.join(stale))
+        expected_contracts={s.con_id for m in self.config.markets for s in (m.signal,m.execution)}
+        bad_types=sorted(cid for cid in expected_contracts if self.data_types.get(cid)!=1)
+        if bad_types:failures.append('MARKET_DATA_TYPE_UNPROVED:'+','.join(map(str,bad_types)))
+        if failures:return proof
+        if epoch!=self._connection_epoch or not self.ib.isConnected():
+            failures.append('EPOCH_CHANGED_BEFORE_SNAPSHOT');return proof
+        try:
+            # Capture the epoch only after acquiring the lock: an older waiter can
+            # never use a newer epoch's responses.
+            async with self.snapshot_lock:
+                if epoch!=self._connection_epoch:
+                    failures.append('EPOCH_CHANGED_AT_SNAPSHOT_LOCK');return proof
+                positions=await asyncio.wait_for(self.ib.reqPositionsAsync(),request_timeout)
+                if epoch!=self._connection_epoch:
+                    failures.append('EPOCH_CHANGED_DURING_POSITIONS');return proof
+                trades=await asyncio.wait_for(self.ib.reqAllOpenOrdersAsync(),request_timeout)
+                if epoch!=self._connection_epoch:
+                    failures.append('EPOCH_CHANGED_DURING_OPEN_ORDERS');return proof
+                completed_method=getattr(self.ib,'reqCompletedOrdersAsync',None)
+                if completed_method is None:
+                    failures.append('COMPLETED_ORDERS_UNSUPPORTED');proof['retryable']=False;return proof
+                completed=await asyncio.wait_for(completed_method(apiOnly=True),request_timeout)
+                if epoch!=self._connection_epoch:
+                    failures.append('EPOCH_CHANGED_DURING_COMPLETED_ORDERS');return proof
+                own,other,ids=await asyncio.wait_for(self._execution_books(force=True),request_timeout)
+                if epoch!=self._connection_epoch:
+                    failures.append('EPOCH_CHANGED_DURING_EXECUTIONS');return proof
+                values=await asyncio.wait_for(self.account_values(force=True),request_timeout)
+                revision=self._book_revision
+                await asyncio.sleep(stable_seconds)
+                if epoch!=self._connection_epoch:
+                    failures.append('EPOCH_CHANGED_DURING_STABILITY');return proof
+                if revision!=self._book_revision:
+                    failures.append('CALLBACKS_CHANGED_DURING_STABILITY');return proof
+        except asyncio.TimeoutError as exc:
+            failures.append(f'REQUEST_TIMEOUT:{type(exc).__name__}');return proof
+        except Exception as exc:
+            # Retry only explicit transport classes.  Semantic/validation
+            # failures (for example non-positive account values) are
+            # authoritative and must not be softened into reconnect retries.
+            proof['retryable']=(not isinstance(exc,(PermissionError,ValueError))
+                                and isinstance(exc,(ConnectionError,OSError)))
+            failures.append(f'REQUEST_FAILED:{type(exc).__name__}:{exc}');return proof
+        if not self.ib.isConnected():
+            failures.append('DISCONNECTED_AFTER_SNAPSHOT');return proof
+        # Broker-state reads can consume most of the pre-open budget.  Prices
+        # that were fresh before them do not prove the connection is fresh now.
+        now=datetime.now(timezone.utc)
+        stale=sorted(k for k in needed
+                     if k not in self.last_seen or self.last_seen[k]<started
+                     or (now-self.last_seen[k]).total_seconds()>max_age)
+        if stale:
+            failures.append('STREAMS_STALE_AFTER_SNAPSHOT:'+','.join(stale));return proof
+        bad_types=sorted(cid for cid in expected_contracts if self.data_types.get(cid)!=1)
+        if bad_types:
+            failures.append('MARKET_DATA_TYPE_CHANGED:'+','.join(map(str,bad_types)));return proof
+        actual_client=getattr(getattr(self.ib,'client',None),'clientId',None)
+        managed=list(self.ib.managedAccounts())
+        if actual_client!=expected_client or self.config.account not in managed:
+            failures.append('IDENTITY_CHANGED');proof['retryable']=False;return proof
+        self._seed_recovery_signatures(positions,trades,values)
+        token=(epoch,self._book_revision)
+        # There is no await between the final epoch check and publishing health.
+        self.healthy=True
+        proof.update(complete=True,retryable=False,token=list(token),completed_orders=len(completed),
+                     account_values=values,
+                     stream_age_seconds={k:round((now-self.last_seen[k]).total_seconds(),3) for k in sorted(needed)},
+                     snapshot=dict(positions=positions,trades=trades,own=dict(own),other=dict(other),
+                                   own_exec_ids=sorted(ids)))
+        self.diagnostic_callback(dict(kind='recovery_proof',epoch=epoch,token=list(token),
+                                      restoration_code=self._restore_signal,complete=True,
+                                      at=now.isoformat()))
+        return proof
 
     async def history(self):
         import pandas as pd
@@ -343,8 +631,16 @@ class IBKR:
         return dict(bar_minutes=60,contracts=contracts)
 
     def subscribe(self,on_tick,capture):
+        self._on_tick=on_tick;self._capture=capture
+        if not self._ticker_handler_installed:
+            self.ib.pendingTickersEvent+=self._dispatch_ticks
+            self._ticker_handler_installed=True
+        self._request_subscriptions()
+
+    def _request_subscriptions(self):
+        if self._retired or not self.contracts or not self._ticker_handler_installed:return
+        if self._subscription_epoch==self._connection_epoch and not self._needs_resubscribe:return
         self.ib.reqMarketDataType(1)
-        self.ib.pendingTickersEvent+=lambda tickers:self._ticks(tickers,on_tick,capture)
         for m in self.config.markets:
             self.ib.reqTickByTickData(self.contracts[m.signal.con_id],'Last',0,False)
             self.ib.reqTickByTickData(self.contracts[m.execution.con_id],'BidAsk',0,False)
@@ -352,6 +648,9 @@ class IBKR:
                 # Normal Last updates suffice for the approximate shadow model;
                 # avoid another tick-by-tick subscription/pacing limit per micro.
                 self.ib.reqMktData(self.contracts[m.execution.con_id],'',False,False)
+        self._subscription_epoch=self._connection_epoch;self._needs_resubscribe=False
+
+    def _dispatch_ticks(self,tickers):self._ticks(tickers,self._on_tick,self._capture)
 
     def _ticks(self,tickers,on_tick,capture):
         for ticker in tickers:
@@ -379,4 +678,6 @@ class IBKR:
                             if t.tickType==4:
                                 capture(dict(kind='execution_trade',market=m.name,time=t.time.isoformat(),price=t.price))
 
-    def close(self):self.ib.disconnect()
+    def close(self):
+        self._retired=True
+        self.ib.disconnect()
