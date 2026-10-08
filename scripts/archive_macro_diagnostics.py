@@ -50,7 +50,8 @@ def reason(value):
 
 def sanitize(value):
     result = {}
-    for key in ('core_data_pass', 'publication_eligible', 'published'):
+    for key in ('core_data_pass', 'publication_eligible', 'published', 'validation_only',
+                'baseline_download_consistent', 'canonical_baseline_unchanged', 'history_preservation_pass'):
         if type(value.get(key)) is bool:
             result[key] = value[key]
     # published=False does not imply that a remote write never occurred.

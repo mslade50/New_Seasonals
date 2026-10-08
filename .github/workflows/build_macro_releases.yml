@@ -14,6 +14,11 @@ env:
 on:
   workflow_dispatch:
     inputs:
+      validation_only:
+        description: 'Read canonical baseline and validate without publication or cache replacement'
+        required: false
+        default: false
+        type: boolean
       automation_token:
         description: 'Opaque token supplied by the guarded fallback controller'
         required: false
@@ -36,12 +41,22 @@ jobs:
         run: pip install pandas pyarrow requests boto3==1.43.23 python-dotenv beautifulsoup4 lxml -r requirements-official-data.txt
 
       - name: Build + upload macro release history
+        if: ${{ !inputs.validation_only }}
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/refresh_macro_releases.py
+
+      - name: Validate canonical macro history without publication
+        if: ${{ inputs.validation_only }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/validate_macro_preflight.py
 
       - name: Sanitize macro diagnostics
         if: always()
