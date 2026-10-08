@@ -42,3 +42,16 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/refresh_macro_releases.py
+
+      - name: Sanitize macro diagnostics
+        if: always()
+        run: python scripts/archive_macro_diagnostics.py
+
+      - name: Retain sanitized macro diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macro-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/macro_diagnostics_report/summary.json
+          if-no-files-found: warn
+          retention-days: 14

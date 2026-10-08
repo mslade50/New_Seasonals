@@ -15,9 +15,11 @@ from pathlib import Path
 import re
 import sys
 import xml.etree.ElementTree as ET
+from urllib.parse import urljoin
 
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -41,6 +43,31 @@ REQUIRED = set(BLS_SERIES) | {"pce_mom", "core_pce_mom", "pce_yoy", "core_pce_yo
 UNRESOLVED = []
 # BEA titled the 2026-09-30 combined release "GDP, (Third Estimate), Industries, ...".
 BEA_TITLES = {"gdp": r"GDP,?\s*\(", "pce": r"Personal Income and Outlays,"}
+BEA_CURRENT = "https://www.bea.gov/news/current-releases"
+
+
+def bea_current_release(raw, kind, *, after, captured):
+    """Discover a newer released item from BEA's dated current-release table."""
+    candidates = []
+    for row in BeautifulSoup(raw, "html.parser").select("tr.release-row"):
+        link, date = row.select_one("td a[href]"), row.select_one("time[datetime]")
+        if link is None or not re.match(BEA_TITLES[kind], link.get_text(" ", strip=True)):
+            continue
+        if date is None:
+            raise ValueError("BEA current release has no explicit timestamp")
+        released = pd.Timestamp(date["datetime"])
+        if released.tzinfo is None:
+            raise ValueError("BEA current release timestamp must be timezone-aware")
+        url = bea_release_url(urljoin(BEA_CURRENT, link["href"]))
+        if after < released <= captured:
+            candidates.append((released, url))
+    if not candidates:
+        raise ValueError(f"BEA current index has no newer released {kind} item")
+    newest = max(date for date, _ in candidates)
+    urls = {url for date, url in candidates if date == newest}
+    if len(urls) != 1:
+        raise ValueError("ambiguous BEA current release")
+    return urls.pop(), newest
 
 
 def bea_release_url(link):
@@ -126,8 +153,22 @@ def collect(output, *, source_dir=None, calendar_path=ROOT / "data/macro_events.
             url = bea_release_url(item.findtext("link"))
             raw, meta = get(f"{kind}.html", url)
             html = raw.decode("utf-8", errors="replace")
-            rows.extend(parse_bea(html, kind, source=url, **meta))
-            schedules.append(next_release(html, kind, source=url))
+            result = parse_bea(html, kind, source=url, **meta)
+            schedule = next_release(html, kind, source=url)
+            if schedule["release_ts_utc"] <= captured:
+                # RSS can omit a published release. Follow only BEA's explicit,
+                # dated index link; never guess URLs or roll an overdue date.
+                index, _ = get(f"bea_current_{kind}.html", BEA_CURRENT)
+                url, indexed_at = bea_current_release(index, kind,
+                    after=max(r["release_ts_utc"] for r in result), captured=captured)
+                raw, meta = get(f"{kind}_current.html", url)
+                html = raw.decode("utf-8", errors="replace")
+                result = parse_bea(html, kind, source=url, **meta)
+                if any(r["release_ts_utc"] != indexed_at for r in result):
+                    raise ValueError("BEA index and release timestamps disagree")
+                schedule = next_release(html, kind, source=url)
+            rows.extend(result)
+            schedules.append(schedule)
         except Exception as exc:
             gaps.append(f"BEA {kind}: {type(exc).__name__}: {exc}")
     for name, parser in [("retail.pdf", parse_retail), ("claims.pdf", parse_claims)]:
