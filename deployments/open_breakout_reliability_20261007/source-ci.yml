@@ -1,0 +1,53 @@
+name: Open Breakout offline reliability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deployments/open_breakout_reliability_20261007/**'
+      - '.github/workflows/open_breakout_offline_reliability.yml'
+  pull_request:
+    paths:
+      - 'deployments/open_breakout_reliability_20261007/**'
+      - '.github/workflows/open_breakout_offline_reliability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guarded-offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      INTRADAY_COORDINATION_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install offline test dependencies
+        run: python -m pip install pytest pandas 'numpy<2' 'exchange-calendars>=4,<5' requests ib_insync==0.9.86 tzdata
+      - name: Verify frozen package inventory
+        working-directory: deployments/open_breakout_reliability_20261007
+        run: python -B -c "import installer; print(installer.verify_package('.'))"
+      - name: Guarded public-fixture aggregate
+        run: python -B deployments/open_breakout_reliability_20261007/verify_ci.py offline-ci-evidence
+      - name: Guarded reconnect regressions
+        run: python -B deployments/open_breakout_reliability_20261007/verify_execution_bridge.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-evidence-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            offline-ci-evidence/aggregate.json
+            offline-ci-evidence/aggregate.txt
+            offline-ci-evidence/aggregate.xml
+            deployments/reliability-bridge-evidence/bridge.json
+            deployments/reliability-bridge-evidence/bridge.txt
+            deployments/reliability-bridge-evidence/bridge.xml

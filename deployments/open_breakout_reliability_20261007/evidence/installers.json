@@ -1,0 +1,16 @@
+{
+  "started_utc": "2026-10-07T17:34:58.956346+00:00",
+  "completed_utc": "2026-10-07T17:35:36.373095+00:00",
+  "counts": {
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "tests": 56,
+    "passed": 56
+  },
+  "native_broker_network_attempts": [],
+  "production_applied": false,
+  "production_workers_started": false,
+  "scheduler_modified": false,
+  "inert_installer_roots": true
+}
