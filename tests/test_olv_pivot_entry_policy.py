@@ -9,6 +9,7 @@ from email import message_from_string
 import numpy as np
 import pandas as pd
 import pytest
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -603,7 +604,7 @@ def test_signal_log_preserves_dynamic_frozen_input_precision(monkeypatch):
 
 
 def test_live_order_staging_consumes_numeric_offset():
-    ibkr_dir = os.path.join(os.path.expanduser("~"), "OneDrive", "trading_ibkr")
+    ibkr_dir = str(_tloc.source_dir())
     if not os.path.isdir(ibkr_dir):
         pytest.skip(f"live execution dir not present: {ibkr_dir}")
     sys.path.insert(0, ibkr_dir)

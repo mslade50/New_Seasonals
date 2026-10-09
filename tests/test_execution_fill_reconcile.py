@@ -5,13 +5,15 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPERS = ROOT / "execution-broker" / "src" / "fill-reconcile.mjs"
 BROKER = ROOT / "execution-broker" / "src" / "index.js"
-LOCAL_BOOK_SNAPSHOT = Path(r"C:\Users\McKinley Slade\OneDrive\trading_ibkr\book_snapshot.py")
-LOCAL_EXECUTOR = Path(r"C:\Users\McKinley Slade\OneDrive\trading_ibkr\execute_order.py")
+LOCAL_BOOK_SNAPSHOT = (_tloc.source_dir(default=_TIBKR_DESKTOP) / 'book_snapshot.py')
+LOCAL_EXECUTOR = (_tloc.source_dir(default=_TIBKR_DESKTOP) / 'execute_order.py')
 
 
 def _run_node(script: str) -> str:

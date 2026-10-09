@@ -15,8 +15,9 @@ import os
 import sys
 
 import pytest
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
 
-IBKR_DIR = os.path.join(os.path.expanduser('~'), 'OneDrive', 'trading_ibkr')
+IBKR_DIR = str(_tloc.source_dir())
 
 
 @pytest.fixture(scope='module')

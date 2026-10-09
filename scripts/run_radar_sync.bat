@@ -28,9 +28,23 @@ REM rule), else the code dir next to radar_trail_sync.py as before.
 REM Delete the flag to disarm without unregistering the task.
 
 set REPO=%~dp0..
-set IBKR=%USERPROFILE%\OneDrive\trading_ibkr
+REM >>> trading_ibkr locations: environment, else the repo .env (the cutover's
+REM managed block), else the pre-cutover OneDrive dir. IBKR = code (the pinned
+REM worktree after 2026-10-11), IBKR_STATE = flags/state. The code dir's own
+REM trading_env.cmd is CALLed so radar_trail_sync.py resolves the same
+REM TRADING_IBKR_STATE_DIR / TRADING_IBKR_SECRETS_DIR as every other runner.
+set "IBKR="
+if defined TRADING_IBKR_SOURCE set "IBKR=%TRADING_IBKR_SOURCE%"
+if not defined IBKR if exist "%REPO%\.env" for /f "usebackq tokens=1,* delims==" %%a in ("%REPO%\.env") do if /i "%%a"=="TRADING_IBKR_SOURCE" set "IBKR=%%b"
+if not defined IBKR set "IBKR=%USERPROFILE%\OneDrive\trading_ibkr"
+set "IBKR=%IBKR:/=\%"
+if not defined TRADING_IBKR_STATE_DIR if exist "%REPO%\.env" for /f "usebackq tokens=1,* delims==" %%a in ("%REPO%\.env") do if /i "%%a"=="TRADING_IBKR_STATE_DIR" set "TRADING_IBKR_STATE_DIR=%%b"
+if not defined TRADING_IBKR_SECRETS_DIR if exist "%REPO%\.env" for /f "usebackq tokens=1,* delims==" %%a in ("%REPO%\.env") do if /i "%%a"=="TRADING_IBKR_SECRETS_DIR" set "TRADING_IBKR_SECRETS_DIR=%%b"
+if exist "%IBKR%\trading_env.cmd" call "%IBKR%\trading_env.cmd"
 set "IBKR_STATE=%IBKR%"
 if defined TRADING_IBKR_STATE_DIR set "IBKR_STATE=%TRADING_IBKR_STATE_DIR%"
+set "IBKR_STATE=%IBKR_STATE:/=\%"
+REM <<< trading_ibkr locations
 set LOGDIR=%~dp0logs
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 REM One rolling log, same convention as run_daily_pitch.bat. Parsing %DATE% for
@@ -47,6 +61,7 @@ if errorlevel 1 (
 )
 
 echo [2/2] syncing trail stops >> "%LOG%"
+echo   code dir %IBKR% >> "%LOG%"
 echo   flag dir %IBKR_STATE% >> "%LOG%"
 if exist "%IBKR_STATE%\radar_trail_enabled.flag" (
   echo   flag present - APPLY mode >> "%LOG%"

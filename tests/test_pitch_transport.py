@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 import daily_pitch as dp  # noqa: E402
 import pitch_journal as pj  # noqa: E402
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
 
 FUNCTION = ROOT / "functions" / "pitch-today.js"
 PITCH_JS = ROOT / "site" / "assets" / "pitch.js"
@@ -172,7 +173,7 @@ def test_pitch_page_is_registered_in_the_nav_right_after_radar():
 
 def test_site_tag_matches_pitch_moo_strategy():
     assert "strat: `Pitch-${idea.idea_id}`" in PITCH_JS.read_text(encoding="utf-8")
-    runner = Path("~").expanduser() / "OneDrive" / "trading_ibkr" / "pitch_moo.py"
+    runner = _tloc.source_dir() / "pitch_moo.py"
     if not runner.exists():
         pytest.skip(f"live execution dir not present: {runner.parent}")
     assert "f\"Pitch-{row['Idea_Id']}\"" in runner.read_text(encoding="utf-8")

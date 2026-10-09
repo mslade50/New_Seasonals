@@ -108,11 +108,16 @@ def test_supervisor_dotenv_keys_still_win(tmp_path: Path) -> None:
 # --- publish_sleeve_runtime_status --state-dir --------------------------------
 
 def test_sleeve_state_dir_precedence(tmp_path: Path) -> None:
-    code = tmp_path / "code"
-    assert pub.resolve_state_dir(code, None, {}) == code
-    assert pub.resolve_state_dir(code, None, {STATE_VAR: ""}) == code
-    assert pub.resolve_state_dir(code, None, {STATE_VAR: str(tmp_path / "st")}) == tmp_path / "st"
-    assert pub.resolve_state_dir(code, tmp_path / "cli", {STATE_VAR: str(tmp_path / "st")}) == tmp_path / "cli"
+    code, cfg = tmp_path / "code", tmp_path / "cfg"
+    cfg.mkdir()
+    assert pub.resolve_state_dir(code, None, {}, cfg) == code
+    assert pub.resolve_state_dir(code, None, {STATE_VAR: ""}, cfg) == code
+    assert pub.resolve_state_dir(code, None, {STATE_VAR: str(tmp_path / "st")}, cfg) == tmp_path / "st"
+    assert pub.resolve_state_dir(code, tmp_path / "cli", {STATE_VAR: str(tmp_path / "st")}, cfg) == tmp_path / "cli"
+    # the cutover's .env block applies when the process does not see the variable
+    (cfg / ".env").write_text("R2_BUCKET=x\nTRADING_IBKR_STATE_DIR=C:/trading_state/trading_ibkr\n", encoding="utf-8")
+    assert pub.resolve_state_dir(code, None, {}, cfg) == Path("C:/trading_state/trading_ibkr")
+    assert pub.resolve_state_dir(code, None, {STATE_VAR: str(tmp_path / "st")}, cfg) == tmp_path / "st"
 
 
 def _fake_inventory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -180,21 +185,81 @@ def test_radar_bat_is_crlf_and_reads_flag_from_state() -> None:
     assert raw.count(b"\n") == raw.count(b"\r\n")
     text = raw.decode("utf-8")
     assert r'if exist "%IBKR_STATE%\radar_trail_enabled.flag"' in text
-    assert r'"%IBKR%\radar_trail_sync.py"' in text  # code path is Phase 3, unchanged
+    assert r'"%IBKR%\radar_trail_sync.py"' in text
+    assert "REM >>> trading_ibkr locations" in text and "REM <<< trading_ibkr locations" in text
+
+
+def _radar_probe(tmp_path: Path, dotenv: str | None) -> Path:
+    text = RADAR_BAT.read_text(encoding="utf-8").replace("\r\n", "\n")
+    block = text[text.index("REM >>> trading_ibkr locations"):text.index("REM <<< trading_ibkr locations")]
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True, exist_ok=True)
+    if dotenv is not None:
+        (repo / ".env").write_text(dotenv, encoding="utf-8")
+    probe = repo / "scripts" / "probe.bat"
+    body = "@echo off\nsetlocal enabledelayedexpansion\nset REPO=%~dp0..\n" + block + "echo IBKR=%IBKR%\necho STATE=%IBKR_STATE%\n"
+    probe.write_bytes(body.replace("\n", "\r\n").encode())
+    return probe
+
+
+def _run_probe(probe: Path, env: dict[str, str]) -> dict[str, str]:
+    out = subprocess.run([str(CMD), "/c", str(probe)], capture_output=True, text=True,
+                         env=env, check=True, timeout=30).stdout
+    return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+
+
+def _radar_env() -> dict[str, str]:
+    return {k: v for k, v in _child_env(USERPROFILE=r"C:\Users\X").items() if k != "TRADING_IBKR_SOURCE"}
 
 
 @pytest.mark.skipif(sys.platform != "win32" or not CMD.is_file(), reason="requires cmd.exe")
 def test_radar_bat_flag_dir_resolution(tmp_path: Path) -> None:
-    keep = ("set IBKR=", 'set "IBKR_STATE=', "if defined TRADING_IBKR_STATE_DIR")
-    lines = [line for line in RADAR_BAT.read_text(encoding="utf-8").splitlines() if line.startswith(keep)]
-    assert len(lines) == 3
-    probe = tmp_path / "probe.bat"
-    probe.write_bytes(("@echo off\r\n" + "\r\n".join(lines) + "\r\necho %IBKR_STATE%\r\n").encode())
+    probe = _radar_probe(tmp_path, None)
+    onedrive = r"C:\Users\X\OneDrive\trading_ibkr"
+    # nothing set: OneDrive for code and flags, exactly as before
+    assert _run_probe(probe, _radar_env()) == {"IBKR": onedrive, "STATE": onedrive}
+    got = _run_probe(probe, {**_radar_env(), STATE_VAR: r"C:\trading_state\trading_ibkr"})
+    assert got == {"IBKR": onedrive, "STATE": r"C:\trading_state\trading_ibkr"}
 
-    def run(env: dict[str, str]) -> str:
-        return subprocess.run([str(CMD), "/c", str(probe)], capture_output=True, text=True,
-                              env=env, check=True, timeout=30).stdout.strip()
 
-    assert run(_child_env(USERPROFILE=r"C:\Users\X")) == r"C:\Users\X\OneDrive\trading_ibkr"
-    assert run(_child_env(USERPROFILE=r"C:\Users\X", **{STATE_VAR: r"C:\trading_state\trading_ibkr"})) \
-        == r"C:\trading_state\trading_ibkr"
+@pytest.mark.skipif(sys.platform != "win32" or not CMD.is_file(), reason="requires cmd.exe")
+def test_radar_bat_reads_the_cutover_dotenv_block(tmp_path: Path) -> None:
+    rt = tmp_path / "runtime"
+    rt.mkdir()
+    probe = _radar_probe(tmp_path, "R2_BUCKET=x\nTRADING_IBKR_STATE_DIR=C:/trading_state/trading_ibkr\n"
+                                   f"TRADING_IBKR_SOURCE={rt.as_posix()}\n")
+    assert _run_probe(probe, _radar_env()) == {"IBKR": str(rt), "STATE": r"C:\trading_state\trading_ibkr"}
+    # the environment still wins over the .env
+    assert _run_probe(probe, {**_radar_env(), "TRADING_IBKR_SOURCE": r"C:\elsewhere"})["IBKR"] == r"C:\elsewhere"
+
+
+# --- trading_ibkr_locations (code / state / secrets resolution) -----------------
+
+import trading_ibkr_locations as tloc  # noqa: E402
+
+
+def test_locations_unset_is_onedrive(tmp_path: Path) -> None:
+    env = {"USERPROFILE": r"C:\Users\X", "TRADING_IBKR_RUNTIME_MARKER": str(tmp_path / "absent.json")}
+    assert tloc.source_dir(env, tmp_path) == Path(r"C:\Users\X\OneDrive\trading_ibkr")
+    assert tloc.state_dir(env, tmp_path) is None and tloc.secrets_dir(env, tmp_path) is None
+
+
+def test_locations_env_then_dotenv_then_marker(tmp_path: Path) -> None:
+    rt = tmp_path / "rt"
+    rt.mkdir()
+    marker = tmp_path / "m.json"
+    marker.write_text('{"runtime_root": "%s"}' % rt.as_posix(), encoding="utf-8")
+    env = {"USERPROFILE": r"C:\Users\X", "TRADING_IBKR_RUNTIME_MARKER": str(marker)}
+    assert tloc.source_dir(env, tmp_path) == rt  # marker
+    (tmp_path / ".env").write_text("TRADING_IBKR_SOURCE=C:/from/dotenv\nTRADING_IBKR_SECRETS_DIR=C:/s\n", encoding="utf-8")
+    assert tloc.source_dir(env, tmp_path) == Path("C:/from/dotenv")  # .env beats the marker
+    assert tloc.secrets_dir(env, tmp_path) == Path("C:/s")
+    assert tloc.source_dir({**env, "TRADING_IBKR_SOURCE": r"C:\env"}, tmp_path) == Path(r"C:\env")  # env wins
+
+
+def test_pitch_credentials_follow_the_dotenv_block(pitch_home: Path) -> None:
+    _touch(pitch_home / "home/OneDrive/trading_ibkr/credentials.json")
+    moved = _touch(pitch_home / "secrets/credentials.json")
+    (pitch_home / "repo").mkdir(exist_ok=True)
+    (pitch_home / "repo/.env").write_text(f"TRADING_IBKR_SECRETS_DIR={(pitch_home / 'secrets').as_posix()}\n", encoding="utf-8")
+    assert dp.credentials_path() == moved

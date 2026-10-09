@@ -1,6 +1,8 @@
 # Execution-bridge Task Scheduler boundary. Keep failures visible to the scheduler.
 param(
-    [string]$RuntimeDirectory = 'C:\Users\McKinley Slade\OneDrive\trading_ibkr',
+    # The code dir is this script's own directory (OneDrive before the
+    # 2026-10-11 cutover, the pinned worktree after it).
+    [string]$RuntimeDirectory = $PSScriptRoot,
     [string]$PythonPath = 'C:\Users\McKinley Slade\AppData\Local\Programs\Python\Python310\python.exe'
 )
 
@@ -13,7 +15,26 @@ function Write-AgentLog([string]$Message) {
 
 try {
     Set-Location -LiteralPath $RuntimeDirectory
-    Get-Content -LiteralPath (Join-Path $RuntimeDirectory 'exec_agent.env') | ForEach-Object {
+    # State and secrets dirs, resolved exactly as the run_*.bat wrappers do:
+    # trading_env.cmd fills TRADING_IBKR_STATE_DIR / TRADING_IBKR_SECRETS_DIR
+    # when they are not already set; unset means the runtime directory itself.
+    $envCmd = Join-Path $RuntimeDirectory 'trading_env.cmd'
+    if (Test-Path -LiteralPath $envCmd -PathType Leaf) {
+        $ErrorActionPreference = 'Continue'
+        $resolved = & cmd.exe /d /c call $envCmd '&' set TRADING_IBKR_ 2>$null
+        $ErrorActionPreference = 'Stop'
+        foreach ($line in @($resolved)) {
+            if ("$line" -match '^(TRADING_IBKR_(?:STATE|SECRETS)_DIR)=(.+)$') {
+                [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+            }
+        }
+    }
+    $stateDir = $RuntimeDirectory
+    if ($env:TRADING_IBKR_STATE_DIR) { $stateDir = $env:TRADING_IBKR_STATE_DIR }
+    $secretsDir = $RuntimeDirectory
+    if ($env:TRADING_IBKR_SECRETS_DIR) { $secretsDir = $env:TRADING_IBKR_SECRETS_DIR }
+    $log = Join-Path $stateDir 'exec_agent_last_run.log'
+    Get-Content -LiteralPath (Join-Path $secretsDir 'exec_agent.env') | ForEach-Object {
         if ($_ -match '^\s*([^#=]+?)\s*=\s*(.+?)\s*$') {
             [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
         }

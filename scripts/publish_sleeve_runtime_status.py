@@ -21,6 +21,9 @@ import sys
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+import trading_ibkr_locations as tloc  # noqa: E402
 R2_KEY = "ops/sleeve_runtime_status.json"
 SCHEMA = "sleeve-runtime.v2"
 TASK_NAMES = {
@@ -239,16 +242,17 @@ def _guard(reader, *args) -> dict:
 
 
 def resolve_state_dir(executor_root: Path, state_dir: Path | None = None,
-                      environ: dict[str, str] | None = None) -> Path:
+                      environ: dict[str, str] | None = None, config_root: Path | None = None) -> Path:
     """Where trading_ibkr keeps its flags and journals.
 
     Mirrors trading_ibkr's runtime_paths rule: an explicit --state-dir wins,
-    then TRADING_IBKR_STATE_DIR, else the executor (code) root as before.
+    then TRADING_IBKR_STATE_DIR (env, else the config root's .env), else the
+    executor (code) root as before.
     """
     if state_dir is not None:
         return state_dir
-    env_dir = (os.environ if environ is None else environ).get("TRADING_IBKR_STATE_DIR")
-    return Path(env_dir) if env_dir else executor_root
+    configured = tloc.state_dir(environ, ROOT if config_root is None else config_root)
+    return configured if configured else executor_root
 
 
 def collect(executor_root: Path, runs_root: Path, state_dir: Path | None = None) -> dict:
@@ -289,7 +293,8 @@ def collect(executor_root: Path, runs_root: Path, state_dir: Path | None = None)
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-root", type=Path, default=ROOT)
-    parser.add_argument("--executor-root", type=Path, default=Path.home() / "OneDrive/trading_ibkr")
+    parser.add_argument("--executor-root", type=Path, default=None,
+                        help="trading_ibkr code dir (default: TRADING_IBKR_SOURCE from env or .env, else ~/OneDrive/trading_ibkr)")
     parser.add_argument("--state-dir", type=Path, default=None,
                         help="flags/journals dir (default: TRADING_IBKR_STATE_DIR, else --executor-root)")
     parser.add_argument("--breakout-runs", type=Path, default=ROOT / "artifacts/open_breakout_runs")
@@ -297,9 +302,11 @@ def main() -> int:
     parser.add_argument("--upload", action="store_true")
     parser.add_argument("--print", dest="echo", action="store_true", help="also print the payload to stdout")
     args = parser.parse_args()
+    if args.executor_root is None:
+        args.executor_root = tloc.source_dir(config_root=args.config_root)
     try:
         payload = collect(args.executor_root, args.breakout_runs,
-                          resolve_state_dir(args.executor_root, args.state_dir))
+                          resolve_state_dir(args.executor_root, args.state_dir, config_root=args.config_root))
         text = json.dumps(payload, indent=2, allow_nan=False) + "\n"
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text, encoding="utf-8")

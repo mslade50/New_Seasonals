@@ -14,13 +14,14 @@ from types import SimpleNamespace
 import pytest
 
 from tests.execution_harness import install_helpers
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
 
 @pytest.fixture(autouse=True)
 def inert_helpers(monkeypatch):
     install_helpers(monkeypatch)
 
 
-IBKR_DIR = os.path.join(os.path.expanduser("~"), "OneDrive", "trading_ibkr")
+IBKR_DIR = str(_tloc.source_dir())
 
 @pytest.fixture(scope="module")
 def modules():

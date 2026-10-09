@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
 
 ROOT = Path(__file__).resolve().parents[1]
 UPLOADER = ROOT / "scripts" / "upload_radar_recs.py"
@@ -20,7 +21,7 @@ FUNCTION = ROOT / "functions" / "radar-recs.js"
 RADAR_JS = ROOT / "site" / "assets" / "radar.js"
 RADAR_HTML = ROOT / "site" / "radar.html"
 COMMON_JS = ROOT / "site" / "assets" / "common.js"
-IBKR_DIR = Path("~").expanduser() / "OneDrive" / "trading_ibkr"
+IBKR_DIR = _tloc.source_dir()
 
 
 @pytest.fixture(scope="module")

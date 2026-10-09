@@ -13,12 +13,13 @@ import sys
 from pathlib import Path
 
 import pytest
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
 
 
 ROOT = Path(__file__).resolve().parents[1]
 EXEC_JS = ROOT / "site" / "assets" / "execution.js"
 SCHEMA_DOC = ROOT / "docs" / "site_execution_schema.md"
-IBKR_DIR = Path(os.path.expanduser("~")) / "OneDrive" / "trading_ibkr"
+IBKR_DIR = _tloc.source_dir()
 
 ENTRY_TYPES = {"LMT", "STP_LMT", "MKT", "MOO", "MOC"}
 

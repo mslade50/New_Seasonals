@@ -10,8 +10,10 @@ import sys
 import pytest
 
 from tests.spent_preparers import retired_execution_repairs
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
-SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
+SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", str(_tloc.source_dir(default=_TIBKR_DESKTOP))))
 REPO = Path(__file__).resolve().parents[1]
 FIXTURE = REPO / "tests/fixtures/execution_runtime"
 

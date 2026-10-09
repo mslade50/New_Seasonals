@@ -14,6 +14,8 @@ from broker_runtime import position_actions as actions
 from broker_runtime import position_action_agent as agent
 from tests.test_unified_position_actions import Broker, exit_order, namespace, request
 from tests.spent_preparers import retired_broker_reconciliation
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
 
 class ObservedBroker(Broker):
@@ -287,7 +289,7 @@ def test_partial_exit_reconciliation_is_retired_without_finishing_old_allocation
 
 def test_installed_executor_routes_both_handlers_to_updated_module(tmp_path, monkeypatch):
     # Extract functions only: never import the configured live executor.
-    path = Path('C:/Users/McKinley Slade/OneDrive/trading_ibkr/execute_order.py')
+    path = (_tloc.source_dir(default=_TIBKR_DESKTOP) / 'execute_order.py')
     if not path.exists():
         pytest.skip('host runtime not available')
     source = path.read_text(encoding='utf-8-sig')
@@ -308,7 +310,7 @@ def test_installed_executor_routes_both_handlers_to_updated_module(tmp_path, mon
 @retired_broker_reconciliation
 def test_candidate_is_pinned_to_reviewed_runtime_and_contains_only_required_modules(tmp_path):
     from broker_runtime import prepare_broker_reconciliation as prep
-    runtime = Path('C:/Users/McKinley Slade/OneDrive/trading_ibkr')
+    runtime = _tloc.source_dir(default=_TIBKR_DESKTOP)
     if not runtime.exists():
         pytest.skip('host runtime not available')
     out = tmp_path / 'candidate'
@@ -512,7 +514,7 @@ def test_installed_raw_collector_observes_structural_changes_hidden_by_ib_cache(
     import math
     import threading
     from ib_insync import IB, Order, OrderState, Stock
-    path = Path('C:/Users/McKinley Slade/OneDrive/trading_ibkr/legend_reservation_guard.py')
+    path = (_tloc.source_dir(default=_TIBKR_DESKTOP) / 'legend_reservation_guard.py')
     if not path.exists():
         pytest.skip('host runtime not available')
     names = {'_fresh_open_trades', '_clean_raw_broker_order'}

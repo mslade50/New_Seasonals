@@ -15,8 +15,10 @@ from broker_runtime import execution_lifecycle as life
 from broker_runtime import prepare_execution_repairs as prepare
 from tests.spent_preparers import retired_execution_repairs
 from broker_runtime import prepare as legacy_prepare
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
-SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
+SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", str(_tloc.source_dir(default=_TIBKR_DESKTOP))))
 
 
 def contract(con_id=42):
