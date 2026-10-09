@@ -8,6 +8,7 @@ const PAGES = [
   { href: "seasonal.html", label: "Seasonal" },
   { href: "radar.html",    label: "Radar" },
   { href: "pitch.html",    label: "Pitch" },
+  { href: "risk-agent.html", label: "Risk Agent" },
   { href: "idea.html",     label: "Idea Check" },
   { href: "focus.html",    label: "Focus" },
   { href: "events.html",   label: "Events" },

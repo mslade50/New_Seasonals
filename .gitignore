@@ -216,3 +216,13 @@ scratch/**/sheets_*.csv
 scratch/heartbeat_*
 *.stackdump
 credentials*.json
+# Risk Agent: R2 is canonical for the journal/today/receipts; the rest is derived each run
+data/risk_agent/
+data/risk_agent_state.json
+data/risk_agent_chains.json
+data/risk_agent_book.json
+data/risk_agent_scoreboard.json
+data/risk_agent_today.json
+data/risk_agent_decision.json
+data/risk_agent_journal.jsonl
+data/risk_agent_delivery_receipts/

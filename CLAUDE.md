@@ -72,6 +72,7 @@ Read the doc before changing a subsystem. Each doc holds the live rule, the hist
 | Event sleeve | `event_sleeve.md` | `test_event_sleeve.py`, `test_execution_report.py`, `test_event_site.py`, `test_event_moo.py` (trading_ibkr) |
 | Daily Pitch | `daily_pitch.md` | `test_pitch_grammar.py`, `test_daily_pitch.py`, `test_pitch_grader.py`, `test_pitch_lab.py`, `test_pitch_delivery_check.py`, `test_pitch_moo.py` (trading_ibkr); fills approvals: `test_pitch_fills_approval.py`; site Pitch tab: `test_pitch_transport.py`, `tests/js/test_pitch_tab.js` |
 | Daily Seasonal (`--product seasonal`, 63 td, exit.trail, 15-50 bps) | `daily_seasonal.md` | `test_seasonal_agent_grammar.py`, `test_build_seasonal_state.py`, `test_seasonal_agent_publish_paths.py`, `test_seasonal_agent_grader.py` + the Daily Pitch guards |
+| Risk Agent ($200k blind paper sleeve, `/risk-agent`, 18:15 ET, email + private-site tab) | `risk_agent.md` | `test_risk_agent_universe.py`, `test_risk_agent_grammar.py`, `test_risk_agent_ledger.py`, `test_build_risk_agent_state.py`, `test_daily_risk_agent.py`, `tests/js/test_risk_agent_tab.js` |
 | Idea Check (private-site tab, local poller, `/idea-check` skill) | `idea_check.md` | `test_idea_check_poller.py`, `test_idea_check_site.py`, `tests/js/test_idea_tab.js` |
 | Daily Posts, Market Context | `daily_posts_and_context.md` | `test_daily_posts.py`, `test_context_engine.py`, `test_context_sender.py` |
 | Ledger, stop arming/fill conventions, live fills store | `ledger_and_fills.md` | `test_fills_harvest.py` |
