@@ -29,6 +29,51 @@ async function hmacHex(key, msg) {
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Shape check for the held-option commands (OPTION_COMBO_SPEC.md section 6).
+// Structure only: leg identity, sides, ratios, price side, TIF. Unit counts,
+// held-position checks and risk are the agent's and executor's job (no caps
+// here). Same signing / expiry / idempotency path as option_spread below.
+const SIDES = new Set(["BUY", "SELL"]);
+function legsProblem(legs, label, max, opening) {
+  if (!Array.isArray(legs) || legs.length < 1 || legs.length > max) return `${label}: 1 to ${max} legs required`;
+  const seen = new Set();
+  for (const [i, l] of legs.entries()) {
+    if (!l || typeof l !== "object") return `${label} ${i + 1}: must be an object`;
+    const ratio = l.ratio == null ? 1 : Number(l.ratio);
+    if (!Number.isInteger(ratio) || ratio < 1) return `${label} ${i + 1}: ratio must be a whole number >= 1`;
+    if (opening) {
+      if (!SIDES.has(String(l.side || "").toUpperCase())) return `${label} ${i + 1}: side must be BUY or SELL`;
+      if (!["C", "P"].includes(String(l.right || "").toUpperCase())) return `${label} ${i + 1}: right must be C or P`;
+      if (!/^\d{8}$/.test(String(l.expiry || "").replace(/-/g, ""))) return `${label} ${i + 1}: expiry must be YYYYMMDD`;
+      if (!(Number(l.strike) > 0)) return `${label} ${i + 1}: strike must be > 0`;
+    } else {
+      const cid = Number(l.con_id);
+      if (!Number.isInteger(cid) || cid <= 0) return `${label} ${i + 1}: positive con_id required`;
+      if (seen.has(cid)) return `${label} ${i + 1}: duplicate con_id`;
+      seen.add(cid);
+      if (!SIDES.has(String(l.action || "").toUpperCase())) return `${label} ${i + 1}: action must be BUY or SELL`;
+    }
+  }
+  return null;
+}
+function optionPositionProblem(type, p) {
+  if (type !== "option_close" && type !== "option_roll") return null;
+  if (!p || typeof p !== "object") return "payload required";
+  if (!/^[A-Z0-9.]{1,12}$/.test(String(p.symbol || ""))) return "symbol required";
+  if (!SIDES.has(String(p.action || ""))) return "action must be BUY (net debit) or SELL (net credit)";
+  const limit = Number(p.limit);
+  if (!Number.isFinite(limit) || limit < 0 || (type === "option_close" && limit === 0)) return "limit must be a positive net price";
+  if (!["DAY", "GTC"].includes(String(p.tif || "DAY"))) return "tif must be DAY or GTC";
+  if (type === "option_close") return legsProblem(p.legs, "close leg", 4, false);
+  const problem = legsProblem(p.close_legs, "close leg", 4, false) || legsProblem(p.open_legs, "new leg", 4, true);
+  if (problem) return problem;
+  if (p.close_legs.length + p.open_legs.length > 6) return "a roll has at most 6 legs";
+  const risk = Number(p.debit_risk);
+  if (!Number.isFinite(risk) || risk < 0) return "debit_risk must be a number >= 0";
+  if (p.unbounded_ack != null && p.unbounded_ack !== true) return "unbounded_ack must be literal true when present";
+  return null;
+}
+
 export async function onRequestPost({ request, env }) {
   const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
   const denied = await requireAccess(request, env);
@@ -53,6 +98,11 @@ export async function onRequestPost({ request, env }) {
       (env.REVIEW_EXECUTION_LIVE_ENABLED === "1" &&
        /^(Pitch-|Seasonal_Agent-)/.test(String(body.payload?.strategy || "")))) {
     return new Response(JSON.stringify({ ok: false, error: "use the verified whole-idea review-execution route" }), { status: 409, headers });
+  }
+
+  const optionProblem = optionPositionProblem(String(body.type || ""), body.payload);
+  if (optionProblem) {
+    return new Response(JSON.stringify({ ok: false, error: `${body.type}: ${optionProblem}` }), { status: 400, headers });
   }
 
   const now = Date.now();
