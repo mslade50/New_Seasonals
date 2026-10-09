@@ -19,7 +19,9 @@ OPEN-derived limit approved premarket is saved in the local journal and stages
 automatically at 09:32 ET, once the actual session-opening bar is available.
 Pending jobs survive restart; a restart during submission reports uncertainty
 instead of placing again. There is no automatic conversion to a market order,
-late-session catch-up, next-day rollover or execution of an unsupported manual leg.
+next-day rollover or execution of an unsupported manual leg. OPEN-derived limits
+may stage after recovery on the same day while their published approval and
+entry deadlines remain valid; 09:32 is their earliest automatic staging time.
 
 ## Sizing
 
@@ -42,10 +44,13 @@ Each account receives one saved command UUID. Concurrent decisions and repeated
 clicks cannot create a second account request. The broker's durable UUID record
 and local source/account journal prevent a second placement after uncertain
 delivery. Queuing, broker acceptance and fills remain separate recorded states.
-Read-only refreshes never place an order or retry a failed command. A failed
-handoff or unavailable broker result is shown as needing checking; it must not
-be treated as a proved zero-order outcome. The short HTTP handoff is not a new
-durable retry service and does not retry on agent reconnect.
+Read-only refreshes never place an order. The existing execution-broker Worker
+checks saved approvals once per minute and retries the same unexpired UUIDs.
+The broker retries only queued or delivery-unknown handoffs; pushed/completed
+commands are deduplicated. This recovers a Pages interruption or an offline
+agent without a second click. An unavailable result remains needing checking,
+never a proved zero-order outcome. Scheduled results are resent until the broker
+acknowledges persistence; a repeated receipt cannot regress a later fill status.
 
 Earlier events marked `human_review_only / not_submitted` retain their meaning.
 They are not converted to trading approvals by deployment or page refresh. Only
@@ -67,13 +72,20 @@ runtime installation or setting changes.
    `review_execution` alongside `entry_bracket` to the existing live type list.
    Preserve unrelated settings. Restart the normal existing broker process with
    the approved settings and verify both exact account identities.
+   Verify `book.review_execution` reports the matching source SHA, v2 adapter,
+   initialized journal, both accounts and both live types before enabling the site.
+   The current runtime already has its general live gate enabled, so keep the
+   new review live gate off until installation, journal and account checks pass.
+   Existing v1 review journals receive an additive v2 migration preserving claims.
 4. Deploy the approved commit using the cloud-only private-site workflow, then
-   enable the same existing site preview/live settings. Do not deploy local data.
+   deploy the execution-broker Worker with its CHARTS R2 binding and minute
+   trigger. Enable its review live flag and the same existing site preview/live
+   settings after runtime readiness. Do not deploy local site data.
 5. Verify authenticated page readiness without clicking Yes on a real proposal.
    The next new Yes authorizes its displayed accounts and orders. Do not replay
    today's already-recorded research-only decision as part of activation.
 
-Rollback disables the review live flag on site and runtime. It stops new staging
+Rollback disables the review live flag on site, execution-broker and runtime. It stops new staging
 requests; it does not cancel orders already placed. Preserve the journal and
 review ledger so rollback cannot erase duplicate protection.
 

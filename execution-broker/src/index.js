@@ -22,6 +22,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { extendFillCoverage } from "./fill-coverage.mjs";
+import { dispatchReviewOutbox } from "./review-outbox.mjs";
 import {
   commandFillMatch,
   executionFamilyId,
@@ -483,6 +484,11 @@ export class ExecBroker extends DurableObject {
     // Command result from the agent -> attach to the recent-commands ring.
     if (msg.type === "result" && msg.id) {
       const durable=await this.ctx.storage.get(`command:${msg.id}`);
+      const receipt=durable?.type==='review_execution' && /^[a-f0-9]{64}$/.test(msg.review_receipt||'') ? msg.review_receipt : null;
+      if(receipt && durable.review_receipt===receipt) {
+        ws.send(JSON.stringify({type:'ack',of:'review_result',id:msg.id,receipt}));
+        return;
+      }
       if(durable) {
         durable.state=msg.state || "done";
         durable.result=mergeCommandResult(durable.result,{ok:msg.ok,detail:msg.detail,validation:msg.validation,preview:msg.preview,fill:msg.fill,at:msg.at,lock:msg.lock,snapshot:msg.snapshot,reason:msg.reason});
@@ -510,6 +516,11 @@ export class ExecBroker extends DurableObject {
           lock: msg.lock, snapshot: msg.snapshot, reason: msg.reason,
         });
         await this.ctx.storage.put("scheduled_commands", scheduled);
+      }
+      if(receipt) {
+        durable.review_receipt=receipt;
+        await this.ctx.storage.put(`command:${msg.id}`,durable);
+        ws.send(JSON.stringify({type:'ack',of:'review_result',id:msg.id,receipt}));
       }
     }
   }
@@ -749,6 +760,10 @@ export class ExecBroker extends DurableObject {
 const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/fills", "/inventory-observation", "/option", "/workbench", "/futures_size", "/futures_front"]);
 
 export default {
+  async scheduled(controller, env) {
+    const id=env.EXEC_BROKER.idFromName(BROKER_NAME);
+    await dispatchReviewOutbox(env,Date.now(),request=>env.EXEC_BROKER.get(id).fetch(request));
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/" || url.pathname === "/health") {

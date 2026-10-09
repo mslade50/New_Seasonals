@@ -9,6 +9,9 @@ owner-approved handoff. Existing research-only approvals are never replayed.
 
 ## Historical research-only workflow
 
+Everything below documents the retired implementation. Do not use its manual
+handoff or runtime instructions for rollout; use `review_and_stage.md` above.
+
 The inbox records human **review decisions** on exact delivered proposals. It
 does not allocate capital, set Sheets `Approve=Y`, enable a runner, stage a ticket,
 submit a broker command, or send messages. Silence never approves anything.

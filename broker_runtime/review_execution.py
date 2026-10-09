@@ -239,7 +239,7 @@ class Journal:
             pass
         with sqlite3.connect(path) as db:
             db.execute('CREATE TABLE meta (schema_version INTEGER NOT NULL)')
-            db.execute('INSERT INTO meta VALUES (1)')
+            db.execute('INSERT INTO meta VALUES (2)')
             db.execute('CREATE TABLE previews (hash TEXT PRIMARY KEY, payload TEXT NOT NULL)')
             db.execute('CREATE TABLE runs (key TEXT PRIMARY KEY, command_id TEXT UNIQUE NOT NULL, payload TEXT NOT NULL)')
             db.execute('CREATE TABLE scheduled (id TEXT PRIMARY KEY, payload TEXT NOT NULL, due TEXT NOT NULL, state TEXT NOT NULL, result TEXT, reported INTEGER NOT NULL DEFAULT 0)')
@@ -252,7 +252,13 @@ class Journal:
         db = sqlite3.connect(self.path.resolve().as_uri() + '?mode=rw', uri=True, timeout=5)
         try:
             db.execute('PRAGMA synchronous=FULL')
-            if db.execute('SELECT schema_version FROM meta').fetchall() != [(1,)]:
+            version = db.execute('SELECT schema_version FROM meta').fetchall()
+            if version == [(1,)]:
+                # Additive migration retains every preview and permanent claim.
+                with db:
+                    db.execute('CREATE TABLE IF NOT EXISTS scheduled (id TEXT PRIMARY KEY, payload TEXT NOT NULL, due TEXT NOT NULL, state TEXT NOT NULL, result TEXT, reported INTEGER NOT NULL DEFAULT 0)')
+                    db.execute('UPDATE meta SET schema_version=2')
+            elif version != [(2,)]:
                 raise ValueError('review execution journal schema unavailable')
             with db:
                 yield db
@@ -310,7 +316,7 @@ class Journal:
 
     def finish_scheduled(self, command_id, result):
         with self.connect() as db:
-            db.execute('UPDATE scheduled SET state=?, result=? WHERE id=?',
+            db.execute('UPDATE scheduled SET state=?, result=?, reported=0 WHERE id=?',
                        (result['state'], canonical(result), command_id))
 
     def unreported_staging(self):
@@ -321,6 +327,12 @@ class Journal:
     def reported_staging(self, command_id):
         with self.connect() as db:
             db.execute('UPDATE scheduled SET reported=1 WHERE id=?', (command_id,))
+
+    def acknowledge_staging(self, command_id, receipt):
+        with self.connect() as db:
+            row = db.execute('SELECT result FROM scheduled WHERE id=?', (command_id,)).fetchone()
+            if row and row[0] and hashlib.sha256(row[0].encode()).hexdigest() == receipt:
+                db.execute('UPDATE scheduled SET reported=1 WHERE id=?', (command_id,))
 
     def interrupt_staging(self):
         result = {'ok': False, 'state': 'unknown', 'detail': 'Broker process restarted during staging; check this saved request before retrying'}

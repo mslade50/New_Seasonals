@@ -74,7 +74,13 @@ export async function handleReview(request, env, identity, now = () => new Date(
         if(block)return reply(409,{error:block});
       }
       const result=await decide(envelope,record.events,command,{actor:identity.subject,now:now()});
-      if(result.replay) return reply(200,{event:result.event,replay:true,execution:result.event.execution});
+      if(result.replay) {
+        if(result.event.scope==='review_and_stage'&&stagingEnabled(env)&&Date.parse(now())<Date.parse(envelope.payload.review_deadline)) {
+          const delivery=deliverStaging(record,result.event,env,transport);
+          if(background)background(delivery);else await delivery;
+        }
+        return reply(200,{event:result.event,replay:true,execution:result.event.execution});
+      }
       if(etDate(now())!==date) return reply(409,{error:'Review date changed; reload'});
       if(Date.parse(now())>=Date.parse(envelope.payload.review_deadline)) return reply(409,{error:'Proposal expired before the write; reload'});
       let next={...record,events:result.events};

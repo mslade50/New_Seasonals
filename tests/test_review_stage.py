@@ -153,7 +153,13 @@ def test_open_limit_is_queued_premarket_and_runs_after_restart_without_a_second_
     assert invoked==[cmd['id']] and ib.calls==['XLE']
     assert ws.messages[-1]['state']=='working' and ws.messages[-1]['id']==cmd['id']
     asyncio.run(R.process_due_staging(g,ws))
-    assert invoked==[cmd['id']] and len(ws.messages)==1
+    assert invoked==[cmd['id']] and len(ws.messages)==2  # retry result until persisted ack
+    assert ws.messages[0]['review_receipt']==ws.messages[1]['review_receipt']
+    R.acknowledge_staging({'of':'review_result','id':cmd['id'],'receipt':'wrong'})
+    assert restarted.unreported_staging()
+    R.acknowledge_staging({'of':'review_result','id':cmd['id'],'receipt':ws.messages[-1]['review_receipt']})
+    asyncio.run(R.process_due_staging(g,ws))
+    assert invoked==[cmd['id']] and len(ws.messages)==2
 
 
 def test_scheduled_result_survives_websocket_loss_without_resubmission(tmp_path):
@@ -185,3 +191,17 @@ def test_missed_open_approval_expires_instead_of_running_next_day(tmp_path,monke
         async def send(self,value):self.result=json.loads(value)
     ws=Socket();asyncio.run(R.process_due_staging(g,ws))
     assert ws.result['state']=='rejected' and not ib.calls
+
+
+def test_prior_journal_migrates_without_losing_permanent_claims(tmp_path):
+    import sqlite3
+    journal=C.Journal.initialize(tmp_path/'journal')
+    with sqlite3.connect(journal.path) as db:
+        db.execute('DROP TABLE scheduled')  # only this test-created database
+        db.execute('UPDATE meta SET schema_version=1')
+        db.execute('INSERT INTO runs VALUES (?,?,?)',('fixture-key','fixture-id','{"fixture":true}'))
+    restored=C.Journal(journal.path)
+    assert restored.get('fixture-key')=={'fixture':True}
+    assert restored.unreported_staging()==[]
+    with sqlite3.connect(journal.path) as db:
+        assert db.execute('SELECT schema_version FROM meta').fetchall()==[(2,)]

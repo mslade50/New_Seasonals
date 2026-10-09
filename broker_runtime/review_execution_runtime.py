@@ -13,6 +13,7 @@ import contextlib
 import datetime as dt
 import io
 import json
+import hashlib
 import os
 from pathlib import Path
 import time
@@ -33,6 +34,25 @@ def configuration():
                                  os.environ.get('REVIEW_EXECUTION_PA_RISK_MULTIPLIER'))},
             'db': os.environ.get('REVIEW_EXECUTION_DB'),
             'max_risk_bps': min(100.0, contract.number(os.environ.get('REVIEW_EXECUTION_MAX_RISK_BPS', '100'), 'idea risk cap'))}
+
+
+def readiness(g):
+    """Read-only deployment evidence in the agent's existing book heartbeat."""
+    cfg = configuration()
+    journal_ready = False
+    if cfg['db']:
+        try:
+            with contract.Journal(cfg['db']).connect():
+                journal_ready = True
+        except Exception:
+            pass
+    return {'version': 'review-and-stage.v2',
+            'source_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            'preview_enabled': cfg['preview_enabled'], 'live_enabled': cfg['live_enabled'],
+            'journal_ready': journal_ready,
+            'accounts': sorted(g.get('LIVE_ACCOUNTS', set()) & {'primary', 'pa'}),
+            'types_ready': {'review_execution', 'entry_bracket'} <= g.get('LIVE_TYPES', set()),
+            'agent_live_enabled': bool(g.get('LIVE_ENABLED'))}
 
 
 def gate(g, command, cfg):
@@ -104,8 +124,14 @@ async def process_due_staging(g, ws):
         result = await handle_agent(g, command)
         journal.finish_scheduled(command['id'], result)
     for command_id, result in journal.unreported_staging():
-        await ws.send(json.dumps({'type': 'result', 'id': command_id, **result}))
-        journal.reported_staging(command_id)
+        receipt = hashlib.sha256(contract.canonical(result).encode()).hexdigest()
+        await ws.send(json.dumps({'type': 'result', 'id': command_id, 'review_receipt': receipt, **result}))
+
+
+def acknowledge_staging(message):
+    cfg = configuration()
+    if cfg['db'] and message.get('of') == 'review_result':
+        contract.Journal(cfg['db']).acknowledge_staging(message.get('id'), message.get('receipt'))
 
 
 async def staging_loop(g, ws):

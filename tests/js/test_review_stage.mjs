@@ -7,6 +7,7 @@ const source=rel=>fs.readFileSync(new URL('../../'+rel,import.meta.url),'utf8');
 const uri=text=>'data:text/javascript;base64,'+Buffer.from(text).toString('base64');
 const coreUri=uri(source('site/assets/review-core.js')),authUri=uri(source('functions/_access.js'));
 const stageUri=uri(source('functions/_review-stage.js').replace("'../site/assets/review-core.js'",JSON.stringify(coreUri)));
+const {dispatchReviewOutbox}=await import(uri(source('execution-broker/src/review-outbox.mjs').replace("'../../site/assets/review-core.js'",JSON.stringify(coreUri))));
 const api=await import(uri(source('functions/review-inbox.js').replace("'./_access.js'",JSON.stringify(authUri)).replace("'./_review-stage.js'",JSON.stringify(stageUri)).replace("'../site/assets/review-core.js'",JSON.stringify(coreUri))));
 const C=await import(coreUri),clock=()=> '2026-10-09T10:00:00Z',actor={subject:'fixture-human'},uuid=()=>crypto.randomUUID();
 async function fixture(product='pitch',enabled=true){
@@ -33,7 +34,7 @@ for(const product of ['pitch','seasonal'])await test(product+' Yes reserves both
  assert.equal(Object.keys(f.record().execution_sources).length,2);
 });
 await test('No records rejection and creates zero staging requests',async()=>{const f=await fixture();assert.equal((await f.post({...f.body,decision:'reject',stage:false,reason:'Declined'})).status,200);assert.equal(f.record().events[0].decision,'reject');assert.equal(f.commands.length,0);assert.equal(f.record().execution_requests,undefined);});
-await test('double click and concurrent devices create only one pair of jobs',async()=>{const f=await fixture(),r=await Promise.all([f.post(),f.post({...f.body,id:uuid()})]);assert.deepEqual(r.map(x=>x.status).sort(),[200,409]);assert.equal((await f.post()).status,200);assert.equal(f.record().events.length,1);assert.equal(f.commands.length,2);});
+await test('double click and concurrent devices retain the same pair of UUIDs',async()=>{const f=await fixture(),r=await Promise.all([f.post(),f.post({...f.body,id:uuid()})]);assert.deepEqual(r.map(x=>x.status).sort(),[200,409]);assert.equal((await f.post()).status,200);assert.equal(f.record().events.length,1);assert.equal(new Set(f.commands.map(c=>c.id)).size,2);});
 await test('disabled staging cannot silently accept a Yes as research only',async()=>{const f=await fixture('seasonal',false);assert.equal((await f.post()).status,409);assert.equal(f.record().events.length,0);assert.equal(f.commands.length,0);assert.equal((await f.post({...f.body,decision:'reject',stage:false,reason:'Declined'})).status,200);});
 await test('late/stale delivery/version approval cannot stage',async()=>{const f=await fixture();assert.equal((await f.post(f.body,actor,()=> '2026-10-09T19:30:00Z')).status,409);f.bucket.receipt='new';assert.equal((await f.post()).status,409);f.bucket.receipt='fixture-delivery';assert.equal((await f.post({...f.body,proposal_hash:'wrong'})).status,409);assert.equal(f.commands.length,0);});
 await test('publication CAS race never stages superseded proposals',async()=>{const f=await fixture();f.bucket.hook=()=>f.mutate(r=>r.current_ids=[]);assert.equal((await f.post()).status,409);assert.equal(f.commands.length,0);assert.equal(f.record().events.length,0);});
@@ -41,6 +42,22 @@ await test('store failure cannot trigger broker delivery',async()=>{const f=awai
 await test('missing sizing or manual leg blocks before approval',async()=>{for(const change of [p=>delete p.source_sizing,p=>p.orders[1].Manual_Only=true,p=>p.orders[1].Trail_ATR=1]){const f=await fixture();await f.amend(change);assert.equal((await f.post()).status,409);assert.equal(f.record().events.length,0);assert.equal(f.commands.length,0);}});
 await test('one account transport failure does not erase either durable intent',async()=>{const f=await fixture();let calls=0;assert.equal((await f.post(f.body,actor,clock,async()=>{calls++;throw Error('mock timeout');})).status,200);assert.equal(calls,2);assert.equal(Object.keys(f.record().execution_requests).length,2);const fresh=await (await f.get()).json();assert.equal(fresh.products[0].staging.length,2);assert.ok(fresh.products[0].staging.every(j=>j.state==='unknown'));});
 await test('HTTP response may finish while background broker handoff is pending',async()=>{const f=await fixture();let finish;const promise=new Promise(r=>finish=r),tasks=[];const r=await f.post(f.body,actor,clock,async(e,p,c)=>{await promise;return {id:c.id,state:'pushed'};},p=>tasks.push(p));assert.equal(r.status,200);assert.equal(tasks.length,1);finish();await tasks[0];});
+await test('retry of a saved decision redelivers the original UUIDs',async()=>{const f=await fixture();await f.post(f.body,actor,clock,async()=>{throw Error('offline');});const ids=Object.keys(f.record().execution_requests);assert.equal((await f.post()).status,200);assert.deepEqual(f.commands.map(c=>c.id),ids);assert.equal(f.record().events.length,1);});
+await test('background outbox recovers interrupted handoff without a browser and expires same day',async()=>{
+ const f=await fixture();await f.post(f.body,actor,clock,async()=>{throw Error('worker interrupted');});
+ const relayed=[],relay=async req=>{const body=await req.json();relayed.push(JSON.parse(body.signed));return new Response('{}');};
+ await dispatchReviewOutbox({...f.env,STATUS_TOKEN:'fixture'},Date.parse(clock()),relay);
+ assert.deepEqual(relayed.map(c=>c.id),Object.keys(f.record().execution_requests));
+ await dispatchReviewOutbox({...f.env,STATUS_TOKEN:'fixture'},Date.parse('2026-10-09T20:00:00Z'),relay);
+ await dispatchReviewOutbox({...f.env,STATUS_TOKEN:'fixture',REVIEW_EXECUTION_LIVE_ENABLED:'0'},Date.parse(clock()),relay);
+ assert.equal(relayed.length,2);
+});
+await test('outbox cannot convert a legacy review or a mismatched saved intent',async()=>{
+ for(const [mutate,expected] of [[r=>r.events[0].scope='human_review_only',0],[r=>r.execution_requests[Object.keys(r.execution_requests)[0]].command.payload.actor='intruder',1]]){
+  const f=await fixture();await f.post();f.mutate(mutate);let calls=0;
+  await dispatchReviewOutbox({...f.env,STATUS_TOKEN:'fixture'},Date.parse(clock()),async()=>{calls++;return new Response('{}');});assert.equal(calls,expected);
+ }
+});
 await test('status shows broker rejection and never calls an order route',async()=>{const f=await fixture();await f.post();f.results.push({id:f.commands[0].id,type:'review_execution',account:'primary',state:'rejected',result:{state:'rejected',detail:'Insufficient buying power'}});const d=await (await f.get()).json();assert.equal(d.products[0].staging[0].state,'rejected');assert.equal(d.products[0].staging[0].detail,'Insufficient buying power');assert.equal(f.commands.length,2);});
 await test('old research-only approval never queues orders on page refresh',async()=>{const f=await fixture();assert.equal((await f.post({...f.body,stage:false})).status,200);const d=await (await f.get()).json();assert.equal(d.products[0].staging.length,0);assert.equal(f.commands.length,0);});
 
