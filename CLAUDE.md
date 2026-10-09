@@ -34,6 +34,7 @@ df.columns = [c.capitalize() for c in df.columns]
 
 - Production runs from a pinned local-primary worktree + venv via Windows Task Scheduler (`premarket`, `postclose`, etc.), NOT this checkout. Scheduled runs never update their own code. GitHub workflows are receipt-gated backups. See `docs/claude_ref/automation_and_r2.md`.
 - Concurrent sessions work in this repo and commit directly to main. Commit promptly, re-check `git log`, never push blind.
+- **CODE FREEZE on `OneDrive\trading_ibkr` (owner, 2026-10-09).** Do not edit code there directly, and do not run `broker_runtime` install scripts against it. Make every change in the private repo `mslade50/trading_ibkr` (branch `cutover`); it reaches the live machine only through the cutover deploy. Plan: `docs/trading_ibkr_onedrive_migration_plan_2026-09-23.md`.
 - Some `trading_ibkr` scripts place LIVE orders (`order_staging.py`, `eq_order_entry.py`, `olv_exit_moo.py`, `event_moo.py`, `pitch_moo.py`, `radar_trail_sync.py`). Order staging is local and talks to TWS. Treat edits there as live-money changes.
 - R2 (`seasonals-cache`, via `cache_io.py`) is canonical for `master_prices.parquet`, `earnings_calendar.parquet`, the intraday cache, `live_fills.parquet`, the event sleeve journal/state and the trend sleeve state. A stale local or repo copy must not overwrite them.
 
