@@ -267,6 +267,11 @@ async function ocFetch(mode, expiry, center) {
   ocState.loading = true;
   ocSetMsg(mode === "full" ? "fetching chain + expiries... (~15-20s)" : "re-quoting...");
   const body = { ticker: ocState.ticker, mode, expiry: expiry || null, max_expiries: mode === "full" ? 40 : 2, context: null };
+  // Always the contiguous strike window around a centre (default: spot), never
+  // the agent's thinned wide band, so no nearby strike is skipped and the
+  // tails are ignored. "full" runs before spot is known; ocLoadTicker
+  // re-quotes centred on spot right after it.
+  if (center == null && mode === "chain" && ocState.spot > 0) center = Math.round(ocState.spot);
   if (center != null) body.strike_center = center;
   try {
     const res = await ocRequest(body);
@@ -303,6 +308,10 @@ async function ocLoadTicker(ticker) {
   const ok = await ocFetch("full", null, null);
   if (!ok) return;
   const pf = ocState.prefill;
+  if (!(pf && pf.legs.length)) {
+    await ocFetch("chain", ocState.expiry, null);          // centred on spot (see ocFetch)
+    return;
+  }
   if (pf && pf.legs.length) {
     ocState.prefill = null;
     const want = pf.legs[0].expiry;
