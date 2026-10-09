@@ -62,6 +62,20 @@ pitch, so this dedup covers prior days only and a same-day duplicate is possible
 
 - `horizon_td` 1..63 (`MAX_HORIZON_TD_BY_PRODUCT`); `exit.time_td` 1..horizon.
   The pitch's cap was already 63 and is unchanged.
+- Entry is a strict close-anchored LIMIT only (`_validate_seasonal_entry`):
+  MOO, MOC and an OPEN anchor are refused; `atr_mult` never chases (long legs
+  <= 0, short legs >= 0, so a long/short pair sits at 0); a missed fill is
+  accepted. Required `entry_rationale` (>= 60 chars,
+  `SEASONAL_ENTRY_RATIONALE_MIN`): the limit and window chosen, the fill rate
+  and the cost or gain against the MOC benchmark from the dev script's
+  whole-variant table. It prints as WHY THIS ENTRY on the email card and is
+  journaled as `entry_rationale` (seasonal records only). Time exits stay
+  MOC/MOO. The pitch's entry grammar is unchanged.
+  History: 2026-10-09, owner decision (McKinley) after the 2026-10-06 RYAAY
+  long went out as a MOC. Its dev table had a limit at -0.25 ATR good 10
+  sessions on par with the MOC (+10.07% vs +9.50% whole, 24/26 fills), and the
+  card never said why it chose the MOC. Known prices beat a fill that may
+  print 1.5 ATR higher at the next close.
 - Optional `exit.trail {arm_atr > 0, trail_atr > 0}`: once MFE from entry
   reaches `arm_atr` ATR, a stop trails `trail_atr` ATR behind the best close
   (above it for shorts). Legal with or without `stop_atr`. A trail makes the

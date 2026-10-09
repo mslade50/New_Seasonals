@@ -88,10 +88,10 @@ assert.deepStrictEqual(plain(cp.legs.map((l) => l.side)), ["BUY", "SELL"]);
 const stats = C.ocComputeStats([L("BUY", "P", 748), L("SELL", "P", 720)], chain, 500, 3.2);
 assert.ok(Math.abs(stats.totalMaxLoss - (3.2 * 100 + stats.comm) * 500) < 1e-6);
 
-// executor caps: 3+ legs, ratios, naked shorts are analysed but not sendable
-assert.ok(C.ocBuildStruct([L("SELL", "C", 800)], chain).execution_issue);
-assert.ok(C.ocBuildStruct([L("BUY", "P", 748, 2), L("SELL", "P", 720)], chain).execution_issue);
-assert.ok(C.ocBuildStruct([L("BUY", "P", 748), L("SELL", "P", 720), L("SELL", "C", 800)], chain).execution_issue);
+// executor caps (OPTION_COMBO_SPEC.md): ratios, short singles, 3-4 legs are sendable; the spec's rejections still show a reason
+assert.strictEqual(C.ocBuildStruct([L("SELL", "C", 800)], chain).execution_issue, null);
+assert.strictEqual(C.ocBuildStruct([L("BUY", "P", 748, 2), L("SELL", "P", 720)], chain).execution_issue, null);
+assert.strictEqual(C.ocBuildStruct([L("BUY", "P", 748), L("SELL", "P", 720), L("SELL", "C", 800)], chain).execution_issue, null);
 assert.strictEqual(C.ocBuildStruct([L("BUY", "P", 748), L("SELL", "P", 700)], chain).missing.length, 1);
 
 // expiry list prefers all_expiries; centre honoured check

@@ -28,6 +28,10 @@ def seasonal_root(tmp_path, monkeypatch):
     return root
 
 
+RATIONALE = ("limit at the signal close, good three sessions: 22/26 fills, "
+             "+0.4% a year behind a MOC over all years")
+
+
 def seasonal_idea(**over) -> dict:
     idea = copy.deepcopy(json.loads(FIXTURE.read_text(encoding="utf-8"))["ideas"][0])
     idea["horizon_td"] = 42
@@ -35,6 +39,9 @@ def seasonal_idea(**over) -> dict:
     idea["sizing"] = {"mode": "risk_bps", "risk_bps": 30, "stop_atr_for_sizing": 2.0}
     idea["evidence"]["script"] = "x.py"
     idea["evidence"]["dev_script"] = "y.py"
+    idea["entry"] = {"type": "LIMIT", "anchor": "CLOSE", "atr_mult": 0.0,
+                     "fill_window_td": 3}
+    idea["entry_rationale"] = RATIONALE
     idea.update(over)
     return idea
 
@@ -204,3 +211,58 @@ def test_survey_root_follows_the_product(seasonal_root, checks_root):
     errs = pg.validate_survey_evidence(payload)
     assert any(str(checks_root) in e for e in errs)
     assert pg.default_checks_root("pitch") == checks_root
+
+
+# --- entry: strict close-anchored limits, owner rule 2026-10-09 --------------
+LONG_ONLY = [{"ticker": "GLD", "side": "LONG", "weight": 1.0}]
+SHORT_ONLY = [{"ticker": "GLD", "side": "SHORT", "weight": 1.0}]
+
+
+def limit(k, anchor="CLOSE", window=5):
+    return {"type": "LIMIT", "anchor": anchor, "atr_mult": k,
+            "fill_window_td": window}
+
+
+@pytest.mark.parametrize("kind", ["MOC", "MOO"])
+def test_seasonal_refuses_market_entries(kind):
+    errs = errors_for(seasonal_idea(entry={"type": kind}))
+    assert any("not " + kind in e for e in errs)
+    # pitch twin: market entries are still legal there
+    idea = seasonal_idea(entry={"type": kind}, sizing=None,
+                         novelty_axis="inversion")
+    assert errors_for(idea, "pitch") == []
+
+
+def test_seasonal_refuses_an_open_anchor():
+    assert any("anchored to CLOSE" in e
+               for e in errors_for(seasonal_idea(entry=limit(-0.5, "OPEN"))))
+
+
+@pytest.mark.parametrize("legs,k,ok", [
+    (LONG_ONLY, -0.5, True), (LONG_ONLY, 0.0, True), (LONG_ONLY, 0.25, False),
+    (SHORT_ONLY, 0.5, True), (SHORT_ONLY, 0.0, True), (SHORT_ONLY, -0.25, False),
+    (None, 0.0, True), (None, -0.5, False), (None, 0.5, False),  # GLD/SLV pair
+])
+def test_a_seasonal_limit_never_chases(legs, k, ok):
+    over = {"entry": limit(k)}
+    if legs:
+        over["legs"] = legs
+    errs = errors_for(seasonal_idea(**over))
+    assert (not any("chases" in e for e in errs)) is ok
+
+
+@pytest.mark.parametrize("why", [None, "", "limit at close"])
+def test_seasonal_requires_an_entry_rationale(why):
+    idea = seasonal_idea()
+    if why is None:
+        idea.pop("entry_rationale")
+    else:
+        idea["entry_rationale"] = why
+    assert any("entry_rationale" in e for e in errors_for(idea))
+
+
+def test_pitch_needs_no_entry_rationale():
+    idea = seasonal_idea(entry={"type": "MOC"}, sizing=None,
+                         novelty_axis="inversion")
+    idea.pop("entry_rationale")
+    assert errors_for(idea, "pitch") == []
