@@ -9,6 +9,7 @@ import pytest
 
 from broker_runtime import intraday_email as email
 from broker_runtime.prepare_morning_intraday_email import patch
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
 
 NOW = datetime(2026, 10, 7, 9, 31, 25, tzinfo=email.NY)
 DAY = '2026-10-07'
@@ -125,7 +126,7 @@ def test_absent_strategies_omit_section(tmp_path):
 
 
 def test_real_email_patch_primary_only_even_without_stock_orders():
-    source = Path.home() / 'OneDrive/trading_ibkr/morning_order_summary.py'
+    source = _tloc.source_dir() / 'morning_order_summary.py'
     if not source.exists():
         pytest.skip('Installed email source unavailable')
     original = source.read_text(encoding='utf-8')

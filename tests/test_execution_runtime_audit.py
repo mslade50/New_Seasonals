@@ -12,6 +12,8 @@ import pytest
 from broker_runtime import execution_lifecycle as life
 from broker_runtime import position_actions as actions
 from tests.test_unified_position_actions import Broker, exit_order, namespace, request
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
 
 def test_add_qualifies_exact_held_contract_before_staging(tmp_path, monkeypatch):
@@ -99,7 +101,7 @@ def test_attached_child_callback_can_arrive_late_without_a_resubmission(missing)
 
 @pytest.mark.parametrize("adding", [False, True])
 def test_position_action_subprocess_emits_one_real_terminal_result(tmp_path, adding):
-    source = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr")) / "execute_order.py"
+    source = Path(os.environ.get("IBKR_REVIEW_SOURCE", str(_tloc.source_dir(default=_TIBKR_DESKTOP)))) / "execute_order.py"
     if not source.exists():
         source = Path(__file__).parent / "fixtures/execution_runtime/execute_order.py"
     text = source.read_text(encoding="utf-8-sig")

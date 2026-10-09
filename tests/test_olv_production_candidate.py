@@ -2,10 +2,12 @@ import ast,os,hashlib
 from pathlib import Path
 import pytest
 from broker_runtime.prepare_olv_production import prepare, HASHES
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
 
 def test_cutover_preserves_reviewed_contract_or_refuses_changed_runtime(tmp_path):
-    source=Path(os.environ.get('OLV_PRODUCTION_REVIEW_SOURCE','C:/Users/McKinley Slade/OneDrive/trading_ibkr'))
+    source=Path(os.environ.get('OLV_PRODUCTION_REVIEW_SOURCE',str(_tloc.source_dir(default=_TIBKR_DESKTOP))))
     if not (source/'book_snapshot.py').exists():pytest.skip('reviewed broker sources unavailable')
     target=tmp_path/'candidate'
     # This historical cutover is hash-bound. A newer installed runtime must be

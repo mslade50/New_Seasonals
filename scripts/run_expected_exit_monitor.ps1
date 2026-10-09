@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$RuntimeRoot,
     [Parameter(Mandatory = $true)][string]$ConfigRoot,
     [Parameter(Mandatory = $true)][string]$Python,
-    [Parameter(Mandatory = $true)][string]$ExecEnv,
+    # trading_ibkr runtime_paths rule: TRADING_IBKR_SECRETS_DIR when set, else OneDrive.
+    [string]$ExecEnv = $(if ($env:TRADING_IBKR_SECRETS_DIR) { Join-Path $env:TRADING_IBKR_SECRETS_DIR 'exec_agent.env' } else { Join-Path $env:USERPROFILE 'OneDrive\trading_ibkr\exec_agent.env' }),
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{40}$')][string]$PinnedSha,
     [switch]$ValidateOnly
 )

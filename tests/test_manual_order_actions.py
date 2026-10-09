@@ -12,6 +12,8 @@ import pytest
 from broker_runtime import manual_order_actions as manual
 from broker_runtime import prepare_manual_order_actions as prepare
 from tests.spent_preparers import retired_manual_order_actions
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
 
 def trade(account="PRIMARY", **overrides):
@@ -180,7 +182,7 @@ def test_agent_checks_only_address_and_encoding(setup, account):
 
 @retired_manual_order_actions
 def test_candidate_patches_real_runtime_without_importing_broker(tmp_path):
-    source = Path(os.environ.get("MANUAL_ORDER_TEST_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
+    source = Path(os.environ.get("MANUAL_ORDER_TEST_SOURCE", str(_tloc.source_dir(default=_TIBKR_DESKTOP))))
     if not source.exists(): pytest.skip("runtime source unavailable")
     expected = json.loads((prepare.HERE / "manual_order_source_hashes.json").read_text())
     if not os.environ.get("MANUAL_ORDER_TEST_SOURCE") and any(
