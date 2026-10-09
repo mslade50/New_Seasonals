@@ -277,7 +277,7 @@ def test_ibkr_already_filled_cancel_error_does_not_halt(config,filled,status,kno
     from types import SimpleNamespace as NS
     from open_breakout.ibkr import IBKR
     async def run():
-        adapter=IBKR(config)
+        adapter=IBKR(config);adapter.healthy=True  # adapters start unproved; model an already-proven epoch
         if known:
             adapter.trades[21]=NS(order=NS(totalQuantity=1),orderStatus=NS(status=status),
                                   fills=[NS(execution=NS(shares=filled,cumQty=filled))] if filled else [])
@@ -994,8 +994,8 @@ def test_shadow_standby_full_session_simulates_only(config,tmp_path,monkeypatch)
     monkeypatch.setattr(standby,'datetime',ClockDateTime)
     class Feed:
         instance=None
-        def __init__(self,c):
-            Feed.instance=self;self.config=c;self.healthy=True;self.connected=False;self.quotes={}
+        def __init__(self,c,session=None):
+            Feed.instance=self;self.config=c;self.session=session;self.healthy=True;self.connected=False;self.quotes={}
             self.ib=SimpleNamespace(client=SimpleNamespace(),isConnected=lambda:self.connected)
         async def connect(self):
             with pytest.raises(PermissionError):self.ib.client.placeOrder()
@@ -2118,6 +2118,7 @@ def test_farm_blips_do_not_halt_and_snapshot_is_serialized(config):
         from open_breakout.ibkr import IBKR
         from types import SimpleNamespace as NS
         adapter=IBKR(config);halts=[]
+        adapter.healthy=True  # adapters start unproved; model an already-proven epoch
         adapter.halt_callback=halts.append
         for code in [2103,2105,2104]:adapter._error(-1,code,'farm',None)
         assert adapter.healthy and not halts
