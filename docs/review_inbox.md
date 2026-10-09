@@ -1,5 +1,14 @@
 # Daily Pitch and Seasonal human review inbox
 
+Current implementation: [single review and automatic staging](review_and_stage.md).
+The Review page now uses **Yes — stage orders** and **No — pass**. A new Yes
+decision atomically reserves staging requests for the published accounts and
+hands them to the existing broker process. No separate preview or confirmation
+screen is required. The source is prepared; production activation is a separate
+owner-approved handoff. Existing research-only approvals are never replayed.
+
+## Historical research-only workflow
+
 The inbox records human **review decisions** on exact delivered proposals. It
 does not allocate capital, set Sheets `Approve=Y`, enable a runner, stage a ticket,
 submit a broker command, or send messages. Silence never approves anything.

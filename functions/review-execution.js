@@ -52,7 +52,7 @@ export async function handleExecution(request,env,identity,now=()=>new Date().to
     if(result.fill){
      const plan=await verifyPlan(result.fill.plan),payload=saved.command.payload;
      const proposalHash=payload.proposal?.hash||payload.proposal_hash;
-     if(plan.actor!==identity.subject||plan.product!==product||plan.account!==saved.command.account||plan.proposal_hash!==proposalHash||result.fill.plan.hash!==payload.plan_hash||result.fill.state!==result.state)return reply(503,{error:'Broker execution/reconciliation account/version/plan mismatch'});
+     if(plan.actor!==identity.subject||plan.product!==product||plan.account!==saved.command.account||plan.proposal_hash!==proposalHash||(payload.operation!=='stage'&&result.fill.plan.hash!==payload.plan_hash)||result.fill.state!==result.state)return reply(503,{error:'Broker execution/reconciliation account/version/plan mismatch'});
      const expected=await hash(canonical(plan.source_date?[product,plan.source_idea_id,proposalHash,plan.account]:[product,plan.source_idea_id,plan.account]));
      if(result.fill.key!==expected)return reply(503,{error:'Broker execution run namespace mismatch'});
     }
@@ -81,7 +81,7 @@ export async function handleExecution(request,env,identity,now=()=>new Date().to
    if(Object.values(record.execution_requests||{}).filter(r=>r.command.account===account).length>=32)return reply(409,{error:'This account execution audit limit reached; history cannot be truncated',account});
    let payload,claim,sourceClaim;
    if(operation==='reconcile'){
-    const old=Object.values(record.execution_requests||{}).find(r=>r.command.account===account&&r.command.payload.operation==='execute'&&r.command.payload.plan_hash===body.plan_hash&&r.actor===identity.subject);
+    const old=Object.values(record.execution_requests||{}).find(r=>r.command.account===account&&['execute','stage'].includes(r.command.payload.operation)&&(r.command.payload.plan_hash===body.plan_hash||r.result?.fill?.plan?.hash===body.plan_hash)&&r.actor===identity.subject);
     if(!old)return reply(409,{error:'Reserved execution intent unavailable; no run identity inferred'});
     const source=old.command.payload.proposal;
     const runKey=await hash(canonical(source.payload.source_sizing?[product,source.payload.source_idea_id,source.hash,account]:[product,source.payload.source_idea_id,account]));

@@ -1,6 +1,7 @@
-/* Human review only. This route has no broker/Sheets/runner dependency. */
+/* Yes atomically records approval and reserves immediate whole-idea staging. */
 import { requireAccessIdentity } from './_access.js';
 import { verify, view, decide } from '../site/assets/review-core.js';
+import {stagingEnabled, stagingBlock, reserveStaging, deliverStaging, stagingStatus, broker} from './_review-stage.js';
 
 const PREFIX = 'review_inbox/v1';
 const headers = {'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
@@ -24,14 +25,16 @@ export async function readRecord(bucket, product, date) {
   }
   if (record.current_ids.some(id=>!record.proposals[id])) throw Error('Current version missing');
   for (const event of record.events) {
-    if (!record.proposals[event.proposal_id] || event.proposal_hash !== record.proposals[event.proposal_id].hash || event.execution !== 'not_submitted' || event.scope !== 'human_review_only' || !['approve_review','reject'].includes(event.decision)) throw Error('Invalid review history');
+    const reviewOnly=event.execution==='not_submitted'&&event.scope==='human_review_only';
+    const staged=event.execution==='queued'&&event.scope==='review_and_stage'&&event.decision==='approve_review'&&Array.isArray(event.accounts)&&event.accounts.length>0;
+    if (!record.proposals[event.proposal_id] || event.proposal_hash !== record.proposals[event.proposal_id].hash || (!reviewOnly&&!staged) || !['approve_review','reject'].includes(event.decision)) throw Error('Invalid review history');
   }
   const receiptObject=await bucket.get(`${product==='pitch'?'pitch_delivery_receipts':'seasonal_agent_delivery_receipts'}/${date}.json`);
   const receipt=receiptObject?await receiptObject.json():null;
   const deliveryCurrent=receipt?.status==='sent' && receipt.date===date && receipt.delivery_id===record.delivery.delivery_id;
   return {record,etag:object.etag,deliveryCurrent};
 }
-export async function handleReview(request, env, identity, now = () => new Date().toISOString()) {
+export async function handleReview(request, env, identity, now = () => new Date().toISOString(), transport=broker, background=null) {
   if (!env.CHARTS) return reply(503,{error:'Existing CHARTS store is unavailable'});
   const url = new URL(request.url), today=etDate(now()), date=url.searchParams.get('date') || today;
   if (!validDate(date) || date > today) return reply(400,{error:'Valid current or historical review date required'});
@@ -41,10 +44,10 @@ export async function handleReview(request, env, identity, now = () => new Date(
         const loaded=await readRecord(env.CHARTS,product,date);
         if(!loaded) return {product,date,status:'missing',proposals:[],events:[],error:'No delivery-gated review feed published for this date'};
         const {record,deliveryCurrent}=loaded;
-        const proposals=Object.values(record.proposals).map(envelope=>({envelope,current:deliveryCurrent&&record.current_ids.includes(envelope.id),state:view(envelope,record.events,now())}));
-        return {product,date,status:!deliveryCurrent?'stale':date===today?'fresh':'historical',stand_down:record.stand_down,stand_down_reason:record.stand_down_reason,delivery:record.delivery,proposals,events:record.events};
+        const proposals=await Promise.all(Object.values(record.proposals).map(async envelope=>({envelope,current:deliveryCurrent&&record.current_ids.includes(envelope.id),state:view(envelope,record.events,now()),staging_block:await stagingBlock(envelope,env)})));
+        return {product,date,status:!deliveryCurrent?'stale':date===today?'fresh':'historical',stand_down:record.stand_down,stand_down_reason:record.stand_down_reason,delivery:record.delivery,proposals,events:record.events,staging:await stagingStatus(record,env,transport)};
       }));
-      return reply(200,{schema:1,date,today,server_time:now(),actor:identity.subject,read_only:date!==today,products:results});
+      return reply(200,{schema:1,date,today,server_time:now(),actor:identity.subject,read_only:date!==today,staging_enabled:stagingEnabled(env),products:results});
     } catch { return reply(503,{error:'Review store cannot be verified. Decisions are unavailable.'}); }
   }
   if(request.method!=='POST') return reply(405,{error:'GET or POST required'});
@@ -66,12 +69,24 @@ export async function handleReview(request, env, identity, now = () => new Date(
       const retry=record.events.some(e=>e.id===command.id);
       if(!retry&&!deliveryCurrent) return reply(409,{error:'Current delivery has not been reconciled. Reload after the confirmed feed publishes.'});
       if(!retry && !record.current_ids.includes(envelope.id)) return reply(409,{error:'Proposal superseded. Reload and review the new version.'});
+      if(command.stage===true&&command.decision==='approve_review'&&!retry){
+        const block=await stagingBlock(envelope,env);
+        if(block)return reply(409,{error:block});
+      }
       const result=await decide(envelope,record.events,command,{actor:identity.subject,now:now()});
-      if(result.replay) return reply(200,{event:result.event,replay:true,execution:'not_submitted'});
+      if(result.replay) return reply(200,{event:result.event,replay:true,execution:result.event.execution});
       if(etDate(now())!==date) return reply(409,{error:'Review date changed; reload'});
       if(Date.parse(now())>=Date.parse(envelope.payload.review_deadline)) return reply(409,{error:'Proposal expired before the write; reload'});
-      const stored=await env.CHARTS.put(`${PREFIX}/${command.product}/${date}.json`,JSON.stringify({...record,events:result.events}),{onlyIf:{etagMatches:etag},httpMetadata:{contentType:'application/json',cacheControl:'no-store'}});
-      if(stored) return reply(200,{event:result.event,replay:false,execution:'not_submitted'});
+      let next={...record,events:result.events};
+      if(result.event.scope==='review_and_stage')next=reserveStaging(next,envelope,result.event,now());
+      const stored=await env.CHARTS.put(`${PREFIX}/${command.product}/${date}.json`,JSON.stringify(next),{onlyIf:{etagMatches:etag},httpMetadata:{contentType:'application/json',cacheControl:'no-store'}});
+      if(stored){
+        if(result.event.scope==='review_and_stage'){
+          const delivery=deliverStaging(next,result.event,env,transport);
+          if(background)background(delivery);else await delivery;
+        }
+        return reply(200,{event:result.event,replay:false,execution:result.event.execution});
+      }
       // CAS lost: re-read and resolve identical retry, stale revision or supersession.
     }
     return reply(409,{error:'Review changed concurrently. Reload; no success was recorded.'});
@@ -80,8 +95,9 @@ export async function handleReview(request, env, identity, now = () => new Date(
     return reply(503,{error:'Review write could not be confirmed. Reload before retrying.'});
   }
 }
-export async function onRequest({request,env}) {
+export async function onRequest(context) {
+  const {request,env}=context;
   const identity=await requireAccessIdentity(request,env);
   if(identity instanceof Response) return identity;
-  return handleReview(request,env,identity);
+  return handleReview(request,env,identity,undefined,broker,context.waitUntil?promise=>context.waitUntil(promise):null);
 }

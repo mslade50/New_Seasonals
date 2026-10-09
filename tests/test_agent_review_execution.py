@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import uuid
 import math
 import itertools
+import os
 
 import pytest
 
@@ -21,6 +22,7 @@ from broker_runtime import prepare_review_execution as P
 from broker_runtime import review_sizing as S
 
 NOW=dt.datetime(2026,10,6,14,tzinfo=dt.timezone.utc)
+TRADING_RUNTIME=Path(os.environ.get('REVIEW_EXECUTION_TEST_RUNTIME',r'C:\Users\McKinley Slade\OneDrive\trading_ibkr'))
 DAY='2026-10-06'
 ROW={'Idea_Id':DAY+'-1','Leg':1,'Ticker':'XLE','Sec_Type':'STK','Contract':'','Proxy_Ticker':'',
      'Action':'BUY','Quantity':10,'Entry_Type':'LIMIT','Entry_Anchor':'CLOSE','Entry_Offset_ATR':-0.5,
@@ -275,7 +277,7 @@ def test_real_executor_json_exit_protocol_is_captured():
 
 
 def test_preparer_is_hash_pinned_and_never_installs(tmp_path):
-    source=Path(r'C:\Users\McKinley Slade\OneDrive\trading_ibkr')
+    source=TRADING_RUNTIME
     if not source.exists():pytest.skip('reviewed external source not present; portable contract/lifecycle tests still run')
     output=tmp_path/'candidate';result=P.prepare(source,output)
     assert not result['installed'] and not result['armed']
@@ -287,7 +289,7 @@ def test_preparer_is_hash_pinned_and_never_installs(tmp_path):
 @pytest.mark.parametrize('product',['pitch','seasonal'])
 def test_actual_patched_executor_and_native_bracket_with_fake_broker(tmp_path,monkeypatch,product):
     """Execute only inspected AST functions, never a production module import."""
-    source=Path(r'C:\Users\McKinley Slade\OneDrive\trading_ibkr\execute_order.py')
+    source=TRADING_RUNTIME/'execute_order.py'
     if not source.exists():pytest.skip('external executor absent; portable lifecycle tests run above')
     original=source.read_text(encoding='utf-8-sig')
     patched=P.patch_executor(original)
@@ -407,7 +409,7 @@ def test_executor_connects_readonly_for_preview_and_reconciliation(tmp_path,monk
 
 
 def test_patched_agent_verifies_signature_before_review_adapter(tmp_path,monkeypatch):
-    source=Path(r'C:\Users\McKinley Slade\OneDrive\trading_ibkr\exec_agent.py')
+    source=TRADING_RUNTIME/'exec_agent.py'
     if not source.exists():pytest.skip('external executor absent')
     tree=ast.parse(P.patch_agent(source.read_text(encoding='utf-8-sig')))
     node=next(n for n in tree.body if isinstance(n,ast.AsyncFunctionDef) and n.name=='_handle_command')

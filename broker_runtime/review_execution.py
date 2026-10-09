@@ -80,8 +80,8 @@ def validate_request(command, accounts, now):
         raise ValueError('command expired')
     p = command.get('payload') or {}
     op = p.get('operation')
-    if op not in {'preview', 'execute', 'reconcile'}:
-        raise ValueError('explicit preview/execute/reconcile operation required')
+    if op not in {'preview', 'execute', 'stage', 'reconcile'}:
+        raise ValueError('explicit preview/execute/stage/reconcile operation required')
     account = command.get('account')
     product = p.get('product')
     bindings = accounts.get(product)
@@ -107,11 +107,17 @@ def validate_request(command, accounts, now):
     if binding.get('status') != 'requires_fresh_account_preview':
         raise ValueError(binding.get('reason') or 'account proposal sizing blocked')
     review = p.get('review') or {}
-    if (review.get('decision') != 'approve_review' or review.get('scope') != 'human_review_only'
-            or review.get('execution') != 'not_submitted' or not review.get('actor')
+    stage_review = (review.get('scope') == 'review_and_stage' and review.get('execution') == 'queued'
+                    and review.get('accounts') == proposal.get('execution_accounts')
+                    and isinstance(review.get('accounts'), list) and account in review['accounts'])
+    legacy_review = review.get('scope') == 'human_review_only' and review.get('execution') == 'not_submitted'
+    if (review.get('decision') != 'approve_review' or not (stage_review if op == 'stage' else legacy_review)
+            or not review.get('actor') or review.get('actor') != p['actor']
             or review.get('proposal_id') != expected
             or review.get('proposal_hash') != p['proposal']['hash'] or not review.get('id')):
         raise ValueError('matching explicit approved review required')
+    if op == 'stage' and command['dry_run'] is not False:
+        raise ValueError('approved staging must explicitly request execution')
     if not p.get('delivery_id') or p.get('current_at_authorization') is not True:
         raise ValueError('confirmed current delivery required')
     if proposal.get('source_date') != now.astimezone(ET).date().isoformat():
@@ -236,6 +242,7 @@ class Journal:
             db.execute('INSERT INTO meta VALUES (1)')
             db.execute('CREATE TABLE previews (hash TEXT PRIMARY KEY, payload TEXT NOT NULL)')
             db.execute('CREATE TABLE runs (key TEXT PRIMARY KEY, command_id TEXT UNIQUE NOT NULL, payload TEXT NOT NULL)')
+            db.execute('CREATE TABLE scheduled (id TEXT PRIMARY KEY, payload TEXT NOT NULL, due TEXT NOT NULL, state TEXT NOT NULL, result TEXT, reported INTEGER NOT NULL DEFAULT 0)')
         return Journal(path)
 
     @contextlib.contextmanager
@@ -276,6 +283,49 @@ class Journal:
         verify(plan)
         with self.connect() as db:
             db.execute('INSERT OR IGNORE INTO previews VALUES (?,?)', (plan['hash'], canonical(plan)))
+
+    def schedule(self, command, due):
+        """Retain a pre-open approval until its true opening price is available."""
+        text = canonical(command)
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            old = db.execute('SELECT payload, state, result FROM scheduled WHERE id=?', (command['id'],)).fetchone()
+            if old:
+                if old[0] != text:
+                    raise ValueError('scheduled staging identity conflict')
+                return json.loads(old[2]) if old[2] else {'ok': True, 'state': old[1], 'detail': 'Opening-price staging is queued'}
+            db.execute('INSERT INTO scheduled (id,payload,due,state) VALUES (?,?,?,?)',
+                       (command['id'], text, due.isoformat(), 'scheduled'))
+        return {'ok': True, 'state': 'scheduled', 'detail': 'Approved; stages automatically at 09:32 ET using the session open'}
+
+    def due_staging(self, now):
+        with self.connect() as db:
+            rows = db.execute("SELECT payload, due FROM scheduled WHERE state='scheduled'").fetchall()
+        return [json.loads(text) for text, due in rows if instant(due) <= now]
+
+    def start_scheduled(self, command_id):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            return db.execute("UPDATE scheduled SET state='processing' WHERE id=? AND state='scheduled'", (command_id,)).rowcount == 1
+
+    def finish_scheduled(self, command_id, result):
+        with self.connect() as db:
+            db.execute('UPDATE scheduled SET state=?, result=? WHERE id=?',
+                       (result['state'], canonical(result), command_id))
+
+    def unreported_staging(self):
+        with self.connect() as db:
+            rows = db.execute('SELECT id, result FROM scheduled WHERE result IS NOT NULL AND reported=0').fetchall()
+        return [(command_id, json.loads(result)) for command_id, result in rows]
+
+    def reported_staging(self, command_id):
+        with self.connect() as db:
+            db.execute('UPDATE scheduled SET reported=1 WHERE id=?', (command_id,))
+
+    def interrupt_staging(self):
+        result = {'ok': False, 'state': 'unknown', 'detail': 'Broker process restarted during staging; check this saved request before retrying'}
+        with self.connect() as db:
+            db.execute("UPDATE scheduled SET state='unknown', result=?, reported=0 WHERE state='processing'", (canonical(result),))
 
     def preview(self, digest):
         with self.connect() as db:

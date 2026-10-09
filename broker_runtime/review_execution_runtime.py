@@ -2,11 +2,13 @@
 
 Installed only by a separate user-controlled runtime handoff. No import-time I/O.
 Preview/reconciliation use a read-only connection; execution needs every old and
-new arming gate. No order schedule, automatic retry, cancellation or position edit.
+new arming gate. Approved open-derived limits wait in the persistent journal.
+No automatic retry of uncertain submissions, cancellation or position edit.
 """
 from __future__ import annotations
 
 import copy
+import asyncio
 import contextlib
 import datetime as dt
 import io
@@ -43,7 +45,7 @@ def gate(g, command, cfg):
         directory = g.get('_THIS_DIR') or g.get('_DIR')
         if not directory or (Path(directory)/'pitch_moo_enabled.flag').exists():
             raise ValueError('legacy Pitch runner state is unknown or armed; one execution path is required')
-    if op == 'execute' and command.get('dry_run') is False:
+    if op in {'execute', 'stage'} and command.get('dry_run') is False:
         if not cfg['live_enabled']:
             raise ValueError('review execution live adapter disabled')
         if not g.get('LIVE_ENABLED') or command.get('account') not in g.get('LIVE_ACCOUNTS', set()):
@@ -56,8 +58,13 @@ async def handle_agent(g, command):
     """Called only AFTER the existing signature/command-expiry checks."""
     try:
         cfg = configuration()
-        contract.validate_request(command, cfg['accounts'], dt.datetime.now(dt.timezone.utc))
+        contract.validate_request(command, cfg['accounts'], _clock(g))
         gate(g, command, cfg)
+        due = opening_stage_time(command)
+        if due is not None and due > _clock(g):
+            if not cfg['db']:
+                raise ValueError('explicit REVIEW_EXECUTION_DB required')
+            return contract.Journal(cfg['db']).schedule(command, due)
         # Existing shared mutex and bounded subprocess path, including unknown on
         # timeout/malformed output. Preview cannot reach a placement in executor.
         result = await g['_execute_live'](command)
@@ -69,6 +76,51 @@ async def handle_agent(g, command):
                 'preview': inner.get('plan'), 'fill': inner.get('record')}
     except (ValueError, TypeError, KeyError) as exc:
         return {'ok': False, 'state': 'rejected', 'detail': str(exc)}
+
+
+def opening_stage_time(command):
+    """Only open-anchored limits need a later price; auctions stage immediately."""
+    p = command.get('payload') or {}
+    if p.get('operation') != 'stage':
+        return None
+    source = contract.verify(p['proposal'])
+    if not any(row.get('Entry_Type') == 'LIMIT' and row.get('Entry_Anchor') == 'OPEN'
+               for row in source['orders']):
+        return None
+    return dt.datetime.combine(dt.date.fromisoformat(source['source_date']),
+                               dt.time(9, 32), contract.ET)
+
+
+async def process_due_staging(g, ws):
+    cfg = configuration()
+    if not cfg['db']:
+        return
+    journal = contract.Journal(cfg['db'])
+    for command in journal.due_staging(_clock(g)):
+        if not journal.start_scheduled(command['id']):
+            continue
+        # Reuse the original UUID and authorization. Expiry/live/account checks
+        # run again; this never rolls a missed opening instruction into tomorrow.
+        result = await handle_agent(g, command)
+        journal.finish_scheduled(command['id'], result)
+    for command_id, result in journal.unreported_staging():
+        await ws.send(json.dumps({'type': 'result', 'id': command_id, **result}))
+        journal.reported_staging(command_id)
+
+
+async def staging_loop(g, ws):
+    """Runs beside the existing heartbeat; pending open limits survive restart."""
+    cfg = configuration()
+    if cfg['db']:
+        # A prior executor may have reached the broker. Never retry a processing
+        # job after restart; publish uncertainty on its original UUID.
+        contract.Journal(cfg['db']).interrupt_staging()
+    while True:
+        try:
+            await process_due_staging(g, ws)
+        except Exception as exc:
+            g['log'](f'review staging queue: {type(exc).__name__}; check stored intent')
+        await asyncio.sleep(10)
 
 
 def preflight_context(*, payload, broker_account, contract_id, quantity, entry,
@@ -408,7 +460,22 @@ def evidence_leg(g, ib, plan, leg, submitted):
 
 def execute_batch(g, ib, command, cfg, journal, now):
     p = contract.validate_request(command, cfg['accounts'], now)
-    plan = journal.preview(p['plan_hash']); payload = contract.verify(plan)
+    stage = p['operation'] == 'stage'
+    if stage:
+        source = contract.verify(p['proposal'])
+        key = contract.run_key(p['product'], source['source_idea_id'], command['account'], p['proposal']['hash'])
+        old = journal.get(key)
+        if old:
+            if old['command_id'] != command['id']:
+                raise ValueError('permanent idea/account claim exists; check existing staging')
+            return old
+        # The Yes decision authorizes the source risk instruction and all legs.
+        # Sizing/contract/capacity checks run here, without a second user action.
+        plan = preflight(g, ib, command, cfg, now)
+        journal.save_preview(plan)
+    else:
+        plan = journal.preview(p['plan_hash'])
+    payload = contract.verify(plan)
     if (payload['actor'] != p['actor'] or payload['account'] != command['account']
             or payload['product'] != p['product'] or payload['proposal_hash'] != p['proposal']['hash']
             or payload['review_event_id'] != p['review']['id'] or payload['delivery_id'] != p['delivery_id']):
@@ -421,10 +488,10 @@ def execute_batch(g, ib, command, cfg, journal, now):
         return old  # Never restart not_sent/submitting legs, even after a crash.
     if contract.instant(payload['expires_at']) <= now:
         raise ValueError('preview expired; explicit fresh preview required')
-    if payload['risk_ack_required'] and p.get('risk_ack') is not True:
+    if payload['risk_ack_required'] and not stage and p.get('risk_ack') is not True:
         raise ValueError('explicit acknowledgement of broker-estimated unprotected risk required')
-    fresh = preflight(g, ib, command, cfg, now)
-    if not _same_preflight(plan, fresh):
+    fresh = plan if stage else preflight(g, ib, command, cfg, now)
+    if not stage and not _same_preflight(plan, fresh):
         raise ValueError('broker plan changed; preview and confirm again')
     record, claimed = journal.claim(key, command['id'], plan)
     record['account_recheck'] = contract.verify(fresh)['account_equity']
@@ -438,7 +505,7 @@ def execute_batch(g, ib, command, cfg, journal, now):
                 raise ValueError('preview expired before remaining leg')
             gate(g, command, cfg)
             sizing.equity(record['account_recheck'], payload['account'], payload['broker_account'], _clock(g))
-            native = dict(leg['payload'], risk_ack=p.get('risk_ack') is True,
+            native = dict(leg['payload'], risk_ack=stage or p.get('risk_ack') is True,
                           _broker_account=payload['broker_account'], _command_id=command['id'] + ':' + str(index),
                           _review_expected_con_id=leg['con_id'])
             record['legs'][index] = {'state': 'submitting'}
@@ -500,7 +567,7 @@ def run_executor(g, command):
         pending_lock.__enter__()
         operation_lock = pending_lock
         operation = p['operation']
-        readonly = operation != 'execute' or command['dry_run']
+        readonly = operation not in {'execute', 'stage'} or command['dry_run']
         host, port, cid = g['PORTS'][command['account']]
         ib = g['IB'](); ib.connect(host, port, clientId=cid, timeout=8, readonly=readonly)
         ib.errorEvent += g['_on_err']

@@ -1,5 +1,14 @@
 # Daily agent whole-idea execution adapter
 
+Current Review-page flow: [single review and automatic staging](review_and_stage.md).
+One Yes authorizes all legs for the proposal's published accounts. The broker
+performs sizing and preflight automatically and stages without another user
+confirmation. The explicit-preview interface below remains a legacy diagnostic
+path; it is no longer part of the ordinary Review-page flow. Source preparation
+does not activate production or replay earlier research-only approvals.
+
+## Historical explicit-preview workflow and shared execution machinery
+
 The Daily Pitch and Daily Seasonal review inbox records a human research decision;
 it does not submit orders. The new `execute-review.html` flow requires a separate
 read-only broker preview and explicit confirmation of every leg. Both adapter

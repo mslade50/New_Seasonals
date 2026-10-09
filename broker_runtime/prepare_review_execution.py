@@ -39,6 +39,15 @@ def patch_agent(text):
 '''
         return replace_once(source, anchor, addition + anchor)
     text = change_function(text, '_handle_command', handler)
+    def loop(source):
+        source = replace_once(source, '        so = asyncio.create_task(_scheduled_option_loop(ws))',
+            '        so = asyncio.create_task(_scheduled_option_loop(ws))\n'
+            '        import review_execution_runtime\n'
+            '        rs = asyncio.create_task(review_execution_runtime.staging_loop(globals(), ws))')
+        source = replace_once(source, '            so.cancel()', '            so.cancel()\n            rs.cancel()')
+        return replace_once(source, 'await asyncio.gather(hb, bk, so, pa, return_exceptions=True)',
+                            'await asyncio.gather(hb, bk, so, pa, rs, return_exceptions=True)')
+    text = change_function(text, '_run_once', loop)
     ast.parse(text)
     return text
 

@@ -5,8 +5,9 @@ if (!globalThis.crypto) Object.defineProperty(globalThis,'crypto',{value:crypto.
 const source=rel=>fs.readFileSync(new URL('../../'+rel,import.meta.url),'utf8');
 const uri=text=>'data:text/javascript;base64,'+Buffer.from(text).toString('base64');
 const coreUri=uri(source('site/assets/review-core.js')),authUri=uri(source('functions/_access.js'));
+const stageUri=uri(source('functions/_review-stage.js').replace("'../site/assets/review-core.js'",JSON.stringify(coreUri)));
 const C=await import(coreUri), auth=await import(authUri);
-const apiSource=source('functions/review-inbox.js').replace("'./_access.js'",JSON.stringify(authUri)).replace("'../site/assets/review-core.js'",JSON.stringify(coreUri));
+const apiSource=source('functions/review-inbox.js').replace("'./_review-stage.js'",JSON.stringify(stageUri)).replace("'./_access.js'",JSON.stringify(authUri)).replace("'../site/assets/review-core.js'",JSON.stringify(coreUri));
 const {handleReview,onRequest}=await import(uri(apiSource));
 const payload={schema:1,product:'pitch',source_idea_id:'2026-10-05-1',source_date:'2026-10-05',title:'Test',thesis:'Test',account:'primary',published_at:'2026-10-05T09:00:00Z',review_deadline:'2026-10-05T20:00:00Z',execution_deadline:'2026-10-05T20:00:00Z',orders:[{Idea_Id:'2026-10-05-1',Leg:1,Ticker:'XLE',Sec_Type:'STK',Action:'BUY',Entry_Type:'LIMIT',Order_Type:'LMT',TIF:'DAY',Quantity:100,Execute_On:'2026-10-05',Time_Exit_Date:'2026-10-13',Time_Exit_Order:'MOO',Risk_Amt:300.0}]};
 const envelope=await C.seal(payload), key='review_inbox/v1/pitch/2026-10-05.json';
