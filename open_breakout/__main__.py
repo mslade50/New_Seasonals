@@ -23,6 +23,26 @@ def write_new(path,body):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
     with path.open('x',encoding='utf-8') as f:json.dump(body,f,indent=2)
 
+
+async def prove_paper_start(transport,clock=lambda:datetime.now(timezone.utc)):
+    """Establish a current broker epoch before the legacy paper runner can route."""
+    transport.subscribe(lambda *a:None,lambda e:None)
+    proof=await transport.reconcile_recovery()
+    if not proof.get('complete'):
+        raise RuntimeError(f'Paper broker recovery incomplete: {proof.get("failures")}')
+    if clock().astimezone(NY).time()>=time(9,30):
+        raise ValueError('Paper recovery completed at/after 09:30 ET; not arming')
+    validate_paper_start(transport,proof,clock)
+    return proof
+
+
+def validate_paper_start(transport,proof,clock=lambda:datetime.now(timezone.utc)):
+    """Recheck proof and wall clock immediately before paper tick routing."""
+    if clock().astimezone(NY).time()>=time(9,30):
+        raise ValueError('Paper startup reconciliation completed at/after 09:30 ET; not arming')
+    if not transport.recovery_token_valid(proof.get('token')):
+        raise RuntimeError('Paper broker recovery changed during startup reconciliation')
+
 async def main_async(args):
     if args.command=='status':
         # SQLite read-only URI; never creates a missing database or acquires its writer lock.
@@ -148,13 +168,14 @@ async def main_async(args):
             raise ValueError('Manifest is not for today')
         if now.astimezone(NY).time()>=time(9,30):
             raise ValueError('Start before 09:30 ET; late starts require manual reconciliation, not new entries')
+        paper_proof=await prove_paper_start(transport) if config.mode=='paper' else None
         store=Store(args.state,config.fingerprint,manifest['day'])
         broker=SimBroker(config,lambda:datetime.now(timezone.utc)) if config.mode=='shadow' else transport
         service=Service(config,manifest,store,broker)
+        transport.halt_callback=service.halt
         # Explicitly refresh open orders and account positions before any subscription.
         await service.watchdog()
         if service.halted:raise RuntimeError('Startup reconciliation halted; inspect status journal')
-        if config.mode=='shadow':transport.halt_callback=service.halt
         capture_path=Path(args.capture).resolve()
         if any(p.lower().startswith('onedrive') for p in capture_path.parts):raise ValueError('Capture must be outside OneDrive')
         capture_path.parent.mkdir(parents=True,exist_ok=True)
@@ -166,6 +187,8 @@ async def main_async(args):
                     broker.update_quote(event['market'],event['bid'],event['ask'],event['time'])
                 elif config.mode=='shadow' and event['kind']=='execution_trade':
                     broker.update_trade(event['market'],event['price'],event['time'])
+            if paper_proof is not None:
+                validate_paper_start(transport,paper_proof)
             transport.subscribe(service.tick,capture)
             reported=False
             reported_markets=set()
