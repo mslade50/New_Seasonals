@@ -47,3 +47,26 @@ assert.equal(c.drawdownSample(stale,5,2,'all').n,0);
 assert.equal(c.downsideCells(stale,'all')[0].value,null);
 assert.equal(c.drawdownSample(d,5,2,'all').unavailable,20);
 console.log('Unified downside checks passed: full default, non-breaches, reduced selection and stale-data rejection.');
+
+
+const longDates=Array.from({length:400},(_,i)=>new Date(Date.UTC(2025,0,1+i)).toISOString().slice(0,10));
+assert.deepEqual(c.episodeChartRange(longDates,longDates[200]),{start:137,end:263,range:[longDates[137],longDates[263]],matched:true});
+assert.deepEqual(c.episodeChartRange(longDates,longDates[399]).range,[longDates[273],longDates[399]]);
+assert.deepEqual(c.episodeChartRange(longDates,longDates[0]).range,[longDates[0],longDates[126]]);
+assert.deepEqual(c.episodeChartRange(longDates,'absent'),{start:273,end:399,range:[longDates[273],longDates[399]],matched:false});
+assert.deepEqual(c.episodeChartRange(dates,dates[15]).range,[dates[0],dates[29]]);
+assert.equal(c.episodeChartRange([]),null);
+const nonoverlap=[dates[0],dates[22]];
+const extended={...d,return_samples:{...d.return_samples,all:{episode_dates:dates},nonoverlap_gap:21,nonoverlap:{episode_dates:nonoverlap}}};
+assert.equal(c.validNonoverlapSample(extended),true);
+assert.deepEqual(c.anchorsOf(extended,'nonoverlap'),nonoverlap);
+assert.equal(c.resolveState(extended,new URLSearchParams('sample=nonoverlap&episode='+dates[22])).selected,dates[22]);
+assert.equal(c.resolveState(extended,new URLSearchParams('sample=nonoverlap&episode='+dates[1])).selected,null);
+assert.equal(c.resolveState(extended,new URLSearchParams('sample=reduced')).sample,'nonoverlap');
+assert.equal(c.resolveState(d,new URLSearchParams('sample=nonoverlap')).sample,'all');
+assert.equal(c.validNonoverlapSample({...extended,return_samples:{...extended.return_samples,nonoverlap:{episode_dates:reduced}}}),false);
+assert.equal(c.validNonoverlapSample({...extended,return_samples:{...extended.return_samples,nonoverlap_gap:10}}),false);
+const extendedDD={...extended,downside_samples:{...downs.downside_samples,nonoverlap:{episode_dates:nonoverlap,windows:{5:{outcomes:[row(nonoverlap[0],'complete',false),row(nonoverlap[1],'complete',true)]}}}}};
+assert.equal(c.drawdownSample(extendedDD,5,2,'nonoverlap').rate,.5);
+assert.equal(c.drawdownSample(extendedDD,5,2,'nonoverlap').selected,2);
+console.log('Six-month chart bounds and genuine non-overlapping cohort checks passed.');

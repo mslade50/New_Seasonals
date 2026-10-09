@@ -36,6 +36,14 @@ def build_return_samples(main, spy_close, reduced):
         if pos - last > 10:
             kept.append(int(pos))
             last = int(pos)
+    # Fix the cohort before observing outcomes; keep the same anchors for all
+    # horizons. Strictly separate the longest (21-session) windows, including
+    # their anchor closes. The original 10-session sample remains compatible.
+    nonoverlap, last = [], -22
+    for pos in positions:
+        if pos - last > max(WINDOWS):
+            nonoverlap.append(int(pos))
+            last = int(pos)
     dates = [date.strftime("%Y-%m-%d") for date in common]
     reduced_dates = [dates[pos] for pos in kept]
     expected = [pd.Timestamp(date).strftime("%Y-%m-%d") for date in reduced.get("episode_dates", [])]
@@ -92,7 +100,8 @@ def build_return_samples(main, spy_close, reduced):
             "current_score": current, "band_low": lo, "band_high": hi, "min_gap": 10,
             "coverage_from": dates[0] if dates else None,
             "coverage_through": dates[-1] if dates else None,
-            "all": full, "reduced": spaced}
+            "all": full, "reduced": spaced, "nonoverlap": sample(nonoverlap),
+            "nonoverlap_gap": max(WINDOWS)}
 
 
 def build_downside_samples(samples, spy_df, vix_close=None, vix_high=None):
@@ -134,7 +143,7 @@ def build_downside_samples(samples, spy_df, vix_close=None, vix_high=None):
     output.update({"atr_period": ATR_N, "thresholds": MULTS,
                    "measure": "max(anchor close - future intraday low, 0) / anchor-date Wilder ATR(14)",
                    "iv_basis": "VIX intraday high" if using_high else "VIX daily close (high unavailable)"})
-    for name in ("all", "reduced"):
+    for name in (name for name in ("all", "reduced", "nonoverlap") if name in samples):
         cohort = samples[name]
         result = {"episode_dates": list(cohort["episode_dates"]), "windows": {}}
         for window in WINDOWS:

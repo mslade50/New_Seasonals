@@ -138,7 +138,7 @@ def test_missing_vix_does_not_change_downside_denominators():
     vix = pd.Series(15., index=dates)
     with_vix = build(samples, spy, vix)
     without_vix = build(samples, spy)
-    for name in ("all", "reduced"):
+    for name in ("all", "reduced", "nonoverlap"):
         for window in ("5", "10", "21"):
             a, b = with_vix[name]["windows"][window], without_vix[name]["windows"][window]
             assert (a["n_complete"], a["hits"], a["rates"]) == (b["n_complete"], b["hits"], b["rates"])
@@ -154,3 +154,32 @@ def test_downside_vintage_and_redaction_are_enforced():
     with pytest.raises(ValueError, match="market dates"):
         build({**samples, "asof": "1999-01-01"}, spy)
     assert build(samples, None) is None
+
+
+def test_nonoverlap_sample_uses_fixed_disjoint_windows_before_outcomes():
+    main, price, reduced = inputs()
+    result = build_return_samples(main, price, reduced)
+    cohort = result["nonoverlap"]
+    expected = [main.index[i].strftime("%Y-%m-%d") for i in (0, 22, 44)]
+    assert result["nonoverlap_gap"] == 21
+    assert cohort["episode_dates"] == expected
+    assert cohort["sample_counts"] == {"5": 3, "10": 3, "21": 2}
+    for window in (5, 10, 21):
+        rows = cohort["outcomes"][str(window)]
+        assert [r["date"] for r in rows] == expected
+        assert all(a["endDate"] < b["date"] for a, b in zip(rows, rows[1:]))
+    # Selection is unaffected by realized prices, including the unfinished match.
+    changed = price.copy()
+    changed.iloc[1:] *= .5
+    assert build_return_samples(main, changed, reduced)["nonoverlap"]["episode_dates"] == expected
+    assert cohort["outcomes"]["21"][-1]["status"] == "incomplete"
+
+
+def test_nonoverlap_downside_uses_exact_return_anchors_including_pending():
+    _, spy, samples, build = downside_inputs()
+    downside = build(samples, spy)["nonoverlap"]
+    assert downside["episode_dates"] == samples["nonoverlap"]["episode_dates"]
+    for window in ("5", "10", "21"):
+        rows = downside["windows"][window]["outcomes"]
+        assert [r["date"] for r in rows] == downside["episode_dates"]
+        assert [r["status"] for r in rows] == [r["status"] for r in samples["nonoverlap"]["outcomes"][window]]

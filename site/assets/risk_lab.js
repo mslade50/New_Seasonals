@@ -1,6 +1,6 @@
 const {WINDOWS, finite, datesOf, studyOf, anchorsOf, era, seriesFor,
   episodeOutcome, pathsFor, pathEnvelope, drawdownSample, signalAt,
-  signalChanges, dialDelta, ruleChecks, resolveState, returnSample, returnStats, filterOutcomes, downsideCells, validFullSample, assertSharedRisk} = await import(new URL(`./risk_lab_core.js${new URL(import.meta.url).search}`, import.meta.url));
+  signalChanges, dialDelta, ruleChecks, resolveState, returnSample, returnStats, filterOutcomes, downsideCells, validFullSample, validNonoverlapSample, episodeChartRange, assertSharedRisk} = await import(new URL(`./risk_lab_core.js${new URL(import.meta.url).search}`, import.meta.url));
 
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -13,7 +13,12 @@ const PALETTE = ['#dba869','#83b6d9','#9e94d4','#91c7ab','#d38d9d','#8caacb','#c
 let data, state, mode = document.body.dataset.mode || 'personal';
 let sequence = 0;
 const activeAnchors = () => anchorsOf(data,state.sample);
-const sampleLabel = () => state.sample==='all'?'All matching dates':'Overlap-reduced episodes';
+const sampleLabel = () => state.sample==='all'?'All matching dates':state.sample==='nonoverlap'?'Non-overlapping episodes':'Legacy overlap-reduced episodes';
+const sampleMethod = () => state.sample==='all'
+  ? 'All qualifying dates are included, even consecutive days. Nearby dates share future market moves, so this larger count is not a count of independent events.'
+  : state.sample==='nonoverlap'
+  ? 'Retains the first qualifying date, then requires more than 21 trading sessions before the next retained date. The same dates are used across 5/10/21; their outcome windows do not overlap. Separate windows do not guarantee independent events.'
+  : 'Legacy sample: more than 10 trading sessions between retained dates reduces overlap; 21-session windows can still overlap.';
 
 function layout(extra={}) {
   const base={paper_bgcolor:'transparent',plot_bgcolor:'transparent',
@@ -87,11 +92,10 @@ function renderEvidence() {
   const total=outcomes.all.length, unavailable=total-completed-outcomes.pending;
   $('analogCount').innerHTML=`${total} <small>${state.sample==='all'?'matching dates':'episodes'}</small>`;
   $('analogCountNote').textContent=`${sampleLabel()} · ${completed} completed ${w}-session returns`;
-  $('sampleMode').value=state.sample;
-  $('sampleSummary').innerHTML=`<div class="sample-heading"><strong>${esc(sampleLabel())}</strong><span>Dial ${num(study.band_low)}–${num(study.band_high)} · ±5 points · selected before outcomes</span></div><div class="sample-counts"><div><b>${total}</b><span>selected ${state.sample==='all'?'dates':'episodes'}</span></div><div class="completed"><b>${completed}</b><span>completed ${w}d returns</span></div><div><b>${outcomes.pending}</b><span>incomplete</span></div><div><b>${unavailable}</b><span>unavailable</span></div></div><p class="micro"><b>Return statistics use n = ${completed}, not ${total}.</b> ${state.sample==='all'?'All qualifying dates are included, even consecutive days. Nearby dates share future market moves, so this larger count is not a count of independent events.':'Retains the first qualifying date, then requires more than 10 trading sessions before the next retained date. This reduces overlap; it does not remove all overlap in 21-session outcomes.'} Available dial / price history: ${esc(data.dates?.[0] || '?')}–${esc(data.asof)}. Matching dates span ${esc(activeAnchors()[0] || '—')}–${esc(activeAnchors().at(-1) || '—')}.</p>`;
+  for(const id of ['sampleMode','downsideSampleMode'])$(id).value=state.sample;
+  $('sampleSummary').innerHTML=`<div class="sample-heading"><strong>${esc(sampleLabel())}</strong><span>Dial ${num(study.band_low)}–${num(study.band_high)} · ±5 points · selected before outcomes</span></div><div class="sample-counts"><div><b>${total}</b><span>selected ${state.sample==='all'?'dates':'episodes'}</span></div><div class="completed"><b>${completed}</b><span>completed ${w}d returns</span></div><div><b>${outcomes.pending}</b><span>incomplete</span></div><div><b>${unavailable}</b><span>unavailable</span></div></div><p class="micro"><b>Return statistics use n = ${completed}, not ${total}.</b> ${sampleMethod()} Available dial / price history: ${esc(data.dates?.[0] || '?')}–${esc(data.asof)}. Matching dates span ${esc(activeAnchors()[0] || '—')}–${esc(activeAnchors().at(-1) || '—')}.</p>`;
   buttons('windowButtons',WINDOWS,w,value=>{state.window=Number(value);refresh();});
-  $('threshold').value=String(state.threshold);
-  $('cohortDescription').innerHTML=validFullSample(data)?`<b>${anchorsOf(data,'all').length} matching dates → ${anchorsOf(data).length} overlap-reduced episodes.</b> The sample selector changes return cards, statistics, red match lines, downside frequencies, date inspection and paths together. Matches share the main dial level, not an identical combination of signals.`:`<b>Full sample unavailable in this snapshot.</b> Showing ${anchorsOf(data).length} original overlap-reduced episodes. A matching cloud-generated sample is required to enable all dates.`;
+  $('cohortDescription').innerHTML=validFullSample(data)?`<b>${anchorsOf(data,'all').length} matching dates → ${validNonoverlapSample(data)?anchorsOf(data,'nonoverlap').length:'unavailable'} non-overlapping episodes.</b> The sample selector changes return cards, statistics, red match lines, downside frequencies, date inspection and paths together. Matches share the main dial level, not an identical combination of signals.`:`<b>Full sample unavailable in this snapshot.</b> Showing ${anchorsOf(data).length} original overlap-reduced episodes. A matching cloud-generated sample is required to enable all dates.`;
   const cards=[
     {id:'returns',label:`${w}-session mean return`,value:pct(st?.mean,2,true),class:color(st?.mean),sub:`n = ${completed} completed · baseline ${pct(st?.uncond_mean,2,true)}`},
     {id:'distribution',label:`${w}-session median return`,value:pct(st?.median,2,true),class:color(st?.median),sub:`n = ${completed} · middle 50%: ${pct(st?.q25)} to ${pct(st?.q75)}`},
@@ -121,10 +125,10 @@ function inspect(kind) {
   if(kind==='returns'||kind==='distribution') {
     showInspector(kind==='returns'?`${w}-session SPY returns`:'Historical return distribution',
       `<p class="quiet">${esc(sampleLabel())}. Selecting a date, outcome filter or chart range does not change this sample.</p><div class="inspector-stat">${kind==='returns'?pct(r?.mean,2,true):`${pct(r?.q25)} to ${pct(r?.q75)}`}</div>`+facts([
-        ['Selection',`Main dial ${num(s.current_score)} ±5 points; ${state.sample==='all'?'every qualifying date, including adjacent dates':'first match retained, then more than 10 sessions between matches'}`],
+        ['Selection',`Main dial ${num(s.current_score)} ±5 points; ${sampleMethod()}`],
         ['Completed n / selected',`n = ${outcomes.completed.length} / ${outcomes.all.length}`],
         ['Incomplete / unavailable',`${outcomes.pending} / ${outcomes.all.length-outcomes.completed.length-outcomes.pending}`],
-        ['Full / reduced match counts',`${anchorsOf(data,'all').length} matching dates / ${anchorsOf(data).length} retained episodes`],
+        ['Full / non-overlapping match counts',`${anchorsOf(data,'all').length} matching dates / ${validNonoverlapSample(data)?anchorsOf(data,'nonoverlap').length:'unavailable'} non-overlapping episodes`],
         ['Coverage',esc(coverage)],['Unconditional mean',pct(r?.uncond_mean,2,true)],
         ['Return baseline n',String(r?.baseline_n ?? 'Not supplied in this saved summary')],
         ['Difference from baseline',r?`${signed(100*(r.mean-r.uncond_mean))} percentage points`:'Unavailable'],
@@ -155,7 +159,7 @@ function inspect(kind) {
       ['Incomplete / unavailable',`${dd.pending} / ${dd.unavailable}. Missing lows or starting ATR make downside unavailable, even if a closing return exists.`],
       ['Baseline n',`${ad.baseline_n?.[`${w}d`]??'—'} completed ${w}-session market windows`],
       ['Baseline coverage',`${esc(ad.data_from || '?')} through ${esc(ad.data_through || '?')}. This long-run baseline can cover a longer period than the dial sample.`],
-      ['Overlap',state.sample==='all'?'Adjacent qualifying dates are included; their future windows can overlap.':'More than 10 sessions between retained dates reduces overlap; 21-session windows may still overlap.']])+
+      ['Overlap',sampleMethod()]])+
       '<p class="rule-note">The sample is selected by the dial before looking at outcomes. VIX after a threshold breach is a separate, conditional summary.</p>');
   }
 }
@@ -163,7 +167,8 @@ function inspect(kind) {
 function selectionOptions() {
   $('episodeSelect').innerHTML='<option value="">Latest market context</option>'+activeAnchors().slice().reverse().map(date=>`<option value="${esc(date)}">${esc(date)} · ${esc(era(date))}</option>`).join('');
   $('assetSelect').innerHTML=(data.price_explorer?.assets || ['SPY']).map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join('');
-  $('sampleMode').innerHTML=`<option value="all" ${validFullSample(data)?'':'disabled'}>All matching dates (${validFullSample(data)?anchorsOf(data,'all').length:'unavailable'})</option><option value="reduced">Overlap-reduced episodes (${anchorsOf(data).length})</option>`;
+  const options=`<option value="all" ${validFullSample(data)?'':'disabled'}>All matching dates (${validFullSample(data)?anchorsOf(data,'all').length:'unavailable'})</option><option value="nonoverlap" ${validNonoverlapSample(data)?'':'disabled'}>Non-overlapping episodes (${validNonoverlapSample(data)?anchorsOf(data,'nonoverlap').length:'unavailable'})</option>${state.sample==='reduced'?`<option value="reduced">Legacy overlap-reduced episodes (${anchorsOf(data).length})</option>`:''}`;
+  for(const id of ['sampleMode','downsideSampleMode'])$(id).innerHTML=options;
 }
 function selectEpisode(date,scroll=false) {
   if(date!==null && !activeAnchors().includes(date))return;
@@ -208,7 +213,7 @@ async function renderMatches() {
     {x:markers,y:markers.map(date=>s.close[s.dates.indexOf(date)]),customdata:markers,name:'Selected sample matches',mode:'markers',type:'scatter',marker:{symbol:'triangle-down',size:10,color:'#f07575'},hovertemplate:'Analog %{x}<br>SPY %{y:.2f}<extra>Click to inspect</extra>'}
   ],{height:330,margin:{l:45,r:20,t:30,b:35},uirevision:`analogs-${state.overviewRange}`,xaxis:{range:[start,data.asof]},yaxis:{range:[lo-pad,hi+pad],title:{text:'SPY',font:{size:10}}},shapes});
   $('matchesSubhead').textContent=`${sampleLabel()} · ${anchors.length} selected dates marked by red vertical lines`;
-  $('matchesCaption').textContent=`${anchors.length} selected analog dates across ${s.dates[0]}–${data.asof}. ${state.sample==='all'?'Includes every qualifying date, even adjacent dates.':'Dates spaced more than 10 sessions apart.'} Click a red triangle to inspect; a gold line marks the selected date. Episode selection does not zoom this overview.`;
+  $('matchesCaption').textContent=`${anchors.length} selected analog dates across ${s.dates[0]}–${data.asof}. ${sampleMethod()} Click a red triangle to inspect; a gold line marks the selected date. Episode selection does not zoom this overview.`;
   const chart=$('matchesChart');
   if(!chart._selectionBound&&typeof chart.on==='function') {
     chart.on('plotly_click',e=>{const date=e.points?.find(p=>p.data.name==='Selected sample matches')?.customdata;if(date)selectEpisode(date,true);});
@@ -218,10 +223,9 @@ async function renderMatches() {
 async function renderPrices() {
   const s=seriesFor(data,state.asset);
   if(!s)return;
-  const pos=state.selected?s.dates.indexOf(state.selected):s.dates.length-1;
-  const start=state.selected?Math.max(0,pos-30):Math.max(0,s.dates.length-130);
-  const end=state.selected?Math.min(s.dates.length-1,pos+Math.max(30,state.window)):s.dates.length-1;
-  const range=[s.dates[start],s.dates[end]], lows=(s.low || s.close).slice(start,end+1).filter(finite),highs=(s.high || s.close).slice(start,end+1).filter(finite);
+  const context=episodeChartRange(s.dates,state.selected);
+  if(!context)return;
+  const {start,end,range}=context, lows=(s.low || s.close).slice(start,end+1).filter(finite),highs=(s.high || s.close).slice(start,end+1).filter(finite);
   const extent=lows.length&&highs.length?[Math.min(...lows),Math.max(...highs)]:null;
   const yr=extent?[extent[0]-(extent[1]-extent[0])*.06,extent[1]+(extent[1]-extent[0])*.06]:undefined;
   const traces=s.open&&s.high&&s.low?[{type:'candlestick',x:s.dates,open:s.open,high:s.high,low:s.low,close:s.close,name:state.asset,
@@ -229,7 +233,8 @@ async function renderPrices() {
   const markers=activeAnchors().filter(date=>s.dates.includes(date));
   traces.push({x:markers,y:markers.map(date=>(s.high || s.close)[s.dates.indexOf(date)]),customdata:markers,
     type:'scatter',mode:'markers',name:'Selected sample matches',marker:{symbol:'triangle-down',size:8,color:'#efc478'},hovertemplate:'Match %{x}<extra></extra>'});
-  await plot('priceChart',traces,{height:350,showlegend:false,xaxis:{range,rangeslider:{visible:false},rangebreaks:[{bounds:['sat','mon']}]},yaxis:{range:yr,gridcolor:'#28334677',title:{text:state.asset,font:{size:11}}},shapes:state.selected?[vline(state.selected)]:[]});
+  await plot('priceChart',traces,{height:350,showlegend:false,xaxis:{range,rangeslider:{visible:false},rangebreaks:[{bounds:['sat','mon']}]},yaxis:{range:yr,gridcolor:'#28334677',title:{text:state.asset,font:{size:11}}},shapes:context.matched?[vline(state.selected)]:[]});
+  $('priceCaption').textContent=`Six-month context (about 126 trading sessions): ${range[0]}–${range[1]}. ${context.matched?'Centered on the match where history allows; recent matches use more earlier history.':state.selected?'The match date is unavailable for this asset; showing its latest context.':'Latest available history.'} Select a match marker to inspect. Changing the asset preserves the SPY-selected sample.`;
   const chart=$('priceChart');
   if(!chart._selectionBound&&typeof chart.on==='function') {
     chart.on('plotly_click',e=>{const date=e.points?.find(p=>p.data.name==='Selected sample matches')?.customdata;if(date)selectEpisode(date);});
@@ -241,8 +246,8 @@ async function renderDial() {
   let start=state.range==='All'?s.dates?.[0]:`${Number(data.asof.slice(0,4))-(state.range==='3Y'?3:1)}${data.asof.slice(4)}`;
   let end=data.asof;
   if(state.range==='Episode'&&state.selected) {
-    const pos=data.dates.indexOf(state.selected);
-    start=data.dates[Math.max(0,pos-63)];end=data.dates[Math.min(data.dates.length-1,pos+state.window)];
+    const context=episodeChartRange(data.dates,state.selected);
+    if(context)[start,end]=context.range;
   }
   const visiblePrices=(spy?.close || []).filter((v,i)=>finite(v)&&spy.dates[i]>=start&&spy.dates[i]<=end);
   const lo=visiblePrices.length?Math.min(...visiblePrices):0,hi=visiblePrices.length?Math.max(...visiblePrices):1;
@@ -283,9 +288,9 @@ function signalDownside(name) {
 function renderSignalChart(i) {
   const signal=data.signals[i],detail=data.signal_detail?.[signal.name],metric=detail?.metric;
   if(!metric?.values){$(`signal-chart-${i}`).innerHTML='<p class="micro">Metric history unavailable.</p>';return;}
-  const spy=seriesFor(data),pos=state.selected?data.dates.indexOf(state.selected):-1;
-  const start=pos>=0?data.dates[Math.max(0,pos-63)]:`${Number(data.asof.slice(0,4))-1}${data.asof.slice(4)}`;
-  const end=pos>=0?data.dates[Math.min(data.dates.length-1,pos+state.window)]:data.asof;
+  const spy=seriesFor(data),context=state.selected?episodeChartRange(data.dates,state.selected):null;
+  const start=context?context.range[0]:`${Number(data.asof.slice(0,4))-1}${data.asof.slice(4)}`;
+  const end=context?context.range[1]:data.asof;
   const shapes=(detail.periods || []).map(p=>({type:'rect',xref:'x',yref:'paper',x0:p[0],x1:p[1],y0:0,y1:1,line:{width:0},fillcolor:'#efc4780b',layer:'below'}));
   if(state.selected)shapes.push(vline(state.selected));
   for(const threshold of metric.thresholds || [])shapes.push({type:'line',xref:'paper',yref:'y',x0:0,x1:1,y0:threshold.value,y1:threshold.value,line:{color:'#efc47888',width:1,dash:'dot'}});
@@ -304,7 +309,7 @@ async function refresh() {
   for(const details of $('signalsList').querySelectorAll('details[open]'))renderSignalChart(Number(details.dataset.signalIndex));
 }
 function bind() {
-  $('sampleMode').addEventListener('change',e=>{
+  for(const id of ['sampleMode','downsideSampleMode'])$(id).addEventListener('change',e=>{
     state.sample=e.target.value;
     if(state.selected&&!activeAnchors().includes(state.selected)) {
       state.selected=null;
@@ -312,7 +317,6 @@ function bind() {
     }
     selectionOptions();refresh();
   });
-  $('threshold').addEventListener('change',e=>{state.threshold=Number(e.target.value);refresh();});
   $('outcomeFilter').addEventListener('change',e=>{state.outcomeFilter=e.target.value;keepState();renderEvidence();});
   $('episodeSelect').addEventListener('change',e=>selectEpisode(e.target.value || null));
   $('assetSelect').addEventListener('change',e=>{state.asset=e.target.value;refresh();});

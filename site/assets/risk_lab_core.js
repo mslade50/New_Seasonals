@@ -4,7 +4,9 @@ export const finite = x => typeof x === 'number' && Number.isFinite(x);
 export const datesOf = (d, s) => Array.isArray(s?.dates) ? s.dates : d.dates || [];
 export const studyOf = d => d.forward_returns?.['63d'] || {};
 export const anchorsOf = (d, sample = 'reduced') => sample === 'all'
-  ? validFullSample(d) ? d.return_samples.all.episode_dates : [] : studyOf(d).episode_dates || [];
+  ? validFullSample(d) ? d.return_samples.all.episode_dates : []
+  : sample === 'nonoverlap' ? validNonoverlapSample(d) ? d.return_samples.nonoverlap.episode_dates : []
+  : sample === 'reduced' ? studyOf(d).episode_dates || [] : [];
 export function validFullSample(d) {
   const s=d.return_samples, study=studyOf(d);
   return !!(s?.version===1 && s.asof===d.asof && s.score_asof===d.sizing_state?.asof
@@ -12,6 +14,27 @@ export function validFullSample(d) {
     && Math.abs(s.current_score-study.current_score)<1e-9
     && s.band_low===study.band_low && s.band_high===study.band_high
     && Array.isArray(s.all?.episode_dates));
+}
+export function validNonoverlapSample(d) {
+  if (!validFullSample(d) || d.return_samples.nonoverlap_gap !== Math.max(...WINDOWS)
+    || !Array.isArray(d.return_samples.nonoverlap?.episode_dates)) return false;
+  const dates=seriesFor(d)?.dates || d.dates || [], all=d.return_samples.all.episode_dates;
+  let previous=-Infinity;
+  return d.return_samples.nonoverlap.episode_dates.every(date=>{
+    const pos=dates.indexOf(date), valid=pos>=0 && all.includes(date) && pos-previous>Math.max(...WINDOWS);
+    previous=pos;
+    return valid;
+  });
+}
+// Roughly six trading months. Backfill context at either history boundary.
+export function episodeChartRange(dates, selectedDate = null) {
+  if (!dates?.length) return null;
+  const pos=selectedDate ? dates.indexOf(selectedDate) : -1;
+  const span=126, last=dates.length-1;
+  let start=pos>=0 ? Math.max(0,pos-span/2) : Math.max(0,last-span);
+  let end=Math.min(last,start+span);
+  start=Math.max(0,end-span);
+  return {start,end,range:[dates[start],dates[end]],matched:pos>=0};
 }
 export function assertSharedRisk(d) {
   const banned=['banded_strategies','basis','throttled','threshold','throttle_on',
@@ -206,8 +229,10 @@ export function resolveState(d, params = new URLSearchParams()) {
   const threshold = Number(params.get('atr'));
   const asset = assets.includes(params.get('asset')) ? params.get('asset') : 'SPY';
   const requested = params.get('episode');
-  const sample = params.get('sample') !== 'reduced' && validFullSample(d)
-    && anchorsOf(d,'all').length ? 'all' : 'reduced';
+  const requestedSample=params.get('sample');
+  const sample = ['nonoverlap','reduced'].includes(requestedSample) && validNonoverlapSample(d)
+    ? 'nonoverlap' : requestedSample==='reduced' ? 'reduced'
+    : validFullSample(d) ? 'all' : 'reduced';
   const selected = anchorsOf(d,sample).includes(requested) ? requested : null;
   return {window: WINDOWS.includes(horizon) ? horizon : 21,
     threshold: [1,2,3,5].includes(threshold) ? threshold : 2,
