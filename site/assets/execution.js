@@ -362,6 +362,7 @@ function shell() {
     <div class="exec-workspace">
     <div class="exec-book-panels">
       <section id="positions" aria-label="Positions"></section>
+      <section id="optTicket" aria-label="Option close ticket"></section>
       <section id="orders" aria-label="Working orders"></section>
       <section id="closers" aria-label="Scheduled closes"></section>
     </div>
@@ -503,7 +504,7 @@ function execMode() { return deriveExecMode(state.book, state.status); }
 const MUTATING_COMMANDS = new Set([
   "entry_bracket", "close_only", "close_resize", "flatten", "cancel", "modify",
   "add_to_position", "exit_attach", "scheduled_option", "scheduled_option_cancel", "reconcile_exits",
-  "position_action_resolve",
+  "position_action_resolve", "option_close", "option_roll",
 ]);
 // Every close ticket shares one set of fields (shares / percent / MKT|LMT /
 // outside RTH / TIF); only what happens to the WORKING orders differs.
@@ -1364,7 +1365,9 @@ function renderPositions() {
       sym = `${esc(p.symbol)}/${esc(p.currency || "USD")} <span class="cap" style="display:inline">FX</span>`;
     }
     // OPT rows: no Flatten/Trim — a symbol-scoped MKT close would tear one leg
-    // out of a spread. Close via a closing combo ticket (later phase) or TWS.
+    // out of a spread. Close... / Roll... (option-positions.js) send one
+    // option_close / option_roll for the whole structure when the agent
+    // advertises them; otherwise TWS.
     const hasProtection = hasVisibleProtectiveExit(p);
     const readdOn = readdRows.get(positionKey(p)) === true;
     const noProtection = ' disabled data-static-disabled="true" title="Requires a visible price stop or scheduled time stop"';
@@ -1373,7 +1376,7 @@ function renderPositions() {
       ? `<button class="btn xs ghost" style="color:#ffc14d" onclick='execProtectTicket(${posJson(p)})' title="No working exits — prefill the attach-exits ticket (stop / target / time stop)">Protect&hellip;</button>`
       : "";
     const legacyActions = p.sec_type === "OPT"
-      ? '<span class="cap">combo — close via TWS</span>'
+      ? (typeof window.optPositionActions === "function" ? window.optPositionActions(p) : '<span class="cap">combo — close via TWS</span>')
       : p.sec_type === "STK"
         ? `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
           <button class="btn xs ${readdOn ? "" : "ghost"}"${hasProtection ? "" : noProtection} onclick='execToggleReadd(${posJson(p)})'>Re-add ${readdOn ? "on" : "off"}</button>
@@ -2401,7 +2404,7 @@ function attachWarnings() {
   const pos = attachPosition();
   if (sym && !pos) warns.push(`no open ${sym} position in ${state.account}`);
   if (pos) {
-    if (pos.sec_type === "OPT") warns.push("option positions not supported");
+    if (pos.sec_type === "OPT") warns.push("options take no attached exits: use Close... or Roll... on the position row");
     const long = Number(pos.position) > 0;
     if (stop > 0 && target > 0) {
       if (long && !(stop < target)) warns.push("long needs stop < target");
