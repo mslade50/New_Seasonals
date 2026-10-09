@@ -34,7 +34,9 @@ from options_surface import (
 SURFACE_PATH = os.path.join(ROOT, "data", "option_surface_history.parquet")
 POSITIONING_PATH = os.path.join(ROOT, "data", "option_positioning_history.parquet")
 TERM_TARGETS = (7, 10, 20, 30, 45, 60, 90, 120, 180, 270, 365)
-CHAIN_STRIKE_CAP = 18
+CHAIN_FRONT_COUNT = 2  # nearest listed expiries with DTE >= 1 (1DTE + next)
+# (max DTE, strikes per expiry). Weeklies stay dense; far tenors are thinned.
+CHAIN_STRIKE_CAPS = ((14, 20), (45, 14), (10**6, 10))
 
 
 def log(message):
@@ -151,23 +153,48 @@ def _quote_term(ib, Option, symbol, trading_class, expiries, strikes, spot, toda
 
 
 def _chain_expiries(expiries, today):
-    valid = [expiry for expiry in expiries if _dte(expiry, today) > 0]
-    selected = []
+    """Front two listed expiries (DTE >= 1) plus the nearest listed expiry to
+    each CHAIN_TENORS target. A target only claims an expiry not already
+    selected and within its tolerance, so a thin product (monthlies only) does
+    not get the same far expiry recorded as a fake 7/14 DTE point."""
+    valid = sorted({e for e in expiries if _dte(e, today) >= 1}, key=lambda e: _dte(e, today))
+    selected = valid[:CHAIN_FRONT_COUNT]
     for target in CHAIN_TENORS:
-        if not valid:
+        rest = [e for e in valid if e not in selected]
+        if not rest:
             break
-        hit = min(valid, key=lambda expiry: abs(_dte(expiry, today) - target))
-        if hit not in selected:
+        hit = min(rest, key=lambda e: abs(_dte(e, today) - target))
+        if abs(_dte(hit, today) - target) <= max(3, 0.5 * target):
             selected.append(hit)
-    return selected
+    return sorted(selected, key=lambda e: _dte(e, today))
+
+
+def _strike_cap(dte):
+    return next(cap for limit, cap in CHAIN_STRIKE_CAPS if dte <= limit)
+
+
+def _chain_band(strikes, spot, dte):
+    """Strikes to quote for one expiry: +/- max(3%, 2.5%*sqrt(dte)) of spot,
+    thinned to the DTE cap but always keeping the ATM strike and its two
+    nearest neighbours."""
+    band_pct = max(0.03, 0.025 * math.sqrt(max(1, dte)))
+    band = sorted(strike for strike in strikes if spot * (1 - band_pct) <= strike <= spot * (1 + band_pct))
+    cap = _strike_cap(dte)
+    if len(band) <= cap:
+        return band
+    core = set(sorted(band, key=lambda s: abs(s - spot))[:3])
+    even = [band[round(i * (len(band) - 1) / (cap - 1))] for i in range(cap)]
+    keep = set(core)
+    for strike in even:  # fill remaining slots evenly, skipping core duplicates
+        if len(keep) >= cap:
+            break
+        keep.add(strike)
+    return sorted(keep)
 
 
 def _quote_chain(ib, Option, symbol, trading_class, expiry, strikes, spot, today):
     dte = _dte(expiry, today)
-    band_pct = max(0.08, 0.025 * math.sqrt(max(1, dte)))
-    band = [strike for strike in strikes if spot * (1 - band_pct) <= strike <= spot * (1 + band_pct)]
-    if len(band) > CHAIN_STRIKE_CAP:
-        band = [band[round(i * (len(band) - 1) / (CHAIN_STRIKE_CAP - 1))] for i in range(CHAIN_STRIKE_CAP)]
+    band = _chain_band(strikes, spot, dte)
     contracts = [
         Option(symbol, expiry, strike, right, "SMART", tradingClass=trading_class)
         for strike in band for right in ("C", "P")

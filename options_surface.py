@@ -29,7 +29,11 @@ SURFACE_HISTORY_R2_KEY = "options/surface_history.parquet"
 POSITIONING_HISTORY_R2_KEY = "options/positioning_history.parquet"
 
 CMIV_TENORS = (10, 20, 30, 60, 90, 180, 365)
-CHAIN_TENORS = (30, 60, 90)
+# Chain (per-strike) tenors, on top of the two nearest listed expiries with
+# DTE >= 1 that the collector always records (the "1DTE" / next weekly).
+# 90 was dropped: no reader needs strikes that far out (cmiv90 / term_30_90
+# come from the ATM-only term structure, CMIV_TENORS, which is unchanged).
+CHAIN_TENORS = (7, 14, 30, 60)
 
 
 def _finite(value):

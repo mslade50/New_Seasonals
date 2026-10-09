@@ -252,3 +252,52 @@ def test_check_fails_when_receipt_is_for_another_decision(env):
     r["decision_id"] = "RAD-other"
     p.write_text(json.dumps(r), encoding="utf-8")
     assert chk.main(_check_argv(env)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Live IBKR chains merged over the snapshot
+# ---------------------------------------------------------------------------
+
+def _option_decision(env):
+    checks = env["tmp"] / "checks" / ASOF
+    pos = {"id": f"RA-{ASOF}-2", "action": "open",
+           "instrument": {"type": "option_structure", "underlying": "SPY", "structure_qty": 5,
+                          "legs": [{"right": "C", "strike": 500, "expiry": "2026-11-20", "qty": 1}]},
+           "risk_bps": 50, "entry": {"type": "CHAIN"}, "exit": {"time_td": 10},
+           "thesis": "Cheap upside convexity into the seasonal window with a hard premium cap on the structure.",
+           "evidence": {"summary": "SPY up in 14 of 20 comparable windows, median +2 percent.", "n": 20,
+                        "script": str(checks / "01_xle.py")},
+           "survived": "Held after removing the 2022 spike from the sample.",
+           "what_kills_it": "Vol crush with a flat tape through the window.",
+           "forecast": {"horizon_td": 10, "expected_return_pct": 4.0, "p_win": 0.4}}
+    rewrite(env, lambda d: d["positions"].append(pos))
+
+
+def test_live_chain_overrides_snapshot_and_legs_carry_source(env, capsys):
+    key = "2026-11-20|500|C"
+    snap = {"SPY": {"spot": 500.0, "asof": ASOF,
+                    "quotes": {key: {"bid": 4.9, "ask": 5.0, "con_id": 11}}}}   # 250 bps: too big
+    (env["tmp"] / "chains.json").write_text(json.dumps(snap), encoding="utf-8")
+    _option_decision(env)
+    assert dra.main(env["argv"]("--validate-only", "--no-r2")) == 2
+    capsys.readouterr()
+    live = {"SPY": {"underlying": "SPY", "spot": 500.2, "asof_utc": "2026-10-08T13:00:00+00:00",
+                    "quotes": {key: {"bid": 1.9, "ask": 2.0, "con_id": 11,
+                                     "quote_ts": "2026-10-08T13:00:00+00:00"}}}}
+    lp = env["tmp"] / "live.json"
+    lp.write_text(json.dumps(live), encoding="utf-8")
+    assert dra.main(env["argv"]("--validate-only", "--no-r2", "--live-chains", str(lp))) == 0
+    out = capsys.readouterr().out
+    assert '"quote_source": "live"' in out and '"quote_ts": "2026-10-08T13:00:00+00:00"' in out
+    assert "min old" in out                                  # older than 30 minutes -> warning
+
+
+def test_merge_keeps_snapshot_keys_with_source():
+    snap = {"SPY": {"spot": 500.0, "asof": ASOF, "quotes": {"k1": {"ask": 1.0}, "k2": {"ask": 2.0}}}}
+    live = {"SPY": {"spot": 501.0, "asof_utc": "2026-10-09T13:00:00+00:00",
+                    "quotes": {"k2": {"ask": 9.0}, "k3": {"ask": 3.0}}}}
+    m = dra.merge_live_chains(snap, live)["SPY"]
+    assert m["spot"] == 501.0
+    assert m["quotes"]["k1"]["source"] == "snapshot" and m["quotes"]["k1"]["quote_ts"] == ASOF
+    assert m["quotes"]["k2"]["ask"] == 9.0 and m["quotes"]["k2"]["source"] == "live"
+    assert m["quotes"]["k3"]["source"] == "live"

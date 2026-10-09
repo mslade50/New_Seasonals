@@ -19,6 +19,7 @@ CAP = 200_000.0
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
+    monkeypatch.setenv("RISK_AGENT_NO_IBKR", "1")
     import cache_io
     monkeypatch.setattr(cache_io, "is_configured", lambda: False)
 
@@ -364,3 +365,123 @@ def test_fills_refuse_surface_pricing():
     assert G._leg_entry_prices(legs, snap, closing=True) is not None
     assert G._leg_exit_mid(legs, snap)[1] == ["surface"]
     assert snap.quote(legs[0]) is None
+
+
+# ---------------------------------------------------------------------------
+# IBKR fill paths (fake IBKR, no network)
+# ---------------------------------------------------------------------------
+
+import datetime as _dt  # noqa: E402
+
+
+def _opt_order(asof, legs, ts=None):
+    o = {"type": "open", "position_id": "RA-2026-03-02-7", "kind": "option", "underlying": "SPY",
+         "legs": legs, "structure_qty": 1, "risk_bps": 50.0, "notional": 500.0,
+         "entry": {"type": "CHAIN"}, "exit": {"time_td": 60}}
+    recs = L.orders_to_records([o], asof, "d1")
+    if ts:
+        recs[0]["ts"] = ts
+    return recs
+
+
+def _spread(live=None):
+    exp = DAYS[12]
+    a = {"right": "C", "strike": 100.0, "expiry": exp, "qty": 1, "con_id": 1, "bid": 4.0, "ask": 5.0}
+    b = {"right": "C", "strike": 110.0, "expiry": exp, "qty": -1, "con_id": 2, "bid": 1.0, "ask": 1.5}
+    if live:
+        for leg in (a, b):
+            leg.update(quote_source="live", quote_ts=live)
+    return [a, b]
+
+
+class FakeIbkr:
+    def __init__(self):
+        self.calls = 0
+
+    def hist_bid_ask(self, und, leg, day):
+        self.calls += 1
+        return {"bid": 3.0, "ask": 3.2, "ts": day} if leg["qty"] > 0 else {"bid": 0.9, "ask": 1.0, "ts": day}
+
+    def close_bid_ask(self, und, leg, day):
+        return {"bid": 2.0, "ask": 2.2, "ts": day}
+
+    def live_quotes(self, und, legs):
+        self.calls += 1
+        return [{"bid": 6.0, "ask": 6.5, "quote_ts": "2026-03-20T14:40:00+00:00"} if l["qty"] > 0
+                else {"bid": 2.0, "ask": 2.5, "quote_ts": "2026-03-20T14:40:00+00:00"} for l in legs]
+
+
+def test_fill_at_live_quotes_captured_in_decision_session(tmp_path):
+    q = "2026-03-03T16:00:00+00:00"                     # 11:00 EST, inside RTH
+    j = seed(tmp_path, _opt_order(DAYS[0], _spread(live=q), ts="2026-03-03T16:05:00+00:00"))
+    run(tmp_path, j, {"SPY": flat(105.0)}, asof=DAYS[3])
+    fill = next(r for r in L.load(j) if r["kind"] == "fill")
+    assert fill["date"] == DAYS[1] and fill["leg_prices"] == [5.0, 1.0]
+    assert fill["quote_sources"] == ["ibkr_live", "ibkr_live"] and fill["quote_ts"] == q
+
+
+def test_live_quotes_outside_rth_are_not_used_for_fill(tmp_path):
+    q = "2026-03-02T23:00:00+00:00"                     # 18:00 ET, after close
+    j = seed(tmp_path, _opt_order(DAYS[0], _spread(live=q), ts="2026-03-02T23:10:00+00:00"))
+    run(tmp_path, j, {"SPY": flat(105.0)}, asof=DAYS[4])
+    assert not [r for r in L.load(j) if r["kind"] == "fill"]
+
+
+def test_next_session_fill_and_marks_via_ibkr_hist(tmp_path):
+    j = seed(tmp_path, _opt_order(DAYS[0], _spread()))
+    p = prices(tmp_path, {"SPY": flat(105.0)})
+    new = G.grade(L.load(j), G.load_prices(p), G.Chains(None), DAYS[3], ibkr=FakeIbkr())
+    fill = next(r for r in new if r["kind"] == "fill")
+    assert fill["date"] == DAYS[1] and fill["leg_prices"] == [3.2, 0.9]   # long ask, short bid
+    assert fill["quote_sources"] == ["ibkr_hist", "ibkr_hist"]
+    pm = [r for r in new if r["kind"] == "mark"][-1]["positions"]["RA-2026-03-02-7"]
+    assert pm["quote_sources"] == ["ibkr_hist", "ibkr_hist"] and not pm["stale_mark"]
+    assert pm["mark"] == pytest.approx(0.0)                               # mid 2.1 long vs 2.1 short
+
+
+def test_ibkr_without_data_falls_back_to_snapshot(tmp_path):
+    class Dead(FakeIbkr):
+        def hist_bid_ask(self, *a):
+            return None
+
+        def close_bid_ask(self, *a):
+            return None
+    exp = DAYS[12].replace("-", "")
+    rows = [[d, "SPY", 105.0, 1.0, exp, 3, k, "C", i, b, a, (a + b) / 2]
+            for d in DAYS[:5] for i, (k, b, a) in enumerate([(100.0, 4.8, 5.0), (110.0, 1.0, 1.2)], 1)]
+    cp = tmp_path / "chains.parquet"
+    chain_frame(rows).to_parquet(cp)
+    j = seed(tmp_path, _opt_order(DAYS[0], _spread()))
+    p = prices(tmp_path, {"SPY": flat(105.0)})
+    new = G.grade(L.load(j), G.load_prices(p), G.load_chains(cp), DAYS[2], ibkr=Dead())
+    fill = next(r for r in new if r["kind"] == "fill")
+    assert fill["leg_prices"] == [5.0, 1.0] and fill["quote_sources"] == ["exact", "exact"]
+
+
+def _rth(day="2026-03-20", hh=10):
+    return _dt.datetime.fromisoformat(f"{day}T{hh:02d}:00:00-04:00").astimezone(G.ET)
+
+
+def test_open_fill_before_daily_bar_idempotent_and_rth_only(tmp_path, monkeypatch):
+    asof = DAYS[-1]                                     # 2026-03-19; session 03-20 has no bar
+    legs = _spread()
+    for l in legs:
+        l["expiry"] = "2026-03-27"
+    j = seed(tmp_path, _opt_order(asof, legs))
+    fake = FakeIbkr()
+    assert G.open_fill(L.load(j), fake, now=_rth(hh=8)) == []
+    assert G.open_fill(L.load(j), fake, now=_rth(day="2026-03-21")) == []   # Saturday
+    assert G.open_fill(L.load(j), None, now=_rth()) == [] and fake.calls == 0
+    monkeypatch.setattr(G, "_now_et", lambda: _rth())
+    monkeypatch.setattr(G, "make_ibkr", lambda no_ibkr=False: fake)
+    assert G.main(["--journal", str(j), "--no-push", "--open-fill"]) == 0
+    fills = [r for r in L.load(j) if r["kind"] == "fill"]
+    assert len(fills) == 1 and fills[0]["date"] == "2026-03-20"
+    assert fills[0]["leg_prices"] == [6.5, 2.0] and fills[0]["quote_sources"] == ["ibkr_live"] * 2
+    assert fills[0]["quote_ts"] == "2026-03-20T14:40:00+00:00"
+    assert G.main(["--journal", str(j), "--no-push", "--open-fill"]) == 0   # idempotent
+    assert len([r for r in L.load(j) if r["kind"] == "fill"]) == 1
+    monkeypatch.setenv("RISK_AGENT_NO_IBKR", "1")                           # later full run
+    book, _ = run(tmp_path, j, {"SPY": flat(105.0)})
+    assert not book["pending"] and "RA-2026-03-02-7" in book["positions"]
+    assert len([r for r in L.load(j) if r["kind"] == "fill"]) == 1

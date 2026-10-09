@@ -1,6 +1,6 @@
 ---
 name: risk-agent
-description: Run the Risk Agent - an independent $200k paper sleeve managed nightly after the close across ETFs, futures, ETF options and cash, using every market dataset in R2 (risk dashboard, tape, vol, options chains, breadth, put/call, macro calendar, seasonality). Produces a posture, SPY forecasts and a validated target book, delivered by email and the private-site Risk Agent tab. Use when running the evening risk agent (scheduled 18:15 ET weekdays, or on request), or when McKinley asks for the risk agent's view, its book, or a rerun of tonight's decision.
+description: Run the Risk Agent - an independent $200k paper sleeve managed each morning before the open across ETFs, futures, ETF options and cash, using every market dataset in R2 (risk dashboard, tape, vol, options chains, breadth, put/call, macro calendar, seasonality). Produces a posture, SPY forecasts and a validated target book, delivered by email and the private-site Risk Agent tab. Use when running the morning risk agent (scheduled 06:30 ET weekdays on the trading desktop, or on request), or when McKinley asks for the risk agent's view, its book, or a rerun of today's decision.
 ---
 
 # Risk Agent
@@ -78,6 +78,50 @@ Write every check script to `scratch/risk_agent_checks/<asof>/`. The
 publisher refuses an `open` whose `evidence.script` is not a file in that
 folder, and refuses any decision without `00_surface_map.md` there.
 
+### Live option quotes from IBKR
+
+The chain file is last night's collector snapshot. For anything you might
+actually trade, pull live quotes from IB Gateway (read-only, market data
+only):
+
+```
+python risk_agent_ibkr.py chain SPY --max-dte 14
+python risk_agent_ibkr.py chain XLE --min-dte 20 --max-dte 60
+```
+
+This merges into `data/risk_agent_chains_live.json`, which the publisher
+prefers over the snapshot. It covers every listed expiry, including weeklies
+and 0-1 DTE. Before the open the quotes are prior-close (frozen) values; the
+tool says which data type it got. Never import `ib_insync` yourself and never
+ask IBKR for anything but quotes and bars: the sleeve is blind to the account.
+If the gateway is unreachable, the snapshot chains are your fallback; say so
+in `data_gaps`.
+
+Short-dated options are fair game, and some of your best ideas may be 1 DTE:
+event-day straddles and strangles, overnight gap structures, pin trades at
+large strikes. They live or die on the actual bid/ask, so price them live.
+They fill at the open (a 09:35 pass with live quotes) and settle at intrinsic
+on the expiry close.
+
+## Model routing: spend Opus on judgement, not on plumbing
+
+You are the composer and the final judge. Delegate everything mechanical, and
+pass `model` on every subagent call:
+
+| Work | Model |
+|---|---|
+| Pulling and tabulating data (live chains, tape slices, calendar lookups, "compute X for these 20 tickers") | `haiku` |
+| Running a defined check script and reporting its numbers; formatting the decision JSON from your notes | `haiku` |
+| Falsification checkers (Stage C2): design and interpret controls, declustering, regime splits, kill or keep | `sonnet` |
+| Red-team pass on the final book | `sonnet` |
+| Surface map synthesis, SPY forecast, choosing expressions, sizing, final verdicts | you (opus); never delegate |
+
+Give each subagent a tight brief: the exact files, the exact question, the
+output shape and a word limit. Ask for numbers and script paths, not prose.
+Run independent subagents in parallel. If a haiku result looks wrong or thin,
+rerun that one piece on sonnet rather than doing it yourself. The quality bar
+does not move: delegation is about where tokens go, not about checking less.
+
 ## Stage B. Survey, then select
 
 ### B1. Write `00_surface_map.md` before generating a candidate
@@ -123,7 +167,7 @@ Overconfidence is visible and it is scored.
 
 ### C2. Falsification
 
-Fan out two or three checker subagents (use `model: sonnet`) with three or
+Fan out two or three checker subagents (`model: sonnet`; see Model routing) with three or
 four candidates each. Each gets the candidate verbatim, the paths to the
 state, the map and today's checks folder, the lab import lines, and the
 instruction: **your job is to kill this; a survivor is a failure to kill.**
@@ -160,7 +204,7 @@ positions and opens nothing unchecked, or a stand-down.
 ## Stage D. Build the book
 
 1. **Verdicts first.** For each open position: hold, adjust (new stop,
-   target or time exit) or close, with a reason that refers to tonight's
+   target or time exit) or close, with a reason that refers to today's
    evidence, not to the entry thesis alone. Do not hold a broken thesis to
    avoid realising a loss.
 2. **New positions (0-5).** Size by conviction and evidence quality inside
@@ -237,7 +281,8 @@ Write `data/risk_agent_decision.json`:
 
 Entries: `MOO`, `MOC` or `LIMIT` (`limit`, `fill_window_td` 1-5) for ETFs
 and futures; `CHAIN` for options (next chain snapshot). Option strikes and
-expiries must exist in `data/risk_agent_chains.json`. Sizing is computed by
+expiries must exist in `data/risk_agent_chains_live.json` (preferred) or
+`data/risk_agent_chains.json`. Sizing is computed by
 the validator from `risk_bps`, the stop (or 3 ATR) and the multiplier; you
 choose risk, not share counts. For options you choose `structure_qty` and the
 validator certifies the loss.

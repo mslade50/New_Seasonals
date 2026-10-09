@@ -47,6 +47,7 @@ DATA = ROOT / "data"
 DEFAULT_DECISION = DATA / "risk_agent_decision.json"
 DEFAULT_STATE = DATA / "risk_agent_state.json"
 DEFAULT_CHAINS = DATA / "risk_agent_chains.json"
+DEFAULT_LIVE_CHAINS = DATA / "risk_agent_chains_live.json"
 DEFAULT_SCOREBOARD = DATA / "risk_agent_scoreboard.json"
 TODAY_PATH = DATA / "risk_agent_today.json"
 TODAY_R2_KEY = "risk_agent/today.json"
@@ -526,6 +527,57 @@ def load_chains(path: Path) -> dict:
     return raw
 
 
+LIVE_STALE_MIN = 30
+
+
+def load_live_chains(path: Path) -> dict:
+    raw = _read_json(path, {}) or {}
+    if isinstance(raw.get("chains"), dict):
+        raw = raw["chains"]
+    return {k: v for k, v in raw.items() if isinstance(v, dict) and v.get("quotes")}
+
+
+def merge_live_chains(chains: dict, live: dict) -> dict:
+    """Overlay live IBKR quotes on the snapshot chains, per underlying.
+
+    Each quote keeps its provenance: quote_source "live"|"snapshot" and quote_ts.
+    """
+    merged = {u: dict(c) for u, c in (chains or {}).items()}
+    for und, blk in (live or {}).items():
+        base = merged.get(und) or {}
+        snap_ts = base.get("asof")
+        quotes = {k: {**q, "source": q.get("source") or "snapshot",
+                      "quote_ts": q.get("quote_ts") or snap_ts}
+                  for k, q in (base.get("quotes") or {}).items()}
+        for k, q in blk["quotes"].items():
+            quotes[k] = {**q, "source": "live", "quote_ts": q.get("quote_ts") or blk.get("asof_utc")}
+        merged[und] = {**base, "spot": blk.get("spot") or base.get("spot"),
+                       "asof": base.get("asof") or blk.get("asof"),
+                       "live_asof_utc": blk.get("asof_utc"), "quotes": quotes}
+    return merged
+
+
+def live_stale_warnings(orders: list, now: dt.datetime | None = None) -> list[str]:
+    now = now or dt.datetime.now(dt.timezone.utc)
+    out = []
+    for o in orders:
+        for leg in o.get("legs") or []:
+            if leg.get("quote_source") != "live" or not leg.get("quote_ts"):
+                continue
+            try:
+                ts = dt.datetime.fromisoformat(str(leg["quote_ts"]).replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=dt.timezone.utc)
+            except ValueError:
+                continue
+            age = (now - ts).total_seconds() / 60
+            if age > LIVE_STALE_MIN:
+                out.append(f"{o.get('position_id')}: live quote for {leg.get('strike')}{leg.get('right')} "
+                           f"{leg.get('expiry')} is {age:.0f} min old (> {LIVE_STALE_MIN})")
+                break
+    return out
+
+
 def site_payload(payload: dict, *, decision_id: str, model: str, effort: str, asof: str,
                  orders_views, verdicts, snapshot, scoreboard, warnings, book_after) -> dict:
     return {
@@ -548,6 +600,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--decision", default=str(DEFAULT_DECISION))
     ap.add_argument("--state", default=str(DEFAULT_STATE))
     ap.add_argument("--chains", default=str(DEFAULT_CHAINS))
+    ap.add_argument("--live-chains", default=str(DEFAULT_LIVE_CHAINS),
+                    help="live IBKR chains from risk_agent_ibkr.py (overrides snapshot keys)")
     ap.add_argument("--journal", default=None, help="journal path (tests/dev)")
     ap.add_argument("--checks-root", default=str(CHECKS_ROOT))
     ap.add_argument("--today-out", default=str(TODAY_PATH))
@@ -569,7 +623,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"FAILED: no usable decision at {args.decision}")
         return 2
     asof = str(state["asof"])
-    chains = load_chains(Path(args.chains))
+    chains = merge_live_chains(load_chains(Path(args.chains)), load_live_chains(Path(args.live_chains)))
     journal_path = Path(args.journal) if args.journal else Path(lg.JOURNAL_PATH)
     records = lg.load(journal_path, pull=False)
     if not args.validate_only and verdict_records(records, asof):
@@ -579,6 +633,7 @@ def main(argv: list[str] | None = None) -> int:
     book = lg.replay(records)
     checks_dir = Path(args.checks_root) / asof
     result = validate_and_size(payload, state, chains, book, checks_dir)
+    result["warnings"] = list(result["warnings"]) + live_stale_warnings(result.get("orders") or [])
 
     if result["errors"]:
         print(f"REJECTED: {len(result['errors'])} validation error(s)")

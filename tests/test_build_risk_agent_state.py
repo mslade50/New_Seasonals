@@ -46,7 +46,7 @@ def cache(tmp_path, monkeypatch):
                              "delta": 0.5 if right == "C" else -0.5, "gamma": 0.01, "theta": -0.1,
                              "vega": 0.1, "oi": 10.0, "volume": 5.0})
     rows.append({**rows[0], "expiry": "20261016", "dte": 8, "strike": 774.0})   # 8 DTE kept
-    rows.append({**rows[0], "expiry": "20261009", "dte": 1})                    # 1 DTE dropped
+    rows.append({**rows[0], "expiry": "20261009", "dte": 1})                    # 1 DTE kept (weeklies in scope)
     pos = pd.DataFrame(rows)
     pos.to_parquet(rad.local_path("options/positioning_history.parquet", tmp_path))
     pd.DataFrame({"date": dates[-300:], "ticker": "SPY", "iv30": np.linspace(.1, .2, 300),
@@ -103,7 +103,7 @@ def test_chain_key_format_and_dte_window(cache):
     q = ch["SPY"]["quotes"]
     assert chain_quote_key("2026-11-06", 774.0, "C") in q or chain_quote_key("2026-11-06", 750.0, "C") in q
     assert "2026-11-06|750|C" in q
-    assert not any(k.startswith("2026-10-09|") for k in q)      # 1 DTE excluded
+    assert any(k.startswith("2026-10-09|") for k in q)          # 1 DTE kept
     assert any(k.startswith("2026-10-16|") for k in q)          # 8 DTE kept
     for key, v in q.items():
         e, k, r = key.split("|")

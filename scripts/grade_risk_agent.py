@@ -30,6 +30,19 @@ Replay conventions, mirrored from scripts/grade_pitch_journal.py:
           (time_td still counts from the fill date).
   marks   ETF/future raw close; options chain mid, else intrinsic flagged
           stale_mark.
+
+Optional IBKR pricing (risk_agent_ibkr; --no-ibkr or RISK_AGENT_NO_IBKR=1 turns
+it off; unavailable -> silently skipped). Option fill priority:
+  (a) legs carry live quotes captured in RTH and the decision was published in
+      that same session -> fill at those quotes on that session (ibkr_live);
+  (b) IBKR historical BID_ASK 09:30-09:35 ET of the fill session (ibkr_hist);
+  (c) the chain snapshot / interpolation logic above.
+Daily option marks prefer the IBKR last-RTH-minute mid (ibkr_hist).
+
+  --open-fill   run during RTH on session D: fill every pending OPTION order
+                with asof < D from live quotes now (long ask, short bid,
+                ibkr_live). Needs no daily bar for D; idempotent; a no-op
+                (exit 0) outside RTH or without IBKR.
 """
 from __future__ import annotations
 
@@ -38,8 +51,11 @@ import bisect
 import datetime as dt
 import json
 import math
+import os
 import sys
+import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -378,6 +394,149 @@ def _option_mark(pos, snap, spot):
 
 
 # ---------------------------------------------------------------------------
+# Optional IBKR pricing
+# ---------------------------------------------------------------------------
+
+ET = ZoneInfo("America/New_York")
+IBKR_BUDGET_S = 60.0
+OPEN_FILL_MAX_AGE_DAYS = 7
+
+
+def _now_et() -> dt.datetime:
+    return dt.datetime.now(ET)
+
+
+def _parse_ts(v):
+    if not v:
+        return None
+    try:
+        t = dt.datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)).astimezone(ET)
+
+
+def _in_rth(t: dt.datetime) -> bool:
+    return t.weekday() < 5 and dt.time(9, 30) <= t.time() < dt.time(16, 0)
+
+
+def _buys(leg, closing=False) -> bool:
+    return (leg["qty"] > 0) != closing
+
+
+def _px_from(q, buy):
+    if not q:
+        return None
+    px = q.get("ask") if buy else q.get("bid")
+    return px if px is not None and px > 0 else None
+
+
+def _live_fill(o):
+    """(day, prices, sources, quote_ts) when the order's legs carry RTH live quotes
+    captured in the same session the decision was published, else None."""
+    legs = o.get("legs") or []
+    if not legs or any(l.get("quote_source") != "live" for l in legs):
+        return None
+    qts = [_parse_ts(l.get("quote_ts")) for l in legs]
+    pub = _parse_ts(o.get("ts"))
+    if pub is None or any(q is None or not _in_rth(q) for q in qts):
+        return None
+    day = qts[0].date()
+    if any(q.date() != day for q in qts) or pub.date() != day or not _in_rth(pub):
+        return None
+    prices = [_px_from(l, _buys(l)) for l in legs]
+    if any(p is None for p in prices):
+        return None
+    return (day.isoformat(), prices, ["ibkr_live"] * len(legs),
+            max(qts).astimezone(dt.timezone.utc).isoformat(timespec="seconds"))
+
+
+class IbkrAccess:
+    """Lazy, budgeted wrapper over risk_agent_ibkr. Any failure disables it quietly."""
+
+    def __init__(self, budget=IBKR_BUDGET_S, mod=None):
+        self.budget, self.spent, self.disabled, self._mod = budget, 0.0, False, mod
+        self._cache: dict = {}
+
+    def _call(self, key, fn):
+        if key in self._cache:
+            return self._cache[key]
+        if self.disabled or self.spent > self.budget:
+            return None
+        t0 = time.time()
+        try:
+            if self._mod is None:
+                import risk_agent_ibkr as mod
+                self._mod = mod
+            if not self._mod.is_available():
+                self.disabled = True
+                return None
+            res = fn(self._mod)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[risk_agent_grade] IBKR disabled: {type(exc).__name__}: {exc}")
+            self.disabled = True
+            return None
+        finally:
+            self.spent += time.time() - t0
+        self._cache[key] = res
+        return res
+
+    def _con_id(self, mod, und, leg):
+        return leg.get("con_id") or mod.resolve_con_id(und, leg["expiry"], leg["strike"], leg["right"])
+
+    def hist_bid_ask(self, und, leg, day):
+        def f(m):
+            cid = self._con_id(m, und, leg)
+            return m.historical_bid_ask(cid, day) if cid else None
+        return self._call(("h", und, leg["expiry"], float(leg["strike"]), leg["right"], day), f)
+
+    def close_bid_ask(self, und, leg, day):
+        def f(m):
+            cid = self._con_id(m, und, leg)
+            return m.historical_close_bid_ask(cid, day) if cid else None
+        return self._call(("c", und, leg["expiry"], float(leg["strike"]), leg["right"], day), f)
+
+    def live_quotes(self, und, legs):
+        """Per-leg live quote dicts (or None) aligned with legs."""
+        def f(m):
+            ids = [self._con_id(m, und, l) for l in legs]
+            got = m.quote_contracts([i for i in ids if i])
+            return [got.get(i) if i else None for i in ids]
+        return self._call(("l", und, tuple((l["expiry"], float(l["strike"]), l["right"]) for l in legs),
+                           time.time()), f)
+
+
+def make_ibkr(no_ibkr=False):
+    if no_ibkr or os.environ.get("RISK_AGENT_NO_IBKR"):
+        return None
+    return IbkrAccess()
+
+
+def _ibkr_leg_prices(legs, und, day, closing, ibkr):
+    if ibkr is None:
+        return None
+    out = []
+    for leg in legs:
+        px = _px_from(ibkr.hist_bid_ask(und, leg, day), _buys(leg, closing))
+        if px is None:
+            return None
+        out.append(px)
+    return out, ["ibkr_hist"] * len(out)
+
+
+def _ibkr_close_mids(legs, und, day, ibkr):
+    if ibkr is None:
+        return None
+    out = []
+    for leg in legs:
+        q = ibkr.close_bid_ask(und, leg, day)
+        if not q or q.get("bid") is None or not q.get("ask") or q["ask"] <= 0:
+            return None
+        out.append((q["bid"] + q["ask"]) / 2)
+    return out, ["ibkr_hist"] * len(out)
+
+
+# ---------------------------------------------------------------------------
 # The session walk
 # ---------------------------------------------------------------------------
 
@@ -392,7 +551,7 @@ def _start_day(records, book):
 
 
 def grade(records: list[dict], bars: Bars, chains: Chains, asof: str,
-          capital: float = SLEEVE_CAPITAL) -> list[dict]:
+          capital: float = SLEEVE_CAPITAL, ibkr=None) -> list[dict]:
     """Return the new journal records implied by sessions up to asof."""
     book0 = L.replay(records, capital)
     start = _start_day(records, book0)
@@ -401,11 +560,11 @@ def grade(records: list[dict], bars: Bars, chains: Chains, asof: str,
     lm = book0["last_mark_date"]
     new: list[dict] = []
     for s in [x for x in bars.sessions if start < x <= asof]:
-        _session(records, new, bars, chains, s, lm, capital)
+        _session(records, new, bars, chains, s, lm, capital, ibkr)
     return new
 
 
-def _session(records, new, bars: Bars, chains: Chains, s: str, lm, capital):
+def _session(records, new, bars: Bars, chains: Chains, s: str, lm, capital, ibkr=None):
     book = L.replay(records + new, capital)
     positions = book["positions"]
     sidx = bars.idx_le(s)
@@ -453,7 +612,8 @@ def _session(records, new, bars: Bars, chains: Chains, s: str, lm, capital):
             expire(o, "no_position"); continue
         n = n_after(o["asof"])
         if pos["kind"] == "option":
-            res = _leg_entry_prices(pos["legs"], snap(pos["underlying"]), closing=True)
+            res = _ibkr_leg_prices(pos["legs"], pos["underlying"], s, True, ibkr) \
+                or _leg_entry_prices(pos["legs"], snap(pos["underlying"]), closing=True)
             if res is None:
                 if n >= WAIT_SESSIONS:
                     expire(o, "no_quote")
@@ -475,7 +635,7 @@ def _session(records, new, bars: Bars, chains: Chains, s: str, lm, capital):
         for pid, pos in positions.items():
             if pid in gone or pos["entry_date"] >= s:
                 continue
-            ev = _option_exit(pos, bars, snap(pos["underlying"]), s, sidx) if pos["kind"] == "option" \
+            ev = _option_exit(pos, bars, snap(pos["underlying"]), s, sidx, ibkr) if pos["kind"] == "option" \
                 else _linear_exit(pos, bars, s, sidx)
             if ev:
                 new.append(ev); gone.add(pid)
@@ -486,17 +646,26 @@ def _session(records, new, bars: Bars, chains: Chains, s: str, lm, capital):
             continue
         n = n_after(o["asof"])
         if o["instrument_kind"] == "option":
-            res = _leg_entry_prices(o["legs"], snap(o["underlying"]), closing=False)
+            live = _live_fill(o)
+            qts = None
+            if live and live[0] == s:
+                res, qts = (live[1], live[2]), live[3]
+            else:
+                res = _ibkr_leg_prices(o["legs"], o["underlying"], s, False, ibkr) \
+                    or _leg_entry_prices(o["legs"], snap(o["underlying"]), closing=False)
             if res is None:
                 if n >= WAIT_SESSIONS:
                     expire(o, "no_quote")
                 continue
             px = res[0]
             contracts = sum(abs(l["qty"]) for l in o["legs"]) * o["structure_qty"]
-            new.append({"kind": "fill", "order_type": "open", "order_id": o["order_id"],
-                        "position_id": o["position_id"], "date": s, "leg_prices": px,
-                        "quote_sources": res[1],
-                        "qty": o["structure_qty"], "costs": L.OPTION_COST_PER_CONTRACT * contracts})
+            rec = {"kind": "fill", "order_type": "open", "order_id": o["order_id"],
+                   "position_id": o["position_id"], "date": s, "leg_prices": px,
+                   "quote_sources": res[1],
+                   "qty": o["structure_qty"], "costs": L.OPTION_COST_PER_CONTRACT * contracts}
+            if qts:
+                rec["quote_ts"] = qts
+            new.append(rec)
         else:
             st, px = _equity_fill(o.get("entry"), o["side"] == "long",
                                   bars.get(o["series"], s), n)
@@ -516,8 +685,13 @@ def _session(records, new, bars: Bars, chains: Chains, s: str, lm, capital):
         for pid, pos in cur["positions"].items():
             if pos["kind"] == "option":
                 bar = bars.get(pos["underlying"], s)
-                val, stale, src = _option_mark(pos, snap(pos["underlying"]),
-                                               bar["Close"] if bar else None)
+                hist = _ibkr_close_mids(pos["legs"], pos["underlying"], s, ibkr)
+                if hist is not None:
+                    val, stale, src = (sum(l["qty"] * m * L.OPTION_MULT
+                                           for l, m in zip(pos["legs"], hist[0])), False, hist[1])
+                else:
+                    val, stale, src = _option_mark(pos, snap(pos["underlying"]),
+                                                   bar["Close"] if bar else None)
                 if val is None:
                     val, stale = pos["mark"], True
                 mpos[pid] = {"mark": val, "stale_mark": stale, "quote_sources": src}
@@ -568,7 +742,7 @@ def _linear_exit(pos, bars, s, sidx):
     return None
 
 
-def _option_exit(pos, bars, snap, s, sidx):
+def _option_exit(pos, bars, snap, s, sidx, ibkr=None):
     expiry = max(l["expiry"] for l in pos["legs"])
     if expiry <= s:
         row = bars.get(pos["underlying"], expiry) or bars.last_on_or_before(pos["underlying"], expiry)
@@ -578,7 +752,7 @@ def _option_exit(pos, bars, snap, s, sidx):
         return _exit_rec(pos, s, "expiry", leg_prices=px, sources=["intrinsic"] * len(px))
     td = pos.get("time_td")
     if td and sidx - bars.idx_le(pos["entry_date"]) >= td:
-        res = _leg_exit_mid(pos["legs"], snap)
+        res = _ibkr_close_mids(pos["legs"], pos["underlying"], s, ibkr) or _leg_exit_mid(pos["legs"], snap)
         if res is not None:
             return _exit_rec(pos, s, "time", leg_prices=res[0], sources=res[1])
     return None
@@ -765,6 +939,45 @@ def _tickers_in(records):
     return t
 
 
+def open_fill(records: list[dict], ibkr, now: dt.datetime | None = None) -> list[dict]:
+    """Fill pending OPTION opens (asof < today) from live quotes. RTH only.
+
+    Independent of bars: session D need not be in master_prices yet. Idempotent
+    because a filled order leaves `pending` on replay.
+    """
+    now = now or _now_et()
+    if ibkr is None or not _in_rth(now):
+        return []
+    today = now.date()
+    day = today.isoformat()
+    new = []
+    for o in L.replay(records)["pending"]:
+        if o.get("type") != "open" or o.get("instrument_kind") != "option" or not o["asof"] < day:
+            continue
+        if (today - dt.date.fromisoformat(o["asof"])).days > OPEN_FILL_MAX_AGE_DAYS:
+            continue
+        legs = o["legs"]
+        if any(l["expiry"] < day for l in legs):
+            continue
+        quotes = ibkr.live_quotes(o["underlying"], legs)
+        if not quotes or len(quotes) != len(legs):
+            continue
+        prices = [_px_from(q, _buys(l)) for l, q in zip(legs, quotes)]
+        if any(p is None for p in prices):
+            continue
+        qts = [_parse_ts(q.get("quote_ts")) for q in quotes]
+        qts = [q for q in qts if q is not None]
+        contracts = sum(abs(l["qty"]) for l in legs) * o["structure_qty"]
+        rec = {"kind": "fill", "order_type": "open", "order_id": o["order_id"],
+               "position_id": o["position_id"], "date": day, "leg_prices": prices,
+               "quote_sources": ["ibkr_live"] * len(legs),
+               "qty": o["structure_qty"], "costs": L.OPTION_COST_PER_CONTRACT * contracts}
+        if qts:
+            rec["quote_ts"] = max(qts).astimezone(dt.timezone.utc).isoformat(timespec="seconds")
+        new.append(rec)
+    return new
+
+
 def main(argv=None, book_out: Path = BOOK_OUT, scoreboard_out: Path = SCOREBOARD_OUT) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--asof")
@@ -773,9 +986,20 @@ def main(argv=None, book_out: Path = BOOK_OUT, scoreboard_out: Path = SCOREBOARD
     ap.add_argument("--chains", default=str(DEFAULT_CHAINS))
     ap.add_argument("--no-push", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-ibkr", action="store_true", help="never touch IBKR")
+    ap.add_argument("--open-fill", action="store_true",
+                    help="RTH only: fill pending option opens from live IBKR quotes, then exit")
     args = ap.parse_args(argv)
 
     journal = Path(args.journal)
+    if args.open_fill:
+        recs = L.load(journal, pull=not args.no_push and not args.dry_run)
+        fills = open_fill(recs, make_ibkr(args.no_ibkr))
+        print(f"[risk_agent_grade] open-fill: {len(fills)} option fill(s)"
+              f"{'' if fills else ' (none: outside RTH, no pending option order, or no IBKR)'}")
+        if fills and not args.dry_run:
+            L.append(fills, journal, push=not args.no_push)
+        return 0
     records = L.load(journal, pull=not args.no_push and not args.dry_run)
     prices = Path(args.prices) if args.prices else (
         DEFAULT_PRICES if DEFAULT_PRICES.exists() else FALLBACK_PRICES)
@@ -787,7 +1011,7 @@ def main(argv=None, book_out: Path = BOOK_OUT, scoreboard_out: Path = SCOREBOARD
         print("[risk_agent_grade] no price sessions; nothing to do")
         return 1
 
-    new = grade(records, bars, chains, asof)
+    new = grade(records, bars, chains, asof, ibkr=make_ibkr(args.no_ibkr))
     allrec = records + new
     book = L.replay(allrec)
     sb = scoreboard(allrec, book, bars, asof)

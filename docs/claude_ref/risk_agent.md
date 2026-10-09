@@ -1,6 +1,6 @@
 # Risk Agent (v0.2)
 
-An independent **$200k paper sleeve** run nightly by a Claude agent after the close. It reads every market dataset we hold in R2 (risk dashboard, ~110 ETFs, 25 futures roots, ETF option chains and IV history, breadth, put/call, macro calendar, seasonal ranks, earnings), forms a forward view, and manages a target book of ETFs, futures, ETF options and cash. It is **blind to the real book**. It delivers by email and a private-site tab (`risk-agent.html`). Nothing places live orders.
+An independent **$200k paper sleeve** run each weekday morning, before the open, by a Claude agent. It reads every market dataset we hold in R2 (risk dashboard, ~110 ETFs, 25 futures roots, ETF option chains and IV history, breadth, put/call, macro calendar, seasonal ranks, earnings), forms a forward view, and manages a target book of ETFs, futures, ETF options and cash. It is **blind to the real book**. It delivers by email and a private-site tab (`risk-agent.html`). Nothing places live orders.
 
 Owner decisions (2026-10-09): $200k paper sleeve; every ETF in R2 plus futures; email + private site delivery (no Sheets); option rule below.
 
@@ -34,7 +34,14 @@ v0.1 (Codex, 2026-10-08) lived outside git at `C:\Users\mckin\New_Seasonals\.cla
 
 Runner: `scripts/run_risk_agent.bat` then `scripts/invoke_risk_agent.ps1`. Model and effort are pinned in the bat. There is no auto-retry, because a retry cannot tell "died before publishing" from "published, then the check failed".
 
-**Schedule.** Weekdays at 18:15 ET, after the `postclose` job (17:10) has rebuilt `shared/site_risk.json` and prices. The shared export is corrected again in `premarket` (about 04:42 ET, breadth and CBOE amendments). The state records the export's `built_at` so a decision is tied to the vintage it saw. Fills happen at the next session's open, so the AM correction cannot be front-run in paper.
+**Schedule (owner, 2026-10-09): mornings on the trading desktop** (`DESKTOP-2KI41V6` on the tailnet, which also runs IB Gateway and the Pitch and Seasonal agents). It runs from that machine's `dev\New_Seasonals` checkout, the same as the other agent tasks, not from the pinned automation runtime.
+
+| Task | Time (ET, weekdays) | What it does |
+|---|---|---|
+| `Risk Agent (paper)` | 06:30 | `scripts/run_risk_agent.bat`. After `premarket` (04:10) has corrected the dashboard, and after the Pitch (05:10) has mostly finished |
+| `Risk Agent open fill` | 09:36 | `grade_risk_agent.py --open-fill`. Fills today's option orders at live IBKR quotes, so 0-1 DTE structures get a real entry |
+
+The state records the dashboard export's `built_at`, so a decision is tied to the data version it saw. ETF and futures orders fill at today's open (MOO) on paper. The next morning's grade picks up those fills, stops and marks.
 
 ## Paper ledger
 
@@ -57,11 +64,21 @@ Runner: `scripts/run_risk_agent.bat` then `scripts/invoke_risk_agent.ps1`. Model
 3. For marks, time exits and closes only, a surface fallback: IV at the leg's moneyness, then total variance interpolated across expiries, flat outside the quoted range.
 4. Intrinsic, at expiry or when there is no snapshot. Only this case sets `stale_mark`.
 
-Entry fills accept only 1 or 2, so a fill is always against a contract that was actually quoted. Every option record carries `quote_sources`. The decision validator prices only from exact quotes in tonight's snapshot.
+Entry fills accept only 1 or 2, so a fill is always against a contract that was actually quoted. Every option record carries `quote_sources`. The decision validator prices only from exact quotes in the latest snapshot or live IBKR chain.
 
 Costs: ETF 1 bp per side; futures $2.50 per contract per side; options $0.65 per contract. Futures mark on the yfinance continuous series. Roll gaps are a known paper artefact, flagged on the mark.
 
 Replay (`risk_agent_ledger.replay()`) folds the journal into the open book, cash, NAV and realised P&L. The same function feeds the state builder, the grader and the validator `ctx`.
+
+### Live IBKR quotes
+
+`risk_agent_ibkr.py` prices options from TWS/Gateway in real time (weeklies, 0-1 DTE included). It is quotes only and blind: it opens the bare API socket (not `IB.connect()`, which syncs account state), requests contract details, chain params, market data and historical bars, and returns plain dicts. `tests/test_risk_agent_ibkr.py` greps its source for forbidden account/order method names.
+
+- Env: `RISK_AGENT_IB_HOST` (127.0.0.1), `RISK_AGENT_IB_PORT` (7496; Gateway also 4001), `RISK_AGENT_IB_CLIENT_ID` (77).
+- CLI: `python risk_agent_ibkr.py chain SPY --max-dte 14` merges into `data/risk_agent_chains_live.json` (per-underlying block replaced); `quote <conid>...`.
+- `daily_risk_agent.py` loads that file (`--live-chains`), overlays it on the snapshot chains per quote key, and tags each leg `quote_source` live|snapshot plus `quote_ts` (small edit in `risk_agent_grammar._validate_open`). A live quote older than 30 minutes at publish is a warning.
+- Option fill priority in `scripts/grade_risk_agent.py`: (a) legs carry RTH live quotes and the decision was published in that same session -> fill there (`ibkr_live`); (b) IBKR historical BID_ASK 09:30-09:35 ET of the fill session, long ask / short bid (`ibkr_hist`; bar open = avg bid, close = avg ask); (c) chain snapshot / interpolation. Daily option marks use the IBKR last-RTH-minute mid when available. `--no-ibkr` or `RISK_AGENT_NO_IBKR=1` disables it; unreachable IBKR costs about 2-8 s and the rest of a run is budgeted to 60 s.
+- Pre-open decisions: run `python scripts/grade_risk_agent.py --open-fill` during RTH (about 09:35-10:30 ET). It fills every pending option order with asof before today from live quotes (`ibkr_live`, `quote_ts` recorded), needs no daily bar, is idempotent, and exits 0 doing nothing outside RTH or without IBKR. Needed because 0-1 DTE contracts may be gone before a next-morning historical lookup. Expiry-day settlement stays intrinsic on the raw close.
 
 ## Scoreboard
 
@@ -97,7 +114,7 @@ watchlist: [{idea, trigger, expires}]
 
 ## Known limits (2026-10-09)
 
-- **Option chain coverage is thin.** There is nothing under about 29 DTE and nothing beyond about 100 DTE, so there are no weeklies and no LEAPS. Widening it is an upstream change to `scripts/update_option_surface.py`, the IBKR collector. That is out of scope here and touches a broker-connected script.
+- **Option chain coverage.** From the next collector run (`scripts/update_option_surface.py`) the chain holds the two nearest expiries with DTE >= 1 plus ~7, ~14, ~30 and ~60 DTE (no 90, no LEAPS); weeklies use a +/-3% minimum strike band. History before that run has nothing under about 29 DTE. `build_risk_agent_state.CHAIN_DTE_MIN` (5) still hides the 1-4 DTE expiries from the agent's chain quotes.
 - IBIT has chains but no `master_prices` history, so it has no stress table. Bounded IBIT structures are fine; an uncovered short IBIT call is rejected.
 - `macro_release_history` holds printed releases only. The forward view comes from `data/macro_events.csv` via `macro_calendar` (`events.schedule`).
 - Futures mark on yfinance continuous front-month series. Roll gaps show up as P&L in paper.

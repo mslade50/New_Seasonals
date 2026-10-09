@@ -568,7 +568,9 @@ def _validate_open(pos, where, ctx, nav, capital, errors, warnings, orders):
                 errors.append(f"{where}.legs[{j}] {und} {key} has no executable quote in the snapshot")
                 return
             legs.append({**leg, "bid": qt.get("bid") or 0, "ask": qt["ask"],
-                         "con_id": qt.get("con_id"), "multiplier": 100, "style": "american"})
+                         "con_id": qt.get("con_id"), "multiplier": 100, "style": "american",
+                         "quote_source": qt.get("source") or "snapshot",
+                         "quote_ts": qt.get("quote_ts")})
         gate = option_structure_gate(legs, sq, capital, spot=chain.get("spot"),
                                      asof=ctx.get("asof"),
                                      up_q999=(ctx.get("stress") or {}).get(und))

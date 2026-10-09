@@ -4,7 +4,7 @@ set PYTHONIOENCODING=utf-8
 set PYTHONUTF8=1
 set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0
 
-REM Risk Agent nightly run (independent $200k paper sleeve). Steps:
+REM Risk Agent morning run (independent $200k paper sleeve). Steps:
 REM   1. sync the allowed R2 objects (risk_agent_data)
 REM   2. grade: fill pending paper orders, mark, exit, settle options
 REM   3. build the compact state the agent reads (abort on failure)
@@ -12,18 +12,20 @@ REM   4. hand the state to the /risk-agent skill, which surveys, forecasts,
 REM      decides and publishes through daily_risk_agent.py
 REM   5. verify a decision or stand-down was journaled AND emailed
 REM
-REM Scheduled weekdays 18:15 local, after the 17:10 postclose job has rebuilt
-REM shared/site_risk.json and prices.
+REM Scheduled weekdays 06:30 ET on the trading desktop, after premarket (04:10)
+REM has corrected shared/site_risk.json and while the Pitch (05:10) finishes.
+REM Option orders fill at 09:36 via the separate "Risk Agent open fill" task.
 REM
 REM NOTE ON PERMISSIONS: the agent step runs unattended with
 REM --permission-mode bypassPermissions. It can write files in this repo and
-REM send the Risk Agent email. It cannot place orders: nothing here talks to a
-REM broker, and the sleeve is paper only.
+REM send the Risk Agent email. It cannot place orders: the only broker contact is
+REM risk_agent_ibkr.py, a read-only market-data client on its own clientId that
+REM never requests account, position or order data. The sleeve is paper only.
 REM
 REM MODEL AND EFFORT ARE PINNED HERE ON PURPOSE. Without the flags the run
 REM inherits whatever ~/.claude/settings.json says, so switching models in an
 REM interactive session one afternoon would quietly change every following
-REM night's decision with nothing in the email to show it. Opus at xhigh is the
+REM morning's decision with nothing in the email to show it. Opus at xhigh is the
 REM right tier: the agent writes and interprets real empirical checks before
 REM it may open a position. daily_risk_agent.py stamps these on every journal
 REM record, so the scoreboard can split by tier.
@@ -34,6 +36,8 @@ REM "published, then the delivery check failed".
 set "RISK_AGENT_MODEL=opus"
 set "RISK_AGENT_EFFORT=xhigh"
 set "AGENT_TIMEOUT_SECONDS=5400"
+if not defined RISK_AGENT_IB_PORT set "RISK_AGENT_IB_PORT=7496"
+if not defined RISK_AGENT_IB_CLIENT_ID set "RISK_AGENT_IB_CLIENT_ID=77"
 
 set "CLAUDE_EXE=%USERPROFILE%\.local\bin\claude.exe"
 if not exist "%CLAUDE_EXE%" set "CLAUDE_EXE=claude"
