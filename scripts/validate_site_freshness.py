@@ -51,6 +51,7 @@ PAGE_BUILD_PAYLOADS = (
     ("ext_lab.json", "ext_lab"),
     ("trade_mtm.json", "trade_mtm"),
     ("ideas.json", "ideas"),
+    ("risk.json", "risk"),
     ("signals.json", "signals"),
     ("sizer.json", "sizer"),
     ("strat_notes.json", "strat_notes"),
