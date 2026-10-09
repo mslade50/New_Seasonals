@@ -1990,20 +1990,175 @@ function canonicalPayloadLegs(struct, expiry, action) {
   }));
 }
 
+/* ---- option_spread combo risk: JS port of the executor's option_combo_risk.py
+   (OPTION_COMBO_SPEC.md sections 1-3). Wire legs are the BUY-ticket view
+   [{side,right,expiry,strike,ratio}]; action is the parent BUY/SELL. The executor
+   recomputes everything and rejects a mismatching debit_risk. Not modelled:
+   assignment, dividends, margin, pin risk. */
+const COMBO_MAX_LEGS = 4;
+const COMBO_STRESS = 1.30;
+const COMBO_MULT = 100;
+
+function comboRatio(l) {
+  const raw = l.ratio;
+  if (raw == null || raw === "") return 1;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 1 && v === Math.floor(v) ? v : null;
+}
+function comboEffective(action, legs) {
+  const flip = String(action).toUpperCase() === "BUY" ? 1 : -1;
+  return legs.map((l) => ({
+    sign: (String(l.side).toUpperCase() === "BUY" ? 1 : -1) * flip, ratio: comboRatio(l) || 1,
+    right: String(l.right).toUpperCase(), strike: Number(l.strike), expiry: String(l.expiry),
+  }));
+}
+function comboPayoff(eff, S) {
+  let t = 0;
+  for (const e of eff) {
+    const intr = e.right === "C" ? Math.max(S - e.strike, 0) : Math.max(e.strike - S, 0);
+    t += e.sign * e.ratio * COMBO_MULT * intr;
+  }
+  return t;
+}
+/* {shape, error}: shape single | vertical | combo | calendar. */
+function comboCheckStructure(action, legs) {
+  action = String(action).toUpperCase();
+  if (action !== "BUY" && action !== "SELL") return { error: "action must be BUY or SELL" };
+  if (!Array.isArray(legs) || legs.length < 1 || legs.length > COMBO_MAX_LEGS) {
+    return { error: `option_spread takes 1 to ${COMBO_MAX_LEGS} legs (${Array.isArray(legs) ? legs.length : 0} selected)` };
+  }
+  const keys = new Set();
+  for (let i = 0; i < legs.length; i++) {
+    const l = legs[i];
+    if (comboRatio(l) == null) return { error: `leg ${i + 1}: ratio must be an integer >= 1` };
+    if (!["BUY", "SELL"].includes(String(l.side).toUpperCase())) return { error: `leg ${i + 1}: side must be BUY/SELL` };
+    if (!["C", "P"].includes(String(l.right).toUpperCase())) return { error: `leg ${i + 1}: right must be C/P` };
+    if (!(Number(l.strike) > 0)) return { error: `leg ${i + 1}: strike must be > 0` };
+    if (!/^\d{8}$/.test(String(l.expiry))) return { error: `leg ${i + 1}: expiry must be YYYYMMDD` };
+    const key = `${String(l.right).toUpperCase()}|${l.expiry}|${Number(l.strike).toFixed(6)}`;
+    if (keys.has(key)) return { error: "duplicate legs (same right, expiry and strike)" };
+    keys.add(key);
+  }
+  if (legs.length === 1) {
+    if (String(legs[0].side).toUpperCase() !== "BUY" || comboRatio(legs[0]) !== 1) {
+      return { error: "a single option leg must be side BUY, ratio 1 (action BUY = long, action SELL = short; scale with quantity)" };
+    }
+    return { shape: "single" };
+  }
+  const expiries = new Set(legs.map((l) => String(l.expiry)));
+  if (expiries.size === 1) {
+    const [a, b] = legs;
+    const legacy = legs.length === 2 && comboRatio(a) === 1 && comboRatio(b) === 1 &&
+      String(a.right).toUpperCase() === String(b.right).toUpperCase() &&
+      new Set([String(a.side).toUpperCase(), String(b.side).toUpperCase()]).size === 2;
+    return { shape: legacy ? "vertical" : "combo" };
+  }
+  if (legs.length !== 2) return { error: "legs with different expiries are supported only as a 2-leg calendar/diagonal" };
+  if (new Set(legs.map((l) => String(l.right).toUpperCase())).size !== 1) return { error: "calendar/diagonal legs must share one option right" };
+  const eff = comboEffective(action, legs);
+  const longs = eff.filter((e) => e.sign > 0), shorts = eff.filter((e) => e.sign < 0);
+  if (longs.length !== 1 || shorts.length !== 1) return { error: "calendar/diagonal needs one long and one short leg" };
+  const lg = longs[0], sh = shorts[0];
+  if (lg.expiry <= sh.expiry) return { error: "calendar/diagonal: the long leg must have the later expiry (credit and reverse calendars are rejected)" };
+  const covered = lg.right === "C" ? lg.strike <= sh.strike : lg.strike >= sh.strike;
+  if (!covered) return { error: "calendar/diagonal: the long leg must cover the short (calls: long strike <= short strike; puts: long strike >= short strike)" };
+  if (lg.ratio < sh.ratio) return { error: "calendar/diagonal: long ratio must be >= short ratio" };
+  return { shape: "calendar" };
+}
+/* Same arithmetic as option_combo_risk.evaluate for non-legacy shapes.
+   Returns {info:{unitLoss, unitRisk, debitRisk, shape, unbounded, stressSpot, maxPayoff, comm, riskUsd}} or {error}.
+   debitRisk = unitLoss/100: rounded to 1e-6 when bounded, rounded UP to the cent when unbounded
+   (the executor accepts claims >= its own figure for unbounded structures). */
+function comboEvaluate(action, limit, qty, legs, { spot = null, unboundedAck = false } = {}) {
+  action = String(action).toUpperCase();
+  limit = Number(limit); qty = Number(qty);
+  if (!Number.isFinite(limit) || !Number.isFinite(qty) || qty <= 0 || limit <= 0) return { error: "quantity and limit must be > 0" };
+  const chk = comboCheckStructure(action, legs);
+  if (chk.error) return { error: chk.error };
+  const shape = chk.shape;
+  const sumRatio = legs.reduce((a, l) => a + (comboRatio(l) || 1), 0);
+  const comm = COMM * qty * sumRatio * 2;
+  const L = action === "BUY" ? limit : -limit;
+  if (shape === "calendar") {
+    if (L <= 0) return { error: "calendar/diagonal must be executed as a debit" };
+    const unitLoss = COMBO_MULT * L;
+    return { info: { shape, unitLoss, unitRisk: unitLoss / COMBO_MULT, debitRisk: Math.round(unitLoss) / COMBO_MULT,
+      unbounded: false, stressSpot: null, maxPayoff: null, comm, riskUsd: unitLoss * qty + comm } };
+  }
+  const eff = comboEffective(action, legs);
+  const slope = eff.reduce((a, e) => a + (e.right === "C" ? e.sign * e.ratio : 0), 0);
+  const unbounded = slope < 0;
+  const strikes = [...new Set(eff.map((e) => e.strike))].sort((a, b) => a - b);
+  let stress = null, grid;
+  if (unbounded) {
+    if (unboundedAck !== true) return { error: "UNBOUNDED_ACK_REQUIRED: net short calls have unbounded loss", needsAck: true };
+    const sp = Number(spot);
+    if (!Number.isFinite(sp) || sp <= 0) return { error: "unbounded structure needs the underlying price (unavailable)" };
+    stress = sp * COMBO_STRESS;
+    grid = [0, ...strikes.filter((k) => k <= stress), stress];
+  } else {
+    grid = [0, ...strikes];
+  }
+  const pays = grid.map((S) => comboPayoff(eff, S));
+  const minPay = Math.min(...pays);
+  const unitLoss = Math.max(0, COMBO_MULT * L - minPay);
+  if (unitLoss <= 1e-9) return { error: "structure has no downside risk at this price (leg orientation and price are inconsistent)" };
+  const maxPay = Math.max(...pays);
+  if (slope <= 0 && maxPay <= COMBO_MULT * L + 1e-9) return { error: "structure can never profit at this price" };
+  const raw = unitLoss / COMBO_MULT;
+  const debitRisk = unbounded ? Math.ceil(raw * 100 - 1e-9) / 100 : Math.round(raw * 1e6) / 1e6;
+  return { info: { shape, unitLoss, unitRisk: raw, debitRisk, unbounded, stressSpot: stress, maxPayoff: maxPay,
+    comm, riskUsd: unitLoss * qty + comm } };
+}
+
+/* Non-legacy structures (condor, butterfly, ratio, straddle, short single,
+   covered calendar/diagonal). Credit structures go as SELL with legs written in
+   the BUY-ticket view (canonicalPayloadLegs flips them). Unbounded structures
+   need unboundedAck and a spot; the stress spot is recorded as underlying_spot. */
+function buildComboPayload({ struct: s, symbol, expiry, qty, limit, tif, params, spot, unboundedAck, action }) {
+  const snapped = snapNetLimit(limit, action);
+  if (!(snapped > 0)) return { error: "BLOCKED: limit must be > 0 after snapping to the 0.05 grid" };
+  const legs = canonicalPayloadLegs(s, expiry, action).map((l) => ({ ...l, expiry: String(l.expiry).replace(/-/g, "") }));
+  const ev = comboEvaluate(action, snapped, qty, legs, { spot, unboundedAck });
+  if (ev.error) return { error: ev.needsAck ? ev.error : `BLOCKED: ${ev.error}`, needsAck: !!ev.needsAck };
+  const info = ev.info;
+  const payload = {
+    symbol, action, quantity: qty, limit: snapped, tif: tif || "DAY",
+    structure: s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+    debit_risk: info.debitRisk, risk_per_unit: info.debitRisk,
+    credit: !!s.credit, legs,
+    strategy: params.strategy || null, signal_date: params.sig || null, entry_condition: params.cond || null,
+  };
+  if (info.unbounded) { payload.unbounded_ack = true; payload.underlying_spot = Number(spot); }
+  return { payload, riskPremium: info.debitRisk, action, snapped, info };
+}
+
 /* The one place the option_spread payload is assembled (shootout ticket and
    Custom spread builder both call it). Contract with the desktop executor:
    debit_risk == risk premium per spread (debit for debit structures, width
    minus credit for credit verticals); legs flipped for a SELL parent. No quantity
    or risk cap lives here. Returns {error} or {payload, riskPremium, action, snapped}. */
-function buildOptionSpreadPayload({ struct: s, symbol, expiry, qty, limit, tif, params }) {
+function buildOptionSpreadPayload({ struct: s, symbol, expiry, qty, limit, tif, params, spot, unboundedAck }) {
   const p = params || {};
+  const action = s.credit ? "SELL" : "BUY";
+  const legacySingle = s.legs.length === 1 && !s.credit && s.legs[0].side === "BUY" && Number(s.legs[0].ratio || 1) === 1;
+  const legacyVertical = s.width != null && s.legs.length === 2;
+  if (!legacySingle && !legacyVertical) {
+    return buildComboPayload({ struct: s, symbol, expiry, qty, limit, tif, params: p, spot, unboundedAck, action });
+  }
   if (s.width != null && limit >= s.width) {
     return { error: `BLOCKED: net ${s.credit ? "credit" : "debit"} ${limit} >= width ${s.width}` };
   }
-  const action = s.credit ? "SELL" : "BUY";
   const snapped = snapNetLimit(limit, action);
   const riskPremium = s.credit ? s.width - snapped : snapped;
   if (!(riskPremium > 0)) return { error: "BLOCKED: defined max risk must be > 0" };
+  if (legacyVertical) {
+    const wire = canonicalPayloadLegs(s, expiry, action);
+    const bought = wire.find((l) => l.side === "BUY"), sold = wire.find((l) => l.side === "SELL");
+    if (bought && sold && !(bought.right === "C" ? bought.strike < sold.strike : bought.strike > sold.strike)) {
+      return { error: "BLOCKED: vertical legs are not in canonical debit orientation" };
+    }
+  }
   const payload = {
     symbol,
     action,

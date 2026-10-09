@@ -7,24 +7,26 @@
    builder, so the contract the desktop executor validates is unchanged).
 
    There is NO client-side quantity or risk cap here. The only gates are the
-   desktop executor's. What the executor can place today is mirrored in
-   OC_EXEC_CAPS; structures beyond it are analysed but the send button refuses
-   with a clear message. Flip the caps when the executor learns more shapes.
+   desktop executor's. The structures it accepts (OPTION_COMBO_SPEC.md: same-expiry
+   1-4 legs with integer ratios, and covered debit calendars/diagonals) are mirrored
+   by OC_EXEC_CAPS plus comboCheckStructure/comboEvaluate in options.js, which port
+   the executor's structure rules and risk math. Anything the spec rejects is
+   refused here with the reason.
 
    Loaded after options.js; shares its globals (state, esc, fmt, snapNetLimit,
    canonicalPayloadLegs, sendCommand, execMode, commRT, ...). */
 "use strict";
 
-/* What the desktop executor accepts today (exec_agent_core: one long option or
-   one 1:1 same-expiry vertical). maxLegs up to 4 is the builder's own limit. */
-const OC_EXEC_CAPS = { maxLegs: 2, allowRatio: false, allowShortSingle: false };
+/* What the desktop executor accepts (option_combo_risk.py / OPTION_COMBO_SPEC.md).
+   Structure rules themselves live in comboCheckStructure (options.js). */
+const OC_EXEC_CAPS = { maxLegs: 4, allowRatio: true, allowShortSingle: true, allowCalendar: true };
 const OC_MAX_LEGS = 4;
 
 const ocState = {
   ticker: null, result: null, expiries: [], chain: null, spot: null, expiry: null,
   legs: [], qty: 1, limit: null, limitTouched: false, tif: "DAY",
   center: null, centerRequested: null, note: "", loading: false, seq: 0,
-  prefill: null, recentredOnce: false,
+  prefill: null, recentredOnce: false, netMode: null,
 };
 
 /* ---------------- pure helpers (unit-tested) ---------------- */
@@ -104,23 +106,24 @@ function ocPayoff(legs, net) {
   };
 }
 
-/* What the executor can place today, given resolved legs [{side,row,ratio}]. */
-function ocExecIssue(legs, expiry, caps) {
+/* Can the executor place these resolved legs [{side,row,ratio}]? Returns a reason
+   or null. `credit` = the structure is entered as a SELL parent (legs flipped). */
+function ocExecIssue(legs, expiry, caps, credit) {
   const c = caps || OC_EXEC_CAPS;
   if (!legs || !legs.length) return "Add at least one leg";
   if (legs.some((l) => !l.row)) return "A selected strike is not in the returned chain; recentre or re-quote";
   if (legs.some((l) => !l.row.con_id)) return "Contract qualification required (no conId on a leg)";
-  if (legs.length > c.maxLegs) return `Analysis only: the execution agent currently takes ${c.maxLegs === 1 ? "single options" : "single options and verticals"} (${legs.length} legs selected)`;
-  if (new Set(legs.map((l) => l.row.expiry || expiry)).size > 1) return "Analysis only: execution requires one expiry";
-  if (!c.allowRatio && legs.some((l) => Number(l.ratio || 1) !== 1)) return "Analysis only: the execution agent does not take ratios yet (use ratio 1)";
-  if (legs.length === 1) return legs[0].side === "BUY" || c.allowShortSingle ? null : "Analysis only: only long single options are executable";
-  if (legs.length === 2) {
-    const [a, b] = legs;
-    if (a.side === b.side || a.row.right !== b.row.right || a.row.strike === b.row.strike) {
-      return "Analysis only: execution requires a same-expiry, same-right vertical (one buy, one sell)";
-    }
-    return null;
-  }
+  if (legs.length > c.maxLegs) return `Rejected by the executor: more than ${c.maxLegs} legs (${legs.length} selected)`;
+  if (!c.allowRatio && legs.some((l) => Number(l.ratio || 1) !== 1)) return "Rejected: ratios are not enabled";
+  const action = credit ? "SELL" : "BUY";
+  const wire = legs.map((l) => ({
+    side: credit ? (l.side === "BUY" ? "SELL" : "BUY") : l.side,
+    right: l.row.right, expiry: String(l.row.expiry || expiry).replace(/-/g, ""),
+    strike: l.row.strike, ratio: l.ratio || 1,
+  }));
+  const chk = comboCheckStructure(action, wire);
+  if (chk.error) return `Rejected by the executor: ${chk.error}`;
+  if (chk.shape === "calendar" && !c.allowCalendar) return "Rejected: calendars are not enabled";
   return null;
 }
 
@@ -134,11 +137,22 @@ function ocMid(row) {
   return row.bid != null && row.ask != null ? (Number(row.bid) + Number(row.ask)) / 2 : null;
 }
 
+/* Row for a leg: legs carry their own expiry (and a row snapshot taken when the
+   leg was added) so a calendar can span two expiries although the ladder shows one. */
+function ocResolveRow(l, chain) {
+  const e = l.expiry ? ocNormExpiry(l.expiry) : null;
+  const ce = ocNormExpiry(chain.expiry);
+  if (e && e !== ce) return l.row ? { ...l.row, expiry: e } : null;
+  const r = ocFindRow(chain, l.right, l.strike);
+  return r && e ? { ...r, expiry: e } : r;
+}
+
 /* Struct in the same shape structureFrom emits, so canonicalPayloadLegs,
-   commRT and buildOptionSpreadPayload treat it exactly like a shootout row. */
-function ocBuildStruct(legs, chain) {
+   commRT and buildOptionSpreadPayload treat it exactly like a shootout row.
+   netMode "debit"/"credit" overrides the sign of the mid (default: from the mid). */
+function ocBuildStruct(legs, chain, netMode) {
   if (!legs || !legs.length || !chain) return null;
-  const rl = legs.map((l) => ({ side: l.side, ratio: l.ratio || 1, row: ocFindRow(chain, l.right, l.strike), want: l }));
+  const rl = legs.map((l) => ({ side: l.side, ratio: l.ratio || 1, row: ocResolveRow(l, chain), want: l }));
   let signedMid = 0, signedNat = 0, midOk = true, natOk = true;
   for (const l of rl) {
     if (!l.row) { midOk = false; natOk = false; continue; }
@@ -148,9 +162,11 @@ function ocBuildStruct(legs, chain) {
     if (m == null) midOk = false; else signedMid += s * l.ratio * m;
     if (n == null) natOk = false; else signedNat += s * l.ratio * Number(n);
   }
-  const credit = midOk && signedMid < 0;
-  const vertical = rl.length === 2 && rl.every((l) => l.row) && rl[0].row.right === rl[1].row.right &&
-    rl[0].side !== rl[1].side && rl[0].row.strike !== rl[1].row.strike;
+  const credit = netMode === "credit" ? true : netMode === "debit" ? false : midOk && signedMid < 0;
+  const sameExp = rl.every((l) => l.row) && new Set(rl.map((l) => l.row.expiry || chain.expiry)).size === 1;
+  const vertical = rl.length === 2 && sameExp && rl[0].row.right === rl[1].row.right &&
+    rl[0].side !== rl[1].side && rl[0].row.strike !== rl[1].row.strike &&
+    rl[0].ratio === 1 && rl[1].ratio === 1;
   const width = vertical ? Math.abs(rl[0].row.strike - rl[1].row.strike) : null;
   const rnd = (v) => Math.round(v * 100) / 100;
   const struct = {
@@ -159,10 +175,21 @@ function ocBuildStruct(legs, chain) {
     nat: natOk ? rnd(credit ? -signedNat : signedNat) : null,
     credit, width, category: "custom", note: "",
   };
-  struct.execution_issue = ocExecIssue(rl.map(({ side, ratio, row }) => ({ side, ratio, row })), chain.expiry);
+  struct.execution_issue = ocExecIssue(rl.map(({ side, ratio, row }) => ({ side, ratio, row })), chain.expiry, null, credit);
   struct.tradeable = !struct.execution_issue;
   struct.missing = rl.filter((l) => !l.row).map((l) => l.want);
   return struct;
+}
+
+/* Conservative underlying for the unbounded stress: the max of every live
+   underlying figure we hold (mid, last, chain spot). Overstating is allowed by
+   the executor for claims; understating is not. */
+function ocSpotUsed(result, chain, spot) {
+  const cands = [spot, result && result.spot, result && result.last, result && result.mid,
+    result && result.underlying_last, result && result.underlying_mid,
+    chain && chain.spot, chain && chain.last, chain && chain.underlying_price]
+    .map(Number).filter((x) => Number.isFinite(x) && x > 0);
+  return cands.length ? Math.max(...cands) : null;
 }
 
 function ocExpiryList(result) {
@@ -186,16 +213,19 @@ function ocDefaultLimit(struct) {
   return snapNetLimit(Math.max(0.05, struct.mid + (struct.credit ? 0.01 : -0.01)), action);
 }
 
-/* Add or merge a leg: same contract + same side bumps the ratio, opposite side
-   flips it. Returns false at the leg limit. */
-function ocAddLeg(legs, right, strike, side) {
-  const ex = legs.find((l) => l.right === right && l.strike === strike);
+/* Add or merge a leg: same contract (right, strike, expiry) + same side bumps the
+   ratio, opposite side flips it. expiry/row are optional (row = quote snapshot so a
+   leg on another expiry than the ladder still prices). False at the leg limit. */
+function ocAddLeg(legs, right, strike, side, expiry, row) {
+  const ex = legs.find((l) => l.right === right && l.strike === strike && (l.expiry || null) === (expiry || null));
   if (ex) {
     if (ex.side === side) ex.ratio += 1; else { ex.side = side; ex.ratio = 1; }
     return true;
   }
   if (legs.length >= OC_MAX_LEGS) return false;
-  legs.push({ right, strike, side, ratio: 1 });
+  const leg = { right, strike, side, ratio: 1 };
+  if (expiry) { leg.expiry = expiry; leg.row = row || null; }
+  legs.push(leg);
   return true;
 }
 
@@ -216,6 +246,18 @@ async function ocRequest(body) {
     await new Promise((res) => setTimeout(res, 2000));
   }
   throw new Error("timed out - is the agent online?");
+}
+
+/* Pin every leg to the expiry it was picked on, with a quote snapshot, so the
+   ladder can move to another expiry without losing it. */
+function ocFreezeLegs() {
+  if (!ocState.chain) return;
+  for (const l of ocState.legs) {
+    if (l.expiry) continue;
+    const row = ocFindRow(ocState.chain, l.right, l.strike);
+    l.expiry = ocNormExpiry(ocState.chain.expiry);
+    l.row = row ? { ...row, expiry: l.expiry } : null;
+  }
 }
 
 function ocSetMsg(t) { const m = document.getElementById("ocMsg"); if (m) m.textContent = t || ""; }
@@ -265,7 +307,7 @@ async function ocLoadTicker(ticker) {
     ocState.prefill = null;
     const want = pf.legs[0].expiry;
     ocState.legs = pf.legs.filter((l) => l.expiry === want).map((l) => ({ right: l.right, strike: l.strike, side: l.side, ratio: l.ratio }));
-    ocState.note = pf.legs.length !== ocState.legs.length ? "Legs on other expiries were dropped: execution takes one expiry." : "";
+    ocState.note = pf.legs.length !== ocState.legs.length ? "Prefill legs on other expiries than the first were dropped (add them from the ladder to build a calendar/diagonal)." : "";
     if (pf.qty) ocState.qty = pf.qty;
     if (pf.limit) { ocState.limit = pf.limit; ocState.limitTouched = true; }
     if (ocState.expiry !== want) await ocFetch("chain", want, null);
@@ -275,6 +317,7 @@ async function ocLoadTicker(ticker) {
       const c = ocState.legs.reduce((a, l) => a + l.strike, 0) / ocState.legs.length;
       await ocFetch("chain", want, c);
     }
+    ocFreezeLegs();
     renderCustom();
   }
 }
@@ -286,7 +329,7 @@ const ocNum = (v, d) => (v == null || !isFinite(Number(v)) ? "-" : Number(v).toF
 function ocShell() {
   return `<div class="card" style="margin-bottom:12px">
     <div style="font:700 14px inherit;margin-bottom:6px">Custom spread
-      <span class="cap" style="display:inline;font-weight:400">- any ticker, any listed expiry, any strikes; no size cap here (the execution agent is the only gate)</span></div>
+      <span class="cap" style="display:inline;font-weight:400">- any ticker, any listed expiry, any strikes, up to 4 legs; no size cap here (the execution agent is the only gate)</span></div>
     <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
       <label><span class="cap">Ticker</span><br><input id="ocTicker" placeholder="SPY" style="text-transform:uppercase;width:90px"></label>
       <button class="btn" id="ocGo">Load chain</button>
@@ -304,8 +347,10 @@ function ocShell() {
       <label class="cap">Qty (spreads)</label><input id="oc_qty" value="${ocState.qty}" style="width:80px" inputmode="numeric">
       <label class="cap" id="oc_limit_label">Limit (per spread)</label><input id="oc_limit" value="" style="width:80px">
       <label class="cap">TIF</label><select id="oc_tif"><option>DAY</option><option>GTC</option></select>
+      <label class="cap">Net</label><select id="oc_net"><option value="">auto (from mid)</option><option value="debit">debit</option><option value="credit">credit</option></select>
       <span class="cap">Account: <b>primary</b> (PA options remain disabled)</span>
     </div>
+    <div class="cap" style="margin-bottom:8px">Combos have no one-click close: unwind by sending the reverse structure as a new order (a reversed calendar is not an accepted structure, so calendars/diagonals must be closed in TWS). Net-short-call structures are UNBOUNDED and need an extra confirmation.</div>
     <div id="ocStats"></div>
     <button class="btn" id="oc_send" style="margin-top:8px">Preview / stage</button>
     <span id="oc_msg" class="cap" style="margin-left:10px"></span>
@@ -319,7 +364,7 @@ function ocWireShell() {
   $("ocTicker").addEventListener("keydown", (e) => { if (e.key === "Enter") ocLoadTicker($("ocTicker").value); });
   $("ocExpiry").addEventListener("change", (e) => {
     if (!e.target.value) return;
-    ocState.legs = [];                                      // strikes belong to one expiry
+    ocFreezeLegs();                                         // legs keep their own expiry (calendars)
     ocFetch("chain", e.target.value, ocState.centerRequested);
   });
   $("ocRecentre").addEventListener("click", () => {
@@ -331,12 +376,16 @@ function ocWireShell() {
   $("oc_qty").addEventListener("input", () => { ocState.qty = $("oc_qty").value; renderCustomStats(); });
   $("oc_limit").addEventListener("input", () => { ocState.limitTouched = true; ocState.limit = $("oc_limit").value; renderCustomStats(); });
   $("oc_tif").addEventListener("change", () => { ocState.tif = $("oc_tif").value; });
+  $("oc_net").addEventListener("change", () => { ocState.netMode = $("oc_net").value || null; ocState.limitTouched = false; renderCustom(); });
   $("oc_send").addEventListener("click", sendCustomOrder);
   $("ocLadder").addEventListener("click", (e) => {
     const b = e.target.closest("[data-oc-add]");
     if (!b) return;
     const [right, strike, side] = b.dataset.ocAdd.split("|");
-    if (!ocAddLeg(ocState.legs, right, Number(strike), side)) ocSetMsg(`at most ${OC_MAX_LEGS} legs`);
+    ocFreezeLegs();
+    const k = Number(strike), ex = ocNormExpiry(ocState.chain.expiry);
+    const row = ocFindRow(ocState.chain, right, k);
+    if (!ocAddLeg(ocState.legs, right, k, side, ex, row ? { ...row, expiry: ex } : null)) ocSetMsg(`at most ${OC_MAX_LEGS} legs`);
     ocState.limitTouched = false;
     renderCustom();
   });
@@ -349,6 +398,7 @@ function ocWireShell() {
     }
   });
   $("ocLegs").addEventListener("click", (e) => {
+    if (e.target.closest("[data-oc-clear]")) { ocState.legs = []; ocState.limitTouched = false; renderCustom(); return; }
     const b = e.target.closest("[data-oc-del]");
     if (!b) return;
     ocState.legs.splice(Number(b.dataset.ocDel), 1);
@@ -371,7 +421,8 @@ function renderCustomLadder() {
   const spot = Number(ocState.spot);
   let atm = null;
   strikes.forEach((k) => { if (atm == null || Math.abs(k - spot) < Math.abs(atm - spot)) atm = k; });
-  const sel = (right, k, side) => ocState.legs.some((l) => l.right === right && l.strike === k && l.side === side);
+  const curExp = ocNormExpiry(chain.expiry);
+  const sel = (right, k, side) => ocState.legs.some((l) => l.right === right && l.strike === k && l.side === side && (!l.expiry || l.expiry === curExp));
   const cell = (right, k, side, v) => {
     if (v == null) return '<td class="r">-</td>';
     const on = sel(right, k, side);
@@ -397,41 +448,61 @@ function renderCustomLegs() {
   const el = document.getElementById("ocLegs");
   if (!el) return;
   if (!ocState.legs.length) {
-    el.innerHTML = '<div class="card" style="margin-bottom:12px"><span class="cap">No legs yet. Click a bid or ask in the ladder (up to 4 legs, one expiry).</span></div>';
+    el.innerHTML = '<div class="card" style="margin-bottom:12px"><span class="cap">No legs yet. Click a bid or ask in the ladder (up to 4 legs; one expiry, or two expiries for a covered debit calendar/diagonal - switch the expiry between clicks).</span></div>';
     return;
   }
   const rows = ocState.legs.map((l, i) => {
-    const row = ocFindRow(ocState.chain, l.right, l.strike);
-    return `<tr><td class="l"><b>${l.side}</b> ${l.right === "C" ? "Call" : "Put"} ${l.strike} ${esc(ocIsoExpiry(ocState.expiry))}</td>
+    const row = ocResolveRow(l, ocState.chain);
+    return `<tr><td class="l"><b>${l.side}</b> ${l.right === "C" ? "Call" : "Put"} ${l.strike} ${esc(ocIsoExpiry(l.expiry || ocState.expiry))}</td>
       <td class="r">ratio <input data-oc-ratio="${i}" value="${l.ratio}" style="width:44px"></td>
       <td class="r">${row ? ocNum(row.bid) + " / " + ocNum(row.ask) : '<span class="neg">not in returned strikes</span>'}</td>
       <td class="r"><button class="btn xs ghost" data-oc-del="${i}">remove</button></td></tr>`;
   }).join("");
-  el.innerHTML = `<div class="card" style="margin-bottom:12px"><div style="font:700 14px inherit;margin-bottom:6px">Legs</div>
+  el.innerHTML = `<div class="card" style="margin-bottom:12px"><div style="font:700 14px inherit;margin-bottom:6px">Legs <button class="btn xs ghost" data-oc-clear="1" style="margin-left:8px">clear all</button></div>
     <div class="tblwrap"><table class="tbl"><tbody>${rows}</tbody></table></div></div>`;
 }
 
 function ocMoney(v) { return v == null ? "-" : fmt.money(v); }
 
-/* Numbers for the stats block and the confirm text; pure given the state. */
-function ocComputeStats(legs, chain, qtyRaw, limitRaw) {
-  const struct = ocBuildStruct(legs, chain);
+/* Numbers for the stats block and the confirm text; pure given the state.
+   `ev` is the executor-rule risk (comboEvaluate) for the limit snapped to the
+   0.05 grid; unbounded structures are evaluated with ack=true FOR DISPLAY ONLY
+   (the payload's unbounded_ack is set only after the extra confirm). */
+function ocComputeStats(legs, chain, qtyRaw, limitRaw, netMode, spot) {
+  const struct = ocBuildStruct(legs, chain, netMode);
   if (!struct) return null;
   const qty = Number(qtyRaw);
   const limit = Number(limitRaw);
   const sgn = struct.credit ? -1 : 1;
+  const action = struct.credit ? "SELL" : "BUY";
   const payLegs = legs.map((l) => ({ side: l.side, right: l.right, strike: l.strike, ratio: l.ratio }));
-  const atLimit = limit > 0 ? ocPayoff(payLegs, sgn * limit) : null;
-  const atMid = struct.mid != null ? ocPayoff(payLegs, sgn * struct.mid) : null;
+  const expiries = new Set(struct.legs.filter((l) => l.row).map((l) => String(l.row.expiry || chain.expiry).replace(/-/g, "")));
+  const multiExpiry = expiries.size > 1;
+  const atLimit = !multiExpiry && limit > 0 ? ocPayoff(payLegs, sgn * limit) : null;
+  const atMid = !multiExpiry && struct.mid != null ? ocPayoff(payLegs, sgn * struct.mid) : null;
   const comm = COMM * legs.reduce((a, l) => a + (l.ratio || 1), 0) * 2;      // round trip per spread
-  const totalMaxLoss = atLimit && atLimit.maxLoss != null && qty > 0 ? (atLimit.maxLoss * 100 + comm) * qty : null;
-  return { struct, qty, limit, atLimit, atMid, comm, totalMaxLoss };
+  let ev = null;
+  if (!struct.missing.length && limit > 0 && qty > 0 && Number.isInteger(qty)) {
+    const snapped = snapNetLimit(limit, action);
+    if (snapped > 0) {
+      const wire = canonicalPayloadLegs(struct, chain.expiry, action).map((l) => ({ ...l, expiry: String(l.expiry).replace(/-/g, "") }));
+      ev = comboEvaluate(action, snapped, qty, wire, { spot, unboundedAck: true });
+    }
+  }
+  const info = ev && ev.info ? ev.info : null;
+  const unbounded = !!(info && info.unbounded) || !!(atLimit && atLimit.lossUnbounded);
+  const totalMaxLoss = info && !unbounded ? info.riskUsd
+    : (atLimit && atLimit.maxLoss != null && qty > 0 ? (atLimit.maxLoss * 100 + comm) * qty : null);
+  const totalStress = info && info.unbounded ? info.riskUsd : null;
+  return { struct, qty, limit, atLimit, atMid, comm, totalMaxLoss, totalStress, ev, info, unbounded, multiExpiry, spot };
 }
+
+function ocCurrentSpot() { return ocSpotUsed(ocState.result, ocState.chain, ocState.spot); }
 
 function renderCustomStats() {
   const el = document.getElementById("ocStats");
   if (!el) return;
-  const st = ocComputeStats(ocState.legs, ocState.chain, ocState.qty, ocState.limit);
+  const st = ocComputeStats(ocState.legs, ocState.chain, ocState.qty, ocState.limit, ocState.netMode, ocCurrentSpot());
   const lab = document.getElementById("oc_limit_label");
   if (!st) { el.innerHTML = ""; return; }
   const s = st.struct;
@@ -442,20 +513,39 @@ function renderCustomStats() {
     ocState.limit = d == null ? "" : d.toFixed(2);
   }
   if (limitEl && document.activeElement !== limitEl && ocState.limit != null) limitEl.value = ocState.limit;
+  const st2 = ocComputeStats(ocState.legs, ocState.chain, ocState.qty, ocState.limit, ocState.netMode, ocCurrentSpot());
+  const info = st2.info, p = st2.atLimit || st2.atMid;
   const lim = Number(ocState.limit);
-  const p = lim > 0 ? ocPayoff(ocState.legs, (s.credit ? -1 : 1) * lim) : null;
-  const pay = p || st.atMid;
-  const lossTxt = pay ? (pay.lossUnbounded ? '<b class="neg">UNBOUNDED (net short call tail)</b>' : ocMoney(pay.maxLoss * 100 + st.comm)) : "-";
-  const gainTxt = pay ? (pay.gainUnbounded ? "unbounded (net long call tail)" : ocMoney(pay.maxGain * 100 - st.comm)) : "-";
-  const bes = pay && pay.breakevens.length ? pay.breakevens.map((b) => ocNum(b)).join(", ") : "-";
   const q = Number(ocState.qty);
-  const totalTxt = pay && pay.lossUnbounded ? "unbounded"
-    : (st.totalMaxLoss != null ? ocMoney(st.totalMaxLoss) : "-");
+  const qOk = Number.isInteger(q) && q > 0;
+  let lossTxt = "-", gainTxt = "-", bes = "-", totalTxt = "-";
+  if (st2.multiExpiry) {
+    if (info) {
+      lossTxt = ocMoney(info.unitLoss + st2.comm) + " (the debit)";
+      gainTxt = "not defined at one expiry (depends on the later leg's value when the front leg expires)";
+      bes = "n/a (calendar/diagonal)";
+      totalTxt = ocMoney(info.riskUsd);
+    }
+  } else if (p) {
+    bes = p.breakevens.length ? p.breakevens.map((b) => ocNum(b)).join(", ") : "-";
+    gainTxt = p.gainUnbounded ? "unbounded (net long call tail)" : ocMoney(p.maxGain * 100 - st2.comm);
+    if (p.lossUnbounded) {
+      const sp = info && info.stressSpot;
+      lossTxt = `<b class="neg">UNBOUNDED</b>; stress loss at +30%${sp ? " (underlying " + ocNum(st2.spot) + " -> " + ocNum(sp) + ")" : ""}: ${info ? ocMoney(info.unitLoss + st2.comm) : "-"}`;
+      totalTxt = st2.totalStress != null ? `UNBOUNDED; stress loss at +30%: ${ocMoney(st2.totalStress)}` : "unbounded";
+    } else {
+      lossTxt = ocMoney(p.maxLoss * 100 + st2.comm);
+      totalTxt = st2.totalMaxLoss != null ? ocMoney(st2.totalMaxLoss) : "-";
+    }
+  }
+  const risk = lim > 0 && qOk && st2.ev && st2.ev.error && !s.missing.length && !s.execution_issue
+    ? `<div class="k">Risk check</div><div class="v neg">${esc(st2.ev.error)}</div>` : "";
   el.innerHTML = `<div class="kv">
     <div class="k">Net at mid / natural</div><div class="v">${s.mid != null ? ocNum(s.mid) : "-"} / ${s.nat != null ? ocNum(s.nat) : "-"} ${s.credit ? "credit" : "debit"} per spread</div>
-    <div class="k">Max loss / max gain at expiry</div><div class="v">${lossTxt} / ${gainTxt} <span class="cap" style="display:inline">per spread, at your limit, incl. ~${fmt.money(st.comm)} round-trip commission</span></div>
+    <div class="k">Max loss / max gain at expiry</div><div class="v">${lossTxt} / ${gainTxt} <span class="cap" style="display:inline">per spread, at your limit, incl. ~${fmt.money(st2.comm)} round-trip commission</span></div>
     <div class="k">Breakevens</div><div class="v">${bes}</div>
-    <div class="k">Total max loss, ${Number.isInteger(q) && q > 0 ? q : "?"} spread${q === 1 ? "" : "s"}</div><div class="v"><b>${totalTxt}</b> <span class="cap" style="display:inline">information only, not a cap</span></div>
+    <div class="k">Total risk, ${qOk ? q : "?"} spread${q === 1 ? "" : "s"}</div><div class="v"><b>${totalTxt}</b> <span class="cap" style="display:inline">information only, not a cap</span></div>
+    ${risk}
     ${s.missing.length ? `<div class="k">Warning</div><div class="v neg">${s.missing.length} leg(s) not in the returned strikes; recentre on them</div>` : ""}
     <div class="k">Execution</div><div class="v">${s.execution_issue ? `<span class="neg">${esc(s.execution_issue)}</span>` : "ready: one SMART " + (ocState.legs.length === 1 ? "option" : "BAG") + " limit order"}</div>
   </div>`;
@@ -481,25 +571,46 @@ function sendCustomOrder() {
   const msg = document.getElementById("oc_msg");
   const say = (t) => { if (msg) msg.textContent = t; };
   if (!ocState.chain) { say("Load a chain first"); return; }
-  const st = ocComputeStats(ocState.legs, ocState.chain, ocState.qty, ocState.limit);
+  const spot = ocCurrentSpot();
+  const st = ocComputeStats(ocState.legs, ocState.chain, ocState.qty, ocState.limit, ocState.netMode, spot);
   if (!st) { say("Add at least one leg"); return; }
   const s = st.struct;
   if (s.execution_issue) { say(s.execution_issue); return; }
   if (!(st.qty > 0) || !Number.isInteger(st.qty)) { say("BLOCKED: qty must be a positive integer"); return; }
   if (!(st.limit > 0)) { say("BLOCKED: limit must be > 0"); return; }
-  const built = buildOptionSpreadPayload({
-    struct: s, symbol: ocState.ticker, expiry: ocState.chain.expiry, qty: st.qty, limit: st.limit,
-    tif: ocState.tif || "DAY", params: {},
-  });
-  if (built.error) { say(built.error); return; }
-  const { payload, riskPremium, action } = built;
-  const p = ocPayoff(ocState.legs, (s.credit ? -1 : 1) * payload.limit);
-  const totalLoss = p && p.maxLoss != null ? (p.maxLoss * 100 + st.comm) * st.qty : riskPremium * 100 * st.qty + st.comm * st.qty;
-  const legsTxt = ocState.legs.map((l) => `${l.side[0]}${l.ratio > 1 ? l.ratio + "x" : ""}${l.strike}${l.right}`).join("/");
+  const args = { struct: s, symbol: ocState.ticker, expiry: ocState.chain.expiry, qty: st.qty, limit: st.limit,
+    tif: ocState.tif || "DAY", params: {}, spot, unboundedAck: false };
+  let built = buildOptionSpreadPayload(args);
+  const unbounded = !!built.needsAck;
+  if (built.error && !unbounded) { say(built.error); return; }
+  const legsTxt = ocState.legs.map((l) => `${l.side[0]}${l.ratio > 1 ? l.ratio + "x" : ""}${l.strike}${l.right}${l.expiry ? "@" + l.expiry.slice(2) : ""}`).join("/");
+  const action = s.credit ? "SELL" : "BUY";
   const accountRow = (((state.book || {}).accounts) || []).find((a) => a.key === "primary");
   const nlv = Number(accountRow && accountRow.nlv);
-  const pct = nlv > 0 ? ` (${(totalLoss / nlv * 100).toFixed(1)}% of NLV)` : " (NLV unavailable)";
-  if (!confirm(`${actionLead("place")} ${action} ${st.qty}x ${ocState.ticker} ${ocIsoExpiry(ocState.chain.expiry)} [${legsTxt}] LMT ${payload.limit} ${s.credit ? "credit" : "debit"} on primary?\n\nTotal defined max loss for ${st.qty} spread${st.qty === 1 ? "" : "s"}: about ${fmt.money(totalLoss)}${pct}. There is no size cap on this ticket; the execution agent validates the order.`)) return;
+  const closeNote = st.multiExpiry
+    ? "\n\nThere is NO one-click close for combos. A calendar/diagonal cannot be unwound by sending the reverse structure: it must be closed in TWS."
+    : "\n\nThere is NO one-click close for combos: unwind by sending the reverse structure as a new order.";
+  let totalLoss, riskTxt;
+  if (unbounded) {
+    if (!st.info || !st.info.unbounded) { say(built.error); return; }
+    totalLoss = st.info.riskUsd;
+    riskTxt = `UNBOUNDED structure (net short calls). Stress loss at underlying +30% for ${st.qty} spread${st.qty === 1 ? "" : "s"}: about ${fmt.money(totalLoss)}. Loss beyond that is unlimited.`;
+  } else {
+    const info = built.info;
+    const p = ocPayoff(ocState.legs, (s.credit ? -1 : 1) * built.payload.limit);
+    totalLoss = info ? info.riskUsd
+      : (p && p.maxLoss != null ? (p.maxLoss * 100 + st.comm) * st.qty : built.riskPremium * 100 * st.qty + st.comm * st.qty);
+    const pct = nlv > 0 ? ` (${(totalLoss / nlv * 100).toFixed(1)}% of NLV)` : " (NLV unavailable)";
+    riskTxt = `Total defined max loss for ${st.qty} spread${st.qty === 1 ? "" : "s"}: about ${fmt.money(totalLoss)}${pct}. There is no size cap on this ticket; the execution agent validates the order.`;
+  }
+  const limitTxt = built.payload ? built.payload.limit : snapNetLimit(st.limit, action);
+  if (!confirm(`${actionLead("place")} ${action} ${st.qty}x ${ocState.ticker} [${legsTxt}] LMT ${limitTxt} ${s.credit ? "credit" : "debit"} on primary?\n\n${riskTxt}${closeNote}`)) return;
+  if (unbounded) {
+    if (!confirm(`UNBOUNDED RISK - SECOND CONFIRMATION\n\n${ocState.ticker} [${legsTxt}] is an UNBOUNDED structure: it is net short calls and can lose more than any figure shown.\n\nStress loss at +30% (underlying ${ocNum(spot)} -> ${ocNum(st.info.stressSpot)}) for ${st.qty} spread${st.qty === 1 ? "" : "s"}: about ${fmt.money(st.info.riskUsd)}.\n\nSending sets unbounded_ack. Really continue?`)) return;
+    built = buildOptionSpreadPayload({ ...args, unboundedAck: true });
+    if (built.error) { say(built.error); return; }
+  }
+  const payload = built.payload;
   if (!(nlv > 0) || totalLoss > nlv * 0.05) payload.risk_ack = true;     // acknowledged in the confirm above
   sendCommand("option_spread", payload, "oc_msg", { account: "primary" });
 }
