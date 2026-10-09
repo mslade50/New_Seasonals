@@ -342,3 +342,70 @@ assert.strictEqual(rich.run("bookSeries(bookTrades()).pnl.reduce((a,b) => a+b, 0
 rich.run("S.f.from = null; S.f.to = null; S.sd.dates.push('2020-02-03'); renderBookNote()");
 assert.ok(rich.el("bookScopeNote").innerHTML.includes("Historical coverage is incomplete"));
 console.log("PASS portfolio books: trade rows, stats, filters, exact P&L, coverage, legacy fallback");
+
+// OVS scale-outs are one position result; daily cash flows keep both exits.
+{
+  const p = load();
+  setup(p, INTRA);
+  p.run(`
+    var ovsNear = { trade_id: 100, Strategy: "Overbot Vol Spike", Tier: "Liquid",
+      Ticker: "OVS", Direction: "Short", Signal_Date: "2020-01-02",
+      Entry_Date: "2020-01-03", Exit_Date: "2020-01-06", Entry_Price: 100,
+      Exit_Price: 98, Return_Pct: 2, R: 1, PnL_flat: 80, Risk_flat: 80,
+      Shares_flat: 40, Hold_Days: 1, Exit_Type: "Target", Tranche: "near", Open: false };
+    var ovsFar = { ...ovsNear, trade_id: 101, Exit_Date: "2020-01-07",
+      Exit_Price: 101, Return_Pct: -1, R: -0.5, PnL_flat: -60, Risk_flat: 120,
+      Shares_flat: 60, Hold_Days: 2, Exit_Type: "Time", Tranche: "far" };
+    var ovsLegs = [ovsNear, ovsFar];
+    var ovsResult = blendOvsTrades(ovsLegs);
+  `);
+  assert.strictEqual(p.run('ovsResult.length'), 1);
+  close(p.run('ovsResult[0].Exit_Price'), 99.8, 'share-weighted exit');
+  close(p.run('ovsResult[0].Return_Pct'), 0.2, 'share-weighted return');
+  close(p.run('ovsResult[0].R'), 0.1, 'share-weighted R');
+  assert.strictEqual(p.run('ovsResult[0].PnL_flat'), 20);
+  assert.strictEqual(p.run('ovsResult[0].Risk_flat'), 200);
+  assert.strictEqual(p.run('ovsResult[0].Hold_Days'), 2);
+  assert.strictEqual(p.run('ovsResult[0].Exit_Date'), '2020-01-07');
+  assert.strictEqual(p.run('ovsResult[0].Exit_Type'), 'Blended (Target + Time)');
+  assert.strictEqual(p.run('tradeMetrics(ovsResult).n'), 1);
+  assert.strictEqual(p.run('tradeMetrics(ovsResult).winRate'), 1, 'net winning position');
+  assert.strictEqual(p.run('ovsNear.Exit_Price'), 98, 'source legs unchanged');
+  assert.strictEqual(p.run('blendOvsTrades([ovsNear, {...ovsFar, Tier:"Overflow"}]).length'), 2);
+  assert.strictEqual(p.run('blendOvsTrades([ovsNear, {...ovsFar, Signal_Date:"2020-01-01"}]).length'), 2);
+  assert.strictEqual(p.run('blendOvsTrades([ovsNear, {...ovsFar, Entry_Date:"2020-01-04"}]).length'), 2);
+  assert.strictEqual(p.run('blendOvsTrades([ovsNear, {...ovsFar, GateBlocked:true}]).length'), 2);
+  assert.strictEqual(p.run('blendOvsTrades(ovsLegs.map(t => ({...t, Strategy:"Other"}))).length'), 2);
+  assert.strictEqual(p.run('blendOvsTrades(ovsLegs.map(t => ({...t, book:"intraday"}))).length'), 2);
+  assert.strictEqual(p.run('blendOvsTrades([ovsNear])[0] === ovsNear'), true);
+  assert.strictEqual(p.run('blendOvsTrades([ovsNear, {...ovsFar, Open:true}])[0].Open'), true);
+  p.run('renderTradeLog(blendOvsTrades([ovsNear, {...ovsFar, Open:true}]))');
+  assert.ok(!html(p.el('tradeLog')).includes('Blended'), 'partially open positions excluded');
+  p.run('renderTradeLog(ovsResult)');
+  assert.ok(html(p.el('tradeLog')).includes('Blended (Target + Time)'));
+  assert.ok(html(p.el('tradeLog')).includes('1 rows'), 'log/export table holds one result');
+  p.run(`
+    S.trades = ovsLegs;
+    S.f.strategies = new Set(["Overbot Vol Spike"]);
+    S.f.dir = "Short";
+    S.f.tickerQ = "OVS";
+    apply();
+  `);
+  assert.ok(p.el('kpis').innerHTML.includes('>1</div>'), 'apply counts one position');
+  const daily = p.run('bookSeries(bookTrades())');
+  close(daily.pnl[daily.dates.indexOf('2020-01-06')], 80, 'near cash flow date');
+  close(daily.pnl[daily.dates.indexOf('2020-01-07')], -60, 'far cash flow date');
+  assert.strictEqual(p.run('bookTrades().length'), 2, 'daily series still sees both legs');
+  assert.ok(html(p.el('stratTable')).includes('Overbot Vol Spike'));
+  assert.ok(html(p.el('tradeLog')).includes('1 rows'));
+  p.run('S.f.to = \"2020-01-02\"; apply()');
+  assert.strictEqual(p.run('bookTrades().length'), 0, 'date filters keep the position together');
+  p.run('S.f.to = null; apply()');
+  p.run('S.lev = 2; apply()');
+  close(p.run('tradeMetrics(blendOvsTrades(bookTrades())).totPnl'), 40, 'sizing applies once');
+  p.run('ovsFar.OvsExt = true; ovsFar.Exit_Type = "Time5";');
+  assert.strictEqual(p.run('blendOvsTrades(ovsLegs)[0].OvsExt'), true, 'extension badge retained');
+  close(p.run('blendOvsTrades(ovsLegs.map(t => ({...t, Shares_flat:null})))[0].R'), 0.1,
+    'older payloads fall back to risk weighting');
+}
+console.log("OVS blended position results: all checks passed");
