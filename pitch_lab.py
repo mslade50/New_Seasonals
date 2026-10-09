@@ -124,10 +124,23 @@ def _valid_pct_change(s: pd.Series, n: int) -> pd.Series:
 
 
 def zscore(s: pd.Series, n: int = 10) -> pd.Series:
-    """z10 as pitch_state defines it: n-day return over its trailing-year sd."""
+    """n-day return standardised against its own trailing-year mean and sd.
+
+    NOT the tape's z10 (see ``z10_tape``). On 2026-10-06 NOC read -1.54 here
+    against the tape's -2.16, enough to flip a z10 <= -1.5 cluster gate."""
     r = _valid_pct_change(s, n)
     return rolling_on_valid(
         r, lambda x: (x - x.rolling(252).mean()) / x.rolling(252).std())
+
+
+def z10_tape(s: pd.Series) -> pd.Series:
+    """z10 exactly as pitch_tape.json defines it (build_pitch_state):
+    the 10-session return over 21-session daily vol x sqrt(10). Use this for
+    any trigger quoted off the tape."""
+    def _z(v: pd.Series) -> pd.Series:
+        vol21 = v.pct_change().rolling(21).std()
+        return (v / v.shift(10) - 1.0) / (vol21 * np.sqrt(10))
+    return rolling_on_valid(s, _z)
 
 
 def pct_rank(s: pd.Series, n: int, lookback: int = 252) -> pd.Series:

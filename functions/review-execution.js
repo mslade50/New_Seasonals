@@ -9,7 +9,14 @@ import { canonical, view } from '../site/assets/review-core.js';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const headers={'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const reply=(status,value)=>new Response(JSON.stringify(value),{status,headers});
-export function settings(env){return {preview_enabled:env.REVIEW_EXECUTION_PREVIEW_ENABLED==='1',live_enabled:env.REVIEW_EXECUTION_LIVE_ENABLED==='1',accounts:{pitch:env.REVIEW_EXECUTION_PITCH_ACCOUNT||'primary',seasonal:env.REVIEW_EXECUTION_SEASONAL_ACCOUNT||null}};}
+export function settings(env){
+ const value=env.REVIEW_EXECUTION_PA_RISK_MULTIPLIER;
+ // Owner-approved agent parity; a conflicting legacy override blocks only PA.
+ const pa=value===undefined||value===null||value===''||(['string','number'].includes(typeof value)&&Number(value)===1)?1:null;
+ return {preview_enabled:env.REVIEW_EXECUTION_PREVIEW_ENABLED==='1',live_enabled:env.REVIEW_EXECUTION_LIVE_ENABLED==='1',
+  accounts:{pitch:['primary','pa'],seasonal:['primary','pa']},risk_multipliers:{primary:1,pa},
+  account_blocks:{primary:null,pa:pa===null?'PA agent risk configuration conflicts with the approved 1.0 policy.':null}};
+}
 async function hash(text){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))].map(x=>x.toString(16).padStart(2,'0')).join('');}
 export async function verifyPlan(plan){if(!plan||typeof plan.canonical!=='string'||canonical(JSON.parse(plan.canonical))!==canonical(plan.payload)||await hash(plan.canonical)!==plan.hash||plan.payload?.schema!=='review-execution-plan.v1')throw Error('Execution preview cannot be verified');return plan.payload;}
 async function broker(env,path,command){
@@ -37,12 +44,20 @@ export async function handleExecution(request,env,identity,now=()=>new Date().to
     if(!saved)return reply(404,{error:'Reserved execution request not found'});
     if(saved.actor!==identity.subject)return reply(403,{error:'Execution request actor mismatch'});
     const data=await transport(env,'/commands'),found=(data.commands||[]).find(c=>c.id===id);
-    if(!found)return reply(200,{id,state:saved.result?.state||'unknown',result:saved.result||null,stale:true,detail:'Broker result outside available history; read-only reconciliation is required'});
+    if(!found)return reply(200,{id,account:saved.command.account,state:saved.result?.state||'unknown',result:saved.result||null,stale:true,detail:'Broker result outside available history; read-only reconciliation is required'});
     if(found.type!=='review_execution'||found.account!==saved.command.account)return reply(503,{error:'Broker command identity mismatch'});
     const result={state:found.state,...found.result};
-    if(result.preview){const plan=await verifyPlan(result.preview);if(plan.actor!==identity.subject||plan.proposal_hash!==saved.command.payload.proposal.hash||plan.account!==saved.command.account)return reply(503,{error:'Broker preview identity mismatch'});}
+    if(result.preview){const plan=await verifyPlan(result.preview);if(plan.actor!==identity.subject||plan.product!==product||plan.proposal_hash!==saved.command.payload.proposal.hash||plan.account!==saved.command.account||plan.sizing?.account_multiplier!==cfg.risk_multipliers[saved.command.account])return reply(503,{error:'Broker preview identity/account policy mismatch'});}
+    if(['working','partially_filled','filled','closed','partially_closed','cancelled'].includes(result.state)&&!result.fill)return reply(503,{error:'Broker state lacks verified account execution record'});
+    if(result.fill){
+     const plan=await verifyPlan(result.fill.plan),payload=saved.command.payload;
+     const proposalHash=payload.proposal?.hash||payload.proposal_hash;
+     if(plan.actor!==identity.subject||plan.product!==product||plan.account!==saved.command.account||plan.proposal_hash!==proposalHash||(payload.operation!=='stage'&&result.fill.plan.hash!==payload.plan_hash)||result.fill.state!==result.state)return reply(503,{error:'Broker execution/reconciliation account/version/plan mismatch'});
+     const expected=await hash(canonical(plan.source_date?[product,plan.source_idea_id,proposalHash,plan.account]:[product,plan.source_idea_id,plan.account]));
+     if(result.fill.key!==expected)return reply(503,{error:'Broker execution run namespace mismatch'});
+    }
     const record={...loaded.record,execution_requests:{...loaded.record.execution_requests,[id]:{...saved,result,checked_at:now()}}};
-    if(await persist(env.CHARTS,key,loaded,record))return reply(200,{id,...result,stale:false});
+    if(await persist(env.CHARTS,key,loaded,record))return reply(200,{id,account:saved.command.account,...result,stale:false});
    }
    return reply(409,{error:'Execution history changed concurrently; check status again'});
   }
@@ -51,8 +66,9 @@ export async function handleExecution(request,env,identity,now=()=>new Date().to
   const text=await request.text();if(text.length>12000)return reply(413,{error:'Request too large'});
   const body=JSON.parse(text),product=body.product,date=body.date,operation=body.operation;
   if(!['pitch','seasonal'].includes(product)||!['preview','execute','reconcile'].includes(operation)||!UUID.test(body.id||'')||!/^\d{4}-\d{2}-\d{2}$/.test(date||''))return reply(400,{error:'Explicit operation/product/date/id required'});
-  const account=cfg.accounts[product];
-  if(!['primary','pa'].includes(account)||body.account!==account)return reply(409,{error:'Execution account unassigned or does not match the configured product account'});
+  const account=body.account;
+  if(!['primary','pa'].includes(account)||!cfg.accounts[product].includes(account))return reply(409,{error:'Explicit supported account required; no account redirect'});
+  if(operation!=='reconcile'&&cfg.account_blocks[account])return reply(409,{error:cfg.account_blocks[account],account});
   if(operation==='execute'&&!cfg.live_enabled)return reply(503,{error:'Live execution adapter disabled; no broker request sent'});
   const key=`review_inbox/v1/${product}/${date}.json`;
   let saved;
@@ -62,32 +78,37 @@ export async function handleExecution(request,env,identity,now=()=>new Date().to
    const requestHash=await hash(canonical({...body,actor:identity.subject}));
    const previous=record.execution_requests?.[body.id];
    if(previous){if(previous.request_hash!==requestHash||previous.actor!==identity.subject)return reply(409,{error:'Idempotency conflict'});saved=previous;break;}
-   if(Object.keys(record.execution_requests||{}).length>=32)return reply(409,{error:'Execution audit limit reached; history cannot be truncated'});
-   let payload,claim;
+   if(Object.values(record.execution_requests||{}).filter(r=>r.command.account===account).length>=32)return reply(409,{error:'This account execution audit limit reached; history cannot be truncated',account});
+   let payload,claim,sourceClaim;
    if(operation==='reconcile'){
-    const old=Object.values(record.execution_requests||{}).find(r=>r.command.payload.operation==='execute'&&r.command.payload.plan_hash===body.plan_hash&&r.actor===identity.subject);
+    const old=Object.values(record.execution_requests||{}).find(r=>r.command.account===account&&['execute','stage'].includes(r.command.payload.operation)&&(r.command.payload.plan_hash===body.plan_hash||r.result?.fill?.plan?.hash===body.plan_hash)&&r.actor===identity.subject);
     if(!old)return reply(409,{error:'Reserved execution intent unavailable; no run identity inferred'});
-    const runKey=await hash(canonical([product,old.command.payload.proposal.payload.source_idea_id,account]));
-    payload={operation,product,actor:identity.subject,run_key:runKey};
+    const source=old.command.payload.proposal;
+    const runKey=await hash(canonical(source.payload.source_sizing?[product,source.payload.source_idea_id,source.hash,account]:[product,source.payload.source_idea_id,account]));
+    payload={operation,product,actor:identity.subject,run_key:runKey,proposal_hash:source.hash,plan_hash:body.plan_hash};
    }else{
     const envelope=record.proposals[body.proposal_id],state=envelope&&view(envelope,record.events,now());
     if(date!==today||!loaded.deliveryCurrent||!record.current_ids.includes(body.proposal_id)||envelope?.hash!==body.proposal_hash||state?.status!=='approved_review'||state.review_window_closed)return reply(409,{error:'Current matching unexpired approved proposal required'});
+    const binding=envelope.payload.account_proposals?.[account];
+    const sizingCanonical=envelope.payload.source_sizing_canonical;
+    if(binding?.account!==account||binding.status!=='requires_fresh_account_preview'||!envelope.payload.source_sizing||typeof sizingCanonical!=='string'||canonical(JSON.parse(sizingCanonical))!==canonical(envelope.payload.source_sizing)||await hash(sizingCanonical)!==binding.sizing_hash)return reply(409,{error:binding?.reason||'Receipt-bound account sizing instruction unavailable; reference quantities cannot be used',account});
     payload={operation,product,actor:identity.subject,proposal:envelope,review:state.event,delivery_id:record.delivery.delivery_id,current_at_authorization:true};
     if(operation==='execute'){
      const prior=record.execution_requests?.[body.preview_id];
-     if(!prior||prior.actor!==identity.subject||prior.command.payload.operation!=='preview'||prior.command.payload.proposal.hash!==envelope.hash||prior.result?.state!=='preview'||!prior.result.preview)return reply(409,{error:'Fresh verified broker preview required'});
+     if(!prior||prior.command.account!==account||prior.actor!==identity.subject||prior.command.payload.operation!=='preview'||prior.command.payload.proposal.hash!==envelope.hash||prior.result?.state!=='preview'||!prior.result.preview)return reply(409,{error:'Fresh verified preview for this account required'});
      const plan=await verifyPlan(prior.result.preview);
-     if(prior.result.preview.hash!==body.plan_hash||plan.account!==account||plan.proposal_hash!==envelope.hash||plan.actor!==identity.subject||Date.parse(plan.expires_at)<=Date.parse(now())||plan.review_event_id!==state.event.id||plan.delivery_id!==record.delivery.delivery_id)return reply(409,{error:'Preview changed/expired/account mismatch; preview and confirm again'});
+     if(prior.result.preview.hash!==body.plan_hash||plan.account!==account||plan.sizing?.account_multiplier!==cfg.risk_multipliers[account]||plan.proposal_hash!==envelope.hash||plan.actor!==identity.subject||Date.parse(plan.expires_at)<=Date.parse(now())||plan.review_event_id!==state.event.id||plan.delivery_id!==record.delivery.delivery_id)return reply(409,{error:'Preview changed/expired/account mismatch; preview and confirm again'});
      if(body.confirmed!==true||plan.non_atomic&&body.non_atomic_ack!==true||plan.risk_ack_required&&body.risk_ack!==true)return reply(409,{error:'Explicit whole-idea, non-atomic and risk confirmations required'});
      payload={...payload,confirmed:true,plan_hash:body.plan_hash,non_atomic_ack:body.non_atomic_ack===true,risk_ack:body.risk_ack===true};
-     claim=canonical([product,envelope.payload.source_idea_id,account]);
-     if(record.execution_claims?.[claim])return reply(409,{error:'Permanent idea/account execution claim exists; check status and reconcile, never create a second order'});
+     claim=canonical([product,envelope.payload.source_idea_id,envelope.hash,account]);
+     sourceClaim=canonical([product,envelope.payload.source_idea_id,account]);
+     if(record.execution_claims?.[claim]||record.execution_claims?.[sourceClaim]||record.execution_sources?.[sourceClaim])return reply(409,{error:'Permanent source/account execution claim exists; reconcile this account instead of a new order'});
     }
    }
    const stamp=Date.parse(now());
    const command={id:body.id,type:'review_execution',account,dry_run:operation!=='execute',payload,created_at:stamp,expires_at:stamp+60000};
    saved={actor:identity.subject,request_hash:requestHash,command,state:'delivery_unknown',created_at:now()};
-   const next={...record,execution_requests:{...record.execution_requests,[body.id]:saved},execution_claims:{...record.execution_claims,...(claim?{[claim]:body.id}:{})}};
+   const next={...record,execution_requests:{...record.execution_requests,[body.id]:saved},execution_claims:{...record.execution_claims,...(claim?{[claim]:body.id}:{})},execution_sources:{...record.execution_sources,...(sourceClaim?{[sourceClaim]:body.id}:{})}};
    if(await persist(env.CHARTS,key,loaded,next))break;
    saved=null;
   }

@@ -10,7 +10,7 @@ import pytest
 from broker_runtime import broker_reconciliation as B
 from broker_runtime import prepare_review_execution as P
 from broker_runtime import review_execution_runtime as R
-from tests.test_agent_review_execution import broker_rows, prepared, command
+from tests.test_agent_review_execution import broker_rows, prepared, command, TRADING_RUNTIME
 
 
 class RawBroker:
@@ -106,7 +106,7 @@ def test_full_fills_close_after_explicit_quantities_and_terminal_chain(tmp_path,
 
 @pytest.mark.parametrize('source',[
     P.HERE.parent/'tests/fixtures/execution_runtime/execute_order_core.py',
-    Path(r'C:\Users\McKinley Slade\OneDrive\trading_ibkr\execute_order.py')])
+    TRADING_RUNTIME/'execute_order.py'])
 def test_patched_main_initializes_context_without_test_injecting_global(monkeypatch,source):
     if not source.exists():pytest.skip('external runtime absent')
     # Only parsed main is executed. Imports/top-level runtime code never run.
@@ -126,7 +126,7 @@ def test_patched_main_initializes_context_without_test_injecting_global(monkeypa
 
 def test_patched_normalizer_candidate_matches_corrected_source():
     # Source transform replaces only audited order_row, without importing broker.
-    source=Path(r'C:\Users\McKinley Slade\OneDrive\trading_ibkr\broker_reconciliation.py')
+    source=TRADING_RUNTIME/'broker_reconciliation.py'
     if not source.exists():pytest.skip('external dependency absent')
     node=next(n for n in ast.parse((P.HERE/'broker_reconciliation.py').read_text()).body
               if isinstance(n,ast.FunctionDef) and n.name=='order_row')

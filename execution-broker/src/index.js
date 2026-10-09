@@ -22,6 +22,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { extendFillCoverage } from "./fill-coverage.mjs";
+import { dispatchReviewOutbox } from "./review-outbox.mjs";
 import {
   commandFillMatch,
   executionFamilyId,
@@ -60,6 +61,15 @@ function effectiveFillRows(rows, now) {
 
 function boundedFillRows(rows, now) {
   return effectiveFillRows(rows, now).slice(0, FILLS_DAY_CAP);
+}
+
+function connectionDiagnostic(value, env) {
+  let text=String(value || "").replace(/[\r\n]/g," ");
+  for(const secret of [env.AGENT_TOKEN,env.STATUS_TOKEN]) {
+    if(typeof secret === "string" && secret)text=text.split(secret).join("[redacted]");
+  }
+  return text.replace(/(bearer\s+|authorization[\s:=]+)\S+/gi,"$1[redacted]")
+    .replace(/(?:wss?|https?):\/\/\S+/gi,"[endpoint]").slice(0,240);
 }
 
 function publicCommand(record) {
@@ -127,6 +137,8 @@ export class ExecBroker extends DurableObject {
       return Response.json({
         online, sockets, last_seen: lastSeen || null, connected_at: connectedAt,
         heartbeat_age_ms: age, stale_after_ms: HEARTBEAT_STALE_MS, server_now: now,
+        last_connection_close: (await this.ctx.storage.get("last_connection_close")) || null,
+        last_connection_error: (await this.ctx.storage.get("last_connection_error")) || null,
       });
     }
 
@@ -404,7 +416,10 @@ export class ExecBroker extends DurableObject {
       // stamp the socket so _newestSocket can prefer the live one over a zombie
       try { ws.serializeAttachment({ ...(ws.deserializeAttachment() || {}), lastSeenAt: Date.now() }); }
       catch (_) { /* best effort — connectedAt still breaks the tie */ }
-      ws.send(JSON.stringify({ type: "ack", of: msg.type, server_now: Date.now() }));
+      const correlation = Number.isSafeInteger(msg.seq) && msg.seq > 0 &&
+        typeof msg.session === "string" && /^[a-f0-9]{32}$/.test(msg.session)
+        ? {seq:msg.seq,session:msg.session} : {};
+      ws.send(JSON.stringify({ type: "ack", of: msg.type, server_now: Date.now(), ...correlation }));
       return;
     }
 
@@ -469,6 +484,11 @@ export class ExecBroker extends DurableObject {
     // Command result from the agent -> attach to the recent-commands ring.
     if (msg.type === "result" && msg.id) {
       const durable=await this.ctx.storage.get(`command:${msg.id}`);
+      const receipt=durable?.type==='review_execution' && /^[a-f0-9]{64}$/.test(msg.review_receipt||'') ? msg.review_receipt : null;
+      if(receipt && durable.review_receipt===receipt) {
+        ws.send(JSON.stringify({type:'ack',of:'review_result',id:msg.id,receipt}));
+        return;
+      }
       if(durable) {
         durable.state=msg.state || "done";
         durable.result=mergeCommandResult(durable.result,{ok:msg.ok,detail:msg.detail,validation:msg.validation,preview:msg.preview,fill:msg.fill,at:msg.at,lock:msg.lock,snapshot:msg.snapshot,reason:msg.reason});
@@ -496,6 +516,11 @@ export class ExecBroker extends DurableObject {
           lock: msg.lock, snapshot: msg.snapshot, reason: msg.reason,
         });
         await this.ctx.storage.put("scheduled_commands", scheduled);
+      }
+      if(receipt) {
+        durable.review_receipt=receipt;
+        await this.ctx.storage.put(`command:${msg.id}`,durable);
+        ws.send(JSON.stringify({type:'ack',of:'review_result',id:msg.id,receipt}));
       }
     }
   }
@@ -712,17 +737,33 @@ export class ExecBroker extends DurableObject {
 
   async webSocketClose(ws, code, reason, wasClean) {
     await this.ctx.storage.put("disconnected_at", Date.now());
+    let attachment={};
+    try { attachment=ws.deserializeAttachment() || {}; } catch (_) { /* closed socket */ }
+    const diagnostic={at:Date.now(),code,reason:connectionDiagnostic(reason,this.env),was_clean:!!wasClean,
+      socket_connected_at:attachment.connectedAt || null};
+    await this.ctx.storage.put("last_connection_close", diagnostic);
+    console.info("execution_connection_close", diagnostic);
     try { ws.close(code, reason); } catch (_) { /* already closing */ }
   }
 
   async webSocketError(ws, err) {
-    await this.ctx.storage.put("last_error", String((err && err.message) || err));
+    const error=connectionDiagnostic((err && err.message) || err,this.env);
+    await this.ctx.storage.put("last_error", error);
+    let attachment={};
+    try { attachment=ws.deserializeAttachment() || {}; } catch (_) { /* errored socket */ }
+    const diagnostic={at:Date.now(),error,socket_connected_at:attachment.connectedAt || null};
+    await this.ctx.storage.put("last_connection_error", diagnostic);
+    console.info("execution_connection_error", diagnostic);
   }
 }
 
 const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/fills", "/inventory-observation", "/option", "/workbench", "/futures_size", "/futures_front"]);
 
 export default {
+  async scheduled(controller, env) {
+    const id=env.EXEC_BROKER.idFromName(BROKER_NAME);
+    await dispatchReviewOutbox(env,Date.now(),request=>env.EXEC_BROKER.get(id).fetch(request));
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/" || url.pathname === "/health") {

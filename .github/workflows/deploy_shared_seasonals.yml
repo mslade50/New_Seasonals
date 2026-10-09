@@ -11,6 +11,8 @@ on:
       - 'site/assets/heatmaps.js'
       - 'site/assets/macro_seasonal.js'
       - 'site/assets/risk.js'
+      - 'site/assets/risk_lab*'
+      - 'scripts/risk_return_samples.py'
       - 'site/assets/shared_nav.js'
       - 'site/assets/style.css'
       - 'scripts/build_shared_seasonals.py'

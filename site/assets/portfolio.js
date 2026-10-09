@@ -311,7 +311,7 @@ async function init() {
     setAsof(`${BOOK_MODE === "overlay_free" ? "overlay-free" : "production"} ledger thru ` +
             `${bookMeta.ledger_last_signal} · built ${meta.built_at}`);
     document.getElementById("subtitle").textContent =
-      `${bookMeta.n_trades.toLocaleString()} trades · ${bookMeta.n_tickers} tickers · ` +
+      `${blendOvsTrades(S.trades).length.toLocaleString()} trades · ${bookMeta.n_tickers} tickers · ` +
       `${bookMeta.date_min} to ${bookMeta.date_max} · $750k base, filter-exact recompute`;
     computeNativeBps();
     buildFilterBar();
@@ -1463,12 +1463,56 @@ function dailyMetrics(ds) {
   };
 }
 
+/* One OVS position result for trade statistics and the log. Keep the original
+   legs for dailySeries: cash flows and MTM must retain each exit's timing. */
+function blendOvsTrades(trades) {
+  const groups = new Map();
+  const result = [];
+  for (const t of trades) {
+    if (t.Strategy !== "Overbot Vol Spike" || t.book === "intraday" ||
+        !t.Ticker || !t.Entry_Date) {
+      result.push(t);
+      continue;
+    }
+    const key = JSON.stringify([t.book, t.Strategy, t.Tier, t.Ticker, t.Direction,
+      t.Signal_Date, t.Entry_Date, t.Entry_Price, !!t.GateBlocked]);
+    if (!groups.has(key)) { groups.set(key, []); result.push(groups.get(key)); }
+    groups.get(key).push(t);
+  }
+  return result.map(group => {
+    if (!Array.isArray(group)) return group;
+    if (group.length === 1) return group[0];
+    const last = group.reduce((a, b) => (b.Exit_Date || "") > (a.Exit_Date || "") ? b : a);
+    const row = { ...last, Open: group.some(t => t.Open), OvsExt: group.some(t => t.OvsExt) };
+    // Share weights reflect the actual rounded split, including unequal legs.
+    const weightKey = ["Shares_flat", "Risk_flat"].find(k =>
+      group.every(t => Number.isFinite(t[k]) && t[k] > 0));
+    const weights = group.map(t => weightKey ? t[weightKey] : 1);
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    for (const key of ["Exit_Price", "Return_Pct", "R"]) {
+      row[key] = group.every(t => Number.isFinite(t[key]))
+        ? group.reduce((sum, t, i) => sum + t[key] * weights[i], 0) / totalWeight : null;
+    }
+    for (const key of ["PnL_flat", "Risk_flat", "Shares_flat"]) {
+      row[key] = group.every(t => Number.isFinite(t[key]))
+        ? group.reduce((sum, t) => sum + t[key], 0) : null;
+    }
+    row.Hold_Days = group.every(t => Number.isFinite(t.Hold_Days))
+      ? Math.max(...group.map(t => t.Hold_Days)) : null;
+    const types = [...new Set(group.map(t => t.Exit_Type).filter(Boolean))].sort();
+    row.Exit_Type = `Blended (${types.join(" + ")})`;
+    row.Tranche = "blended";
+    return row;
+  });
+}
+
 /* ================= render ================= */
 function apply() {
   // bookTrades / bookSeries are filteredTrades / dailySeries unless the
   // intraday payload shipped (Book scope control).
-  const tr = bookTrades();
-  const ds = bookSeries(tr);
+  const legs = bookTrades();
+  const ds = bookSeries(legs);
+  const tr = blendOvsTrades(legs);
   const tm = tradeMetrics(tr);
   const dm = dailyMetrics(ds);
   if (S.intraday) renderBookNote();

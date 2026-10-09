@@ -85,6 +85,7 @@ def _site(tmp_path: Path):
         "tabs": {"Order_Staging": [], "Overflow": []},
     }))
     _write(data / "risk.json", {
+        "_site_build_id": SITE_BUILD_ID,
         "built_at": "2026-08-06 12:00 UTC",
         "asof": "2026-08-05",
         "sizing_state": {"asof": "2026-08-05"},
@@ -339,3 +340,16 @@ def test_production_gate_requires_matching_r2_provenance(tmp_path):
     _write(data / "meta.json", meta)
     problems = validate_site(str(tmp_path), require_r2_provenance=True)
     assert any("identify different builds" in problem for problem in problems)
+
+
+@pytest.mark.parametrize("identity", [None, "adjacent-deployment"])
+def test_risk_identity_is_required_even_when_timestamps_match(tmp_path, identity):
+    data = _site(tmp_path)
+    path = data / "risk.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if identity is None:
+        payload.pop("_site_build_id")
+    else:
+        payload["_site_build_id"] = identity
+    _write(path, payload)
+    assert "data/risk.json belongs to a different site build" in validate_site(str(tmp_path))

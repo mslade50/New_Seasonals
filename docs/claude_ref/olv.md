@@ -1,5 +1,15 @@
 # OLV (Oversold Low Volume)
 
+October 6 prepared repair, not installed: the PA candidate reads
+`OLV_Exits_Primary` via the Primary tranche contract, considers
+`Execute_On <= today` due, and requires exact entry orderRef, conId and
+time-exit date. It exits PA's own full matched leg, clamped to held shares.
+Missing or invalid rows fail with CRITICAL and exit 1. At or after 09:25 ET
+the auction exit stays pending; a cutoff crossed during cancellation re-arms
+the original time exit. The historical legacy behavior below still describes
+the installed PA runner until cutover. Evidence and remaining work:
+[October 6 continuation](../briefs/2026-10-03/continuation_2026-10-06.md).
+
 Moved close to verbatim from CLAUDE.md on 2026-09-23. CLAUDE.md keeps the live rules;
 this file keeps the history, evidence and detail. Path fixes applied on the move.
 

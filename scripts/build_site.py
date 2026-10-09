@@ -228,6 +228,15 @@ def write_json(obj, path):
     return obj
 
 
+def package_risk_payload(source_path, output_path):
+    """Attach the assembler identity without changing the upstream R2 input."""
+    with open(source_path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError("Risk payload must be a JSON object")
+    return write_json(payload, output_path)
+
+
 def _file_sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -414,6 +423,8 @@ def build_trades_json(df, asof=None):
         "R": ("R_Multiple", "num", 3),
         "PnL_flat": ("PnL_flat_750k", "num", 2),
         "Risk_flat": ("Risk_flat_750k", "num", 2),
+        "Shares_flat": ("Shares_flat", "num", 4),
+        "Tranche": ("Tranche", "str", None),
         "Risk_bps": ("Risk bps", "num", 1),
         "Hold_Days": ("Hold_Days", "num", 0),
         "Entry_Criteria": ("Entry Criteria", "str", None),
@@ -3285,9 +3296,9 @@ def main():
         }, os.path.join(data_dir, "ideas.json"))
         print(f"  ideas: {idea_status}; shipped an empty tombstone")
     if os.path.exists(RISK):
-        shutil.copy2(RISK, os.path.join(data_dir, "risk.json"))
+        package_risk_payload(RISK, os.path.join(data_dir, "risk.json"))
         flags["risk"] = True
-        print("  copied risk.json")
+        print("  packaged risk.json with site build identity")
     if os.path.exists(BETAS):
         try:
             with open(BETAS, encoding="utf-8") as handle:

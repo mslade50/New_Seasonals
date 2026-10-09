@@ -24,6 +24,18 @@ async function test(name, fn){try{await fn();console.log('PASS',name);}catch(e){
 const command=(payload={symbol:'AAA'},id='fixture-command')=>new Request('https://fixture.invalid/command',{
   method:'POST',headers:{Authorization:'Bearer fixture'},body:JSON.stringify({
     signed:JSON.stringify({id,type:'echo',account:'primary',dry_run:true,payload,created_at:Date.now(),expires_at:Date.now()+60000}),sig:'test-signature'})});
+await test('review result is acknowledged after persistence and retries do not regress fills',async()=>{
+ const x=make(),id='fixture-review',receipt='a'.repeat(64),acks=[];
+ x.memory.set(`command:${id}`,{id,type:'review_execution',state:'scheduled'});
+ x.memory.set('recent_commands',[{id,type:'review_execution',state:'scheduled'}]);
+ const ws={send:raw=>{assert.equal(x.memory.get(`command:${id}`).review_receipt,receipt);assert.equal(x.memory.get('recent_commands')[0].state,'working');acks.push(JSON.parse(raw));}};
+ const result=JSON.stringify({type:'result',id,review_receipt:receipt,state:'working',ok:true,detail:'fixture'});
+ await x.broker.webSocketMessage(ws,result);
+ assert.equal(acks[0].of,'review_result');assert.equal(acks[0].receipt,receipt);
+ x.memory.get(`command:${id}`).state='filled';x.memory.get('recent_commands')[0].state='filled';
+ await x.broker.webSocketMessage({send:raw=>acks.push(JSON.parse(raw))},result);
+ assert.equal(acks.length,2);assert.equal(x.memory.get(`command:${id}`).state,'filled');assert.equal(x.memory.get('recent_commands')[0].state,'filled');
+});
 await test('missing and empty credentials never authenticate',async()=>{
   for(const token of [undefined,'','   ']){
     const {broker}=make({STATUS_TOKEN:token});

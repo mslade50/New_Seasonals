@@ -1,0 +1,152 @@
+{
+  "started_utc": "2026-10-06T17:12:22.227794+00:00",
+  "completed_utc": "2026-10-06T17:13:38.020168+00:00",
+  "python": "3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]",
+  "pytest_exit_code": 0,
+  "test_counts": {
+    "tests": 424,
+    "passed": 423,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "by_suite": {
+    "test_combined": {
+      "passed": 32,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "test_coordination": {
+      "passed": 72,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "test_existing_open_breakout": {
+      "passed": 224,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 1
+    },
+    "test_hooks": {
+      "passed": 16,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "test_native_adapter": {
+      "passed": 39,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "test_price_only_pause": {
+      "passed": 40,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "syntax_checked_files": [
+    "build_combined.py",
+    "daily_execution_report.py",
+    "intraday_coordination.py",
+    "legend/__init__.py",
+    "legend/coordination_bridge.py",
+    "legend/legend_ema_fut.py",
+    "open_breakout/__init__.py",
+    "open_breakout/__main__.py",
+    "open_breakout/alerts.py",
+    "open_breakout/config.py",
+    "open_breakout/coordination.py",
+    "open_breakout/ibkr.py",
+    "open_breakout/inputs.py",
+    "open_breakout/native_coordination.py",
+    "open_breakout/price_health.py",
+    "open_breakout/replay.py",
+    "open_breakout/resting.py",
+    "open_breakout/service.py",
+    "open_breakout/standby.py",
+    "open_breakout/store.py",
+    "open_breakout/strategy.py",
+    "tests/conftest.py",
+    "tests/test_combined.py",
+    "tests/test_coordination.py",
+    "tests/test_existing_open_breakout.py",
+    "tests/test_hooks.py",
+    "tests/test_native_adapter.py",
+    "tests/test_price_only_pause.py",
+    "verify_offline.py"
+  ],
+  "production_sources_unchanged_before": {
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\alerts.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\config.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\ibkr.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\inputs.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\replay.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\resting.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\service.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\standby.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\store.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\strategy.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\__init__.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\__main__.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\tests\\test_open_breakout.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\config\\open_breakout.example.json": true,
+    "C:\\Users\\McKinley Slade\\OneDrive\\trading_ibkr\\legend_ema_fut.py": true
+  },
+  "production_sources_unchanged_after": {
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\alerts.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\config.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\ibkr.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\inputs.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\replay.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\resting.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\service.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\standby.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\store.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\strategy.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\__init__.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\open_breakout\\__main__.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\tests\\test_open_breakout.py": true,
+    "C:\\Users\\McKinley Slade\\dev\\New_Seasonals\\config\\open_breakout.example.json": true,
+    "C:\\Users\\McKinley Slade\\OneDrive\\trading_ibkr\\legend_ema_fut.py": true
+  },
+  "input_baselines_match": {
+    "open_breakout/__init__.py": true,
+    "open_breakout/config.py": true,
+    "open_breakout/strategy.py": true,
+    "open_breakout/service.py": true,
+    "open_breakout/resting.py": true,
+    "open_breakout/store.py": true
+  },
+  "native_broker_network_attempts": [],
+  "candidate_disabled": true,
+  "combined_features_validated": true,
+  "price_outage_cancel_seconds": 600,
+  "live_config_changed": false,
+  "broker_connections": 0,
+  "actual_broker_order_commands": 0,
+  "runtime_registration": false,
+  "owner_handoff": "inert unit-test stub; no server/socket/registry",
+  "native_close_qualified": false,
+  "native_close_limit": "STOP-to-MKT prototype requires explicit offline fixture qualification; real IBKR atomicity unproved; retain protection/manual fallback",
+  "deployed": false,
+  "restarted": false,
+  "scheduler_changed": false,
+  "source_review_patch_applies_to_baseline_text_fixtures": {
+    "open_breakout/config.py": true,
+    "open_breakout/ibkr.py": true,
+    "open_breakout/replay.py": true,
+    "open_breakout/resting.py": true,
+    "open_breakout/service.py": true,
+    "open_breakout/price_health.py": true,
+    "open_breakout/coordination.py": true,
+    "open_breakout/native_coordination.py": true,
+    "intraday_coordination.py": true,
+    "legend/__init__.py": true,
+    "legend/coordination_bridge.py": true,
+    "legend/legend_ema_fut.py": true
+  }
+}

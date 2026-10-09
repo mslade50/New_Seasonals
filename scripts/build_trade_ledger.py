@@ -560,6 +560,9 @@ def combine_sizing_passes(sig_comp, sig_flat, book):
     """Join compounded and flat engine passes into the canonical ledger shape."""
     df = sig_comp.copy().reset_index(drop=True)
     key = ["Strategy", "Ticker", "Date", "Entry Date", "Price"]
+    # Near/far exits share the position key but carry different dollars.
+    if "Tranche" in df.columns and "Tranche" in sig_flat.columns:
+        key.append("Tranche")
     aligned = (
         len(sig_flat) == len(df)
         and df[key].reset_index(drop=True).round({"Price": 4}).astype(str).equals(
@@ -575,7 +578,9 @@ def combine_sizing_passes(sig_comp, sig_flat, book):
         fl = sig_flat[key + ["PnL", "Risk $", "Shares", "Size_Mult"]].copy()
         fl["_k"] = fl[key].round({"Price": 4}).astype(str).agg("|".join, axis=1)
         df["_k"] = df[key].round({"Price": 4}).astype(str).agg("|".join, axis=1)
-        fl_dedup = fl.drop_duplicates("_k").set_index("_k")
+        if fl["_k"].duplicated().any():
+            raise ValueError("Sizing-pass trade keys are ambiguous")
+        fl_dedup = fl.set_index("_k")
         df["PnL_flat_750k"] = df["_k"].map(fl_dedup["PnL"]).values
         df["Risk_flat_750k"] = df["_k"].map(fl_dedup["Risk $"]).values
         df["Shares_flat"] = df["_k"].map(fl_dedup["Shares"]).values

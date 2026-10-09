@@ -1,22 +1,42 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>Risk — Seasonals</title>
-<link rel="stylesheet" href="assets/style.css">
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-<script src="assets/common.js"></script>
-<script src="assets/risk.js"></script>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><title>Risk — Seasonals</title>
+  <link rel="stylesheet" href="assets/style.css"><link rel="stylesheet" href="assets/risk_lab.css">
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script><script src="assets/common.js"></script>
+  <script type="module" src="assets/risk_lab.js"></script>
 </head>
-<body>
-<header class="topbar" id="topbar"></header>
-<div class="wrap">
-  <h1>Risk Dashboard — executive summary</h1>
-  <p class="sub" id="subtitle">Condensed fragility view from risk_dashboard_v2. Full interactive dashboard lives in the Streamlit app.</p>
-  <div id="content"><div class="spin">Loading...</div></div>
-  <footer>Signals and fragility scores mirror the daily risk email pipeline.</footer>
-</div>
-</body>
-</html>
+<body data-mode="personal">
+  <a class="skip" href="#main">Skip to risk analysis</a>
+  <header class="topbar" id="topbar"></header>
+  <main id="main" class="wrap">
+    <div id="loadError" role="alert" hidden></div>
+    <div id="app" hidden>
+      <section id="liveSummary" aria-label="Latest snapshot summary"></section>
+      <details class="provenance" id="provenance"><summary id="provenanceSummary">Observation dates and model history</summary><div id="provenanceBody"></div></details>
+      <section class="changes" id="changes" aria-label="Changes since prior sessions"></section>
+      <nav class="section-nav" aria-label="Page sections"><a href="#evidence">Historical evidence</a><a href="#analog-overview">Analog timeline</a><a href="#episode-review">Episode review</a><a href="#signals">Signal rules</a></nav>
+      <section id="evidence" class="section"><div class="section-title"><div><p class="eyebrow">01 / WHAT HAPPENED NEXT?</p><h2>Historical evidence</h2></div><span class="quiet">Select a window to inspect its observations</span></div>
+        <div class="study-toolbar"><label>Historical sample <select id="sampleMode" aria-label="Historical sample"></select></label><div class="seg" id="windowButtons" aria-label="Forward return window"></div></div>
+        <div id="sampleSummary" class="sample-summary" aria-live="polite"></div>
+        <div class="cohort-bar" id="cohortDescription"></div>
+        <div id="evidenceCards" class="evidence-grid"></div>
+        <article class="card downside-suite" id="downsideSuite"><div class="card-head"><div><p class="eyebrow">SAME HISTORICAL SAMPLE / DIAL WITHIN ±5</p><h3>Downside risk at this dial</h3></div><button id="dialMethod" class="text-button">Sample &amp; method ⓘ</button></div><div id="downsideHeadline" aria-live="polite"></div><div id="downsideCounts" class="sample-counts"></div><p class="micro" id="downsideDescription"></p><div id="atrTable" class="table-scroll"></div><div class="study-toolbar"><label>Historical sample <select id="downsideSampleMode" aria-label="Downside historical sample"></select></label><button class="text-button" data-inspect="drawdown">Inspect all selected outcomes ⓘ</button><button class="text-button" data-inspect="iv">VIX after a threshold breach ⓘ</button></div><div id="atrSelection" class="inline-explainer" aria-live="polite"></div><p class="micro">Red cells: at least 8 percentage points above the long-run baseline. This is a display highlight, not a significance test. Matching days can cluster, and baseline coverage differs.</p></article>
+        <article class="card returns-card"><div class="card-head"><h3>Returns across all matched episodes</h3><span class="pill">SPY · close to close</span></div><div id="returnsTable" class="table-scroll"></div></article>
+        <article class="card matches-card" id="analog-overview"><div class="card-head"><div><h3>Historical analogs over time</h3><p class="micro" id="matchesSubhead">Full-history context · red vertical lines mark the selected sample</p></div><div class="seg" id="overviewRangeButtons" aria-label="Historical analog chart range"></div></div><div id="matchesChart" class="chart" aria-label="SPY full history with red vertical lines at all matched dates"></div><p id="matchesCaption" class="micro"></p></article>
+        <article class="card episode-list"><div class="card-head"><div><h3>All matching episodes</h3><p class="micro" id="episodeListCap"></p></div><button class="text-button" id="clearSelection">Return to latest</button></div><div class="study-toolbar"><label>Show <select id="outcomeFilter" aria-label="Filter matched outcomes"><option value="all">All outcomes</option><option value="up">Positive returns</option><option value="down">Negative returns</option><option value="pending">Incomplete / unavailable</option></select></label><span class="quiet">Filters change this list only; the full sample and red match lines stay fixed.</span></div><div id="episodesTable" class="table-scroll"></div></article>
+      </section>
+      <section id="episode-review" class="section"><div class="section-title"><div><p class="eyebrow">02 / FOLLOW ONE EPISODE</p><h2 id="reviewTitle">Explore the latest market context</h2></div><div class="review-actions"><button id="prevEpisode" class="button secondary" aria-label="Previous historical episode">← Previous</button><button id="nextEpisode" class="button secondary" aria-label="Next historical episode">Next →</button></div></div>
+        <div class="study-toolbar"><label>Inspect episode <select id="episodeSelect" aria-label="Inspect episode"></select></label><label>Chart asset <select id="assetSelect" aria-label="Chart asset"></select></label><span class="quiet">Outcomes and analog selection remain SPY-based</span></div>
+        <div id="selectionBanner" class="cohort-bar" aria-live="polite"></div>
+        <div class="review-grid"><article class="card"><div id="priceChart" class="chart" aria-label="Asset candlesticks with selected historical episode"></div><p class="micro" id="priceCaption"></p></article><aside class="card" id="episodeDetail" aria-live="polite"></aside></div>
+        <article class="card timeline-card"><div class="card-head"><h3>Saved main dial &amp; SPY</h3><div class="seg" id="rangeButtons" aria-label="Dial chart range"></div></div><div id="dialChart" class="chart" aria-label="Saved dial and SPY history"></div><p class="micro">Date ranges change the view only. The selected return sample stays fixed.</p></article>
+        <details class="card paths-card" id="pathsDetails"><summary><span>Compare the journeys</span><small>SPY normalized to 100 at each matched close</small></summary><div id="pathsChart" class="chart" aria-label="Historical SPY paths aligned at matched close"></div><p id="pathsCaption" class="micro"></p></details>
+      </section>
+      <section id="signals" class="section"><div class="section-title"><div><p class="eyebrow">03 / WHY IS A RULE ON OR OFF?</p><h2>Signal rules &amp; context</h2></div><span class="quiet" id="signalsDate"></span></div><p class="section-intro">Open a signal to inspect its conditions and history. Signals are reconstructed under the snapshot's rules; they are not an archive of previously published decisions.</p><div id="signalsList" class="signals-list"></div></section>
+      <footer>Read-only market analysis · Historical frequencies are descriptive; overlapping windows are not independent observations.</footer>
+    </div>
+  </main>
+  <dialog id="inspector" aria-labelledby="inspectorTitle"><div class="dialog-head"><h2 id="inspectorTitle">Historical sample</h2><button id="closeInspector" class="button secondary" aria-label="Close sample explanation">Close ×</button></div><div id="inspectorBody"></div></dialog>
+</body></html>

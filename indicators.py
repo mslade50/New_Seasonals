@@ -418,6 +418,113 @@ def calculate_indicators(
 # shared utils.py, import it instead. The implementation below is the canonical
 # version extracted from the existing codebase.
 
+def consolidation_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Causal research features for inside-day consolidation (2026-10-06).
+
+    Accept the shared calculator's OHLCV/ATR/MA columns. Kept separate so the
+    extra rolling work does not affect scheduled scanners or backtest engines.
+    Zero/missing volume is unavailable, never evidence of quiet accumulation.
+    """
+    c, h, l, atr = df['Close'], df['High'], df['Low'], df['ATR']
+    day_range = h - l
+    tr = pd.concat([day_range, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
+    vol_avg = df['Volume'].rolling(63).mean()
+    vol_ratio = (df['Volume'] / vol_avg).where((df['Volume'] > 0) & (vol_avg > 0))
+    inside = (h < h.shift()) & (l > l.shift())
+    high252 = h.rolling(252).max()
+    previous_close_high252 = c.shift().rolling(252).max()
+    return pd.DataFrame({
+        'quiet_volume_ratio': vol_ratio,
+        'day_range_atr': day_range / atr,
+        'nr7': day_range <= day_range.rolling(7).min(),
+        'nr10': day_range <= day_range.rolling(10).min(),
+        'range5_atr': (h.rolling(5).max() - l.rolling(5).min()) / atr,
+        'range10_atr': (h.rolling(10).max() - l.rolling(10).min()) / atr,
+        'atr5_to_atr21': tr.rolling(5).mean() / tr.rolling(21).mean(),
+        'distance_high252_pct': 100 * (high252 - c) / high252,
+        'not_new_closing_high252': c < previous_close_high252,
+        'double_inside': inside & inside.shift(fill_value=False),
+        'trend_rising50': (c > df['SMA50']) & (df['SMA50'] > df['SMA50'].shift(21)),
+        'trend_stack': ((c > df['SMA50']) & (df['SMA50'] > df['SMA200'])
+                        & (df['SMA50'] > df['SMA50'].shift(21))),
+    }, index=df.index)
+
+
+def consolidation_audit_features(df: pd.DataFrame, session_hours: pd.Series) -> pd.DataFrame:
+    """Research-only consolidation context, with known session-length adjustment.
+
+    Daily volume per market-open hour is compared with its trailing 63-session
+    mean. Half-session volume is therefore not automatically called quiet.
+    A missing session duration or nonpositive volume is unavailable evidence.
+    """
+    features = consolidation_features(df)
+    hours = session_hours.reindex(df.index)
+    rate = (df['Volume'] / hours).where((df['Volume'] > 0) & (hours > 0))
+    features['quiet_volume_rate_ratio'] = rate / rate.rolling(63).mean()
+    low5, high5 = df['Low'].rolling(5).min(), df['High'].rolling(5).max()
+    features['close_position5'] = ((df['Close'] - low5) / (high5 - low5)).where(high5 > low5)
+    return features
+
+
+def smooth_momentum_features(df: pd.DataFrame, benchmark_close: pd.Series,
+                             session_hours: pd.Series) -> pd.DataFrame:
+    """Causal higher-beta/smooth-momentum research features (2026-10-06).
+
+    Requires the usual shared indicators on df. Beta uses 126 paired daily
+    returns; smoothness is 63-session log-price path efficiency. No values are
+    filled across missing prices, and future rows cannot alter prior features.
+    This helper does not change the production calculate_indicators path.
+    """
+    f = consolidation_audit_features(df, session_hours)
+    close = df['Close'].where(df['Close'] > 0)
+    market = benchmark_close.where(benchmark_close > 0)
+    ret = close.pct_change(fill_method=None)
+    mret = market.pct_change(fill_method=None).reindex(df.index)
+    variance = mret.rolling(126).var()
+    f['beta126'] = (ret.rolling(126).cov(mret) / variance).where(variance > 0)
+    log_close = np.log(close)
+    log_step = log_close.diff().abs()
+    distance = log_step.rolling(63).sum()
+    f['efficiency63'] = (log_close.diff(63).abs() / distance).where(distance > 0)
+    f['largest_step_share63'] = (log_step.rolling(63).max() / distance).where(distance > 0)
+    f['dollar_volume63'] = (close * df['Volume'].where(df['Volume'] > 0)).rolling(63).mean()
+    f['momentum126_skip21'] = close.shift(21) / close.shift(126) - 1
+    f['relative_return126'] = df['ret_126d'] - market.pct_change(126, fill_method=None).reindex(df.index)
+    f['box_high5'] = df['High'].rolling(5).max()
+    f['box_high10'] = df['High'].rolling(10).max()
+    f['previous_high21'] = df['High'].rolling(21).max().shift()
+    f['ema8_reclaim'] = (close > df['EMA8']) & (close.shift() <= df['EMA8'].shift())
+    f['touched_ema21_recent3'] = ((df['Low'] <= df['EMA21']).rolling(3).max() == 1)
+    span = df['High'] - df['Low']
+    f['close_location'] = ((close - df['Low']) / span).where(span > 0)
+    f['market_above200'] = (market > market.rolling(200).mean()).reindex(df.index).fillna(False)
+    return f
+
+
+def impulse_momentum_features(df: pd.DataFrame, benchmark_close: pd.Series,
+                              session_hours: pd.Series) -> pd.DataFrame:
+    """Completed-bar impulse/pullback features for momentum research."""
+    f = smooth_momentum_features(df, benchmark_close, session_hours)
+    close, atr = df['Close'], df['ATR'].where(df['ATR'] > 0)
+    for lookback in (5, 10):
+        # The advance ends three sessions BEFORE the signal. Its normalization
+        # uses the ATR known at that advance's end, not an eventual fill ATR.
+        f[f'impulse{lookback}_before3_atr'] = (
+            close.shift(3) - close.shift(lookback + 3)) / atr.shift(3)
+    for lookback in (2, 3):
+        f[f'pullback{lookback}_atr'] = (close - close.shift(lookback)) / atr
+        f[f'box_high{lookback}'] = df['High'].rolling(lookback).max()
+    f['range3_atr'] = (df['High'].rolling(3).max() - df['Low'].rolling(3).min()) / atr
+    f['drawdown8_atr'] = (df['High'].rolling(8).max() - close) / atr
+    hours = session_hours.reindex(df.index).where(lambda x: x > 0)
+    volume_hour = df['Volume'].where(df['Volume'] > 0) / hours
+    f['quiet_rate3'] = volume_hour.rolling(3).mean() / volume_hour.rolling(63).mean()
+    f['move21_atr'] = df['ret_atr_21d']
+    f['above_ema21'] = close > df['EMA21']
+    f['today_move_atr'] = df['today_return_atr']
+    return f
+
+
 def get_sznl_val_series(ticker: str, dates: pd.DatetimeIndex, sznl_map: dict) -> pd.Series:
     """
     Look up seasonal rank for a ticker across a date range.

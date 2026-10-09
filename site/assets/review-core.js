@@ -1,4 +1,4 @@
-/* Pure review ledger. No broker, network, Sheets, runners, or execution hooks. */
+/* Pure decision ledger; the endpoint atomically queues authorized staging. */
 const root = globalThis;
   'use strict';
   const canonical = value => {
@@ -70,9 +70,11 @@ const root = globalThis;
     const state = view(envelope, events, context.now);
     if (command.expected_revision !== state.revision) throw Error('Review changed: reload');
     if (state.status !== 'pending') throw Error(`Proposal is ${state.status}; no new decision allowed`);
+    const stage = command.decision === 'approve_review' && command.stage === true;
     const event = freeze({ id: command.id, proposal_id: envelope.id, proposal_hash: envelope.hash,
       revision: state.revision + 1, decision: command.decision, reason: command.reason.trim(),
-      actor: context.actor, at: context.now, request_hash, scope: 'human_review_only', execution: 'not_submitted' });
+      actor: context.actor, at: context.now, request_hash, scope: stage ? 'review_and_stage' : 'human_review_only', execution: stage ? 'queued' : 'not_submitted',
+      ...(stage ? {accounts: clone(envelope.payload.execution_accounts)} : {}) });
     return { events: [...events, event], event, replay: false };
   }
 export { canonical, seal, verify, view, decide };

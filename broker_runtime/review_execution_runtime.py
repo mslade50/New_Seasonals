@@ -2,43 +2,70 @@
 
 Installed only by a separate user-controlled runtime handoff. No import-time I/O.
 Preview/reconciliation use a read-only connection; execution needs every old and
-new arming gate. No order schedule, automatic retry, cancellation or position edit.
+new arming gate. Approved open-derived limits wait in the persistent journal.
+No automatic retry of uncertain submissions, cancellation or position edit.
 """
 from __future__ import annotations
 
 import copy
+import asyncio
 import contextlib
 import datetime as dt
 import io
 import json
+import hashlib
 import os
 from pathlib import Path
 import time
 
 try:
     from . import review_execution as contract
+    from . import review_sizing as sizing
 except ImportError:
     import review_execution as contract
+    import review_sizing as sizing
 
 
 def configuration():
     return {'preview_enabled': os.environ.get('REVIEW_EXECUTION_PREVIEW_ENABLED', '0') == '1',
             'live_enabled': os.environ.get('REVIEW_EXECUTION_LIVE_ENABLED', '0') == '1',
-            'accounts': {'pitch': os.environ.get('REVIEW_EXECUTION_PITCH_ACCOUNT', 'primary'),
-                         'seasonal': os.environ.get('REVIEW_EXECUTION_SEASONAL_ACCOUNT')},
+            'accounts': {'pitch': ['primary', 'pa'], 'seasonal': ['primary', 'pa']},
+            'risk_multipliers': {'primary': 1.0, 'pa': sizing.agent_risk_multiplier(
+                                 os.environ.get('REVIEW_EXECUTION_PA_RISK_MULTIPLIER'))},
             'db': os.environ.get('REVIEW_EXECUTION_DB'),
             'max_risk_bps': min(100.0, contract.number(os.environ.get('REVIEW_EXECUTION_MAX_RISK_BPS', '100'), 'idea risk cap'))}
+
+
+def readiness(g):
+    """Read-only deployment evidence in the agent's existing book heartbeat."""
+    cfg = configuration()
+    journal_ready = False
+    if cfg['db']:
+        try:
+            with contract.Journal(cfg['db']).connect():
+                journal_ready = True
+        except Exception:
+            pass
+    return {'version': 'review-and-stage.v2',
+            'source_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            'preview_enabled': cfg['preview_enabled'], 'live_enabled': cfg['live_enabled'],
+            'journal_ready': journal_ready,
+            'accounts': sorted(g.get('LIVE_ACCOUNTS', set()) & {'primary', 'pa'}),
+            'types_ready': {'review_execution', 'entry_bracket'} <= g.get('LIVE_TYPES', set()),
+            'agent_live_enabled': bool(g.get('LIVE_ENABLED'))}
 
 
 def gate(g, command, cfg):
     if not cfg['preview_enabled']:
         raise ValueError('review execution preview adapter disabled')
     op = (command.get('payload') or {}).get('operation')
+    if op != 'reconcile':
+        sizing.policy(cfg, command['payload']['product'], command['account'])
     if op != 'reconcile' and (command.get('payload') or {}).get('product') == 'pitch':
         directory = g.get('_THIS_DIR') or g.get('_DIR')
         if not directory or (Path(directory)/'pitch_moo_enabled.flag').exists():
             raise ValueError('legacy Pitch runner state is unknown or armed; one execution path is required')
-    if op == 'execute' and command.get('dry_run') is False:
+    if op in {'execute', 'stage'} and command.get('dry_run') is False:
         if not cfg['live_enabled']:
             raise ValueError('review execution live adapter disabled')
         if not g.get('LIVE_ENABLED') or command.get('account') not in g.get('LIVE_ACCOUNTS', set()):
@@ -51,8 +78,13 @@ async def handle_agent(g, command):
     """Called only AFTER the existing signature/command-expiry checks."""
     try:
         cfg = configuration()
-        contract.validate_request(command, cfg['accounts'], dt.datetime.now(dt.timezone.utc))
+        contract.validate_request(command, cfg['accounts'], _clock(g))
         gate(g, command, cfg)
+        due = opening_stage_time(command)
+        if due is not None and due > _clock(g):
+            if not cfg['db']:
+                raise ValueError('explicit REVIEW_EXECUTION_DB required')
+            return contract.Journal(cfg['db']).schedule(command, due)
         # Existing shared mutex and bounded subprocess path, including unknown on
         # timeout/malformed output. Preview cannot reach a placement in executor.
         result = await g['_execute_live'](command)
@@ -64,6 +96,57 @@ async def handle_agent(g, command):
                 'preview': inner.get('plan'), 'fill': inner.get('record')}
     except (ValueError, TypeError, KeyError) as exc:
         return {'ok': False, 'state': 'rejected', 'detail': str(exc)}
+
+
+def opening_stage_time(command):
+    """Only open-anchored limits need a later price; auctions stage immediately."""
+    p = command.get('payload') or {}
+    if p.get('operation') != 'stage':
+        return None
+    source = contract.verify(p['proposal'])
+    if not any(row.get('Entry_Type') == 'LIMIT' and row.get('Entry_Anchor') == 'OPEN'
+               for row in source['orders']):
+        return None
+    return dt.datetime.combine(dt.date.fromisoformat(source['source_date']),
+                               dt.time(9, 32), contract.ET)
+
+
+async def process_due_staging(g, ws):
+    cfg = configuration()
+    if not cfg['db']:
+        return
+    journal = contract.Journal(cfg['db'])
+    for command in journal.due_staging(_clock(g)):
+        if not journal.start_scheduled(command['id']):
+            continue
+        # Reuse the original UUID and authorization. Expiry/live/account checks
+        # run again; this never rolls a missed opening instruction into tomorrow.
+        result = await handle_agent(g, command)
+        journal.finish_scheduled(command['id'], result)
+    for command_id, result in journal.unreported_staging():
+        receipt = hashlib.sha256(contract.canonical(result).encode()).hexdigest()
+        await ws.send(json.dumps({'type': 'result', 'id': command_id, 'review_receipt': receipt, **result}))
+
+
+def acknowledge_staging(message):
+    cfg = configuration()
+    if cfg['db'] and message.get('of') == 'review_result':
+        contract.Journal(cfg['db']).acknowledge_staging(message.get('id'), message.get('receipt'))
+
+
+async def staging_loop(g, ws):
+    """Runs beside the existing heartbeat; pending open limits survive restart."""
+    cfg = configuration()
+    if cfg['db']:
+        # A prior executor may have reached the broker. Never retry a processing
+        # job after restart; publish uncertainty on its original UUID.
+        contract.Journal(cfg['db']).interrupt_staging()
+    while True:
+        try:
+            await process_due_staging(g, ws)
+        except Exception as exc:
+            g['log'](f'review staging queue: {type(exc).__name__}; check stored intent')
+        await asyncio.sleep(10)
 
 
 def preflight_context(*, payload, broker_account, contract_id, quantity, entry,
@@ -125,46 +208,153 @@ def _invoke_entry(g, ib, payload, account):
     return result
 
 
+
+def _clock(g):
+    return g['_review_clock']() if callable(g.get('_review_clock')) else dt.datetime.now(dt.timezone.utc)
+
+
+def _account_snapshot(g, ib, logical, account):
+    if callable(g.get('_review_account_snapshot')):
+        snapshot = g['_review_account_snapshot'](ib, logical, account)
+    else:
+        # ib_insync.reqAccountSummary() returns None, not result rows. Capture
+        # only this new request ID and await its end; never read cached values.
+        request_id = ib.client.getReqId()
+        future = ib.wrapper.startReq(request_id)
+        previous = ib.wrapper.accountSummary
+        rows = []
+        def receive(req_id, acct, tag, value, currency):
+            previous(req_id, acct, tag, value, currency)
+            if req_id == request_id:
+                rows.append(type('FreshAccountValue', (), {
+                    'account': acct, 'tag': tag, 'value': value, 'currency': currency})())
+        ib.wrapper.accountSummary = receive
+        try:
+            ib.client.reqAccountSummary(request_id, 'All',
+                'NetLiquidation,AvailableFunds,BuyingPower,ExcessLiquidity')
+            ib._run(future)
+        finally:
+            ib.wrapper.accountSummary = previous
+            ib.client.cancelAccountSummary(request_id)  # release query subscription
+        values = {}
+        for tag in ['NetLiquidation', 'AvailableFunds', 'BuyingPower', 'ExcessLiquidity']:
+            exact = [r for r in rows if str(r.account) == account and str(r.tag) == tag and str(r.currency) == 'USD']
+            if len(exact) != 1:
+                raise ValueError(f'{logical}: missing/ambiguous fresh exact-account USD {tag}')
+            values[tag] = contract.number(exact[0].value, tag, positive=False)
+        snapshot = {'account': logical, 'broker_account': account, 'currency': 'USD',
+                    'source': 'fresh_broker_account_summary', 'request_completed': True,
+                    'observed_at': _clock(g).isoformat(), 'nlv': values['NetLiquidation'],
+                    'available_funds': values['AvailableFunds'], 'buying_power': values['BuyingPower'],
+                    'excess_liquidity': values['ExcessLiquidity']}
+    snapshot = sizing.equity(snapshot, logical, account, _clock(g))
+    if contract.number(snapshot.get('excess_liquidity'), 'ExcessLiquidity', positive=False) < 0:
+        raise ValueError(f'{logical}: account excess liquidity is negative')
+    return snapshot
+
+
+def _contract_and_capacity(g, ib, native, account):
+    c = g['Stock'](native['symbol'], 'SMART', 'USD')
+    exact = ib.qualifyContracts(c)
+    if (len(exact) != 1 or not int(exact[0].conId or 0) or exact[0].secType != 'STK'
+            or exact[0].currency != 'USD' or str(getattr(exact[0], 'multiplier', '') or '1') not in {'1', '1.0'}):
+        raise ValueError('account exact share contract/multiplier qualification failed')
+    c = exact[0]
+    # Broker what-if is a margin/permission inquiry; no guarded_place_order is
+    # called. Tests supply an object with no connection or mutation methods.
+    if callable(g.get('_review_capacity')):
+        value = g['_review_capacity'](ib, c, native, account)
+    else:
+        order = (g['LimitOrder'](native['action'], native['quantity'], native['entry'])
+                 if native['entry_type'] == 'LMT' else g['MarketOrder'](native['action'], native['quantity']))
+        order.account = account
+        order.whatIf = True
+        state = ib.whatIfOrder(c, order)
+        if state is None or str(getattr(state, 'warningText', '') or '').strip():
+            raise ValueError('account instrument/permission/margin preview unavailable or rejected')
+        value = {'broker_account': account, 'con_id': int(c.conId), 'quantity': native['quantity'],
+                 'initial_margin_change': float(state.initMarginChange),
+                 'maintenance_margin_change': float(state.maintMarginChange),
+                 'observed_at': _clock(g).isoformat(), 'permission_verified': True}
+    if (value.get('broker_account') != account or value.get('con_id') != int(c.conId)
+            or value.get('quantity') != native['quantity'] or value.get('permission_verified') is not True):
+        raise ValueError('account capacity inquiry identity/quantity/permission mismatch')
+    changes = [contract.number(value.get(k), k, positive=False)
+               for k in ['initial_margin_change', 'maintenance_margin_change']]
+    if any(abs(v) >= 1e100 for v in changes):
+        raise ValueError('broker margin evidence unavailable/sentinel')
+    age = (_clock(g) - contract.instant(value.get('observed_at'))).total_seconds()
+    if not 0 <= age <= sizing.MAX_EQUITY_AGE_SECONDS:
+        raise ValueError('account instrument/capacity evidence stale or future dated')
+    return int(c.conId), {**value, 'initial_margin_change': max(0, changes[0]),
+                        'maintenance_margin_change': max(0, changes[1]), 'lot': 1, 'multiplier': 1}
+
+
 def preflight(g, ib, command, cfg, now):
     p = contract.validate_request(command, cfg['accounts'], now)
     proposal = contract.verify(p['proposal'])
     account = g['_resolve_broker_account'](ib, command['account'])
-    ib.reqAccountSummary(); ib.sleep(1.5)
+    account_policy = sizing.policy(cfg, p['product'], command['account'])
+    snapshot = _account_snapshot(g, ib, command['account'], account)
+    sized, sizing_summary = sizing.size(proposal, snapshot, account_policy)
     legs = []
     con_ids = set()
-    for row in proposal['orders']:
+    for original, sized_leg in zip(proposal['orders'], sized):
+        row = sized_leg['row']
         native = contract.native_payload(row, p['product'], proposal['source_idea_id'],
                                          proposal['source_date'], _open_price(g, ib, row, now))
+        exact_con_id, capacity = _contract_and_capacity(g, ib, native, account)
         check = dict(native, _broker_account=account, _command_id=command['id'], _review_preflight_only=True)
         result = _invoke_entry(g, ib, check, command['account'])
         context = (result.get('fill') or {}).get('review_preflight')
         if result.get('ok') is not True or not isinstance(context, dict):
             raise ValueError(result.get('detail') or 'existing executor rejected preflight')
-        if context['broker_account'] != account or context['con_id'] in con_ids:
+        if context['broker_account'] != account or context['con_id'] != exact_con_id or context['con_id'] in con_ids:
             raise ValueError('ambiguous account or repeated exact contract in multi-leg idea')
         con_ids.add(context['con_id'])
+        if not abs(context['nlv'] - snapshot['nlv']) < 1e-6:
+            raise ValueError('native risk guard NLV disagrees with fresh exact-account evidence')
         evidence = _capture(g, ib, account, context['con_id'])
+        if evidence['account'] != account or evidence['con_id'] != context['con_id']:
+            raise ValueError('account inventory evidence identity mismatch')
         ref = _reference(native)
         aliases = {ref, ref.replace('|SELL_SHORT|', '|SELL|')}
         if any(r.get('ref') in aliases for r in evidence['orders'] + evidence['completed'] + evidence['executions']):
             raise ValueError('same source idea already exists in broker orders/executions; reconcile other execution path')
-        legs.append({'leg': row['Leg'], 'original': copy.deepcopy(row), 'ref': ref, **context})
+        if evidence['position'] != 0 or any(r.get('status') not in {'Filled', 'Cancelled', 'ApiCancelled'} for r in evidence['orders']):
+            raise ValueError(f"{command['account']}: existing position/working order for this contract; no automatic add, netting or reversal")
+        legs.append({'leg': row['Leg'], 'original': copy.deepcopy(original), 'ref': ref,
+                     'sizing': sized_leg['sizing'], 'capacity': capacity, **context})
     nlv = min(contract.number(leg['nlv'], 'live NLV') for leg in legs)
     total_risk = sum(contract.number(leg['risk_usd'], 'leg risk') for leg in legs)
     total_notional = sum(leg['payload']['quantity'] * leg['payload']['entry'] for leg in legs)
-    if total_risk / nlv * 1e4 > cfg['max_risk_bps']:
+    if total_risk / nlv * 1e4 > account_policy['max_idea_bps']:
         raise ValueError('whole-idea risk exceeds account/publisher cap')
     if total_notional > g['_max_notional'](command['account']):
         raise ValueError('whole-idea notional exceeds existing account cap')
+    if total_notional > snapshot['buying_power']:
+        raise ValueError(f"{command['account']}: whole-idea notional exceeds fresh account buying power")
+    initial = sum(leg['capacity']['initial_margin_change'] for leg in legs)
+    maintenance = sum(leg['capacity']['maintenance_margin_change'] for leg in legs)
+    if initial > snapshot['available_funds'] or maintenance > snapshot['excess_liquidity']:
+        raise ValueError(f"{command['account']}: whole-idea margin exceeds available account capacity")
+    journal = contract.Journal(cfg['db'])
+    staged = journal.allocated_risk(p['product'], command['account'], proposal['source_date'])
+    risk = max(total_risk, sizing_summary['sizing_risk_usd'])
+    if (staged + risk)/nlv*1e4 > account_policy['max_daily_bps']:
+        raise ValueError(f"{command['account']}: account/product staged-day ATR risk cap exceeded")
     expires = min(contract.instant(proposal['review_deadline']), now + dt.timedelta(minutes=5))
     return contract.frozen({'schema': 'review-execution-plan.v1', 'product': p['product'],
-        'source_idea_id': proposal['source_idea_id'], 'proposal_id': p['proposal']['id'],
+        'source_idea_id': proposal['source_idea_id'], 'source_date': proposal['source_date'], 'proposal_id': p['proposal']['id'],
         'proposal_hash': p['proposal']['hash'], 'review_event_id': p['review']['id'],
         'actor': p['actor'], 'account': command['account'], 'broker_account': account,
         'delivery_id': p['delivery_id'], 'created_at': now.isoformat(), 'expires_at': expires.isoformat(),
-        'policy': {'accounts': cfg['accounts'], 'max_risk_bps': cfg['max_risk_bps'],
+        'policy': {'accounts': cfg['accounts'], **account_policy,
                    'max_notional': g['_max_notional'](command['account']), 'max_qty': g['LIVE_MAX_QTY']},
         'risk_usd': total_risk, 'notional_usd': total_notional, 'nlv': nlv,
+        'account_equity': snapshot, 'sizing': sizing_summary,
+        'capacity': {'initial_margin_change': initial, 'maintenance_margin_change': maintenance,
+                     'previous_staged_risk_usd': staged},
         'risk_ack_required': any(leg['risk_ack_required'] for leg in legs),
         'non_atomic': len(legs) > 1,
         'exit_convention': 'Existing executor: market time child at session open or 15:59 close clock; day-2 protective stop. Not a native future auction exit.',
@@ -176,8 +366,10 @@ def _same_preflight(plan, fresh):
     for value in (old, new):
         for name in ('created_at', 'expires_at', 'nlv'):
             value.pop(name, None)
+        value['account_equity'].pop('observed_at', None)
         for leg in value['legs']:
             leg.pop('nlv', None)
+            leg['capacity'].pop('observed_at', None)
     # New account/contract/open/price/stop/timing/caps cannot be auto-accepted.
     return old == new
 
@@ -294,12 +486,27 @@ def evidence_leg(g, ib, plan, leg, submitted):
 
 def execute_batch(g, ib, command, cfg, journal, now):
     p = contract.validate_request(command, cfg['accounts'], now)
-    plan = journal.preview(p['plan_hash']); payload = contract.verify(plan)
+    stage = p['operation'] == 'stage'
+    if stage:
+        source = contract.verify(p['proposal'])
+        key = contract.run_key(p['product'], source['source_idea_id'], command['account'], p['proposal']['hash'])
+        old = journal.get(key)
+        if old:
+            if old['command_id'] != command['id']:
+                raise ValueError('permanent idea/account claim exists; check existing staging')
+            return old
+        # The Yes decision authorizes the source risk instruction and all legs.
+        # Sizing/contract/capacity checks run here, without a second user action.
+        plan = preflight(g, ib, command, cfg, now)
+        journal.save_preview(plan)
+    else:
+        plan = journal.preview(p['plan_hash'])
+    payload = contract.verify(plan)
     if (payload['actor'] != p['actor'] or payload['account'] != command['account']
             or payload['product'] != p['product'] or payload['proposal_hash'] != p['proposal']['hash']
             or payload['review_event_id'] != p['review']['id'] or payload['delivery_id'] != p['delivery_id']):
         raise ValueError('confirmed preview identity/account/review changed')
-    key = contract.run_key(payload['product'], payload['source_idea_id'], payload['account'])
+    key = contract.run_key(payload['product'], payload['source_idea_id'], payload['account'], payload['proposal_hash'])
     old = journal.get(key)
     if old:
         if old['command_id'] != command['id'] or old['plan']['hash'] != plan['hash']:
@@ -307,12 +514,13 @@ def execute_batch(g, ib, command, cfg, journal, now):
         return old  # Never restart not_sent/submitting legs, even after a crash.
     if contract.instant(payload['expires_at']) <= now:
         raise ValueError('preview expired; explicit fresh preview required')
-    if payload['risk_ack_required'] and p.get('risk_ack') is not True:
+    if payload['risk_ack_required'] and not stage and p.get('risk_ack') is not True:
         raise ValueError('explicit acknowledgement of broker-estimated unprotected risk required')
-    fresh = preflight(g, ib, command, cfg, now)
-    if not _same_preflight(plan, fresh):
+    fresh = plan if stage else preflight(g, ib, command, cfg, now)
+    if not stage and not _same_preflight(plan, fresh):
         raise ValueError('broker plan changed; preview and confirm again')
     record, claimed = journal.claim(key, command['id'], plan)
+    record['account_recheck'] = contract.verify(fresh)['account_equity']
     if not claimed:
         return record
     for index, leg in enumerate(payload['legs']):
@@ -322,7 +530,8 @@ def execute_batch(g, ib, command, cfg, journal, now):
             if contract.instant(payload['expires_at']) <= now:
                 raise ValueError('preview expired before remaining leg')
             gate(g, command, cfg)
-            native = dict(leg['payload'], risk_ack=p.get('risk_ack') is True,
+            sizing.equity(record['account_recheck'], payload['account'], payload['broker_account'], _clock(g))
+            native = dict(leg['payload'], risk_ack=stage or p.get('risk_ack') is True,
                           _broker_account=payload['broker_account'], _command_id=command['id'] + ':' + str(index),
                           _review_expected_con_id=leg['con_id'])
             record['legs'][index] = {'state': 'submitting'}
@@ -353,7 +562,7 @@ def reconcile_batch(g, ib, command, journal):
     if not record:
         raise ValueError('durable execution claim missing; no inventory inferred')
     plan = contract.verify(record['plan'])
-    if plan['account'] != command['account'] or plan['product'] != p['product'] or plan['actor'] != p['actor']:
+    if plan['account'] != command['account'] or plan['product'] != p['product'] or plan['actor'] != p['actor'] or p.get('proposal_hash', plan['proposal_hash']) != plan['proposal_hash']:
         raise ValueError('reconciliation account/product/actor mismatch')
     if g['_resolve_broker_account'](ib, command['account']) != plan['broker_account']:
         raise ValueError('broker account changed; reconciliation stopped')
@@ -384,7 +593,7 @@ def run_executor(g, command):
         pending_lock.__enter__()
         operation_lock = pending_lock
         operation = p['operation']
-        readonly = operation != 'execute' or command['dry_run']
+        readonly = operation not in {'execute', 'stage'} or command['dry_run']
         host, port, cid = g['PORTS'][command['account']]
         ib = g['IB'](); ib.connect(host, port, clientId=cid, timeout=8, readonly=readonly)
         ib.errorEvent += g['_on_err']

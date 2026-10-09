@@ -39,6 +39,22 @@ def patch_agent(text):
 '''
         return replace_once(source, anchor, addition + anchor)
     text = change_function(text, '_handle_command', handler)
+    def loop(source):
+        source = replace_once(source, '                        book["mode"] = "live" if LIVE_ENABLED else "dry-run"',
+            '                        book["mode"] = "live" if LIVE_ENABLED else "dry-run"\n'
+            '                        book["review_execution"] = review_execution_runtime.readiness(globals())')
+        source = replace_once(source, '        so = asyncio.create_task(_scheduled_option_loop(ws))',
+            '        so = asyncio.create_task(_scheduled_option_loop(ws))\n'
+            '        import review_execution_runtime\n'
+            '        rs = asyncio.create_task(review_execution_runtime.staging_loop(globals(), ws))')
+        source = replace_once(source, '            so.cancel()', '            so.cancel()\n            rs.cancel()')
+        source = replace_once(source, '                elif msg.get("type") != "ack":',
+            '                elif msg.get("type") == "ack" and msg.get("of") == "review_result":\n'
+            '                    review_execution_runtime.acknowledge_staging(msg)\n'
+            '                elif msg.get("type") != "ack":')
+        return replace_once(source, 'await asyncio.gather(hb, bk, so, pa, return_exceptions=True)',
+                            'await asyncio.gather(hb, bk, so, pa, rs, return_exceptions=True)')
+    text = change_function(text, '_run_once', loop)
     ast.parse(text)
     return text
 
@@ -118,7 +134,7 @@ def prepare(source, output):
     candidates['broker_reconciliation.py'] = change_function(
         originals['broker_reconciliation.py'].decode('utf-8-sig').replace('\r\n', '\n'),
         'order_row', lambda _: replacement.rstrip('\n')).encode()
-    for name in ['review_execution.py', 'review_execution_runtime.py']:
+    for name in ['review_execution.py', 'review_execution_runtime.py', 'review_sizing.py']:
         candidates[name] = (HERE/name).read_bytes()
     for name, raw in candidates.items():
         compile(raw, name, 'exec')
@@ -129,7 +145,9 @@ def prepare(source, output):
                 'runtime_source_hashes':hashes,
                 'candidate_hashes':{k:hashlib.sha256(v).hexdigest() for k,v in candidates.items()},
                 'new_flags_default':'REVIEW_EXECUTION_PREVIEW_ENABLED=0; REVIEW_EXECUTION_LIVE_ENABLED=0',
-                'account_bindings':{'pitch':'primary','seasonal':None}}
+                'account_bindings':{'pitch':['primary','pa'],'seasonal':['primary','pa']},
+                'pa_agent_risk_multiplier':1.0,
+                'agent_risk_policy':'owner-approved equal percentage of separate Primary/PA equity'}
     (output/'manifest.json').write_text(json.dumps(manifest,indent=2))
     return manifest
 

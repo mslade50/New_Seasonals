@@ -26,7 +26,8 @@ def test_wrong_date_or_digest_rejected():
 def test_copy_exact_order_fields_without_sheet_approval():
     record=build();envelope=record['proposals'][record['current_ids'][0]]
     assert envelope['payload']['orders']==[{k:v for k,v in ORDER.items() if k!='Approve'}]
-    assert envelope['payload']['account']=='primary'
+    assert envelope['payload']['account']=='Primary + PA (independent account previews)'
+    assert set(envelope['payload']['account_proposals'])=={'primary','pa'}
     assert 'recipients' not in record['delivery'] and 'message_digest' not in record['delivery']
     assert hashlib.sha256(envelope['canonical'].encode()).hexdigest()==envelope['hash']
     assert ORDER['Approve']=='Y'
@@ -35,7 +36,8 @@ def test_seasonal_preserves_trail_and_labels_unassigned_manual():
     idea=copy.deepcopy(IDEA);idea['orders'][0].update(Trail_Arm_ATR=2.0,Trail_ATR=1.0)
     record=build(product='seasonal',ideas=[idea]);payload=record['proposals'][record['current_ids'][0]]['payload']
     assert payload['manual_only'] and payload['execution_deadline'] is None
-    assert payload['account'].startswith('Unassigned')
+    assert payload['account'].startswith('Primary + PA')
+    assert all(b['status']=='blocked' for b in payload['account_proposals'].values())
     assert payload['orders'][0]['Trail_ATR']==1.0
 
 def test_futures_venue_window_not_inferred():

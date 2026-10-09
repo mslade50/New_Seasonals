@@ -1,0 +1,68 @@
+--- a/order_staging.py
++++ b/order_staging.py
+@@ -53,6 +53,49 @@
+         print(f"[WARN] Dropped {dropped} stale {label} rows (Scan_Date < {cutoff.date()}): {stale_dates}{blank_note}")
+ 
+     return df_rows[keep_mask].reset_index(drop=True)
++
++
++def filter_prior_day_premarket_rows(df_rows, label='overflow'):
++    """Drop rows a PRIOR day's pre-market scan staged for that day's session.
++
++    filter_stale_overflow keeps Scan_Date >= the previous trading day so the
++    PM-bookend rows of day D (Signal_Date == Scan_Date == D) stage on D+1.
++    It also keeps D's AM-bookend rows (Scan_Date D, Signal_Date D-1): those
++    were D's entries. If D's PM scan and D+1's AM scan both leave the tab
++    untouched, Staged_Date restamping re-places them on D+1 at stale levels
++    (near-miss 2026-10-01: FORM Overbot Vol Spike, Primary 498 / PA 145).
++
++    Dropped only when BOTH hold: Scan_Date < today (no scan or operator wrote
++    the row today) AND Signal_Date < the previous trading day. Multi-day
++    entries (persistent GTC limits with Fill_Window_Days) go in once as GTD
++    parents and rest at the broker; none relies on a later re-read of the
++    tab. Blank/unparseable Signal_Date rows are left to the Scan_Date cutoff.
++    """
++    if df_rows.empty or 'Signal_Date' not in df_rows.columns or 'Scan_Date' not in df_rows.columns:
++        return df_rows
++
++    try:
++        today = pd.Timestamp.now().normalize()
++        prior_session = (today - TRADING_DAY).normalize()
++        scan = pd.to_datetime(df_rows['Scan_Date'], errors='coerce').dt.normalize()
++        sig = pd.to_datetime(df_rows['Signal_Date'], errors='coerce').dt.normalize()
++        stale_mask = (scan < today) & (sig < prior_session)
++        dropped = int(stale_mask.sum())
++        if dropped == 0:
++            return df_rows
++        detail = '; '.join(
++            f"{r.get('Symbol', '?')} {r.get('Action', '?')} {r.get('Strategy_Ref', '?')} "
++            f"(signal {s.date()}, scan {c.date()})"
++            for (_, r), s, c in zip(df_rows[stale_mask].iterrows(), sig[stale_mask], scan[stale_mask]))
++        kept = df_rows[~stale_mask].reset_index(drop=True)
++        print(f"[CRITICAL] Dropped {dropped} {label} rows left by a prior day's pre-market scan "
++              f"(Signal_Date < {prior_session.date()}, Scan_Date < {today.date()}) — they were that "
++              f"day's entries; NOT re-placing. The tab was not rewritten by a scan since: {detail}")
++        return kept
++    except Exception as exc:
++        print(f"[CRITICAL] {label} prior-day pre-market filter failed "
++              f"({type(exc).__name__}); rows unchanged, staging continues.")
++        return df_rows
+ 
+ 
+ def mongap_gate_weekday(row):
+@@ -844,6 +887,7 @@
+         # scan used to leave yesterday's liquid rows live — Staged_Date was
+         # then restamped fresh, hiding the staleness from every later guard.
+         df_main = filter_stale_overflow(df_main, label='liquid')
++        df_main = filter_prior_day_premarket_rows(df_main, label='liquid')
+ 
+         if df_overflow is None:
+             df_overflow = pd.DataFrame()
+@@ -851,6 +895,7 @@
+         else:
+             print(f"{_ts()} [OK] Loaded {len(df_overflow)} orders from '{OVERFLOW_TAB_NAME}'.")
+             df_overflow = filter_stale_overflow(df_overflow)
++            df_overflow = filter_prior_day_premarket_rows(df_overflow)
+ 
+         # Stamp scan source so the OVS gap-tier logic can distinguish tabs.
+         if not df_main.empty:

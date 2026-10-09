@@ -1,5 +1,14 @@
 # Daily agent whole-idea execution adapter
 
+Current Review-page flow: [single review and automatic staging](review_and_stage.md).
+One Yes authorizes all legs for the proposal's published accounts. The broker
+performs sizing and preflight automatically and stages without another user
+confirmation. The explicit-preview interface below remains a legacy diagnostic
+path; it is no longer part of the ordinary Review-page flow. Source preparation
+does not activate production or replay earlier research-only approvals.
+
+## Historical explicit-preview workflow and shared execution machinery
+
 The Daily Pitch and Daily Seasonal review inbox records a human research decision;
 it does not submit orders. The new `execute-review.html` flow requires a separate
 read-only broker preview and explicit confirmation of every leg. Both adapter
@@ -24,12 +33,12 @@ placement path. Preview and reconciliation connect to IB with `readonly=True`;
 only a confirmed execute operation can request a writable connection, after
 both new and existing gates pass independently in agent and executor.
 
-All original legs are preflighted before the first placement. A permanent SQLite
-claim is keyed by product, source idea ID and account, independently of proposal
-version. FULL synchronous transactions persist `submitting` before any wire call.
-An OS lock serializes the entire operation across processes. Retry of the same
-intent returns its recorded state and never resumes unsent legs. A new UUID or
-proposal version cannot re-enter an already claimed idea/account.
+All original legs are sized and preflighted separately for Primary and PA.
+The execution record is keyed by agent, source idea, immutable proposal version
+and account. A permanent source/account guard additionally prevents a new version
+from re-entering an already submitted idea. Existing receipts are retained; retries
+never resume unsent legs. FULL synchronous transactions persist submitting before
+any wire call, and an OS lock serializes the operation.
 
 Delivery, working bracket, partial entry fill, full entry fill and closed position
 are distinct states. Broker evidence must prove exact account, qualified conId,
@@ -53,8 +62,10 @@ automatic retry, rollback and completion are intentionally unavailable.
 The shared route supports one to four exact US SMART/USD stock or ETF legs:
 published CLOSE limits, broker-derived true-session OPEN limits, priced DAY/GTD
 entries, stops, targets, future time exits, and source MOO/MOC entry instructions
-that have no unresolved price exits. Quantities remain the published whole shares;
-there is no resizing, proxy substitution, automatic front month or leg selection.
+that have no unresolved price exits. Delivered quantities remain reference-only. Execution quantities are recalculated
+from the delivered sizing instruction and fresh exact-account USD NLV. No proxy
+substitution, automatic front month, leg selection, or cross-account reallocation
+is permitted.
 
 The executor's existing future time exit is a scheduled MKT/GTC child at 09:30
 or 15:59 ET. It is **not a native future auction order**. The preview displays this
@@ -68,12 +79,46 @@ missing source levels block the whole idea. They require separately implemented
 native lifecycle support or a newly published exact supported instruction; this
 adapter never silently drops an exit or substitutes an instrument.
 
-Pitch binds to `primary` by default, matching its published proposals. Seasonal
-has **no default account**. Its existing publisher marks the review manual because
-integration/account selection were unavailable; an explicit execution binding is
-separate and does not rewrite the original review payload. Individual source-leg
-manual flags still block submission. The existing Pitch MOO runner must be known
-disabled; a present `pitch_moo_enabled.flag` blocks the new adapter.
+Both agents explicitly support Primary and PA, with separate per-account proposal
+bindings, broker previews, confirmation dialogs, quantities, risk and saved intents.
+The delivered sizing spec preserves risk_bps/NAV-percent mode, normalized leg
+weights, ATR risk unit and multiplier. Pitch uses its established 30-bps default;
+Seasonal uses its 15–50 bps band and explicit catastrophe-sizing distance. These
+agents do not apply the systematic book's GRM, tilt, or older Seasonal-ticket
+13-bps midterm rule.
+
+On October 6, the owner approved the same percentage-of-equity agent risk for
+Primary and PA specifically. Both Daily Pitch and Daily Seasonal use multiplier
+1.0 by default: a 30-bps idea budgets 30 bps of EACH account's own freshly verified
+equity. Different account balances still produce different whole-share quantities.
+The optional `REVIEW_EXECUTION_PA_RISK_MULTIPLIER` may be absent, blank or set to
+1; a conflicting value (including 1.3) explicitly blocks PA while Primary remains
+available. No deployed environment setting is changed here. The systematic PA
+stager's separate 1.3 multiplier and systematic GRM/tilts remain unchanged.
+
+Completed broker account-summary request results supply exact-account USD NLV,
+buying power, available funds and excess liquidity, with an observed timestamp
+no older than 60 seconds. Cached balances and the publisher's reference $750k basis
+cannot substitute. Qualified stock/ETF contracts have multiplier 1 and lot 1;
+unsupported instruments block the whole account idea. Any leg rounding to zero
+blocks that account; no remaining budget moves to another leg or account.
+
+Read-only margin/permission inquiries must match the exact account, conId and
+sized quantity. Gross idea notional must fit fresh buying power and existing
+hard account caps; summed positive initial/maintenance margin changes must fit
+available funds/excess liquidity. Negative margin changes never subsidize another
+leg. Existing positions or working orders in an idea's contract require a separate
+inventory decision; this adapter does not add, net or reverse them automatically.
+
+Publisher ATR-risk limits are 60 bps per idea and 150 bps per agent slate, applied
+once under the configured account multiplier and existing adapter hard cap.
+Durable staged-day claims count submitting, uncertain and closed ideas; only a
+proved zero-fill whole-chain cancellation releases staged risk. Each agent/account
+has its own ledger; no global pooled risk cap is invented. Confirmation rechecks
+fresh equity/capacity and exact quantities; any changed plan requires a new preview.
+
+Source-leg manual/trail flags still block submission. The legacy Pitch runner
+must be known disabled; a present pitch_moo_enabled.flag blocks the new adapter.
 
 The generic `/exec-command` cannot sign `review_execution` commands. When the
 new site live gate is explicitly enabled, tagged Pitch/Seasonal agent requests
@@ -85,10 +130,10 @@ outside this adapter. Existing schedules/settings are not changed by this source
 The following are **configuration requirements for a later handoff**, not actions
 performed by this release:
 
-1. Choose Daily Seasonal's exact account (`primary` or `pa`). Confirm published
-   Pitch account and broker endpoint managed-account identity match. Site and
-   local `REVIEW_EXECUTION_*_ACCOUNT` bindings must agree. No credential or grant
-   change is introduced; existing Access and broker authentication are reused.
+1. Confirm both agent products' Primary/PA endpoint identities and verify the
+   owner-approved 1.0 agent policy on site and local runtime. Remove any conflicting
+   agent override during the separately authorized configuration handoff.
+   Existing authentication is reused; no credential or grant change is introduced.
 2. Verify the current four runtime code hashes against
    `broker_runtime/review_execution_source_hashes.json`. Prepare an isolated
    candidate with `prepare_review_execution.py --source <reviewed runtime>
@@ -98,8 +143,8 @@ performed by this release:
    before selecting the persistent journal path. Initialize that new SQLite
    journal explicitly with `review_execution.Journal.initialize(path)` once.
    Existing or corrupt journals are never replaced/reset automatically.
-4. A separate authorized user runtime promotion must install all five prepared
-   files, including the corrected `broker_reconciliation.py`, compatibly with the
+4. A separate authorized user runtime promotion must install all six prepared
+   files, including `review_sizing.py` and the corrected `broker_reconciliation.py`, compatibly with the
    existing reservation guard. No pinned runtime or Task Scheduler promotion is
    included here.
 5. For preview-only verification, leave **all live flags off** and deliberately

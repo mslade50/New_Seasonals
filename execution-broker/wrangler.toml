@@ -8,6 +8,17 @@ main = "src/index.js"
 compatibility_date = "2026-06-01"
 workers_dev = true   # publish to execution-broker.<subdomain>.workers.dev
 
+# Recover an approved handoff even if its Pages request was interrupted.
+[[r2_buckets]]
+binding = "CHARTS"
+bucket_name = "seasonals-cache"
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+REVIEW_EXECUTION_LIVE_ENABLED = "0"
+
 # Durable Object that holds the agent WebSocket + heartbeat state.
 [[durable_objects.bindings]]
 name = "EXEC_BROKER"

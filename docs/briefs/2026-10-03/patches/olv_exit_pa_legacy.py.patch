@@ -1,0 +1,216 @@
+--- a/olv_exit_pa_legacy.py
++++ b/olv_exit_pa_legacy.py
+@@ -6,12 +6,15 @@
+ session instead of in the opening auction the engine models (next-open fill).
+ 
+ This script runs pre-open (Task Scheduler, weekdays 9:10 AM ET):
+-  1. reads the OLV_Exits tab (staged per-LEG by New_Seasonals/daily_scan.
+-     stage_olv_vol_confirm_exits at both scan bookends) and keeps rows with
+-     Execute_On == today and Quantity > 0;
++  1. reads the OLV_Exits_Primary tab (one row per confirmed PRIMARY tranche,
++     staged by New_Seasonals/daily_scan.stage_olv_vol_confirm_exits at both
++     scan bookends; OLV_Exits has been dead since 2026-09-07) and keeps the
++     rows olv_contract.validate_rows calls due (Execute_On <= today);
+   2. for BOTH accounts (primary TWS :7496, PA Gateway :4001), matches each
+      leg's working bracket by orderRef prefix (SYM|BUY|Oversold Low Volume|)
+-     + the time-MKT leg's goodAfterTime date == Time_Exit_Date, CANCELS the
++     + the time-MKT leg's goodAfterTime date == Time_Exit_Date (a row that
++     carries entry_order_ref matches ONLY the bracket with that exact ref,
++     conId and date — no fallbacks), CANCELS the
+      bracket's SELL legs (target, any legacy stop, time), waits for the
+      broker to confirm they are gone, and places a STANDALONE SELL MKT
+      TIF=OPG — a genuine MOO that participates in the opening auction
+@@ -80,9 +83,9 @@
+ account, signal_ref, with its state and attempt number); a re-run also
+ finds a still-working sell by ref, so a leg can never be sold twice.
+ 
+-Late-run fallback: if the clock is already past the 9:25 ET safety cutoff
+-(OPG rejected at 9:28), the sell goes in as MKT DAY instead — the honest
+-"as close to the open as we can get" fill, loudly flagged.
++At or after the 9:25 ET safety cutoff, the auction exit remains pending.
++No MKT DAY substitution is allowed. If cancellation crosses the cutoff,
++re-arm the leg's original time exit and report the missed auction.
+ 
+ Runs standalone: run_olv_exit_moo.bat -> olv_exit_moo_last_run.log.
+ Guard: test_olv_exits.py (offline tests on a broker fake, no connection).
+@@ -116,14 +119,14 @@
+ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ CREDENTIALS_FILE = 'credentials.json'
+ SHEET_NAME = 'Trade_Signals_Log'
+-OLV_EXITS_TAB_NAME = 'OLV_Exits'
++OLV_EXITS_TAB_NAME = 'OLV_Exits_Primary'
+ STRATEGY_NAME = 'Oversold Low Volume'
+ 
+ PRIMARY_IP, PRIMARY_PORT, PRIMARY_CLIENT_ID = '127.0.0.1', 7496, 99   # = eq_order_entry
+ PA_IP, PA_PORT, PA_CLIENT_ID = '127.0.0.1', 4001, 98                  # = pa_order_entry
+ 
+ # Past this local (ET) time OPG risks rejection (exchange cutoff 9:28) —
+-# fall back to MKT DAY so a late run still exits instead of erroring out.
++# leave the auction exit pending, as Primary does.
+ OPG_CUTOFF = _dt.time(9, 25)
+ 
+ PLACED_JOURNAL = os.path.join(SCRIPT_DIR, 'olv_exit_placed.json')
+@@ -156,6 +159,10 @@
+ 
+ class ExitJournalError(RuntimeError):
+     """The durable exit-intent journal cannot be trusted."""
++
++
++class ExitRowsError(RuntimeError):
++    """The due Primary tranche rows cannot be trusted."""
+ 
+ 
+ def _now_time():
+@@ -248,28 +255,28 @@
+ 
+ 
+ def load_exit_rows(sh, today=None):
+-    """Today's OLV_Exits rows (Execute_On == today, Quantity > 0), one per
+-    confirmed leg, or an empty frame. Schema-guarded: a partially-written /
+-    hand-edited tab degrades to 'no exits' (legs keep their T+10 time
+-    exits), never a crash."""
++    """Due OLV_Exits_Primary rows, one per confirmed PRIMARY tranche, or an
++    empty frame. The scanner stopped writing OLV_Exits on 2026-09-07; PA acts
++    on the same confirmed tranches as Primary. The due set and row integrity
++    come from olv_contract.validate_rows, exactly as olv_exit_primary reads
++    them (Execute_On <= today: a confirmed exit stays owed while Primary
++    holds the tranche). A missing, unreadable or contract-failing tab raises
++    ExitRowsError so main reports failure without connecting to the broker."""
++    from olv_contract import validate_rows
+     try:
+         ws = sh.worksheet(OLV_EXITS_TAB_NAME)
+         raw = pd.DataFrame(ws.get_all_records())
+-    except gspread.WorksheetNotFound:
++    except Exception as e:
++        raise ExitRowsError(f'{OLV_EXITS_TAB_NAME} tab unreadable ({type(e).__name__})') from e
++    if raw.empty:
+         return pd.DataFrame()
++
++    today = today if today is not None else pd.Timestamp.now().normalize()
++    try:
++        live = validate_rows(raw, today, STRATEGY_NAME)
+     except Exception as e:
+-        print(f"[WARN] OLV_Exits tab unreadable ({e}) — no exits this run.")
+-        return pd.DataFrame()
+-    if raw.empty or 'Execute_On' not in raw.columns:
+-        return pd.DataFrame()
+-    missing = [c for c in ('Symbol', 'Quantity') if c not in raw.columns]
+-    if missing:
+-        print(f"[WARN] OLV_Exits tab missing column(s) {missing} — no exits this run.")
+-        return pd.DataFrame()
+-
+-    today = today if today is not None else pd.Timestamp.now().normalize()
+-    live = raw[pd.to_datetime(raw['Execute_On'], errors='coerce').dt.normalize() == today]
+-    live = live[pd.to_numeric(live['Quantity'], errors='coerce').fillna(0) > 0]
++        raise ExitRowsError(f'{OLV_EXITS_TAB_NAME} rows fail the Primary tranche contract '
++                            f'({type(e).__name__})') from e
+     if live.empty:
+         return pd.DataFrame()
+ 
+@@ -789,7 +796,20 @@
+                         f"cancelled {len(cancelled_keys)} leg(s); position flat at place "
+                         f"time (held {held_now}, queued {queued_before}); no sell; "
+                         f"journal {STATE_SKIPPED_FLAT}")
+-    tif = 'DAY' if _now_time() >= OPG_CUTOFF else 'OPG'
++    if _now_time() >= OPG_CUTOFF:
++        trade, status, error = _rearm_time_exit(
++            ib, contract, account, symbol, exit_qty, leg_gat, leg_ref,
++            base_sig + '|missed-auction',
++        )
++        state = STATE_FAILED_REARMED if trade is not None else STATE_FAILED_NO_REARM
++        _journal_quiet(today_str, label, sig, state=state, attempt=attempt,
++                       detail={**detail, 'rearm_status': status,
++                               'rearm_error': str(error or ''),
++                               'cancelled_legs': [list(k) for k in cancelled_keys]})
++        return _row(label, symbol, 'CRITICAL_MISSED_AUCTION_PENDING',
++                    'original time exit rearmed' if trade is not None
++                    else 'time re-arm uncertain; verify in TWS')
++    tif = 'OPG'
+     detail = {
+         **detail,
+         'tif': tif,
+@@ -1026,6 +1046,9 @@
+     docstring) and is only used to flag model/live share drift.
+     """
+     summary = []
++    if _now_time() >= OPG_CUTOFF:
++        return [_row(label, row['Symbol'], 'CRITICAL_MISSED_AUCTION_PENDING')
++                for _, row in rows.iterrows()]
+     owns_connection = connected is None
+     if connected is None:
+         try:
+@@ -1057,10 +1080,6 @@
+             ]
+         claimed_leg_ids = set()
+         queued_qty = {}
+-        if _now_time() >= OPG_CUTOFF:
+-            print(f"[WARN] {label}: past the {OPG_CUTOFF.strftime('%H:%M')} ET OPG "
+-                  f"cutoff — exits go in as MKT DAY instead of opening-auction MOO.")
+-
+         for _, row in rows.iterrows():
+             symbol = row['Symbol']
+             staged_qty = int(row['Quantity'])
+@@ -1097,6 +1116,27 @@
+                      and str(t.order.action).upper() == 'SELL'
+                      and t.order.orderType == 'MKT'
+                      and t.order.orderId not in claimed_leg_ids]
++            entry_ref = str(row.get('entry_order_ref', '') or '').strip()
++            if entry_ref:
++                # The row names a PRIMARY tranche. This account's bracket for
++                # the same signal carries the same SYM|BUY|strategy|date ref,
++                # conId and time-exit date; any other bracket in the symbol is
++                # a different leg, so pick_time_leg's date fallbacks must not
++                # reach it.
++                own_ref = '|'.join(entry_ref.split('|')[:4])
++                cands = [t for t in cands
++                         if _order_ref(t) == own_ref
++                         and int(getattr(t.contract, 'conId', 0) or 0) == int(float(row['con_id']))
++                         and _gat8(t) == texit_raw.replace('-', '')[:8]]
++                if len(cands) > 1:
++                    print(f"      [CRITICAL] {symbol}: {len(cands)} working brackets carry "
++                          f"{own_ref} / time exit {texit_raw}; ambiguous, nothing placed.")
++                    summary.append(_row(label, symbol, 'CRITICAL_AMBIGUOUS_LEG'))
++                    continue
++                if not cands:
++                    print(f"      [INFO] {symbol}: {label} has no working OLV bracket for "
++                          f"tranche {own_ref} (time exit {texit_raw}); checking for an "
++                          f"exit already worked today, else nothing is placed.")
+             journal_rows = _journal_rows_for(placed_already, label, base_sig)
+             # A FRESH row matches its bracket by date (pick_time_leg). A
+             # SAME-DAY RE-RUN matches the exact leg its own journal already
+@@ -1328,6 +1368,9 @@
+                 continue
+             contract = qualified[0]
+ 
++            if _now_time() >= OPG_CUTOFF:
++                summary.append(_row(label, symbol, 'CRITICAL_MISSED_AUCTION_PENDING'))
++                continue
+             # Layer 3 — cancel the bracket's SELL legs (siblings first, the
+             # time leg LAST so a partial failure still leaves the time exit),
+             # confirm they are gone, THEN sell standalone.
+@@ -1462,7 +1505,12 @@
+               f"Legs keep their T+10 time exits.")
+         return 1
+ 
+-    rows = load_exit_rows(sh, today)
++    try:
++        rows = load_exit_rows(sh, today)
++    except Exception as exc:
++        print(f"[CRITICAL] {OLV_EXITS_TAB_NAME} rows unavailable "
++              f"({type(exc).__name__}); no PA broker mutation.")
++        return 1
+     if rows.empty:
+         print("[OK] no OLV vol-confirm exits due today — nothing to place.")
+         return 0
+@@ -1470,6 +1518,11 @@
+     print(f"[OK] {len(rows)} exit leg(s) due today: "
+           + ", ".join(f"{r['Symbol']}({r['Quantity']})" for _, r in rows.iterrows()))
+ 
++    if _now_time() >= OPG_CUTOFF:
++        summary = [_row('PA', row['Symbol'], 'CRITICAL_MISSED_AUCTION_PENDING')
++                   for _, row in rows.iterrows()]
++        send_alert_email(today_str, summary)
++        return exit_code_for(summary)
+     specs = [
+         ('PA', PA_IP, PA_PORT, PA_CLIENT_ID),
+     ]

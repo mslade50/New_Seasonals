@@ -256,6 +256,19 @@ def test_zscore_is_calendar_invariant(holed):
     pd.testing.assert_series_equal(a, b, check_names=False)
 
 
+def test_z10_tape_matches_tape_definition(holed):
+    """z10_tape must reproduce build_pitch_state's z10 on the last bar and
+    stay calendar-invariant; zscore is a different statistic."""
+    clean, union = holed
+    vol21 = clean.pct_change().rolling(21).std()
+    want = clean.pct_change(10).iloc[-1] / (vol21.iloc[-1] * np.sqrt(10))
+    assert pl.z10_tape(clean).iloc[-1] == pytest.approx(want)
+    a = pl.z10_tape(clean).dropna()
+    b = pl.z10_tape(union).reindex(clean.index).dropna()
+    pd.testing.assert_series_equal(a, b, check_names=False)
+    assert not np.allclose(a.iloc[-50:], pl.zscore(clean).iloc[-50:])
+
+
 def test_pct_rank_does_not_pad_across_holes(holed):
     """A hole must not become a synthetic zero-return session. With a 1-day
     lookback the session after a hole has no defined return at all."""
