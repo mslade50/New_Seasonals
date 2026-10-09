@@ -14,14 +14,19 @@ export async function onRequestPost({ request, env }) {
   if (!base(env) || !env.STATUS_TOKEN) return new Response(JSON.stringify({ ok: false, error: "broker not configured" }), { status: 503, headers: H });
   let body;
   try { body = await request.json(); } catch { return new Response(JSON.stringify({ ok: false, error: "bad json" }), { status: 400, headers: H }); }
+  // strike_center re-centres the returned strike band (any ticker/expiry). Only
+  // forwarded when numeric; agents that predate it ignore the key.
+  const out = {
+    ticker: body.ticker, mode: body.mode || "full", expiry: body.expiry || null,
+    max_expiries: body.max_expiries || null, context: body.context || null,
+  };
+  const center = Number(body.strike_center);
+  if (body.strike_center != null && isFinite(center) && center > 0) out.strike_center = center;
   try {
     const r = await fetch(`${base(env)}/workbench`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.STATUS_TOKEN}` },
-      body: JSON.stringify({
-        ticker: body.ticker, mode: body.mode || "full", expiry: body.expiry || null,
-        max_expiries: body.max_expiries || null, context: body.context || null,
-      }),
+      body: JSON.stringify(out),
     });
     return new Response(JSON.stringify(await r.json().catch(() => ({}))), { status: r.status, headers: H });
   } catch (e) {

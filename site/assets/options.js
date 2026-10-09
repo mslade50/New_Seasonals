@@ -48,7 +48,7 @@ const state = {
 async function initOptions() {
   renderNav("options.html");
   state.params = parseParams();
-  state.section = state.params.section || (state.params.ticker ? "ideas" : "moontower");
+  state.section = state.params.section || (state.params.legs ? "custom" : state.params.ticker ? "ideas" : "moontower");
   state.manual.view = isShort() ? "bearish" : "bullish";
   state.manual.horizon = state.params.hold || 10;
   state.manual.risk = state.params.risk || 1500;
@@ -82,7 +82,13 @@ async function initOptions() {
   renderMoontowerOverview();
   await pollExec();
   state.pollTimer = setInterval(pollExec, 8000);
-  if (state.params.ticker) {
+  if (state.section === "custom" || state.params.legs) {
+    initCustom(state.params.ticker ? {
+      ticker: state.params.ticker, legs: ocParseLegs(state.params.legs),
+      qty: state.params.qty > 0 ? Math.floor(state.params.qty) : null,
+      limit: state.params.limit > 0 ? state.params.limit : null,
+    } : null);
+  } else if (state.params.ticker) {
     document.getElementById("wbTicker").value = state.params.ticker;
     loadTicker();
   }
@@ -99,12 +105,13 @@ function parseParams() {
     texit: q.get("texit") || null, fw: num("fw"),
     strategy: q.get("strategy") || null, sig: q.get("sig") || null,
     cond: q.get("cond") || null,
-    section: ["moontower", "ideas"].includes(q.get("section")) ? q.get("section") : null,
+    legs: q.get("legs") || null, qty: num("qty"), limit: num("limit"),
+    section: ["moontower", "ideas", "custom"].includes(q.get("section")) ? q.get("section") : null,
   };
 }
 
 function switchOptionsSection(section) {
-  state.section = section === "ideas" ? "ideas" : "moontower";
+  state.section = ["ideas", "custom"].includes(section) ? section : "moontower";
   document.querySelectorAll("[data-opt-section]").forEach((button) => {
     const active = button.dataset.optSection === state.section;
     button.classList.toggle("ghost", !active);
@@ -114,7 +121,16 @@ function switchOptionsSection(section) {
   const ideas = document.getElementById("ideasSection");
   if (moon) moon.hidden = state.section !== "moontower";
   if (ideas) ideas.hidden = state.section !== "ideas";
-  document.querySelectorAll(".opt-trade-only").forEach((el) => { el.hidden = state.section !== "ideas"; });
+  const custom = document.getElementById("customSection");
+  if (custom) {
+    custom.hidden = state.section !== "custom";
+    if (state.section === "custom" && !custom.dataset.ready) { custom.dataset.ready = "1"; initCustom(null); }
+  }
+  const tb = document.getElementById("mainToolbar");
+  if (tb) tb.hidden = state.section === "custom";
+  document.querySelectorAll(".opt-trade-only").forEach((el) => {
+    el.hidden = state.section === "moontower" || (state.section === "custom" && el.id !== "modeBanner");
+  });
 }
 
 function hasSignal() { const p = state.params; return !!(p.entry && p.stop && p.risk); }
@@ -149,10 +165,11 @@ function shell() {
     <div class="opt-section-switch" role="tablist" aria-label="Options workspace">
       <button class="btn" role="tab" data-opt-section="moontower">Moontower</button>
       <button class="btn ghost" role="tab" data-opt-section="ideas">Our Trade Ideas</button>
+      <button class="btn ghost" role="tab" data-opt-section="custom">Custom spread</button>
       <span class="cap">Screen the volatility surface first; express a thesis second.</span>
     </div>
     <div id="modeBanner" class="opt-trade-only"></div>
-    <div class="card opt-toolbar">
+    <div class="card opt-toolbar" id="mainToolbar">
       <label><span>Ticker</span><input id="wbTicker" placeholder="SPY" style="text-transform:uppercase"></label>
       <label class="opt-trade-only"><span>View</span><select id="wbView">
         <option value="bullish"${view === "bullish" ? " selected" : ""}>Bullish</option>
@@ -174,6 +191,7 @@ function shell() {
       <div id="termLab"></div>
       <div id="positioningLab"></div>
     </section>
+    <section id="customSection" role="tabpanel" hidden></section>
     <section id="ideasSection" role="tabpanel" hidden>
       <div id="ideaBridge"></div>
       ${signalContextHtml(p)}
@@ -1968,8 +1986,39 @@ function canonicalPayloadLegs(struct, expiry, action) {
     // A SELL parent inverts the canonical BUY combo. The UI keeps the desired
     // trade sides; the BAG definition flips them for a credit parent order.
     side: action === "SELL" ? (l.side === "BUY" ? "SELL" : "BUY") : l.side,
-    right: l.row.right, expiry: l.row.expiry || expiry, strike: l.row.strike, ratio: 1, con_id: l.row.con_id || null,
+    right: l.row.right, expiry: l.row.expiry || expiry, strike: l.row.strike, ratio: l.ratio || 1, con_id: l.row.con_id || null,
   }));
+}
+
+/* The one place the option_spread payload is assembled (shootout ticket and
+   Custom spread builder both call it). Contract with the desktop executor:
+   debit_risk == risk premium per spread (debit for debit structures, width
+   minus credit for credit verticals); legs flipped for a SELL parent. No quantity
+   or risk cap lives here. Returns {error} or {payload, riskPremium, action, snapped}. */
+function buildOptionSpreadPayload({ struct: s, symbol, expiry, qty, limit, tif, params }) {
+  const p = params || {};
+  if (s.width != null && limit >= s.width) {
+    return { error: `BLOCKED: net ${s.credit ? "credit" : "debit"} ${limit} >= width ${s.width}` };
+  }
+  const action = s.credit ? "SELL" : "BUY";
+  const snapped = snapNetLimit(limit, action);
+  const riskPremium = s.credit ? s.width - snapped : snapped;
+  if (!(riskPremium > 0)) return { error: "BLOCKED: defined max risk must be > 0" };
+  const payload = {
+    symbol,
+    action,
+    quantity: qty,
+    limit: snapped,
+    tif: tif || "DAY",
+    structure: s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+    debit_risk: riskPremium,            // backward-compatible max-risk premium basis
+    risk_per_unit: riskPremium,
+    credit: !!s.credit,
+    legs: canonicalPayloadLegs(s, expiry, action),
+    strategy: p.strategy || null, signal_date: p.sig || null,
+    entry_condition: p.cond || null,
+  };
+  return { payload, riskPremium, action, snapped };
 }
 
 function sendOptionOrder() {
@@ -1984,25 +2033,12 @@ function sendOptionOrder() {
   const limit = Number(document.getElementById("tk_limit").value);
   if (!(qty > 0) || !Number.isInteger(qty)) { msg.textContent = "BLOCKED: qty must be a positive integer"; return; }
   if (!(limit > 0)) { msg.textContent = "BLOCKED: limit must be > 0"; return; }
-  if (s.width != null && limit >= s.width) { msg.textContent = `BLOCKED: net ${s.credit ? "credit" : "debit"} ${limit} >= width ${s.width}`; return; }
-  const action = s.credit ? "SELL" : "BUY";
-  const snapped = snapNetLimit(limit, action);
-  const riskPremium = s.credit ? s.width - snapped : snapped;
-  if (!(riskPremium > 0)) { msg.textContent = "BLOCKED: defined max risk must be > 0"; return; }
-  const payload = {
-    symbol: wb.ticker,
-    action,
-    quantity: qty,
-    limit: snapped,
-    tif: document.getElementById("tk_tif").value || "DAY",
-    structure: s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
-    debit_risk: riskPremium,            // backward-compatible max-risk premium basis
-    risk_per_unit: riskPremium,
-    credit: !!s.credit,
-    legs: canonicalPayloadLegs(s, wb.chain.expiry, action),
-    strategy: p.strategy || null, signal_date: p.sig || null,
-    entry_condition: p.cond || null,
-  };
+  const built = buildOptionSpreadPayload({
+    struct: s, symbol: wb.ticker, expiry: wb.chain.expiry, qty, limit,
+    tif: document.getElementById("tk_tif").value || "DAY", params: p,
+  });
+  if (built.error) { msg.textContent = built.error; return; }
+  const { payload, riskPremium, action } = built;
   const legsTxt = s.legs.map((l) => `${l.side[0]}${l.row.strike}${l.row.right}`).join("/");
   const expiryLabel = [...new Set(s.legs.map((l) => l.row.expiry || wb.chain.expiry))].join("/");
   const riskDollars = riskPremium * 100 * qty + commRT(s) * qty;
@@ -2090,7 +2126,9 @@ function stateBadge(st) {
   return `<span style="color:${c};font-weight:600">${esc(t)}</span>`;
 }
 function renderActivity() {
-  const el = document.getElementById("activity");
+  for (const id of ["activity", "customActivity"]) renderActivityInto(document.getElementById(id));
+}
+function renderActivityInto(el) {
   if (!el) return;
   const cmds = state.commands || [];
   if (!cmds.length) { el.innerHTML = ""; return; }

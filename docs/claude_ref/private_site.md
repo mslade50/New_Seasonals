@@ -293,3 +293,14 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   best effort off the `atr_seasonal_ranks.parquet` R2 pull) and moves
   Heatmaps/Correlations into a right-side "More" dropdown. Frontend:
   `shared_site/risk.html` + `site/assets/risk.js` shared-mode guards.
+
+## Options tab: Custom spread builder
+
+- `site/assets/options-custom.js` (loaded after `options.js`, shares its globals) adds a third section, "Custom spread". Any ticker (no allowlist; the desktop agent qualifies it), any listed expiry (`all_expiries` from the workbench result when present, else `expiries`; picking one re-queries `mode:"chain"`), a calls/puts strike ladder (click bid = SELL, ask = BUY, up to 4 legs, integer ratio per leg), net at mid/natural, piecewise expiry payoff (max loss/gain, breakevens, unbounded tails labelled), qty, limit, TIF.
+- **No client-side qty or risk cap** anywhere (builder or shootout ticket); `functions/exec-command.js` has none either. The confirm shows total max loss for the full quantity as information. The `risk_ack` flag is still attached when NLV is unknown or max loss exceeds 5% of NLV (the agent requires it); the custom builder folds that into its single confirm. The only caps are the desktop executor's.
+- ONE payload builder: `buildOptionSpreadPayload` in `options.js` serves the shootout ticket and the builder, so the `option_spread` contract (`debit_risk` = risk premium per spread, credit legs flipped for a SELL parent, `ratio`, `con_id`) is identical. Do not fork it.
+- `OC_EXEC_CAPS` mirrors what the executor places today (one long option or a 1:1 same-expiry vertical). Wider shapes (ratios, condors, mixed expiry) are analysed but the send button refuses with the reason; flip the caps when the executor learns them (and teach the builder their `debit_risk` basis first).
+- `strike_center` is forwarded by `functions/exec-workbench.js` when numeric; an agent that ignores it returns its default band and the UI says so.
+- Prefill: `options.html?ticker=SPY&legs=P:748:2026-11-30:+1,P:720:2026-11-30:-1&qty=3&limit=3.20` (expiry also accepted as YYYYMMDD; `+` may be sent as `%2B`). Legs on other expiries than the first are dropped.
+- Risk Agent tab: option cards carry a "Stage in Options" link built from the order's legs and `structure_qty` (`raStageHref`). The tab stays display only otherwise.
+- Guards: `tests/js/test_options_custom.js`, `tests/js/test_risk_agent_tab.js`, `tests/js/test_options_lab.js`, `tests/js/test_execution_intents.mjs`.

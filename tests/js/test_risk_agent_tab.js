@@ -53,8 +53,15 @@ assert.ok(html.indexOf("5 td") < html.indexOf("21 td"));
 // escaping: no raw markup from any text field survives
 assert.ok(!html.includes("<img"), "raw img tag leaked");
 assert.ok(html.includes("&lt;img src=x onerror=alert(1)&gt;"));
-// display only: no buttons, no stage/execution links
+// display only: no buttons, no execution links; option cards (only) link to the Options builder
 assert.ok(!/<button/i.test(html) && !/execution\.html|stage=/i.test(html), "must be display only");
+assert.strictEqual((html.match(/Stage in Options/g) || []).length, 1, "option card only, not the ETF card");
+assert.ok(html.includes('href="options.html?ticker=SPY&amp;legs=P:500:2026-11-20:%2B1&amp;qty=2"'), "stage href");
+const vert = RA.raStageHref({ instrument: "SPY x3", qty: 3, structure_qty: 3, option: { legs: [
+  { right: "P", strike: 748, expiry: "2026-11-30", qty: 1 }, { right: "P", strike: 720, expiry: "2026-11-30", qty: -1 }] } });
+assert.strictEqual(vert, "options.html?ticker=SPY&legs=P:748:2026-11-30:%2B1,P:720:2026-11-30:-1&qty=3");
+assert.strictEqual(RA.raStageHref({ kind: "etf", instrument: "XLE" }), null);
+assert.strictEqual(RA.raStageHref({ instrument: "X", option: { legs: [{ right: "P", strike: 1, expiry: "bad", qty: 1 }] } }), null);
 
 // stand-down and sparse payloads do not throw
 const hold = RA.renderRiskAgent({ asof: "2026-10-09", mode: "stand_down", reason: "feed late", posture: {}, scoreboard: {} });

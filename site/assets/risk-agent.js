@@ -87,6 +87,32 @@ function raKpi(label, value, sub) {
     (sub ? `<div class="s">${raEsc(sub)}</div>` : "") + "</div>";
 }
 
+/* Link into the Options tab's Custom spread builder with the agent's exact
+   legs. Format: legs=R:strike:YYYY-MM-DD:+n,... (plus percent-encoded). Option
+   cards only; the Risk Agent tab itself stays display only. */
+function raStageHref(o) {
+  const opt = o && o.option;
+  const legs = opt && Array.isArray(opt.legs) ? opt.legs : [];
+  if (!legs.length) return null;
+  const sym = String(o.underlying || opt.underlying || String(o.instrument || "").split(/[\s:]/)[0] || "").toUpperCase();
+  const parts = [];
+  for (const l of legs) {
+    const q = raNum(l.qty), k = raNum(l.strike);
+    const right = String(l.right || "").toUpperCase();
+    const exp = String(l.expiry || "");
+    if (!q || !Number.isInteger(q) || !(k > 0) || !["C", "P"].includes(right) || !/^\d{4}-?\d{2}-?\d{2}$/.test(exp)) return null;
+    const iso = exp.includes("-") ? exp : `${exp.slice(0, 4)}-${exp.slice(4, 6)}-${exp.slice(6, 8)}`;
+    parts.push(`${right}:${k}:${iso}:${q < 0 ? q : "%2B" + q}`);
+  }
+  if (!/^[A-Z0-9.\-]{1,12}$/.test(sym)) return null;
+  const qty = raNum(o.structure_qty != null ? o.structure_qty : opt.structure_qty != null ? opt.structure_qty : o.qty);
+  let href = `options.html?ticker=${encodeURIComponent(sym)}&legs=${parts.join(",")}`;
+  if (qty > 0 && Number.isInteger(qty)) href += `&qty=${qty}`;
+  const lim = o.entry && o.entry.type === "LIMIT" ? raNum(o.entry.limit) : null;
+  if (lim > 0) href += `&limit=${lim}`;
+  return href;
+}
+
 function raCard(o) {
   const opt = o.option;
   const lines = [];
@@ -100,6 +126,8 @@ function raCard(o) {
       `${raNum(opt.stress_move) != null ? ` (stress +${(opt.stress_move * 100).toFixed(0)}%)` : ""}</div>`);
     const legs = (opt.legs || []).map((l) => `${raPlain(l.qty)} ${raPlain(l.right)} ${raPlain(l.strike)} ${raPlain(l.expiry)}`).join(" / ");
     if (legs) lines.push(`<div class="note">Legs: ${legs}</div>`);
+    const href = raStageHref(o);
+    if (href) lines.push(`<div class="note"><a href="${raEsc(href)}">Stage in Options</a></div>`);
   }
   [["Thesis", o.thesis], ["Evidence", o.evidence], ["Survived", o.survived], ["What kills it", o.what_kills_it]]
     .forEach(([k, v]) => { if (v) lines.push(`<div><b>${k}:</b> ${raEsc(v)}</div>`); });
@@ -216,6 +244,6 @@ function main() {
 
 if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", main);
 if (typeof module !== "undefined") module.exports = {
-  renderRiskAgent, renderMissing, renderFailure, loadRiskAgent, raEsc, raSparkline, raCurve,
+  renderRiskAgent, renderMissing, renderFailure, loadRiskAgent, raEsc, raSparkline, raCurve, raStageHref,
   RA_ENDPOINT,
 };
