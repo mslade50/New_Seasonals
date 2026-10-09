@@ -48,7 +48,7 @@ const state = {
 async function initOptions() {
   renderNav("options.html");
   state.params = parseParams();
-  state.section = state.params.section || (state.params.legs ? "custom" : state.params.ticker ? "ideas" : "moontower");
+  state.section = state.params.section || (state.params.legs || state.params.roll ? "custom" : state.params.ticker ? "ideas" : "moontower");
   state.manual.view = isShort() ? "bearish" : "bullish";
   state.manual.horizon = state.params.hold || 10;
   state.manual.risk = state.params.risk || 1500;
@@ -82,7 +82,13 @@ async function initOptions() {
   renderMoontowerOverview();
   await pollExec();
   state.pollTimer = setInterval(pollExec, 8000);
-  if (state.section === "custom" || state.params.legs) {
+  if (state.params.roll && state.params.ticker) {
+    // Roll mode from the Execution tab: held legs locked as the closing side.
+    initCustom({ ticker: state.params.ticker, legs: [],
+      qty: state.params.qty > 0 ? Math.floor(state.params.qty) : null,
+      roll: { symbol: state.params.ticker, account: state.params.acct, legs: ocParseRollLegs(state.params.roll),
+        rows: new Map(), fresh: null, error: null } });
+  } else if (state.section === "custom" || state.params.legs) {
     initCustom(state.params.ticker ? {
       ticker: state.params.ticker, legs: ocParseLegs(state.params.legs),
       qty: state.params.qty > 0 ? Math.floor(state.params.qty) : null,
@@ -106,6 +112,7 @@ function parseParams() {
     strategy: q.get("strategy") || null, sig: q.get("sig") || null,
     cond: q.get("cond") || null,
     legs: q.get("legs") || null, qty: num("qty"), limit: num("limit"),
+    roll: q.get("roll") || null, acct: ["primary", "pa"].includes(q.get("acct")) ? q.get("acct") : "primary",
     section: ["moontower", "ideas", "custom"].includes(q.get("section")) ? q.get("section") : null,
   };
 }
@@ -2251,7 +2258,7 @@ async function pollExec() {
   ]);
   state.status = st || { online: false };
   state.book = (bk && bk.book) || null;
-  state.commands = ((cm && cm.commands) || []).filter((c) => c.type === "option_spread" || c.type === "echo");
+  state.commands = ((cm && cm.commands) || []).filter((c) => ["option_spread", "option_close", "option_roll", "echo"].includes(c.type));
   const dot = document.getElementById("connDot");
   if (dot) dot.textContent = state.status.online ? "agent online" : "agent offline";
   setAsof(state.status.online ? "execution online" : "execution offline");

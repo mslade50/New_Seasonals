@@ -27,7 +27,40 @@ const ocState = {
   legs: [], qty: 1, limit: null, limitTouched: false, tif: "DAY",
   center: null, centerRequested: null, note: "", loading: false, seq: 0,
   prefill: null, recentredOnce: false, netMode: null,
+  fresh: null,          // quote freshness of the last workbench result (optQuoteFreshness)
+  blocked: null,        // blocking banner: nothing can be sent while set
+  cols: null,           // ladder columns (ocLoadCols)
+  roll: null,           // roll mode (options-roll.js): closing legs locked
 };
+
+/* Ladder columns (TWS-style): default bid, ask, delta, IV, OI. bid/ask cells are
+   the click targets (click bid = SELL, click ask = BUY). */
+const OC_COLUMNS = {
+  bid: { label: "bid", d: 2 }, ask: { label: "ask", d: 2 }, mid: { label: "mid", d: 2 },
+  last: { label: "last", d: 2 }, iv: { label: "IV", pct: true }, delta: { label: "delta", d: 2 },
+  gamma: { label: "gamma", d: 4 }, theta: { label: "theta", d: 3 }, vega: { label: "vega", d: 3 },
+  oi: { label: "OI", int: true }, volume: { label: "vol", int: true },
+};
+const OC_DEFAULT_COLS = ["bid", "ask", "delta", "iv", "oi"];
+function ocNormCols(cols) {
+  const want = (Array.isArray(cols) ? cols : []).filter((c) => OC_COLUMNS[c]);
+  for (const c of ["bid", "ask"]) if (!want.includes(c)) want.unshift(c);   // the click targets never disappear
+  return Object.keys(OC_COLUMNS).filter((c) => want.includes(c));
+}
+function ocLoadCols() {
+  try { const v = JSON.parse(localStorage.getItem("oc_cols") || "null"); if (Array.isArray(v)) return ocNormCols(v); } catch (_) { /* default */ }
+  return OC_DEFAULT_COLS.slice();
+}
+function ocSaveCols(cols) { try { localStorage.setItem("oc_cols", JSON.stringify(cols)); } catch (_) { /* per-viewer only */ } }
+
+/* Quote freshness; option-positions.js holds the shared rule when loaded. */
+function ocFreshness(res) {
+  return typeof optQuoteFreshness === "function" ? optQuoteFreshness(res) : null;
+}
+const OC_NO_EXITS_TEXT = "No automatic stop, target or time exit is attached. You must close or roll this position yourself: Execution tab > the position row > Close... / Roll... (execution.html#positions).";
+function ocStaleText(fresh) {
+  return fresh && fresh.stale ? `\n\n[WARN] Quotes are ${fresh.text}: the default limit was taken from that mid and may not be tradeable. Check the price against TWS.` : "";
+}
 
 /* ---------------- pure helpers (unit-tested) ---------------- */
 
@@ -279,6 +312,7 @@ async function ocFetch(mode, expiry, center) {
     if (mode === "full") ocState.result = res;
     if (res.chain) {
       ocState.chain = res.chain; ocState.spot = res.spot; ocState.expiry = ocNormExpiry(res.chain.expiry);
+      ocState.fresh = ocFreshness(res);
     } else {
       ocSetMsg(res.chain_error || "no chain returned for that expiry");
       ocState.loading = false; renderCustom(); return false;
@@ -304,6 +338,8 @@ async function ocLoadTicker(ticker) {
   if (t !== ocState.ticker) {
     ocState.ticker = t; ocState.expiries = []; ocState.chain = null; ocState.legs = [];
     ocState.limitTouched = false; ocState.limit = null; ocState.recentredOnce = false;
+    if (!ocState.prefill) ocState.blocked = null;
+    if (ocState.roll && ocState.roll.symbol !== t) ocState.roll = null;     // roll mode is bound to its underlying
   }
   const ok = await ocFetch("full", null, null);
   if (!ok) return;
@@ -314,21 +350,51 @@ async function ocLoadTicker(ticker) {
   }
   if (pf && pf.legs.length) {
     ocState.prefill = null;
-    const want = pf.legs[0].expiry;
-    ocState.legs = pf.legs.filter((l) => l.expiry === want).map((l) => ({ right: l.right, strike: l.strike, side: l.side, ratio: l.ratio }));
-    ocState.note = pf.legs.length !== ocState.legs.length ? "Prefill legs on other expiries than the first were dropped (add them from the ladder to build a calendar/diagonal)." : "";
+    const plan = ocPrefillPlan(pf.legs);
+    if (plan.error) {
+      // Never drop a leg silently: a calendar missing its long leg is a naked short.
+      ocState.legs = [];
+      ocState.blocked = `Prefill refused: ${plan.error}. Nothing was loaded; build the structure from the ladder.`;
+      renderCustom();
+      return;
+    }
+    ocState.blocked = null;
     if (pf.qty) ocState.qty = pf.qty;
     if (pf.limit) { ocState.limit = pf.limit; ocState.limitTouched = true; }
-    if (ocState.expiry !== want) await ocFetch("chain", want, null);
-    const missing = ocState.legs.filter((l) => !ocFindRow(ocState.chain, l.right, l.strike));
-    if (missing.length && !ocState.recentredOnce) {
-      ocState.recentredOnce = true;
-      const c = ocState.legs.reduce((a, l) => a + l.strike, 0) / ocState.legs.length;
-      await ocFetch("chain", want, c);
+    // One chain per expiry, centred on that expiry's strikes; every leg is pinned
+    // to its own expiry with a quote snapshot. A leg missing from the returned
+    // strikes stays listed (shown as missing, blocks sending); none is dropped.
+    const legs = [];
+    for (const exp of plan.expiries) {
+      const mine = pf.legs.filter((l) => l.expiry === exp);
+      await ocFetch("chain", exp, mine.reduce((a, l) => a + l.strike, 0) / mine.length);
+      const here = ocState.chain && ocNormExpiry(ocState.chain.expiry) === exp;
+      for (const l of mine) {
+        const row = here ? ocFindRow(ocState.chain, l.right, l.strike) : null;
+        legs.push({ right: l.right, strike: l.strike, side: l.side, ratio: l.ratio, expiry: exp, row: row ? { ...row, expiry: exp } : null });
+      }
     }
-    ocFreezeLegs();
+    ocState.legs = legs;
+    ocState.note = plan.expiries.length > 1
+      ? `Calendar/diagonal prefill: legs on ${plan.expiries.map(ocIsoExpiry).join(" and ")} (the ladder shows the last expiry).` : "";
     renderCustom();
   }
+}
+
+/* Prefill legs -> {expiries} or {error}: at most 4 legs on at most 2 expiries,
+   and two expiries only as the covered 2-leg debit calendar/diagonal the
+   executor accepts (OPTION_COMBO_SPEC.md). Anything else is refused whole,
+   never trimmed to the first expiry. */
+function ocPrefillPlan(legs) {
+  if (!legs || !legs.length) return { error: "no legs" };
+  if (legs.length > OC_MAX_LEGS) return { error: `${legs.length} legs (the executor accepts at most ${OC_MAX_LEGS})` };
+  const expiries = [...new Set(legs.map((l) => l.expiry))].sort();
+  if (expiries.length > 2) return { error: `legs span ${expiries.length} expiries (at most 2: a covered calendar/diagonal)` };
+  if (expiries.length === 2) {
+    const chk = comboCheckStructure("BUY", legs.map((l) => ({ side: l.side, right: l.right, expiry: l.expiry, strike: l.strike, ratio: l.ratio })));
+    if (chk.error) return { error: `the two-expiry legs are not an accepted calendar/diagonal (${chk.error})` };
+  }
+  return { expiries };
 }
 
 /* ---------------- render ---------------- */
@@ -348,7 +414,9 @@ function ocShell() {
       <span id="ocMsg" class="cap"></span>
     </div>
     <div id="ocNote" class="cap" style="margin-top:6px;color:#ffc14d"></div>
+    <div id="ocBlocked" style="margin-top:6px"></div>
   </div>
+  <div id="ocRoll"></div>
   <div id="ocLadder"></div>
   <div id="ocLegs"></div>
   <div class="card" style="margin-bottom:12px" id="ocOrderCard">
@@ -359,7 +427,7 @@ function ocShell() {
       <label class="cap">Net</label><select id="oc_net"><option value="">auto (from mid)</option><option value="debit">debit</option><option value="credit">credit</option></select>
       <span class="cap">Account: <b>primary</b> (PA options remain disabled)</span>
     </div>
-    <div class="cap" style="margin-bottom:8px">Combos have no one-click close: unwind by sending the reverse structure as a new order (a reversed calendar is not an accepted structure, so calendars/diagonals must be closed in TWS). Net-short-call structures are UNBOUNDED and need an extra confirmation.</div>
+    <div class="cap" style="margin-bottom:8px">No automatic stop, target or time exit is attached to an option order: close or roll it yourself from the <a href="execution.html#positions">Execution tab</a> (position row: Close&hellip; / Roll&hellip;). Net-short-call structures are UNBOUNDED and need an extra confirmation.</div>
     <div id="ocStats"></div>
     <button class="btn" id="oc_send" style="margin-top:8px">Preview / stage</button>
     <span id="oc_msg" class="cap" style="margin-left:10px"></span>
@@ -387,6 +455,15 @@ function ocWireShell() {
   $("oc_tif").addEventListener("change", () => { ocState.tif = $("oc_tif").value; });
   $("oc_net").addEventListener("change", () => { ocState.netMode = $("oc_net").value || null; ocState.limitTouched = false; renderCustom(); });
   $("oc_send").addEventListener("click", sendCustomOrder);
+  $("ocLadder").addEventListener("change", (e) => {
+    const c = e.target.dataset && e.target.dataset.ocCol;
+    if (!c) return;
+    const cur = new Set(ocState.cols || ocLoadCols());
+    if (e.target.checked) cur.add(c); else cur.delete(c);
+    ocState.cols = ocNormCols([...cur]);
+    ocSaveCols(ocState.cols);
+    renderCustomLadder();
+  });
   $("ocLadder").addEventListener("click", (e) => {
     const b = e.target.closest("[data-oc-add]");
     if (!b) return;
@@ -415,11 +492,12 @@ function ocWireShell() {
   });
 }
 
-function renderCustomLadder() {
-  const el = document.getElementById("ocLadder");
-  if (!el) return;
-  const chain = ocState.chain;
-  if (!chain) { el.innerHTML = ""; return; }
+/* Pure ladder HTML: calls | strike | puts with the selected columns, the ATM
+   row highlighted, bid cells = SELL buttons and ask cells = BUY buttons. A
+   value IBKR did not supply renders as "-". */
+function ocLadderHtml({ chain, spot, legs, cols, ticker, fresh }) {
+  if (!chain) return "";
+  const columns = ocNormCols(cols || OC_DEFAULT_COLS);
   const by = new Map();
   for (const r of chain.strikes || []) {
     const k = Number(r.strike);
@@ -427,30 +505,52 @@ function renderCustomLadder() {
     by.get(k)[r.right] = r;
   }
   const strikes = [...by.keys()].sort((a, b) => a - b);
-  const spot = Number(ocState.spot);
+  const sp = Number(spot);
   let atm = null;
-  strikes.forEach((k) => { if (atm == null || Math.abs(k - spot) < Math.abs(atm - spot)) atm = k; });
+  strikes.forEach((k) => { if (atm == null || Math.abs(k - sp) < Math.abs(atm - sp)) atm = k; });
   const curExp = ocNormExpiry(chain.expiry);
-  const sel = (right, k, side) => ocState.legs.some((l) => l.right === right && l.strike === k && l.side === side && (!l.expiry || l.expiry === curExp));
-  const cell = (right, k, side, v) => {
-    if (v == null) return '<td class="r">-</td>';
-    const on = sel(right, k, side);
-    return `<td class="r"><button class="btn xs${on ? "" : " ghost"}" data-oc-add="${right}|${k}|${side}" title="${side === "BUY" ? "buy at the ask" : "sell at the bid"}">${ocNum(v)}</button></td>`;
+  const sel = (right, k, side) => (legs || []).some((l) => l.right === right && l.strike === k && l.side === side && (!l.expiry || l.expiry === curExp));
+  const fmtv = (c, v) => {
+    if (v == null || v === "" || !isFinite(Number(v))) return "-";
+    const d = OC_COLUMNS[c];
+    if (d.pct) return (Number(v) * 100).toFixed(1);
+    if (d.int) return String(Math.round(Number(v)));
+    return Number(v).toFixed(d.d);
   };
-  const side = (right, k) => {
+  const cell = (r, right, k, c) => {
+    const v = c === "mid" ? ocMid(r) : r[c];
+    if ((c === "bid" || c === "ask") && v != null) {
+      const side = c === "bid" ? "SELL" : "BUY";
+      const on = sel(right, k, side);
+      return `<td class="r"><button class="btn xs${on ? "" : " ghost"}" data-oc-add="${right}|${k}|${side}" title="${side === "BUY" ? "buy at the ask" : "sell at the bid"}">${fmtv(c, v)}</button></td>`;
+    }
+    return `<td class="r">${fmtv(c, v)}</td>`;
+  };
+  const half = (right, k) => {
     const r = (by.get(k) || {})[right];
-    if (!r) return '<td class="r" colspan="5">-</td>';
-    return `${cell(right, k, "SELL", r.bid)}${cell(right, k, "BUY", r.ask)}<td class="r">${ocNum(ocMid(r))}</td>` +
-      `<td class="r">${r.iv != null ? (Number(r.iv) * 100).toFixed(1) : "-"}</td><td class="r">${ocNum(r.delta, 2)}</td>`;
+    if (!r) return `<td class="r" colspan="${columns.length}">-</td>`;
+    return columns.map((c) => cell(r, right, k, c)).join("");
   };
-  const head = ["bid", "ask", "mid", "iv", "delta"].map((h) => `<th class="r">${h}</th>`).join("");
-  const rows = strikes.map((k) => `<tr${k === atm ? ' style="background:rgba(77,163,255,.10)"' : ""}>${side("C", k)}<td class="c"><b>${k}</b></td>${side("P", k)}</tr>`).join("");
-  el.innerHTML = `<div class="card" style="margin-bottom:12px">
-    <div style="font:700 14px inherit;margin-bottom:6px">Strike ladder - ${esc(ocState.ticker)} ${esc(ocIsoExpiry(chain.expiry))}
-      <span class="cap" style="display:inline;font-weight:400">- spot ${ocNum(ocState.spot)} - ${chain.dte != null ? chain.dte + "d" : ""} - click a bid to SELL, an ask to BUY (calls left, puts right)</span></div>
+  const head = columns.map((c) => `<th class="r">${OC_COLUMNS[c].label}</th>`).join("");
+  const rows = strikes.map((k) => `<tr${k === atm ? ' class="oc-atm" style="background:rgba(77,163,255,.18);font-weight:600"' : ""}>${half("C", k)}<td class="c"><b>${k}</b>${k === atm ? ' <span class="cap" style="display:inline">ATM</span>' : ""}</td>${half("P", k)}</tr>`).join("");
+  const badge = fresh ? ` <span style="font-weight:700;color:${fresh.stale ? "#ff6b6b" : "#3ddb8f"}">${esc(fresh.label)}</span> <span class="cap" style="display:inline">${esc(fresh.text)}</span>` : "";
+  const picks = Object.keys(OC_COLUMNS).filter((c) => c !== "bid" && c !== "ask").map((c) =>
+    `<label class="cap" style="display:inline;margin-right:8px"><input type="checkbox" data-oc-col="${c}"${columns.includes(c) ? " checked" : ""}> ${OC_COLUMNS[c].label}</label>`).join("");
+  return `<div class="card" style="margin-bottom:12px">
+    <div style="font:700 14px inherit;margin-bottom:6px">Strike ladder - ${esc(ticker || "")} ${esc(ocIsoExpiry(chain.expiry))}${badge}
+      <span class="cap" style="display:inline;font-weight:400">- spot ${ocNum(spot)} - ${chain.dte != null ? chain.dte + "d" : ""} - click a bid to SELL, an ask to BUY (calls left, puts right)</span></div>
+    <div style="margin-bottom:6px"><span class="cap" style="display:inline;margin-right:8px">Columns:</span>${picks}</div>
     <div class="tblwrap" style="max-height:420px;overflow:auto"><table class="tbl"><thead>
-      <tr><th colspan="5" class="c">CALLS</th><th></th><th colspan="5" class="c">PUTS</th></tr>
+      <tr><th colspan="${columns.length}" class="c">CALLS</th><th></th><th colspan="${columns.length}" class="c">PUTS</th></tr>
       <tr>${head}<th class="c">strike</th>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function renderCustomLadder() {
+  const el = document.getElementById("ocLadder");
+  if (!el) return;
+  if (!ocState.cols) ocState.cols = ocLoadCols();
+  el.innerHTML = ocLadderHtml({ chain: ocState.chain, spot: ocState.spot, legs: ocState.legs, cols: ocState.cols,
+    ticker: ocState.ticker, fresh: ocState.fresh });
 }
 
 function renderCustomLegs() {
@@ -511,6 +611,7 @@ function ocCurrentSpot() { return ocSpotUsed(ocState.result, ocState.chain, ocSt
 function renderCustomStats() {
   const el = document.getElementById("ocStats");
   if (!el) return;
+  if (ocState.roll && typeof renderRollStats === "function") { renderRollStats(el); return; }
   const st = ocComputeStats(ocState.legs, ocState.chain, ocState.qty, ocState.limit, ocState.netMode, ocCurrentSpot());
   const lab = document.getElementById("oc_limit_label");
   if (!st) { el.innerHTML = ""; return; }
@@ -556,6 +657,7 @@ function renderCustomStats() {
     <div class="k">Total risk, ${qOk ? q : "?"} spread${q === 1 ? "" : "s"}</div><div class="v"><b>${totalTxt}</b> <span class="cap" style="display:inline">information only, not a cap</span></div>
     ${risk}
     ${s.missing.length ? `<div class="k">Warning</div><div class="v neg">${s.missing.length} leg(s) not in the returned strikes; recentre on them</div>` : ""}
+    ${ocState.fresh && ocState.fresh.stale ? `<div class="k">Quotes</div><div class="v neg">${esc(ocState.fresh.text)}: the default limit uses that mid; check it against TWS before sending</div>` : ""}
     <div class="k">Execution</div><div class="v">${s.execution_issue ? `<span class="neg">${esc(s.execution_issue)}</span>` : "ready: one SMART " + (ocState.legs.length === 1 ? "option" : "BAG") + " limit order"}</div>
   </div>`;
 }
@@ -570,6 +672,10 @@ function renderCustom() {
   if (tk && ocState.ticker && !tk.value) tk.value = ocState.ticker;
   const note = document.getElementById("ocNote");
   if (note) note.textContent = ocState.note || "";
+  const blocked = document.getElementById("ocBlocked");
+  if (blocked) blocked.innerHTML = ocState.blocked
+    ? `<div class="card" style="border-color:#ff6b6b;background:rgba(255,107,107,.10);padding:8px 12px;color:#ff6b6b;font-weight:700">[BLOCKED] ${esc(ocState.blocked)}</div>` : "";
+  if (typeof renderRoll === "function") renderRoll();
   renderCustomLadder();
   renderCustomLegs();
   renderCustomStats();
@@ -580,6 +686,8 @@ function sendCustomOrder() {
   const msg = document.getElementById("oc_msg");
   const say = (t) => { if (msg) msg.textContent = t; };
   if (!ocState.chain) { say("Load a chain first"); return; }
+  if (ocState.blocked) { say(ocState.blocked); return; }
+  if (ocState.roll) { sendRollOrder(); return; }
   const spot = ocCurrentSpot();
   const st = ocComputeStats(ocState.legs, ocState.chain, ocState.qty, ocState.limit, ocState.netMode, spot);
   if (!st) { say("Add at least one leg"); return; }
@@ -596,9 +704,7 @@ function sendCustomOrder() {
   const action = s.credit ? "SELL" : "BUY";
   const accountRow = (((state.book || {}).accounts) || []).find((a) => a.key === "primary");
   const nlv = Number(accountRow && accountRow.nlv);
-  const closeNote = st.multiExpiry
-    ? "\n\nThere is NO one-click close for combos. A calendar/diagonal cannot be unwound by sending the reverse structure: it must be closed in TWS."
-    : "\n\nThere is NO one-click close for combos: unwind by sending the reverse structure as a new order.";
+  const closeNote = "\n\n" + OC_NO_EXITS_TEXT + ocStaleText(ocState.fresh);
   let totalLoss, riskTxt;
   if (unbounded) {
     if (!st.info || !st.info.unbounded) { say(built.error); return; }
@@ -629,6 +735,17 @@ function initCustom(prefill) {
   if (!box) return;
   box.innerHTML = ocShell();
   ocWireShell();
+  if (prefill && prefill.roll) {
+    document.getElementById("ocTicker").value = prefill.ticker;
+    if (prefill.qty) { ocState.qty = prefill.qty; document.getElementById("oc_qty").value = prefill.qty; }
+    if (!prefill.roll.legs.length) {
+      ocState.blocked = "Roll link refused: the closing legs in the link are malformed or not opposite to the held positions.";
+      renderCustom();
+      return;
+    }
+    ocStartRoll(prefill.roll);
+    return;
+  }
   if (prefill && prefill.ticker) {
     document.getElementById("ocTicker").value = prefill.ticker;
     ocState.prefill = prefill;
