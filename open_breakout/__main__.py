@@ -58,6 +58,12 @@ async def main_async(args):
             body['prior_range']=dict(filter=manifest.get('prior_range_filter'),markets=range_summary(manifest))
         print(json.dumps(body,indent=2))
         return
+    if args.command=='simple':
+        from .simple import run_cli
+        raise SystemExit(await run_cli(args))
+    if args.command=='simple-proof':
+        from .simple import proof_cli
+        raise SystemExit(await proof_cli(args))
     config=Config.load(args.config)
     session=getattr(args,'session',None)
     if getattr(args,'client_id',None):
@@ -238,6 +244,13 @@ def main():
     q.add_argument('--config',required=True);q.add_argument('--session',required=True)
     q.add_argument('--wait',type=float,default=30.);q.add_argument('--out')
     q.add_argument('--client-id',type=int,help='read-only client ID while the session process is alive (e.g. 927482)')
+    q=sub.add_parser('simple',help='minimal runner: bracket entries held at the broker')
+    q.add_argument('--mode',choices=['live','paper'],required=True);q.add_argument('--config')
+    q.add_argument('--session');q.add_argument('--risk-parquet');q.add_argument('--client-id',type=int)
+    q.add_argument('--dry-run',action='store_true',help='connect, compute, log the orders; never transmit')
+    q.add_argument('--plan',action='store_true',help='offline plan for --session from the last bars (implies --dry-run)')
+    q=sub.add_parser('simple-proof',help='one-shot broker proof: parks and cancels a far-from-market 1-lot MNQ bracket pair (places orders)')
+    q.add_argument('--mode',choices=['live'],required=True);q.add_argument('--config');q.add_argument('--session');q.add_argument('--client-id',type=int)
     q=sub.add_parser('status');q.add_argument('--state',required=True)
     asyncio.run(main_async(p.parse_args()))
 
