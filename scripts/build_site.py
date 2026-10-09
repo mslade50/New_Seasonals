@@ -414,6 +414,8 @@ def build_trades_json(df, asof=None):
         "R": ("R_Multiple", "num", 3),
         "PnL_flat": ("PnL_flat_750k", "num", 2),
         "Risk_flat": ("Risk_flat_750k", "num", 2),
+        "Shares_flat": ("Shares_flat", "num", 4),
+        "Tranche": ("Tranche", "str", None),
         "Risk_bps": ("Risk bps", "num", 1),
         "Hold_Days": ("Hold_Days", "num", 0),
         "Entry_Criteria": ("Entry Criteria", "str", None),
