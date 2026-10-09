@@ -259,10 +259,21 @@ requires it.
    `exit.time_td` come from this table. If the edge peaks at h=14 and fades by h=21, the
    idea is 14 sessions.
 2. **Where the dip sits.** `pitch_lab.episode_paths` on winners and losers. If winners
-   typically draw down before they pay, that decides both the entry (MOC now, or a
-   close-anchored LIMIT k ATR lower, or wait for the path turn) and the stop.
-3. **Entry form.** MOC against a close-anchored LIMIT, as WHOLE variants (fill rate plus
-   conditional stats), never a marginal-fill decomposition.
+   typically draw down before they pay, that decides both the entry (a limit at the
+   signal close, a close-anchored LIMIT k ATR lower, or a longer fill window that waits
+   for the path turn) and the stop.
+3. **Entry form.** The entry is ALWAYS a strict close-anchored LIMIT (owner rule,
+   2026-10-09): a known price when staged, never MOO or MOC, and never through the
+   signal close in the chasing direction (long legs `atr_mult <= 0`, short legs
+   `>= 0`, so a long/short pair sits at 0). A missed fill is acceptable. Tabulate MOC
+   (the benchmark only) against limits at 0 / -0.25 / -0.5 / -1.0 ATR with 3 / 5 / 10
+   session windows as WHOLE variants (fill rate, mean over all years with a miss as
+   zero, mean when filled, last-ten fill rate), never a marginal-fill decomposition.
+   Pick the limit and window from that table, and write the decision into
+   `entry_rationale`: the limit and window chosen, its fill rate, and what it gives up
+   or gains against the MOC benchmark, in the form "limit at <k> ATR, good <W> sessions:
+   <fills>/<N> fills, whole mean <x>% vs <y>% MOC; <why not deeper or shallower>".
+   If no limit keeps most of the edge, say so there, then grade or kill accordingly.
 4. **Stop from the adverse-excursion table.** Tabulate intraday MAE in ATR per year and
    the result under 0.8 / 1.0 / 1.3 / 1.6 / 2.0 / 2.5 / 3.0 ATR stops, then choose one
    of three forms and say why:
@@ -406,7 +417,8 @@ Write `data/seasonal_agent_ideas.json`:
         {"ticker": "XLE", "side": "LONG", "weight": 1.0},
         {"ticker": "SPY", "side": "SHORT", "weight": 1.0}
       ],
-      "entry": {"type": "LIMIT", "anchor": "CLOSE", "atr_mult": -0.5, "fill_window_td": 3},
+      "entry": {"type": "LIMIT", "anchor": "CLOSE", "atr_mult": 0.0, "fill_window_td": 5},
+      "entry_rationale": "limit at the signal close, good 5 sessions: fill rate, whole and filled means vs the MOC benchmark",
       "exit": {"time_td": 21, "time_order": "MOC", "target_atr": null, "stop_atr": null,
                "trail": {"arm_atr": 2.0, "trail_atr": 1.5}},
       "sizing": {"mode": "risk_bps", "risk_bps": 30, "stop_atr_for_sizing": 3.0},
@@ -432,9 +444,11 @@ Write `data/seasonal_agent_ideas.json`:
 novelty_axis rank_outlier | cycle_cell | calendar_cell | path_turn |
              relative_value | instrument_translation | inversion |
              historical_analogue
-entry.type   MOO | MOC | LIMIT
-             LIMIT also needs anchor (OPEN|CLOSE), atr_mult (signed),
-             fill_window_td (1..10)
+entry.type   LIMIT only, anchor CLOSE, atr_mult (signed; long legs <= 0,
+             short legs >= 0), fill_window_td (1..10). MOO, MOC and an OPEN
+             anchor are refused (owner rule 2026-10-09)
+entry_rationale  REQUIRED, >= 60 chars: limit and window chosen, fill rate,
+             and the cost or gain against the MOC benchmark
 exit         time_td is ALWAYS present (1..horizon_td), time_order MOC|MOO,
              target_atr and stop_atr optional
 exit.trail   optional {arm_atr, trail_atr}: trail at trail_atr ATR once MFE
@@ -452,9 +466,8 @@ legs         side LONG|SHORT; a futures leg adds sec_type "FUT", contract,
 ```
 
 ATR is Wilder-14 on the traded instrument, never the book's simple mean. Placement
-follows from the grammar: a CLOSE-anchored LIMIT places with its stop and target; MOO
-and MOC place with a time exit only, and a price stop or target on them makes the idea
-manual; an OPEN-anchored LIMIT goes in the post-open pass; any futures leg is manual;
+follows from the grammar: every seasonal entry is a CLOSE-anchored LIMIT, which places
+with its stop and target (GTD over `fill_window_td`); any futures leg is manual;
 **any `exit.trail` is manual.**
 
 ## Background-agent completion gate

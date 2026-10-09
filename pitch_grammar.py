@@ -124,6 +124,13 @@ SEASONAL_MIN_SIZING_STOP_ATR = 1.0
 # A time-only exit (no stop_atr) sizes off a catastrophe distance, which must
 # be wide enough to be a catastrophe stop and not a disguised tight one.
 SEASONAL_MIN_CATASTROPHE_ATR = 3.0
+# Owner decision 2026-10-09 (McKinley): a seasonal entry is a known price, never
+# a market order. LIMIT anchored to the signal CLOSE only (an OPEN anchor's
+# price is unknown until 09:30), never through the reference close in the
+# chasing direction (long legs atr_mult <= 0, short legs >= 0), and a missed
+# fill is acceptable. The developed MOC-vs-LIMIT comparison is stated in
+# `entry_rationale`.
+SEASONAL_ENTRY_RATIONALE_MIN = 60
 
 # --- stand-down (a morning that ships nothing) -----------------------------
 # The 2026-08-07 run killed 24 candidates and two recovered inversions, then
@@ -544,6 +551,41 @@ def _validate_entry(entry, where: str, errors: list[str]) -> None:
         errors.append(f"{where}: fill_window_td must be an int in 1..10")
 
 
+def _validate_seasonal_entry(idea: dict, where: str,
+                             errors: list[str]) -> None:
+    """Seasonal entries are strict close-anchored limits that never chase,
+    with the entry-form decision written out (SEASONAL_ENTRY_RATIONALE_MIN)."""
+    entry = idea.get("entry")
+    if isinstance(entry, dict):
+        kind = str(entry.get("type", "")).upper()
+        if kind in ("MOO", "MOC"):
+            errors.append(f"{where}: a seasonal entry is a LIMIT anchored to "
+                          f"CLOSE, not {kind} (owner rule: known prices only)")
+        elif kind == "LIMIT":
+            if str(entry.get("anchor", "")).upper() != "CLOSE":
+                errors.append(f"{where}: a seasonal LIMIT is anchored to "
+                              f"CLOSE so its price is known when staged")
+            try:
+                k = float(entry["atr_mult"])
+            except (KeyError, TypeError, ValueError):
+                k = None
+            legs = idea.get("legs")
+            legs = legs if isinstance(legs, list) else []
+            sides = {str(l.get("side", "")).upper() for l in legs
+                     if isinstance(l, dict)}
+            if k is not None and (("LONG" in sides and k > 0)
+                                  or ("SHORT" in sides and k < 0)):
+                errors.append(f"{where}: atr_mult {k:+g} chases a leg past "
+                              f"its reference close (long legs need <= 0, "
+                              f"short legs >= 0)")
+    why = str(idea.get("entry_rationale", "")).strip()
+    if len(why) < SEASONAL_ENTRY_RATIONALE_MIN:
+        errors.append(f"{where}: entry_rationale is {len(why)} chars, under "
+                      f"{SEASONAL_ENTRY_RATIONALE_MIN} - state the limit "
+                      f"chosen, its historical fill rate and what it gives "
+                      f"up or gains against a MOC")
+
+
 def _validate_trail(trail, where: str, product: str,
                     errors: list[str]) -> None:
     """exit.trail = {arm_atr, trail_atr}: once MFE from entry reaches arm_atr
@@ -757,6 +799,7 @@ def validate_idea(idea, where: str, product: str = "pitch") -> list[str]:
     _validate_entry(idea.get("entry"), where, errors)
     _validate_exit(idea.get("exit"), horizon, where, errors, product)
     if product == "seasonal":
+        _validate_seasonal_entry(idea, where, errors)
         _validate_seasonal_sizing(idea.get("sizing"), idea.get("exit"),
                                   where, errors)
     else:

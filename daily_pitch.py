@@ -442,6 +442,8 @@ def render_card(idea: dict, tab_name: str = TAB_NAME) -> str:
   </div>
   <div style="{field}"><span style="{tag}">ENTRY</span>
     &nbsp;{_esc(entry_label(idea))}</div>
+  {f'''<div style="{field}"><span style="{tag}">WHY THIS ENTRY</span>
+    &nbsp;{_esc(idea['entry_rationale'])}</div>''' if str(idea.get('entry_rationale', '')).strip() else ''}
   <div style="{field}"><span style="{tag}">EXIT</span>
     &nbsp;{_esc(exit_label(idea))}</div>
   <div style="{field}"><span style="{tag}">SIZE</span>
@@ -1067,6 +1069,9 @@ def journal_records(payload: dict, ideas: list[dict], asof: pd.Timestamp,
         # blame the model for an idea McKinley asked for by name.
         "directed_by": idea.get("directed_by", ""),
         "place_pass": idea["orders"][0]["Place_Pass"],
+        # Seasonal only (required there); a pitch record keeps its keys.
+        **({"entry_rationale": idea["entry_rationale"]}
+           if str(idea.get("entry_rationale", "")).strip() else {}),
     } for idea in ideas]
     records += short_slate_records(payload, asof, model, effort)
     records += killed_records(payload, asof, model, effort)

@@ -209,10 +209,16 @@ def test_email_heading_and_tab_by_product():
 def test_seasonal_idea_ids_never_collide_with_pitch_ids(survey, monkeypatch):
     fixture = json.loads((ROOT / "tests" / "fixtures" / "pitch_ideas_fixture.json")
                          .read_text(encoding="utf-8"))
-    idea = fixture["ideas"][0]
+    # Seasonal entries are close-anchored limits with a stated rationale.
+    limit = {"entry": {"type": "LIMIT", "anchor": "CLOSE", "atr_mult": 0.0,
+                       "fill_window_td": 3},
+             "entry_rationale": "limit at the signal close, good three sessions; "
+                                "fills in most years and never chases"}
+    idea = dict(fixture["ideas"][0], **limit)
     idea["sizing"] = {"risk_bps": 30, "stop_atr_for_sizing": 3.0}
     payload = {"asof": "2026-09-30", "ideas": [idea, dict(fixture["ideas"][1], sizing={
-        "risk_bps": 30, "stop_atr_for_sizing": 3.0}, novelty_axis="calendar_cell")],
+        "risk_bps": 30, "stop_atr_for_sizing": 3.0}, novelty_axis="calendar_cell",
+        **limit)],
         "killed": fixture.get("killed", []),
         "short_slate": {"reason": "x" * 130, "candidates_considered": 8,
                         "axes": ["a", "b", "c", "d"], "asset_classes": ["1", "2", "3", "4"],
@@ -228,6 +234,13 @@ def test_seasonal_idea_ids_never_collide_with_pitch_ids(survey, monkeypatch):
     ideas, rows = dp.prepare(payload, ASOF, prices, [], product="seasonal")
     assert [i["idea_id"] for i in ideas] == ["2026-09-30-S1", "2026-09-30-S2"]
     assert all(r["Scan_Source"] == "Seasonal_Agent" for r in rows)
+    assert all(r["Order_Type"] == "LMT" and r["TIF"] == "GTD" for r in rows)
+    # the entry rationale reaches the email card and the journal record
+    assert "WHY THIS ENTRY" in dp.render_card(ideas[0])
+    assert "never chases" in dp.render_card(ideas[0])
+    records = dp.journal_records(payload, ideas, ASOF, "opus", "xhigh")
+    assert all("never chases" in r["entry_rationale"]
+               for r in records if r["kind"] == "idea")
 
 
 def test_seasonal_prepare_blocks_a_recent_pitch_fingerprint(survey, monkeypatch, capsys):
