@@ -1108,8 +1108,9 @@ remains parked pending the owner's go and the ownership port.
 
 The daily launch no longer needs an interactive session. Task **`OpenBreakout_DailyLaunch`**
 (registered by the owner; weekdays **08:12 ET**, interactive logon, limited run level,
-start-when-available, 20-minute limit) runs
-`artifacts/open_breakout_runs/daily_launch.ps1` from the repo root. It:
+start-when-available, two-hour limit) runs
+`artifacts/open_breakout_runs/daily_launch.ps1` from the repo root. The tracked source is
+`scripts/run_open_breakout_daily.ps1`; deploy it byte-for-byte to the task path after qualification. It:
 
 1. takes today's New York date as the session; a non-XNYS day logs
    `DAILY_LAUNCH SKIPPED` and exits 0 (`artifacts/open_breakout_build/is_session.py`);
@@ -1120,11 +1121,19 @@ start-when-available, 20-minute limit) runs
 5. finds the newest `risk_*/refresh.json` for the session without `risk_error` (same rule
    as the launchers); if none, runs `refresh_risk.py --session <date>` once and re-checks;
 6. runs the read-only preflight with the live config and client **927485**, the env ack
-   set only for that child, into `preflight-<date>-live.json`, and requires `"ok": true`;
+   set only for that child, into `preflight-<date>-live.json`, and requires `"ok": true`.
+   The startup helper permits at most three fresh child processes, with 2/5-second delays,
+   only when every failure is explicitly retryable transport/recovery evidence. Each attempt
+   writes a separate report without overwriting earlier evidence. Mixed account, position,
+   working-order, margin, child-exit, timeout, or malformed-report failures stop immediately.
+   Retries and successful completion are checked against the session date and 09:20 ET cutoff;
 7. runs `launch-shadow.ps1 -Session <date>` then `launch-live.ps1 -Session <date>` (a
    shadow launcher failure does not block the live launch but fails step 8);
 8. after 60 s (then polling up to 3 more minutes) requires both sessions alive, connected
-   and with a fresh heartbeat, via `daily_status.ps1`.
+   and with a fresh heartbeat, via `daily_status.ps1`;
+9. monitors the live journal through the first healthy post-09:30 heartbeat. Task success
+   requires an armed/running phase, connected/healthy transport, and an open order gate.
+   The monitor is read-only and never connects to IBKR.
 
 Exit codes: 0 ok or not a session day; 1 bad arguments or unexpected error; 2 Gateway port
 not listening after 10 min; 3 a session process is running or a journal exists; 4 no valid
@@ -1135,7 +1144,8 @@ not both running and connected; 7 late start. Every failure ends the log with on
 Log: `artifacts/open_breakout_runs/daily_launch_<date>.log` (appended; the account number
 is masked; nothing goes to Slack). Check it right after 08:15 ET:
 `Select-String -Path artifacts/open_breakout_runs/daily_launch_*.log -Pattern 'DAILY_LAUNCH (OK|FAILED|SKIPPED)'`.
-On any failure launch by hand as in the Monday 2026-09-28 sequence above.
+On failure inspect the attempt reports and failure log first. Never restart a missed
+session after the 09:20 ET cutoff or bypass a failed business/safety gate.
 
 Status at any time: `powershell -File artifacts/open_breakout_runs/daily_status.ps1`
 (`-Session YYYY-MM-DD`, default today in New York): pid, process alive, phase, heartbeat
@@ -1167,6 +1177,33 @@ cancel or flatten anything. Stop future launches:
 `Enable-ScheduledTask`). The nightly `OpenBreakout_RiskRefresh_Nightly` task is separate.
 
 The launched python processes are started by the launchers with `Start-Process` (hidden,
-own console) and are meant to outlive the task, which finishes around 08:15 ET. Confirm on
+own console) and are meant to outlive the task, which now monitors through 09:30 ET. Confirm on
 the first scheduled day that `daily_status.ps1` still shows both sessions alive after the
 task shows Ready. The owner still attends **09:25 to 11:30 ET** and **15:50 to 16:01 ET**.
+
+
+### Startup retry regression (2026-10-09)
+
+The 08:12 task exited 5 after `RECOVERY_EVIDENCE_CHANGED`, even though the saved report
+explicitly marked the failure retryable. Session-level retries were never reached.
+The launcher now performs the bounded read-only retries above; it never treats the
+failed proof as permission to trade. The exact callback that invalidated that morning's
+proof was not retained, so its underlying trigger remains unconfirmed.
+
+Qualification: `python -m pytest tests/test_open_breakout_startup_preflight.py
+tests/test_open_breakout_launch_monitor.py -q` on Windows. These exercise the tracked
+launcher's actual step 6 with broker/process/clock stubs, including exhausted retries,
+mixed safety failures, missing/malformed reports, child failures, retained evidence,
+clock jumps, and cutoff crossings. No broker connection is made by these tests.
+
+Before installing, verify `OpenBreakout_DailyLaunch` is not running, retain the installed
+launcher and exported task XML under `artifacts/open_breakout_runs/deployment_backups/`,
+parse both PowerShell files, then copy the tracked launcher to the task's existing path.
+Verify source/installed hashes match. Keep the task's trigger and enabled state unchanged;
+deployment is not a manual session launch. The reviewed recovery adapter is a separately
+installed release: preserve its verified receipt/hash and do not overwrite it from an
+older Git checkout when deploying this launcher change.
+
+08:12 ET is startup and broker qualification. Strategy preparation begins at 09:00,
+arming preflight runs at 09:25, and the trading gate is 09:30. Starting the launcher at
+08:12 does not itself authorize an 08:12 trade.
