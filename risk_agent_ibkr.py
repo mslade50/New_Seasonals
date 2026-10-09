@@ -189,7 +189,10 @@ def _stream(ib, contracts, max_seconds=6.0, want=0.85):
 
 def _set_data_type_and_spot(ib, stock, wait=4.0):
     """Ask for live data; fall back to frozen/delayed. Returns (spot, spot_ts, type)."""
-    for mdt in (1, 2, 3, 4):
+    # Type 2 ("frozen") is live whenever the market is open and the last real
+    # quote otherwise. Type 1 returns bid/ask -1 for options before the open
+    # (probed on the gateway 2026-10-09), so 2 leads; 3/4 are delayed fallbacks.
+    for mdt in (2, 3, 4):
         ib.reqMarketDataType(mdt)
         t = ib.reqMktData(stock, "", False, False)
         t0 = time.time()
@@ -317,7 +320,7 @@ def quote_contracts(con_ids) -> dict:
     out = {}
     try:
         from ib_insync import Contract
-        ib.reqMarketDataType(1)
+        ib.reqMarketDataType(2)  # live in RTH, last quote otherwise (see above)
         contracts = [Contract(conId=c, exchange="SMART") for c in ids]
         ib.qualifyContracts(*contracts)
         live = [c for c in contracts if c.conId]
