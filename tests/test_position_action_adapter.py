@@ -14,12 +14,14 @@ from broker_runtime import prepare_execution_repairs as prepare
 from tests.spent_preparers import retired_execution_repairs, skip_execution_repairs
 from broker_runtime.prepare_position_actions import function_source
 from tests.test_unified_position_actions import Broker, exit_order, namespace, request
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
 
 @pytest.fixture
 def source():
     path = Path(os.environ.get("IBKR_REVIEW_SOURCE",
-                "C:/Users/McKinley Slade/OneDrive/trading_ibkr")) / "execute_order.py"
+                str(_tloc.source_dir(default=_TIBKR_DESKTOP)))) / "execute_order.py"
     if not path.exists():
         pytest.skip("reviewed broker source is installed only on the trading host")
     return path.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
@@ -129,7 +131,7 @@ def test_candidate_routes_primary_and_pa_through_same_position_lifecycle(source)
 @retired_execution_repairs
 def test_agent_patcher_preserves_live_gates(source, monkeypatch):
     path = Path(os.environ.get("IBKR_REVIEW_SOURCE",
-                "C:/Users/McKinley Slade/OneDrive/trading_ibkr")) / "exec_agent.py"
+                str(_tloc.source_dir(default=_TIBKR_DESKTOP)))) / "exec_agent.py"
     candidate = prepare.patch_agent(path.read_text(encoding="utf-8-sig").replace("\r\n", "\n"))
     nodes = [n for n in ast.parse(candidate).body if isinstance(n, ast.FunctionDef)
              and n.name in {"_validate", "_live_eligible"}]

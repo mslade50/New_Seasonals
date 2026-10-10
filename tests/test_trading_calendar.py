@@ -23,8 +23,9 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from trading_calendar import NYSE_HOLIDAYS, TRADING_DAY
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
 
-IBKR_DIR = os.path.join(os.path.expanduser('~'), 'OneDrive', 'trading_ibkr')
+IBKR_DIR = str(_tloc.source_dir())
 
 HOLIDAY_SET = set(pd.DatetimeIndex(NYSE_HOLIDAYS))
 

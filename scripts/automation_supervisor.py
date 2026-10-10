@@ -1169,13 +1169,15 @@ def resolve_external_secret_paths(
     Explicit CLI paths win.  Otherwise the passed config root's ``.env`` may
     carry ``LOCAL_AUTOMATION_GCP_JSON_PATH`` and
     ``LOCAL_AUTOMATION_EXEC_ENV_PATH``.  The final machine-local default is
-    the existing OneDrive ``trading_ibkr`` credential directory.  Only paths,
+    ``TRADING_IBKR_SECRETS_DIR`` when set, else the existing OneDrive
+    ``trading_ibkr`` credential directory.  Only paths,
     never file contents, are resolved here.
     """
 
     bootstrap = dict(base_env if base_env is not None else os.environ)
     bootstrap.update(_parse_env_file(config_root.resolve() / ".env"))
-    trading_root = Path.home() / "OneDrive" / "trading_ibkr"
+    # trading_ibkr's runtime_paths rule: TRADING_IBKR_SECRETS_DIR, else OneDrive.
+    trading_root = Path(bootstrap.get("TRADING_IBKR_SECRETS_DIR") or Path.home() / "OneDrive" / "trading_ibkr")
     gcp = gcp_json_path or Path(
         bootstrap.get("LOCAL_AUTOMATION_GCP_JSON_PATH", str(trading_root / "credentials.json"))
     )

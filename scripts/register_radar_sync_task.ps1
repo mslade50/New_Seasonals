@@ -47,5 +47,13 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
 Write-Host ""
 Write-Host "Registered '$taskName' - Mondays 8:50 AM."
 Write-Host "It runs in PREVIEW: no orders are modified."
-Write-Host "To arm later:  New-Item '$env:USERPROFILE\OneDrive\trading_ibkr\radar_trail_enabled.flag' -ItemType File"
+# State dir: env, else the repo .env (cutover managed block), else OneDrive (pre-cutover).
+$flagDir = $env:TRADING_IBKR_STATE_DIR
+$dotenv = Join-Path (Split-Path -Parent $PSScriptRoot) '.env'
+if (-not $flagDir -and (Test-Path $dotenv)) {
+    $m = Select-String -LiteralPath $dotenv -Pattern '^TRADING_IBKR_STATE_DIR=(.+)$' | Select-Object -First 1
+    if ($m) { $flagDir = $m.Matches[0].Groups[1].Value.Trim() -replace '/', '\' }
+}
+if (-not $flagDir) { $flagDir = "$env:USERPROFILE\OneDrive\trading_ibkr" }
+Write-Host "To arm later:  New-Item '$flagDir\radar_trail_enabled.flag' -ItemType File"
 Write-Host "Logs:          $dir\logs\radar_sync_<date>.log"

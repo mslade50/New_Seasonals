@@ -20,9 +20,11 @@ from broker_runtime import review_execution as C
 from broker_runtime import review_execution_runtime as R
 from broker_runtime import prepare_review_execution as P
 from broker_runtime import review_sizing as S
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
 NOW=dt.datetime(2026,10,6,14,tzinfo=dt.timezone.utc)
-TRADING_RUNTIME=Path(os.environ.get('REVIEW_EXECUTION_TEST_RUNTIME',r'C:\Users\McKinley Slade\OneDrive\trading_ibkr'))
+TRADING_RUNTIME=Path(os.environ.get('REVIEW_EXECUTION_TEST_RUNTIME',str(_tloc.source_dir(default=_TIBKR_DESKTOP))))
 DAY='2026-10-06'
 ROW={'Idea_Id':DAY+'-1','Leg':1,'Ticker':'XLE','Sec_Type':'STK','Contract':'','Proxy_Ticker':'',
      'Action':'BUY','Quantity':10,'Entry_Type':'LIMIT','Entry_Anchor':'CLOSE','Entry_Offset_ATR':-0.5,

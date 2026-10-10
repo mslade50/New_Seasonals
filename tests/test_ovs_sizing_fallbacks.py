@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from broker_runtime.prepare_ovs_sizing import SOURCE_SHA256, defaults, patch_staging, prepare
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
 
 def fixture_source():
@@ -94,7 +96,7 @@ def test_prepare_refuses_unreviewed_source_before_writing(tmp_path):
 
 def test_installed_candidate_changes_only_reviewed_ovs_sections():
     path = Path(os.environ.get('IBKR_OVS_REVIEW_SOURCE',
-                'C:/Users/McKinley Slade/OneDrive/trading_ibkr')) / 'order_staging.py'
+                str(_tloc.source_dir(default=_TIBKR_DESKTOP)))) / 'order_staging.py'
     if not path.exists():
         pytest.skip('reviewed external source is not installed on this host')
     raw = path.read_bytes()

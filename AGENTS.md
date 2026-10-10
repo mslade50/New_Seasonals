@@ -2,6 +2,8 @@
 
 Current implementation and rollout status: [docs/operations_current.md](docs/operations_current.md). The historical strategy descriptions below do not establish deployed settings; use executable configuration and dated runtime evidence when they disagree.
 
+> **CODE FREEZE on `OneDrive\trading_ibkr` (owner, 2026-10-09).** Do not edit code in that folder directly and do not run `broker_runtime` install scripts against it. Every change goes into the private repo `mslade50/trading_ibkr` (branch `cutover`) and reaches the live machine only through the cutover deploy. Plan: `docs/trading_ibkr_onedrive_migration_plan_2026-09-23.md`.
+
 ## Mandatory Private-Site Build Skill
 
 - For every private-site build, rebuild, publish, deployment, hosting, live-site repair, stale-tab investigation, or production verification task, use `$build-private-site` from `.agents/skills/build-private-site/SKILL.md` before taking action.

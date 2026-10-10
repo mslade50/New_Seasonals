@@ -19,6 +19,7 @@ import re
 import sys
 
 import pytest
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -40,9 +41,7 @@ sys.modules['streamlit'] = _NoOp()
 from strategy_config import STRATEGY_BOOK
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IBKR_DIR = os.path.join(
-    os.path.expanduser('~'), 'OneDrive', 'trading_ibkr'
-)
+IBKR_DIR = str(_tloc.source_dir())
 
 
 def _monfri():

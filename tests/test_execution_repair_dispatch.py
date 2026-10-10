@@ -17,8 +17,10 @@ from broker_runtime import execution_lifecycle as life
 from broker_runtime.execution_contracts import qualify_held, qualify_position
 from tests.test_unified_position_actions import Broker, exit_order, namespace, request
 from tests.spent_preparers import retired_execution_repairs, skip_execution_repairs
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
-SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", "C:/Users/McKinley Slade/OneDrive/trading_ibkr"))
+SOURCE = Path(os.environ.get("IBKR_REVIEW_SOURCE", str(_tloc.source_dir(default=_TIBKR_DESKTOP))))
 
 
 @pytest.fixture

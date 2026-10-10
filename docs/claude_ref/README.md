@@ -20,6 +20,7 @@ When a live rule changes, update CLAUDE.md and the matching doc here in the same
 | `event_sleeve.md` | Event sleeve trades, flow, MOC encoding incident, visibility and journal |
 | `daily_pitch.md` | Daily Pitch contract, short slate, stand-down, coverage incident, conventions |
 | `daily_seasonal.md` | Daily Seasonal agent: `--product seasonal` switch, grammar extensions (63 td, exit.trail, 15-50 bps), state builder, schedule |
+| `pm_agent.md` | PM Weekly: market-only Sunday brief, claim vocabulary and grading, independence from the Risk Agent, phase-2 (book) decisions |
 | `idea_check.md` | Idea Check: site tab, R2 queue and results keys, local poller, skill rules, task registration |
 | `daily_posts_and_context.md` | Daily Posts (X account) and the Market Context brief |
 | `ledger_and_fills.md` | Ledger survivorship/provenance/replay caveats, stop-arming and stop-fill conventions, live fills store |

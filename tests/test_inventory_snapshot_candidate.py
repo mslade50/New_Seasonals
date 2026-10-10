@@ -6,11 +6,13 @@ from types import SimpleNamespace as NS
 import pytest
 from broker_runtime.prepare import patch_snapshot
 from broker_runtime.prepare_olv_capacity import patch_book
+import trading_ibkr_locations as _tloc  # TRADING_IBKR_SOURCE, else the runtime root, else OneDrive
+_TIBKR_DESKTOP = r"C:\Users\McKinley Slade\OneDrive\trading_ibkr"  # pre-cutover pin, kept as the fallback
 
 
 @pytest.mark.parametrize('failure',[False,True])
 def test_readonly_snapshot_attests_request_start_and_preserves_remaining(failure):
-    path=Path(os.environ.get('IBKR_REVIEW_SOURCE','C:/Users/McKinley Slade/OneDrive/trading_ibkr'))/'book_snapshot.py'
+    path=Path(os.environ.get('IBKR_REVIEW_SOURCE',str(_tloc.source_dir(default=_TIBKR_DESKTOP))))/'book_snapshot.py'
     if not path.exists():pytest.skip('reviewed local broker source unavailable')
     source=path.read_text(encoding='utf-8-sig')
     if '"fills_source_session"' not in source:

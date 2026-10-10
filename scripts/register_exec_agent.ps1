@@ -1,6 +1,6 @@
 # Register the ExecAgent scheduled task — runs the execution-bridge agent on the
 # trading box during the 05:00-21:00 ET window. Idempotent (-Force replaces).
-$dir = "C:\Users\McKinley Slade\OneDrive\trading_ibkr"
+$dir = $PSScriptRoot   # the code dir this script lives in (pinned worktree after the cutover)
 
 $action = New-ScheduledTaskAction -Execute "powershell.exe" `
   -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$dir\run_exec_agent.ps1`""

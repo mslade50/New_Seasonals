@@ -34,6 +34,7 @@ df.columns = [c.capitalize() for c in df.columns]
 
 - Production runs from a pinned local-primary worktree + venv via Windows Task Scheduler (`premarket`, `postclose`, etc.), NOT this checkout. Scheduled runs never update their own code. GitHub workflows are receipt-gated backups. See `docs/claude_ref/automation_and_r2.md`.
 - Concurrent sessions work in this repo and commit directly to main. Commit promptly, re-check `git log`, never push blind.
+- **CODE FREEZE on `OneDrive\trading_ibkr` (owner, 2026-10-09).** Do not edit code there directly, and do not run `broker_runtime` install scripts against it. Make every change in the private repo `mslade50/trading_ibkr` (branch `cutover`); it reaches the live machine only through the cutover deploy. Plan: `docs/trading_ibkr_onedrive_migration_plan_2026-09-23.md`.
 - Some `trading_ibkr` scripts place LIVE orders (`order_staging.py`, `eq_order_entry.py`, `olv_exit_moo.py`, `event_moo.py`, `pitch_moo.py`, `radar_trail_sync.py`). Order staging is local and talks to TWS. Treat edits there as live-money changes.
 - R2 (`seasonals-cache`, via `cache_io.py`) is canonical for `master_prices.parquet`, `earnings_calendar.parquet`, the intraday cache, `live_fills.parquet`, the event sleeve journal/state and the trend sleeve state. A stale local or repo copy must not overwrite them.
 
@@ -73,12 +74,13 @@ Read the doc before changing a subsystem. Each doc holds the live rule, the hist
 | Daily Pitch | `daily_pitch.md` | `test_pitch_grammar.py`, `test_daily_pitch.py`, `test_pitch_grader.py`, `test_pitch_lab.py`, `test_pitch_delivery_check.py`, `test_pitch_moo.py` (trading_ibkr); fills approvals: `test_pitch_fills_approval.py`; site Pitch tab: `test_pitch_transport.py`, `tests/js/test_pitch_tab.js` |
 | Daily Seasonal (`--product seasonal`, 63 td, exit.trail, 15-50 bps) | `daily_seasonal.md` | `test_seasonal_agent_grammar.py`, `test_build_seasonal_state.py`, `test_seasonal_agent_publish_paths.py`, `test_seasonal_agent_grader.py` + the Daily Pitch guards |
 | Risk Agent ($200k blind paper sleeve, `/risk-agent`, 06:30 ET on the trading desktop, email + private-site tab) | `risk_agent.md` | `test_risk_agent_universe.py`, `test_risk_agent_grammar.py`, `test_risk_agent_ledger.py`, `test_build_risk_agent_state.py`, `test_daily_risk_agent.py`, `tests/js/test_risk_agent_tab.js` |
+| PM Weekly (market-only Sunday brief, `/pm-agent`, 16:00 ET on the trading desktop, graded SPY/VIX week forecasts, email; output in `PM_AGENT_HOME` + R2 `pm_agent/`, which the Risk Agent never reads) | `pm_agent.md` | `test_pm_agent_universe.py`, `test_pm_agent_pipeline.py` |
 | Idea Check (private-site tab, local poller, `/idea-check` skill) | `idea_check.md` | `test_idea_check_poller.py`, `test_idea_check_site.py`, `tests/js/test_idea_tab.js` |
 | Daily Posts, Market Context | `daily_posts_and_context.md` | `test_daily_posts.py`, `test_context_engine.py`, `test_context_sender.py` |
 | Ledger, stop arming/fill conventions, live fills store | `ledger_and_fills.md` | `test_fills_harvest.py` |
 | Local-primary automation, R2, Sunday pipeline | `automation_and_r2.md` | `test_local_automation_powershell.py` |
 | Retired GitHub-first schedule and radar digest (history only) | `automation_history.md` | none |
-| Private site, shared Denali risk tab, trade log, hedge panel | `private_site.md` | `test_tradelog_site.py`, `test_risk_site_js.py`, `test_strategies_site.py`, `test_publish_sleeve_runtime_status.py`, `tests/js/test_strategies_tab.js`, `tests/js/test_sleeve_status.mjs`, `test_intraday_book_site.py`, `tests/js/test_portfolio_book.js` |
+| Private site, shared Denali risk tab, trade log, hedge panel | `private_site.md` | `test_tradelog_site.py`, `test_risk_site_js.py`, `test_strategies_site.py`, `test_publish_sleeve_runtime_status.py`, `tests/js/test_strategies_tab.js`, `tests/js/test_sleeve_status.mjs`, `test_intraday_book_site.py`, `tests/js/test_portfolio_book.js`, `tests/js/test_option_positions.js` |
 | Momentum radar staging + trail | `radar.md` | `tests/js/test_radar_tab.js`, `test_radar_transport.py`, `test_radar_trail_sync.py` + `test_stop_limit_entry.py` (trading_ibkr) |
 | Google Sheets tabs | `sheets.md` | none |
 

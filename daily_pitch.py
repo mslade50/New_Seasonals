@@ -221,12 +221,21 @@ def credentials_path() -> Path | None:
     this repo has no committed credentials.json. The working copy lives with
     the IBKR tooling in OneDrive, so that is the practical fallback; without it
     the Pitch tab never gets written and the approval loop is dead.
+    TRADING_IBKR_SECRETS_DIR (trading_ibkr's runtime_paths rule; env, else the
+    repo .env) moves that fallback off OneDrive; unset, it is the OneDrive
+    copy as before.
     """
+    import trading_ibkr_locations as tloc
+    # Env first, then the repo .env (the cutover's managed block), so a task
+    # that does not see the setx variables still finds the moved file.
+    secrets_dir = tloc.secrets_dir(config_root=ROOT)
+    ibkr_secrets = (secrets_dir if secrets_dir
+                    else Path(os.environ.get("USERPROFILE", Path.home()))
+                    / "OneDrive" / "trading_ibkr")
     candidates = [
         os.environ.get("GCP_CREDENTIALS_FILE"),
         ROOT / "credentials.json",
-        Path(os.environ.get("USERPROFILE", Path.home()))
-        / "OneDrive" / "trading_ibkr" / "credentials.json",
+        ibkr_secrets / "credentials.json",
     ]
     for candidate in candidates:
         if candidate and Path(candidate).exists():
