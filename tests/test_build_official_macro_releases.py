@@ -44,7 +44,17 @@ Excluding food and energy, the PCE price index increased 3.0 percent from one ye
 Next release: September 30, 2026, at 8:30 a.m. EDT</main>"""
 
 
-def test_gdp_failure_does_not_suppress_pce(tmp_path):
+def test_gdp_failure_does_not_suppress_pce(tmp_path, monkeypatch):
+    # Exercise release independence before this fixture's announced next date.
+    # Overdue RSS discovery is covered by test_bea_current_fallback separately.
+    original = pd.Timestamp
+
+    class Clock(original):
+        @classmethod
+        def now(cls, tz=None):
+            return original("2026-09-22T15:00:00Z")
+
+    monkeypatch.setattr(pd, "Timestamp", Clock)
     src = tmp_path / "src" / "raw"
     src.mkdir(parents=True)
     (src / "bea_rss.txt").write_text(rss(
