@@ -116,13 +116,6 @@ def _site(tmp_path: Path):
         "rows": [{"ticker": "SPY", "price": 100.0, "sznl_asof": "2026-08-05",
                   **{f"s{w}": 55.0 for w in (5, 10, 21, 63, 126, 252)}}],
     })
-    _write(data / "fundamentals.json", {
-        "as_of": "2026-08-05",
-        "status": "NO_REVIEW",
-        "reviews": [],
-        "active_research": [],
-        "live_actions_enabled": False,
-    })
     for name in ("trades.json", "strategy_daily.json", "exposure.json", "trade_mtm.json"):
         _write(data / name, _stamped({}))
     overlay = data / "overlay_free"
@@ -291,32 +284,6 @@ def test_incomplete_seasonality_payloads_block_deploy(tmp_path):
     assert any("Seasonality Lab is missing 1 ticker payload" in problem for problem in problems)
     assert any("Macro seasonal ranks are unavailable" in problem for problem in problems)
     assert any("Macro Seasonality is missing prices" in problem for problem in problems)
-
-
-def test_missing_or_stale_fundamentals_do_not_block_deploy(tmp_path):
-    data = _site(tmp_path)
-    meta = json.loads((data / "meta.json").read_text(encoding="utf-8"))
-    meta["payloads"]["fundamentals"] = False
-    _write(data / "meta.json", meta)
-    _write(data / "fundamentals.json", {
-        "as_of": "2026-08-01",
-        "status": "NO_REVIEW",
-        "live_actions_enabled": False,
-    })
-
-    assert validate_site(str(tmp_path)) == []
-
-    (data / "fundamentals.json").rename(data / "fundamentals.disabled.json")
-    assert validate_site(str(tmp_path)) == []
-
-
-def test_fundamentals_contents_do_not_participate_in_deploy_gate(tmp_path):
-    data = _site(tmp_path)
-    payload = json.loads((data / "fundamentals.json").read_text(encoding="utf-8"))
-    payload["live_actions_enabled"] = True
-    _write(data / "fundamentals.json", payload)
-
-    assert validate_site(str(tmp_path)) == []
 
 
 def test_production_gate_requires_matching_r2_provenance(tmp_path):

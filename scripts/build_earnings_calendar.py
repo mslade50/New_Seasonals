@@ -369,7 +369,7 @@ def main():
         r2_key = "earnings_calendar_overflow.parquet"
         _sm = os.path.join(parent_dir, "data", "symbol_master.parquet")
         if not os.path.exists(_sm):
-            raise SystemExit(f"--overflow-staging needs {_sm} (run build_symbol_master.py first).")
+            raise SystemExit(f"--overflow-staging needs {_sm} (frozen snapshot; restore it from R2 key symbol_master.parquet).")
         _extra = set(pd.read_parquet(_sm, columns=["ticker"])["ticker"].astype(str).str.upper())
         tickers = sorted(_extra - set(t.upper() for t in CSV_UNIVERSE))
         print(f"[overflow-staging] {len(tickers)} new names -> {output} (R2: {r2_key})")

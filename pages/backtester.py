@@ -4035,8 +4035,8 @@ def main():
             if not grades_map:
                 st.warning(
                     "Analyst grades filter enabled but data/analyst_grades.parquet "
-                    "is missing — filter will silently no-op. Run "
-                    "`python scripts/build_analyst_grades.py` to backfill."
+                    "is missing — filter will silently no-op. Grade collection is "
+                    "retired; restore the archived parquet from R2 (analyst_grades.parquet)."
                 )
             else:
                 _n_evt = sum(len(v) for v in grades_map.values())
