@@ -1,0 +1,20 @@
+{
+  "completed_utc": "2026-10-07T17:32:58.982363+00:00",
+  "counts": {
+    "tests": 19,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 19
+  },
+  "source_commits": [
+    "5d9b551d0825e83a284082313af29a7714902fab",
+    "73eb77e3036b8255afd5a7925cf02579e8ddd84b"
+  ],
+  "native_broker_network_attempts": [],
+  "installed": false,
+  "restarted": false,
+  "credentials_read": false,
+  "scheduler_queried": false,
+  "relay_deployed": false
+}

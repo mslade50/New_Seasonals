@@ -1,0 +1,8 @@
+........................................................                 [100%]
+============================== warnings summary ===============================
+test_deployment.py::test_activation_requires_fresh_manual_confirmation_and_future_session
+  C:\Users\McKinley Slade\AppData\Local\Programs\Python\Python310\lib\site-packages\exchange_calendars\exchange_calendar.py:2345: FutureWarning: 'T' is deprecated and will be removed in a future version. Please use 'min' instead of 'T'.
+    align: pd.Timedelta | str = pd.Timedelta(1, "T"),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+56 passed, 1 warning in 36.50s

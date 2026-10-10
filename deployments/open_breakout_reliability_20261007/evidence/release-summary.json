@@ -1,0 +1,44 @@
+{
+  "frozen_utc": "2026-10-07T17:37:06.537399+00:00",
+  "bundle_id": "open-breakout-reliability-20261007-v2",
+  "qualification_source_sha256": "2cbbec0ebf04e2130ed99ecb15f47e062a6c31346f67d104e3800c6590cb1be0",
+  "suites": {
+    "installed_payload": {
+      "tests": 512,
+      "passed": 512,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "public_fixture": {
+      "tests": 512,
+      "passed": 512,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "installers": {
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "tests": 56,
+      "passed": 56
+    },
+    "bridge": {
+      "tests": 19,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 19
+    }
+  },
+  "production_prerequisites_unchanged": 28,
+  "bridge_runtime_unchanged": true,
+  "production_installed": false,
+  "production_activated": false,
+  "native_paper_qualified": false,
+  "native_close_qualified": false,
+  "broker_commands": 0,
+  "worker_restarts": 0,
+  "scheduler_mutations": 0
+}

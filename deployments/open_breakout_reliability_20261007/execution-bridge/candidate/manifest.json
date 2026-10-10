@@ -1,0 +1,10 @@
+{
+  "source": "C:\\Users\\McKinley Slade\\OneDrive\\trading_ibkr",
+  "source_agent_sha256": "7ec1f52ca49ea66de4504996e4889536fef5494e4ea490ca5312f8b5490bd817",
+  "installed": false,
+  "restarted": false,
+  "files": {
+    "exec_agent.py": "27e93542d319d8187afa571b5cbfffa0b1507b119331f5afe3cc986100d5cddc",
+    "execution_connection.py": "93c613ae5e6c382e2b65861f9aee6719f00cbb40ce7777ae52a609a319527a1c"
+  }
+}

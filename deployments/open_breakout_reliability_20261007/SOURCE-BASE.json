@@ -1,0 +1,16 @@
+{
+  "repository": "mslade50/New_Seasonals",
+  "branch": "main",
+  "source_base_commit": "ee59a0c172930183f293ff01cbd2db1a0e9a7d3c",
+  "source_base_tree": "50b2daae5b86ff9b81be589c5ca026107dba4d3f",
+  "publication_paths": [
+    "deployments/open_breakout_reliability_20261007/**",
+    ".github/workflows/open_breakout_offline_reliability.yml"
+  ],
+  "production_runtime_modules_modified": false,
+  "native_automatic_close_qualified": false,
+  "native_paper_order_lifecycle_qualified": false,
+  "installation_performed": false,
+  "activation_performed": false,
+  "local_git_security_exception_added": false
+}

@@ -1,0 +1,337 @@
+{
+  "schema": 1,
+  "bundle_id": "open-breakout-reliability-20261007-v2",
+  "created_utc": "2026-10-07T15:53:25.581703+00:00",
+  "roots": {
+    "repo": "C:\\Users\\McKinley Slade\\dev\\New_Seasonals",
+    "legend": "C:\\Users\\McKinley Slade\\OneDrive\\trading_ibkr"
+  },
+  "default_disabled": true,
+  "native_close_qualification": null,
+  "changes": [
+    {
+      "root": "repo",
+      "path": "open_breakout/config.py",
+      "before_sha256": "94590c1cc5e7373366fc93de2caf5bdfad37077485313d1deb5f61214cfb1858",
+      "after_sha256": "c841edd05aacb9533bbc354ad617107e4e48f1b3295b3a788ae9ff7cf2ac8f7e",
+      "bytes": 15262
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/ibkr.py",
+      "before_sha256": "823d3e1b2ab0bb05803acda582571da3d91c8677a8cfd3b3cb93ada104d538e8",
+      "after_sha256": "1c011a6bbc64891e1e19cc5989f2024ef598d7bc57cf150645353f6e887d97d9",
+      "bytes": 30082
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/replay.py",
+      "before_sha256": "c954b8faa68c40ea95610739049dce54266295897d71651e360ba86376627985",
+      "after_sha256": "ff17af43b3af1864bac9eaedb86acab6141c14294d325a2e446fdd3c6eb1738b",
+      "bytes": 7605
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/resting.py",
+      "before_sha256": "1a4ac36aa5183ae1f6a0a9bb21318f491f9709da8b56cab2429827cf13f51841",
+      "after_sha256": "d06b77ebfa862ed2fab155d1f7ddadef3f42e30a3c8b26fc76946088c5888684",
+      "bytes": 9724
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/service.py",
+      "before_sha256": "90c3b6c8830892aa7f68eb1f2b79b878115595d983203d8b23417b39f93b86cb",
+      "after_sha256": "6e30ae73e52ea9a4ded6a2e3d2790160f4dec2e49b709b2355b495c48ec17c20",
+      "bytes": 54156
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/price_health.py",
+      "before_sha256": null,
+      "after_sha256": "93edc6c733867ef361ce7bf4ecf17c9a41d2efc186046fc915ab675488185422",
+      "bytes": 8161
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/coordination.py",
+      "before_sha256": null,
+      "after_sha256": "267055813d858756463d03123489c87972f8420e648a080dab885e02e5f5d4a0",
+      "bytes": 9070
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/native_coordination.py",
+      "before_sha256": null,
+      "after_sha256": "207ed3923d5711e394ebff8f0e4507098511e8635a1df91b3f99f6e23064116d",
+      "bytes": 37522
+    },
+    {
+      "root": "repo",
+      "path": "intraday_coordination.py",
+      "before_sha256": null,
+      "after_sha256": "8385977e77f9ab62edec02108b443db07414bbdb2ae4b6934c2a1a2adc7808e3",
+      "bytes": 32482
+    },
+    {
+      "root": "repo",
+      "path": "legend/__init__.py",
+      "before_sha256": null,
+      "after_sha256": "e064a2bbcbbef9876f627afd433c60de0080da16c3a37b0ed58e415721082e3a",
+      "bytes": 69
+    },
+    {
+      "root": "repo",
+      "path": "legend/coordination_bridge.py",
+      "before_sha256": null,
+      "after_sha256": "c1fafc2614b07accb90fb6b7a63456450afa5d368c76117ad0829343b8ffbc60",
+      "bytes": 2455
+    },
+    {
+      "root": "legend",
+      "path": "legend_ema_fut.py",
+      "before_sha256": "24eacf74e68cafca3356ef70d1f4a59dcde5406306305911a4a8705090bb4e6d",
+      "after_sha256": "e58a91a0ec99657210d99d8d170cc213463d9d0f59ac7ba9cddbbbadb2c8701e",
+      "bytes": 177869,
+      "substitute_account": true,
+      "payload_sha256": "36d249eae2bf3a8d3c960f8519b38b4abd44747625535855335065f1fb60ee09",
+      "payload_bytes": 177884
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/__main__.py",
+      "before_sha256": "a3e4c4df81c51a041ecbc2e849a4b17537ced69e81b6fb76901fc3a62ec1d280",
+      "after_sha256": "a86f927dc9af30c07b235f5dad26b05250dcdf7e6f0d4860f7971a0cae06bad4",
+      "bytes": 12992
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/deployment_bootstrap.py",
+      "before_sha256": null,
+      "after_sha256": "07dabfcd3ea587859ac0a1fcc8d64bf95d8a694762beb962bf88a330c0e62125",
+      "bytes": 4403
+    },
+    {
+      "root": "legend",
+      "path": "open_breakout_runtime_pointer.json",
+      "before_sha256": null,
+      "after_sha256": "69e8bc12d85c950b164772ac6d5df1f64c596ef806cd2d0894db1d9c096db060",
+      "bytes": 86
+    },
+    {
+      "root": "repo",
+      "path": "artifacts/open_breakout_runs/config-20260925-live.json",
+      "before_sha256": "0451e115c8f61c1442fa780160a6451575e54d6ada30f5d742ecb0abf9f019d0",
+      "after_sha256": "08efcb759c4d9fe0ef7df5343e52155fad04478df7c571c192f204935dd18b3c",
+      "bytes": 1283,
+      "substitute_account": true,
+      "payload_sha256": "8911bc44d525ac3ba0c7e7d5015447299b5ca51821de99b06dd99fc645ddb47f",
+      "payload_bytes": 1298
+    },
+    {
+      "root": "repo",
+      "path": "artifacts/open_breakout_runs/config-20260925-shadow.json",
+      "before_sha256": "4cffa6b71579401cd8140b288c5980f6d1c4be953cb2a6339b7067a4008d824d",
+      "after_sha256": "dd587911eed4e661a0cafe6386b7b4c67fb57e6c64ba22a67b70fe895da11981",
+      "bytes": 1135,
+      "substitute_account": true,
+      "payload_sha256": "7f25f672931ad006364e3fc357af75aaf6d11edb2a56e8e25ed6c09e29ad9055",
+      "payload_bytes": 1150
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/order_policy.py",
+      "before_sha256": null,
+      "after_sha256": "c3a8982df28cb1d2bec6f79dbfed90b256e826b55042583fd1e999d566e2d38b",
+      "bytes": 2664
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/standby.py",
+      "before_sha256": "970c969107cff3ddc69663164252faf49857254e5643068c412b7e03ac238897",
+      "after_sha256": "9dc44b0c08f557e5cb0ad299c00b47a5170149cb418273ff028f479c83f3c536",
+      "bytes": 41671
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/order_reliability.py",
+      "before_sha256": null,
+      "after_sha256": "fa865b1fb2f4d4b98164374e685d4d973fe6a261499b423d33da3e2d46e990d8",
+      "bytes": 37840
+    }
+  ],
+  "prerequisites": [
+    {
+      "root": "repo",
+      "path": "open_breakout/alerts.py",
+      "sha256": "c901c92fba7371dd0da610dfc00405b5736bf303bf937dac86f7a2bdc0e147ff",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/config.py",
+      "sha256": "94590c1cc5e7373366fc93de2caf5bdfad37077485313d1deb5f61214cfb1858",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/ibkr.py",
+      "sha256": "823d3e1b2ab0bb05803acda582571da3d91c8677a8cfd3b3cb93ada104d538e8",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/inputs.py",
+      "sha256": "55237efa5dc4a596bccb5fb813467e2d211c7ad9abfb7384ff2db0d69469b510",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/replay.py",
+      "sha256": "c954b8faa68c40ea95610739049dce54266295897d71651e360ba86376627985",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/resting.py",
+      "sha256": "1a4ac36aa5183ae1f6a0a9bb21318f491f9709da8b56cab2429827cf13f51841",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/service.py",
+      "sha256": "90c3b6c8830892aa7f68eb1f2b79b878115595d983203d8b23417b39f93b86cb",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/standby.py",
+      "sha256": "970c969107cff3ddc69663164252faf49857254e5643068c412b7e03ac238897",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/store.py",
+      "sha256": "cbc5d572c4d443827ff1c94ee9e9cdad30c564c39e45e469de2135d1a716a13b",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/strategy.py",
+      "sha256": "b6f70e41c1b8ffb7e3ec4bfb87969b399200d07d2877aef24510576cdf2c3729",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/__init__.py",
+      "sha256": "46bd7cee9504132eac5652b5e9a094b8cb36176d2d4de882043cf9b355a7f94a",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "open_breakout/__main__.py",
+      "sha256": "a3e4c4df81c51a041ecbc2e849a4b17537ced69e81b6fb76901fc3a62ec1d280",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "tests/test_open_breakout.py",
+      "sha256": "05c730f7ba6b77f10fc6ff440b4938b2cbd18ffab96f7aab9658869ad401954b",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "config/open_breakout.example.json",
+      "sha256": "ceb5d7c15c8bf0c9a6ac0345cf23a1cb3a0cc38d71214e181c4113d469c9fc77",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "artifacts/open_breakout_runs/launch-live.ps1",
+      "sha256": "48db2fe073d4aec066bd94d59283da49cd86e4478ae63e9eeebf6c3014398736",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "artifacts/open_breakout_runs/launch-shadow.ps1",
+      "sha256": "eeb093369700b892e4115aeb5b9976524e7d90dae677df15018b534900e870e9",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "artifacts/open_breakout_runs/daily_launch.ps1",
+      "sha256": "695deac71b22ff7969bd99ca910eee7808e23eb0e9edfacdd9c38d60d1918a25",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "broker_runtime/owner_connection.py",
+      "sha256": "812236fcdfd5acfe2dd6b0fe372eecd7277803295f6153f8ade97e3cff0b4949",
+      "changed": false
+    },
+    {
+      "root": "legend",
+      "path": "execution_contracts.py",
+      "sha256": "cef653787c38dba57b74c98d85bcaf8df0c672e2817d4a4fde4f4d1b325c022a",
+      "changed": false
+    },
+    {
+      "root": "legend",
+      "path": "run_legend_ema_fut.bat",
+      "sha256": "1ac61f0a090ad946161cb2ef515116c896e797428f034c5927602dceb5836e5f",
+      "changed": false
+    },
+    {
+      "root": "legend",
+      "path": "register_legend_ema_fut_task.ps1",
+      "sha256": "853b6e7b1d44bad0111cb23e0eb30e1bc91fd2cb367d65692ceeaecfadacefbf",
+      "changed": false
+    },
+    {
+      "root": "legend",
+      "path": "legend_ema_fut.env",
+      "sha256": "a6f957e9c98f780b80ae799bc7c58be5720c9a0790f7819cde1cdcb4eff4ece4",
+      "changed": false
+    },
+    {
+      "root": "legend",
+      "path": "legend_ema_fut_enabled.flag",
+      "sha256": "074a31ae24d9ef969a52c8acb157b29d90c8ff1aa806bfb53e648bf32b25a04e",
+      "changed": false
+    },
+    {
+      "root": "legend",
+      "path": "legend_ema_fut.py",
+      "sha256": "24eacf74e68cafca3356ef70d1f4a59dcde5406306305911a4a8705090bb4e6d",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "artifacts/open_breakout_runs/config-20260925-live.json",
+      "sha256": "0451e115c8f61c1442fa780160a6451575e54d6ada30f5d742ecb0abf9f019d0",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "artifacts/open_breakout_runs/config-20260925-shadow.json",
+      "sha256": "4cffa6b71579401cd8140b288c5980f6d1c4be953cb2a6339b7067a4008d824d",
+      "changed": true
+    },
+    {
+      "root": "repo",
+      "path": "scripts/workspace_hygiene.py",
+      "sha256": "1a134f5b59210c9832c4f786f76a44ff4040e5022cb7d0626fb7db7fd73fc4b7",
+      "changed": false
+    },
+    {
+      "root": "repo",
+      "path": "daily_execution_report.py",
+      "sha256": "5853d500d184e63c8d638d88c505b1569ae82548b7edeb1a5b8c034ae46a8af8",
+      "changed": false
+    }
+  ],
+  "protected": "No journals, risk inputs, attempt state, flags, ledger, scheduler or credentials are payload targets.",
+  "reliability_qualified": false,
+  "coordination_default_enabled": false,
+  "qualification_source_sha256": "2cbbec0ebf04e2130ed99ecb15f47e062a6c31346f67d104e3800c6590cb1be0",
+  "input_combined_candidate_zip_sha256": "be21c18d908676953bf70e669dc60d998de03e6736a9e212766bc0205b3ba39e"
+}
