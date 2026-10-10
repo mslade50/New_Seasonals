@@ -116,6 +116,22 @@
     "evidence_url": "https://www.sec.gov/Archives/edgar/data/1142417/000114241726000004/nxst-ex99_1.htm"
   },
   {
+    "ticker": "WBD",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-10-10",
+    "verified_on": "2026-10-09",
+    "reason": "Acquisition completed October 6, 2026; last Nasdaq trading date October 5 and suspension effective October 7. Historical WBD samples retained.",
+    "evidence_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-710"
+  },
+  {
+    "ticker": "PSKY",
+    "status": "confirmed_delisted",
+    "effective_from": "2026-10-10",
+    "verified_on": "2026-10-09",
+    "reason": "Old Nasdaq listing retired October 6, 2026 on completed NYSE transfer and ticker change to SKYD. Excludes PSKY only; no automatic successor substitution or historical change.",
+    "evidence_url": "https://www.sec.gov/Archives/edgar/data/2041610/000110465926113913/tm2626659d7_8k.htm"
+  },
+  {
     "ticker": "WBS",
     "status": "confirmed_delisted",
     "effective_from": "2026-09-12",

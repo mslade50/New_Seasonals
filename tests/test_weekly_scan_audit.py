@@ -27,6 +27,18 @@ def test_live_exclusion_preserves_historical_book_and_is_date_gated(tmp_path):
         exclude_retired_symbols(book, asof="2026-09-12", registry_path=registry)
 
 
+def test_october_retirements_are_prospective_without_successor_substitution():
+    book = [{"universe_tickers": ["WBD", "PSKY", "CIEN"]}]
+    original = copy.deepcopy(book)
+    registry = Path(__file__).resolve().parents[1] / "config/live_scan_exclusions.json"
+    before, removed = exclude_retired_symbols(book, asof="2026-10-09", registry_path=registry)
+    assert before == original and removed == []
+    after, removed = exclude_retired_symbols(book, asof="2026-10-10", registry_path=registry)
+    assert after[0]["universe_tickers"] == ["CIEN"]
+    assert set(removed) == {"WBD", "PSKY"}
+    assert book == original
+
+
 def test_archived_email_retains_sizing_and_redacts_exception_credentials(tmp_path, capsys):
     coverage = dict(unavailable=["BAD"], stale={}, exceptions=[
         dict(ticker="BAD", reason="token=private-value https://example.com/private?key=secret")])
