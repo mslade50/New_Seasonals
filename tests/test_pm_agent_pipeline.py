@@ -157,13 +157,13 @@ def test_small_n_pins_p_near_base_rate(home):
     assert G.validate_brief(b, _ctx(st))["errors"] == []
 
 
-def test_cited_script_reading_the_book_is_refused(home):
+def test_cited_script_reading_the_risk_agent_is_refused(home):
     st = _state(home)
     b = _brief(st, home)
     p = U.checks_root() / st["asof"] / "peek.py"
-    p.write_text("import pandas as pd\npd.read_parquet('data/live_fills.parquet')\n", encoding="utf-8")
+    p.write_text("import json\njson.load(open('data/risk_agent_today.json'))\n", encoding="utf-8")
     b["forecasts"][0]["evidence"]["script"] = str(p)
-    assert any("market-only boundary" in e for e in G.validate_brief(b, _ctx(st))["errors"])
+    assert any("read boundary" in e for e in G.validate_brief(b, _ctx(st))["errors"])
 
 
 def test_missing_surface_map_refused(home):

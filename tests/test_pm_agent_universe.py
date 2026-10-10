@@ -1,7 +1,8 @@
 """Guard: PM Weekly boundaries (docs/claude_ref/pm_agent.md, Independence).
 
 * The Risk Agent can never read anything the PM writes (R2 pm_agent/).
-* The PM reads market data only, plus the Risk Agent's published today.json.
+* The PM reads market data and the book's published surface, plus the Risk
+  Agent's published today.json; never its journal, order paths or the seed.
 * PM output lives outside the repo checkout.
 * Nothing in the book or the Risk Agent imports a PM module.
 """
@@ -26,15 +27,26 @@ def test_risk_agent_cannot_read_pm_output(key):
     assert not RA.r2_key_allowed(key)
 
 
-@pytest.mark.parametrize("key", ["live_fills.parquet", "exposure_state.json", "backtest_trades_full.parquet",
-                                 "event_sleeve_journal.jsonl", "trend_sleeve_state.json",
-                                 "rd2_environment.json", "risk_agent/journal.jsonl",
-                                 "risk_agent/delivery_receipts/2026-10-09.json", "pitch_journal.jsonl",
-                                 "ops/sleeve_runtime_status.json", "morning_orders.json"])
-def test_pm_denies_book_and_risk_agent_internals(key):
+@pytest.mark.parametrize("key", ["risk_agent/journal.jsonl", "morning_orders.json", "trade_console_stats.json",
+                                 "rd2_environment.json", "pitch_journal.jsonl", "pitch_today.json",
+                                 "seasonal_agent_journal.jsonl", "ops/tagged_inventory_seed.json",
+                                 "site/builds/123-1/site_risk.json", "site/builds/123-1/x/backtest_daily_pnl.parquet",
+                                 "radar_recs.json", "idea_check/queue.json", "../live_fills.parquet"])
+def test_pm_denies_risk_agent_internals_and_order_paths(key):
     assert not U.r2_key_allowed(key)
     with pytest.raises(pad.DeniedKeyError):
         pad.local_path(key)
+
+
+@pytest.mark.parametrize("key", ["live_fills.parquet", "live_fills_status.json", "ops/olv_capacity/2026-10-09.json",
+                                 "ops/olv_capacity/latest.json", "ops/sleeve_runtime_status.json",
+                                 "automation/receipts/v1/2026-10-09/scan_pm/latest.json",
+                                 "site/builds/37995081011-1/backtest_trades_full.parquet",
+                                 "site/builds/37995081011-1/backtest_daily_pnl.parquet",
+                                 "pitch_delivery_receipts/2026-10-09.json", "risk_agent/delivery_receipts/2026-10-08.json",
+                                 "exposure_state.json", "trend_sleeve_state.json", "event_sleeve_state.json"])
+def test_pm_reads_the_book_surface(key):
+    assert U.r2_key_allowed(key)
 
 
 def test_market_keys_allowed_and_ra_today_readable():
@@ -51,10 +63,10 @@ def test_default_home_is_outside_repo(monkeypatch):
         h.relative_to(ROOT.resolve())
 
 
-_PM_IMPORT = re.compile(r"^\s*(import|from)\s+(pm_agent_\w+|weekly_pm_agent|build_pm_state|grade_pm_agent)\b",
+_PM_IMPORT = re.compile(r"^\s*(import|from)\s+(pm_agent_\w+|weekly_pm_agent|build_pm_state|grade_pm_agent|pm_daily_check)\b",
                         re.M)
 _PM_ALLOWED = {"weekly_pm_agent.py", "build_pm_state.py", "grade_pm_agent.py", "pm_agent_run_check.py",
-               "check_pm_agent_delivered.py"}
+               "check_pm_agent_delivered.py", "pm_daily_check.py"}
 
 
 def test_nothing_outside_the_pm_product_imports_it():
@@ -79,6 +91,7 @@ def test_risk_agent_surface_never_mentions_pm():
 
 def test_forbidden_tokens_cover_book_and_risk_agent_files():
     import pm_agent_grammar as G
-    src = 'pd.read_parquet("data/live_fills.parquet"); open("data/risk_agent_today.json")'
-    assert set(G.forbidden_tokens(src)) >= {"live_fills", "risk_agent_today"}
+    src = 'open("data/risk_agent_today.json"); import order_staging'
+    assert set(G.forbidden_tokens(src)) >= {"risk_agent_today", "order_staging"}
+    assert G.forbidden_tokens('pd.read_parquet("live_fills.parquet")') == []
     assert G.forbidden_tokens("import pm_agent_lab as lab; lab.prices(['SPY'])") == []

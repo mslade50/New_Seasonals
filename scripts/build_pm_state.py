@@ -1,16 +1,18 @@
-"""Stage A of the PM Weekly: deterministic, market-only state.
+"""Stage A of the PM Weekly: deterministic state.
 
-    python scripts/build_pm_state.py [--asof YYYY-MM-DD] [--out PATH] [--no-sync]
+    python scripts/build_pm_state.py [--asof YYYY-MM-DD] [--out PATH] [--no-sync] [--no-book]
 
-Syncs the PM's allowlisted R2 market objects into PM_AGENT_HOME/cache, then
-writes PM_AGENT_HOME/state.json: the anchor session, next week's calendar and
+Syncs the PM's allowlisted R2 objects into PM_AGENT_HOME/cache, then writes
+PM_AGENT_HOME/state.json: the anchor session, next week's calendar and
 resolution date, a weekly recap of the tape, vol, rates/FX, breadth and
 put/call, the dashboard as context, CODE-COMPUTED climatology for both claim
-types, the PM's own scoreboard and its last briefs.
+types, the PM's own scoreboard and its last briefs, plus the `book` block
+(pm_agent_book: live NLV/vol/exposure, the week's fills, the ledger's vol,
+exposure and capital efficiency, sleeves, job health) and recent check-ins.
 
-It never reads the book, and it never reads the Risk Agent's output: the
-publisher attaches the Risk Agent readout only after the PM's forecasts have
-been validated (docs/claude_ref/pm_agent.md, "Independence").
+It never reads the Risk Agent's output: the publisher attaches the Risk Agent
+readout only after the PM's forecasts have been validated
+(docs/claude_ref/pm_agent.md, "Independence").
 
 Market blocks reuse the Risk Agent's pure builders, pointed at the PM cache.
 A missing master_prices or SPY/VIX history is fatal; everything else is a
@@ -30,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import pm_agent_book as B  # noqa: E402
 import pm_agent_data as pad  # noqa: E402
 import pm_agent_lab as lab  # noqa: E402
 import pm_agent_universe as U  # noqa: E402
@@ -134,7 +137,8 @@ def _recent_briefs(journal: Path, k: int = 4) -> list[dict]:
 
 
 def build_state(asof: str | None = None, cache_dir: Path | str | None = None,
-                journal: Path | str | None = None, scoreboard: Path | str | None = None) -> dict:
+                journal: Path | str | None = None, scoreboard: Path | str | None = None,
+                with_book: bool = True) -> dict:
     cdir = Path(cache_dir or U.cache_dir())
     journal = Path(journal or U.journal_path())
     scoreboard = Path(scoreboard or U.scoreboard_path())
@@ -189,7 +193,25 @@ def build_state(asof: str | None = None, cache_dir: Path | str | None = None,
         "recent_briefs": _recent_briefs(journal),
         "data_catalog": pad.catalog(cdir),
     }
+    if with_book:
+        monday = asof_ts - pd.Timedelta(days=asof_ts.weekday())
+        try:
+            state["book"] = B.build_book(asof_s, str(monday.date()), cdir, warnings)
+        except Exception as exc:  # noqa: BLE001 - the brief still ships market-only
+            warnings.append(f"book block failed: {type(exc).__name__}: {exc}")
+        state["checkins"] = _recent_checkins(journal)
     return rab._clean(state)
+
+
+def _recent_checkins(journal: Path, k: int = 5) -> list[dict]:
+    try:
+        recs = [r for r in read_jsonl(journal) if r.get("kind") == "check_in"][-k:]
+    except (OSError, ValueError):
+        return []
+    return [{"date": r.get("date"), "n": r.get("n_exceptions"),
+             "exceptions": [{"kind": e.get("kind"), "message": e.get("message"),
+                             "days_running": e.get("days_running")} for e in r.get("exceptions") or []]}
+            for r in recs]
 
 
 def main(argv=None) -> int:
@@ -197,13 +219,16 @@ def main(argv=None) -> int:
     ap.add_argument("--asof", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--no-sync", action="store_true")
+    ap.add_argument("--no-book", action="store_true", help="market-only state (no book block)")
     a = ap.parse_args(argv)
     if not a.no_sync:
         res = pad.sync()
+        if not a.no_book:
+            res.update(B.sync_book()["result"])
         bad = {k: v for k, v in res.items() if v in ("failed", "missing")}
         if bad:
             print(f"[pm_agent] sync problems: {bad}", file=sys.stderr)
-    state = build_state(a.asof)
+    state = build_state(a.asof, with_book=not a.no_book)
     out = Path(a.out) if a.out else U.state_path()
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(state, separators=(",", ":")), encoding="utf-8")

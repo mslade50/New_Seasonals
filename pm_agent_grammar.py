@@ -8,10 +8,11 @@ What it enforces (docs/claude_ref/pm_agent.md):
   * Both claim types, exactly once, every week (spy_week_return, vix_week_change).
   * Coherent numbers: 0.03 <= p_up <= 0.97, q10 < q90, VIX q10 above -VIX.
   * Evidence on disk: 00_surface_map.md and every cited script inside today's
-    checks folder; a cited script that names a book object or the Risk Agent's
+    checks folder; a cited script that names an order path or the Risk Agent's
     working files is refused.
   * Small N stays near the base rate: evidence n < 30 forces |p_up - climatology|
     <= 0.05.
+  * Book notes name their basis ("live" or "ledger"); no vol-target language.
   * Propose, never change: rule-change and trading-instruction language is
     refused anywhere in the prose. ASCII only (no emoji, no em dashes).
 
@@ -35,7 +36,8 @@ SMALL_N = 30
 SMALL_N_MAX_TILT = 0.05
 SPY_Q_BOUND = 25.0          # percent, one week
 MAX_RECAP, MIN_RECAP = 8, 3
-MAX_WATCH, MAX_QUESTIONS = 5, 3
+MAX_WATCH, MAX_QUESTIONS, MAX_BOOK_NOTES = 5, 3, 5
+BASIS_RE = re.compile(r"\b(live|ledger)\b", re.I)
 
 # Phrases that turn a brief into a rule change or a trade ticket. The PM proposes
 # questions; changes go through a written prereg (CLAUDE.md "Pre-registration").
@@ -48,6 +50,7 @@ BANNED_PHRASES: tuple[str, ...] = (
     "should go long", "should go short", "buy spy", "sell spy", "short spy",
     "add exposure", "cut exposure", "reduce exposure", "increase exposure",
     "hedge the book", "de-risk the book", "derisk the book",
+    "vol target", "volatility target", "target vol", "scale up", "scale down", "lever up",
 )
 _WORD = re.compile(r"[a-z0-9\-]+")
 
@@ -155,7 +158,7 @@ def _forecast(f: dict, i: int, ctx: dict, errors: list, warnings: list) -> dict 
             except OSError:
                 bad = []
             if bad:
-                errors.append(f"{where}.evidence.script reads outside the market-only boundary: {bad}")
+                errors.append(f"{where}.evidence.script reads outside the PM read boundary (Risk Agent working files or order paths): {bad}")
     clim = (ctx.get("climatology") or {}).get(claim) or {}
     cp = clim.get("p_up")
     if p is not None and cp is not None:
@@ -238,6 +241,17 @@ def validate_brief(payload: Any, ctx: dict) -> dict:
         rec = _forecast(f, i, ctx, errors, warnings)
         if rec is not None:
             out["forecasts"].append(rec)
+
+    notes = payload.get("book_notes", [])
+    if not isinstance(notes, list) or len(notes) > MAX_BOOK_NOTES:
+        errors.append(f"book_notes: list of at most {MAX_BOOK_NOTES} required")
+    else:
+        for i, nt in enumerate(notes):
+            _text(nt, "topic", errors, f"book_notes[{i}]", 2, 60)
+            txt = _text(nt, "text", errors, f"book_notes[{i}]", 20, 700)
+            if txt and not BASIS_RE.search(txt):
+                errors.append(f"book_notes[{i}].text: name the basis of its numbers "
+                              "('live' Primary NLV/fills or the 'ledger' rebuild)")
 
     for key, cap, fields in (("watch", MAX_WATCH, ("item", "trigger")),
                              ("questions", MAX_QUESTIONS, ("question", "why_it_matters"))):

@@ -38,7 +38,7 @@ def check_path(script: str) -> tuple[Path | None, str]:
         return None, f"refused: {p} does not exist"
     bad = G.forbidden_tokens(p.read_text(encoding="utf-8", errors="replace"))
     if bad:
-        return None, f"refused: {p.name} names objects outside the market-only boundary: {bad}"
+        return None, f"refused: {p.name} names objects outside the PM read boundary: {bad}"
     return p, "ok"
 
 

@@ -1,6 +1,6 @@
 ---
 name: pm-agent
-description: Write the PM Weekly - a market-only weekly brief that explains what happened in markets last week, what is most likely next week and why, with two locked, falsifiable forecasts (SPY weekly return, VIX weekly change) graded against climatology, plus a read of the Risk Agent and food for thought. Delivered by email. Use when running the Sunday PM Weekly (scheduled 16:00 ET Sundays on the trading desktop, or on request), or when McKinley asks for the weekly brief, next week's outlook, or a rerun of this week's brief.
+description: Write the PM Weekly - a weekly brief that explains what happened in markets last week, what is most likely next week and why, with two locked, falsifiable forecasts (SPY weekly return, VIX weekly change) graded against climatology, then reads the systematic book like a PM (live NLV, vol, exposure, fills, capital efficiency, the week's check-in exceptions), the Risk Agent, and gives food for thought. Delivered by email. Use when running the Sunday PM Weekly (scheduled 16:00 ET Sundays on the trading desktop, or on request), or when McKinley asks for the weekly brief, next week's outlook, or a rerun of this week's brief.
 ---
 
 # PM Weekly
@@ -31,9 +31,14 @@ the repo:
   ask. You never tell anyone to buy, sell, hedge, resize or retune anything.
   The grammar refuses that language. A good idea about the book becomes a
   question in `questions`, and changes go through a written prereg.
-- **Not a reader of the book.** v1 is market-only. Never open `live_fills*`,
-  `exposure_state*`, `backtest_*`, `strategy_config.py`, `data/site_risk.json`,
-  `trade_console`, sleeve state files, or any other agent's output.
+- **Not a vol targeter.** The book has no vol target, and a book-level vol
+  scaler is a closed negative (`docs/claude_ref/sizing.md`). Report realised
+  vol against the ledger's own history and the live-vs-ledger comparison;
+  never against a target, and never propose scaling (the grammar refuses
+  "vol target", "scale up/down").
+- **Never on order paths.** You read the book's published surface (the `book`
+  block in the state, and if needed the cached files it came from). You never
+  run or read order-staging code paths and never touch the broker.
 - **Not a reader of the Risk Agent.** Never open `risk_agent_*` files,
   `data/risk_agent/`, or its R2 objects. The publisher attaches the Risk Agent
   readout AFTER your forecasts are locked; that is what makes the comparison
@@ -56,6 +61,18 @@ the repo:
 5. Market blocks: `recap` (week and 4-week moves, leaders, laggards),
    `daily_path`, `vol`, `rates_fx`, `breadth`, `putcall`, `events`
    (`schedule` is next week's macro calendar), `dashboard` (context).
+6. `book` and `checkins`: the systematic book, all computed by code.
+   - `live_vol`, `live_exposure`, `fills_week`, `fills_health`: the Primary
+     account from daily broker snapshots and the canonical fills store. NLV
+     moves are not flow-adjusted; `suspected_flows` are excluded from vol.
+   - `ledger_vol`, `ledger_exposure`, `capital_efficiency`: the ledger, a
+     rebuild of TODAY's config on a flat $750k base. Pre-change notional
+     understates live, and Overflow-tier figures are survivorship-biased
+     upper bounds. CER = share of P&L / share of risk (docs/portfolio_logic.md).
+   - `live_vs_ledger_vol`: the two over the same days. Live tracks actual NLV
+     (about $610k), the ledger a flat $750k, so compare shape, not level.
+   - `sleeves`, `runtime_issues`, `job_issues`, `checkins`: what ran, what
+     failed, what the daily check-in flagged this week.
 
 ## Stage B. Survey before you forecast
 
@@ -64,7 +81,10 @@ one-line verdict (what it says about next week, or "no information"):
 index tape and breadth, sectors and leadership, rates and the dollar, credit,
 commodities, vol level and term structure (VIX/VIX3M, VVIX, SKEW, MOVE),
 put/call, the dashboard signals, and every scheduled event in the target week.
-The publisher refuses a brief without this file.
+Then the book: live P&L and vol vs the ledger, exposure and concentration,
+idle capital, which strategies earned their risk (CER) and which did not,
+fills and untagged share, and every check-in exception. The publisher refuses
+a brief without this file.
 
 ## Stage C. Forecast, then try to break it
 
@@ -128,16 +148,31 @@ Write `<home>/brief.json`:
      "basis": "...", "why": "...", "change_my_mind": "...",
      "evidence": {"summary": "...", "n": 300, "script": "<home>/checks/<asof>/vix_low_level.py"}}
   ],
+  "book_notes": [
+    {"topic": "Risk and P&L", "text": "Live Primary NLV +0.1% on the week; live vol 4.5% over 10 days vs 6.9% for the ledger over the same window ..."},
+    {"topic": "Capital efficiency", "text": "On the ledger, Overbot Vol Spike Liquid used 9.7% of risk for a negative P&L share over 12 months ..."}
+  ],
   "watch": [{"item": "...", "trigger": "..."}],
   "questions": [{"question": "...", "why_it_matters": "..."}],
   "data_gaps": []
 }
 ```
 
-- `recap`: 3-8 items. `watch`: at most 5. `questions` (food for thought): at
-  most 3, about the market environment and what it implies for a systematic
-  equity book in general terms (crowding, dispersion, vol regime, event
-  density). Questions, not instructions.
+- `recap`: 3-8 items. `watch`: at most 5.
+- `book_notes`: at most 5 PM observations on the book. Each one names its
+  basis ("live" or "ledger") and its numbers, says what is unusual against the
+  book's own history, and stops at the observation. Good topics:
+  - risk vs history, and live vs modeled;
+  - idle capital and concentration;
+  - which strategies earned their risk and which did not (with N, and the
+    Overflow caveat);
+  - recurring check-in exceptions and job failures.
+  The code already renders the tables; your job is the one or two things a PM
+  would actually say about them.
+- `questions` (food for thought): at most 3, about capital efficiency, edge,
+  the vol regime, crowding, dispersion, event density. These are questions,
+  not instructions. Where a question implies a rule change, say it would need
+  a prereg.
 - A stand-down: `{"schema_version", "asof", "mode": "stand_down", "reason"}`,
   only for a data hold (stale SPY/VIX, broken state). "Nothing to say" is not a
   stand-down; it is a base-rate brief.

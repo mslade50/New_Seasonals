@@ -363,6 +363,70 @@ def render_forecasts(validated: list[dict], payload: dict, state: dict, scored: 
     return out + "".join(notes)
 
 
+def render_book(state: dict, payload: dict) -> str:
+    """Code-rendered book section; the agent's book_notes follow it."""
+    b = state.get("book") or {}
+    if not b:
+        return ""
+    out = []
+    lv, ex = b.get("live_vol") or {}, b.get("live_exposure") or {}
+    if ex.get("available"):
+        out.append(_p(f"Primary NLV {_fmt(ex.get('nlv'), 0, False)} | week {_fmt(lv.get('week_chg_pct'), suffix='%')} | "
+                      f"since {lv.get('first')} {_fmt(lv.get('return_since_first_pct'), suffix='%')}, "
+                      f"max drawdown {_fmt(lv.get('max_drawdown_pct'), suffix='%')} | live vol "
+                      f"{_fmt(lv.get('ann_vol_10d_pct'), 1, False, '%')} (10d), "
+                      f"{_fmt(lv.get('ann_vol_all_pct'), 1, False, '%')} ({lv.get('n_returns')} days)",
+                      "font-size:13px;margin:3px 0;"))
+        tops = ", ".join(f"{t['symbol']} {t['pct_nlv']:+.1f}%" for t in ex.get("top") or [] if t.get("pct_nlv") is not None)
+        out.append(_p(f"Exposure (live, % NLV): gross {ex.get('gross_pct')}%, net {ex.get('net_pct')}%, "
+                      f"long {ex.get('long_pct')}%, short {ex.get('short_pct')}% across {ex.get('n_positions')} "
+                      f"positions; largest {tops}. Working orders {ex.get('working_orders')} "
+                      f"(buy {ex.get('working_buy_pct')}%, sell {ex.get('working_sell_pct')}%).",
+                      "font-size:13px;margin:3px 0;"))
+        flows = lv.get("suspected_flows") or []
+        if flows:
+            out.append(_p("Suspected flows excluded from vol: " + ", ".join(f"{f['date']} {f['chg_pct']}%" for f in flows),
+                          "font-size:12px;color:#92400e;"))
+    lgv, lge = b.get("ledger_vol") or {}, b.get("ledger_exposure") or {}
+    if lgv:
+        cmp_ = b.get("live_vs_ledger_vol") or {}
+        out.append(_p(f"Modeled book (ledger, flat $750k): vol 21d {lgv.get('ann_vol_21d_pct')}%, 63d "
+                      f"{lgv.get('ann_vol_63d_pct')}% vs its 3y median {lgv.get('ref_63d_vol_3y_median_pct')}% "
+                      f"({lgv.get('pctile_63d_vol_3y')}th pct); YTD P&L {lgv.get('ytd_pnl_pct_of_base')}% of base. "
+                      f"Gross {lge.get('gross_pct_last')}% now, 63d mean {lge.get('gross_pct_mean_63d')}%, "
+                      f"{lge.get('share_days_gross_lt_25pct')}% of the last 252 days under 25% gross.",
+                      "font-size:13px;margin:3px 0;"))
+        if cmp_.get("live_ann_vol_pct") is not None:
+            out.append(_p(f"Live vs ledger over {cmp_['window'][0]} to {cmp_['window'][1]} ({cmp_['n_common']} days): "
+                          f"vol {cmp_['live_ann_vol_pct']}% live vs {cmp_['ledger_ann_vol_pct']}% ledger, "
+                          f"daily correlation {cmp_.get('corr')}. Different bases (actual NLV vs flat $750k).",
+                          "font-size:12px;color:#6b7280;margin:3px 0;"))
+    ce = ((b.get("capital_efficiency") or {}).get("trailing") or {}).get("rows") or []
+    if ce:
+        rows = [[_esc(r["strategy"]), _esc(r["tier"]), _esc(r["trades"]), _esc(_fmt(r["risk_share_pct"], 1, False, "%")),
+                 _esc(_fmt(r["pnl_share_pct"], 1, True, "%")), _esc(_fmt(r["cer"], 2)), _esc(_fmt(r["avg_r"], 2))]
+                for r in ce[:10]]
+        out.append(_p("Capital efficiency, trailing 12 months (ledger; Overflow is a survivorship upper bound):",
+                      "font-size:12px;color:#6b7280;margin:8px 0 2px;"))
+        out.append(_table(["Strategy", "Tier", "Trades", "Risk share", "P&L share", "CER", "Avg R"], rows))
+    fw = b.get("fills_week") or {}
+    if fw.get("n"):
+        out.append(_p(f"Fills this week (live): {fw['n']} executions, realized P&L {_fmt(fw.get('realized_pnl_total'), 0)}, "
+                      f"commissions {_fmt(fw.get('commission_total'), 0, False)}, {fw.get('untagged_pct')}% untagged.",
+                      "font-size:13px;margin:6px 0 3px;"))
+    for n in payload.get("book_notes") or []:
+        out.append(f'<div style="font-size:14px;margin:6px 0;"><b>{_esc(n.get("topic"))}:</b> {_esc(n.get("text"))}</div>')
+    chk = state.get("checkins") or []
+    if chk:
+        lines = []
+        for c in chk:
+            msgs = "; ".join(e["message"] for e in c.get("exceptions") or []) or "quiet"
+            lines.append(f"<li>{_esc(c.get('date'))}: {_esc(msgs)}</li>")
+        out.append(_p("Daily check-ins this week:", "font-size:12px;color:#6b7280;margin:8px 0 2px;"))
+        out.append("<ul style='font-size:12px;'>" + "".join(lines) + "</ul>")
+    return "".join(out)
+
+
 def render_ra(ro: dict) -> str:
     if not ro.get("available"):
         return _p("No Risk Agent output available.", "font-size:13px;color:#6b7280;")
@@ -420,6 +484,10 @@ def render_email(payload: dict, state: dict, validated: list[dict], ro: dict, *,
         out.append(f'<div style="font-size:14px;margin:6px 0;"><b>Alternative:</b> {_esc(nw.get("alt_case"))}</div>')
         out.append(_h("Forecasts (locked, graded against climatology)"))
         out.append(render_forecasts(validated, payload, state, scored))
+    book = render_book(state, payload)
+    if book:
+        out.append(_h("The book"))
+        out.append(book)
     out.append(_h("Risk Agent readout"))
     out.append(render_ra(ro))
     if payload.get("mode") != "stand_down":
@@ -504,10 +572,10 @@ def main(argv: list[str] | None = None) -> int:
         for w in warnings:
             print(f"  warning {w}")
         return 0
-    return publish(payload, result, state, state_path, records, journal, week, scored, warnings, args)
+    return publish(payload, result, state, state_path, journal, week, scored, warnings, args)
 
 
-def publish(payload, result, state, state_path, records, journal, week, scored, warnings, args) -> int:
+def publish(payload, result, state, state_path, journal, week, scored, warnings, args) -> int:
     use_r2 = not args.no_r2
     model = os.environ.get("PM_AGENT_MODEL") or "unknown"
     effort = os.environ.get("PM_AGENT_EFFORT") or "unknown"
