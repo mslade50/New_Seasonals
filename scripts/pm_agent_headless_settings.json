@@ -1,0 +1,42 @@
+{
+  "_comment": "Scoped permission allowlist for the unattended PM Weekly run (claude -p /pm-agent, headless). Python runs ONLY through the check wrapper (scripts/pm_agent_run_check.py, which refuses scripts outside PM_AGENT_HOME/checks or naming book objects), the state builder and the publisher. NO bypassPermissions and NO web tools: every claim is computed from the cached market data. The Read denies keep the session off the book and off the Risk Agent's working files, whose forecasts must not anchor the PM's (docs/claude_ref/pm_agent.md, Independence). The runner adds PM_AGENT_HOME with --add-dir so Write can reach it.",
+  "permissions": {
+    "allow": [
+      "Skill",
+      "Bash(python scripts/pm_agent_run_check.py:*)",
+      "Bash(python scripts/build_pm_state.py:*)",
+      "Bash(python weekly_pm_agent.py:*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "TodoWrite"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/credentials.json)",
+      "Read(**/token.json)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Read(**/risk_agent_*.json)",
+      "Read(**/risk_agent_journal.jsonl)",
+      "Read(**/risk_agent__*)",
+      "Read(**/data/risk_agent/**)",
+      "Read(**/live_fills*)",
+      "Read(**/exposure_state*)",
+      "Read(**/backtest_*)",
+      "Read(**/strategy_config.py)",
+      "Read(**/data/site_risk.json)",
+      "Read(**/rd2_environment.json)",
+      "Read(**/event_sleeve*)",
+      "Read(**/trend_sleeve*)",
+      "Edit(**/pm_agent_grammar.py)",
+      "Write(**/pm_agent_grammar.py)",
+      "WebSearch",
+      "WebFetch"
+    ]
+  }
+}
