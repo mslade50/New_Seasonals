@@ -1190,6 +1190,16 @@ The launcher now performs the bounded read-only retries above; it never treats t
 failed proof as permission to trade. The exact callback that invalidated that morning's
 proof was not retained, so its underlying trigger remains unconfirmed.
 
+Recovery-token rule (2026-10-09 fix): the token is `(connection epoch, book revision)`. The revision
+now bumps only on a MATERIAL change: an order or position change on an execution/signal contract for
+this account, an execution in one of those contracts, or a reconnect (epoch). Routine
+NetLiquidation/ExcessLiquidity ticks and fills in unrelated contracts no longer invalidate it (the
+proof windows still compare the account-value stream revision directly). What-if previews emit no
+openOrder events. A failing preflight now records `recovery_bumps` (which callbacks moved the
+revision) and `recovery_now` in its report. The 08:12 trigger is still not proven (it did not
+reproduce in 5 live read-only runs); the account-tick and foreign-fill paths were the only
+candidates found in code. Tests: `test_recovery_token_*` in tests/test_open_breakout.py.
+
 Qualification: `python -m pytest tests/test_open_breakout_startup_preflight.py
 tests/test_open_breakout_launch_monitor.py -q` on Windows. These exercise the tracked
 launcher's actual step 6 with broker/process/clock stubs, including exhausted retries,

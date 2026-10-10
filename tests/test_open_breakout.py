@@ -277,7 +277,7 @@ def test_ibkr_already_filled_cancel_error_does_not_halt(config,filled,status,kno
     from types import SimpleNamespace as NS
     from open_breakout.ibkr import IBKR
     async def run():
-        adapter=IBKR(config)
+        adapter=IBKR(config);adapter.healthy=True  # adapters start unproved; model an already-proven epoch
         if known:
             adapter.trades[21]=NS(order=NS(totalQuantity=1),orderStatus=NS(status=status),
                                   fills=[NS(execution=NS(shares=filled,cumQty=filled))] if filled else [])
@@ -994,8 +994,8 @@ def test_shadow_standby_full_session_simulates_only(config,tmp_path,monkeypatch)
     monkeypatch.setattr(standby,'datetime',ClockDateTime)
     class Feed:
         instance=None
-        def __init__(self,c):
-            Feed.instance=self;self.config=c;self.healthy=True;self.connected=False;self.quotes={}
+        def __init__(self,c,session=None):
+            Feed.instance=self;self.config=c;self.session=session;self.healthy=True;self.connected=False;self.quotes={}
             self.ib=SimpleNamespace(client=SimpleNamespace(),isConnected=lambda:self.connected)
         async def connect(self):
             with pytest.raises(PermissionError):self.ib.client.placeOrder()
@@ -2118,6 +2118,7 @@ def test_farm_blips_do_not_halt_and_snapshot_is_serialized(config):
         from open_breakout.ibkr import IBKR
         from types import SimpleNamespace as NS
         adapter=IBKR(config);halts=[]
+        adapter.healthy=True  # adapters start unproved; model an already-proven epoch
         adapter.halt_callback=halts.append
         for code in [2103,2105,2104]:adapter._error(-1,code,'farm',None)
         assert adapter.healthy and not halts
@@ -3185,3 +3186,49 @@ def test_prepare_cli_and_status_print_prior_day_fields(config,tmp_path,monkeypat
     status=json.loads(capsys.readouterr().out)
     assert status['prior_range']['markets']['NQ']['prior_day_r']==pytest.approx(3.)
     assert status['prior_range']['filter']['require_prior_big_win'] is True
+
+def token_adapter(config):
+    from types import SimpleNamespace as NS
+    from datetime import datetime,timezone
+    pytest.importorskip('ib_insync')
+    from open_breakout.ibkr import IBKR
+    a=IBKR(config);a.ib=NS(isConnected=lambda:True)
+    now=datetime.now(timezone.utc)
+    a.last_seen={f'{m.name}:{k}':now for m in config.markets for k in ('trade','quote')}
+    a.data_types={s.con_id:1 for m in config.markets for s in (m.signal,m.execution)}
+    a.healthy=True;a._epoch_started_at=now.replace(year=now.year-1)
+    return a,[a._connection_epoch,a._book_revision]
+
+def trade_ns(config,cid,account=None,status='PreSubmitted'):
+    from types import SimpleNamespace as NS
+    return NS(contract=NS(conId=cid),orderStatus=NS(status=status,filled=0.),
+              order=NS(account=account or config.account,clientId=7,orderId=3,permId=9,totalQuantity=1.,
+                       orderType='LMT',action='BUY',auxPrice=0.,lmtPrice=1.,orderRef='x'))
+
+def test_recovery_token_ignores_account_ticks_and_foreign_contract_fills(config):
+    from types import SimpleNamespace as NS
+    a,token=token_adapter(config)
+    assert a.recovery_token_valid(token)
+    a._account_value_changed(NS(account=config.account,currency='USD',tag='NetLiquidation',value='610000'))
+    a._account_value_changed(NS(account=config.account,currency='USD',tag='ExcessLiquidity',value='520000'))
+    assert a._stream_revisions['ACCOUNT_VALUE']==2 and a.recovery_token_valid(token)
+    a._fill(None,exec_fill('9.1',None,'BOT',1.,424242,config.account))
+    assert a.recovery_token_valid(token)
+    # Orders/positions in other accounts or contracts this book does not trade are ignored too.
+    a._open_order_changed(trade_ns(config,424242))
+    a._position_changed(NS(account=config.account,contract=NS(conId=424242),position=3.))
+    assert a.recovery_token_valid(token)
+
+def test_recovery_token_invalidates_on_material_execution_contract_change(config):
+    from types import SimpleNamespace as NS
+    cid=config.markets[0].execution.con_id
+    a,token=token_adapter(config);a._open_order_changed(trade_ns(config,cid))
+    assert not a.recovery_token_valid(token) and a.bump_log[-1][1]=='OPEN_ORDER'
+    a,token=token_adapter(config);a._position_changed(NS(account=config.account,contract=NS(conId=cid),position=1.))
+    assert not a.recovery_token_valid(token)
+    a,token=token_adapter(config);a._fill(None,exec_fill('9.2',None,'BOT',1.,cid,config.account))
+    assert not a.recovery_token_valid(token)
+    a,token=token_adapter(config);a._invalidate_recovery('reconnect')
+    assert not a.recovery_token_valid(token)
+    a,token=token_adapter(config);a.healthy=False
+    assert not a.recovery_token_valid(token)

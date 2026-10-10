@@ -23,6 +23,26 @@ def write_new(path,body):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
     with path.open('x',encoding='utf-8') as f:json.dump(body,f,indent=2)
 
+
+async def prove_paper_start(transport,clock=lambda:datetime.now(timezone.utc)):
+    """Establish a current broker epoch before the legacy paper runner can route."""
+    transport.subscribe(lambda *a:None,lambda e:None)
+    proof=await transport.reconcile_recovery()
+    if not proof.get('complete'):
+        raise RuntimeError(f'Paper broker recovery incomplete: {proof.get("failures")}')
+    if clock().astimezone(NY).time()>=time(9,30):
+        raise ValueError('Paper recovery completed at/after 09:30 ET; not arming')
+    validate_paper_start(transport,proof,clock)
+    return proof
+
+
+def validate_paper_start(transport,proof,clock=lambda:datetime.now(timezone.utc)):
+    """Recheck proof and wall clock immediately before paper tick routing."""
+    if clock().astimezone(NY).time()>=time(9,30):
+        raise ValueError('Paper startup reconciliation completed at/after 09:30 ET; not arming')
+    if not transport.recovery_token_valid(proof.get('token')):
+        raise RuntimeError('Paper broker recovery changed during startup reconciliation')
+
 async def main_async(args):
     if args.command=='status':
         # SQLite read-only URI; never creates a missing database or acquires its writer lock.
@@ -38,6 +58,12 @@ async def main_async(args):
             body['prior_range']=dict(filter=manifest.get('prior_range_filter'),markets=range_summary(manifest))
         print(json.dumps(body,indent=2))
         return
+    if args.command=='simple':
+        from .simple import run_cli
+        raise SystemExit(await run_cli(args))
+    if args.command=='simple-proof':
+        from .simple import proof_cli
+        raise SystemExit(await proof_cli(args))
     config=Config.load(args.config)
     session=getattr(args,'session',None)
     if getattr(args,'client_id',None):
@@ -148,13 +174,14 @@ async def main_async(args):
             raise ValueError('Manifest is not for today')
         if now.astimezone(NY).time()>=time(9,30):
             raise ValueError('Start before 09:30 ET; late starts require manual reconciliation, not new entries')
+        paper_proof=await prove_paper_start(transport) if config.mode=='paper' else None
         store=Store(args.state,config.fingerprint,manifest['day'])
         broker=SimBroker(config,lambda:datetime.now(timezone.utc)) if config.mode=='shadow' else transport
         service=Service(config,manifest,store,broker)
+        transport.halt_callback=service.halt
         # Explicitly refresh open orders and account positions before any subscription.
         await service.watchdog()
         if service.halted:raise RuntimeError('Startup reconciliation halted; inspect status journal')
-        if config.mode=='shadow':transport.halt_callback=service.halt
         capture_path=Path(args.capture).resolve()
         if any(p.lower().startswith('onedrive') for p in capture_path.parts):raise ValueError('Capture must be outside OneDrive')
         capture_path.parent.mkdir(parents=True,exist_ok=True)
@@ -166,6 +193,8 @@ async def main_async(args):
                     broker.update_quote(event['market'],event['bid'],event['ask'],event['time'])
                 elif config.mode=='shadow' and event['kind']=='execution_trade':
                     broker.update_trade(event['market'],event['price'],event['time'])
+            if paper_proof is not None:
+                validate_paper_start(transport,paper_proof)
             transport.subscribe(service.tick,capture)
             reported=False
             reported_markets=set()
@@ -215,6 +244,13 @@ def main():
     q.add_argument('--config',required=True);q.add_argument('--session',required=True)
     q.add_argument('--wait',type=float,default=30.);q.add_argument('--out')
     q.add_argument('--client-id',type=int,help='read-only client ID while the session process is alive (e.g. 927482)')
+    q=sub.add_parser('simple',help='minimal runner: bracket entries held at the broker')
+    q.add_argument('--mode',choices=['live','paper'],required=True);q.add_argument('--config')
+    q.add_argument('--session');q.add_argument('--risk-parquet');q.add_argument('--client-id',type=int)
+    q.add_argument('--dry-run',action='store_true',help='connect, compute, log the orders; never transmit')
+    q.add_argument('--plan',action='store_true',help='offline plan for --session from the last bars (implies --dry-run)')
+    q=sub.add_parser('simple-proof',help='one-shot broker proof: parks and cancels a far-from-market 1-lot MNQ bracket pair (places orders)')
+    q.add_argument('--mode',choices=['live'],required=True);q.add_argument('--config');q.add_argument('--session');q.add_argument('--client-id',type=int)
     q=sub.add_parser('status');q.add_argument('--state',required=True)
     asyncio.run(main_async(p.parse_args()))
 
